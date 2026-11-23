@@ -70,7 +70,7 @@ describe("SignUpPage", () => {
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
   });
 
-  it("submits a test-domain signup and onboards outside TraceRoot Cloud", async () => {
+  it("submits a test-domain signup and onboards outside traceroot Cloud", async () => {
     mocks.signUpEmail.mockResolvedValue({ error: null });
 
     render(<SignUpPage />);
