@@ -12,12 +12,12 @@ import {
   type MetricPair,
   type UnionNode,
   type UnionNodeMetrics,
+  unionNodeSpan,
 } from "@/lib/eval/union-tree";
 import { cn, formatCost, formatDuration, formatTokens } from "@/lib/utils";
 import type { Span, TraceDetail } from "@/types/api";
 import { useSpanIO } from "../hooks";
-import { getTraceDuration, getTraceTokenUsage, getTraceTotalCost } from "../utils";
-import { beforeAfter, moveClass } from "../utils/diff";
+import { beforeAfter, moveClass, traceFigures, UNION_STATE_CLASS } from "../utils/diff";
 import { splitInternalMetadata } from "../utils/metadata";
 import { DiffBox, DiffLayoutToggle } from "./DiffBox";
 import { TraceIOSection } from "./TraceIOValue";
@@ -127,23 +127,24 @@ function useDiffSides(projectId: string, trace: TraceDetail, diff: SpanInfoDiff)
 }
 
 const CHIP = "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs";
-const STATE_CLASS: Record<UnionNode["state"], string> = {
-  matched: "",
-  added: "text-success",
-  removed: "text-destructive",
-};
+
+function stateSummary(node: UnionNode): [word: string, reason: string] {
+  switch (node.state) {
+    case "matched":
+      return ["Matched", describeMatchReason(node.reason).replace(/^Matched /, "")];
+    case "added":
+      return ["Added", "not in the baseline"];
+    case "removed":
+      return ["Removed", "only in the baseline"];
+  }
+}
 
 /** How the selected span came to be paired, or which run alone has it. */
 export function DiffStateChip({ node }: { node: UnionNode }) {
-  const [word, reason] =
-    node.state === "matched"
-      ? ["Matched", describeMatchReason(node.reason).replace(/^Matched /, "")]
-      : node.state === "added"
-        ? ["Added", "not in the baseline"]
-        : ["Removed", "only in the baseline"];
+  const [word, reason] = stateSummary(node);
   return (
     <div data-diff-chip="state" className={CHIP}>
-      <span className={cn("font-medium", STATE_CLASS[node.state])}>{word}</span>{" "}
+      <span className={cn("font-medium", UNION_STATE_CLASS[node.state])}>{word}</span>{" "}
       <span className="text-muted-foreground">· {reason}</span>
     </div>
   );
@@ -192,21 +193,6 @@ function FigureChip({
   );
 }
 
-const traceFigures = (baseline: TraceDetail | null, trace: TraceDetail): UnionNodeMetrics => ({
-  durationMs: {
-    baseline: baseline && getTraceDuration(baseline),
-    candidate: getTraceDuration(trace),
-  },
-  totalTokens: {
-    baseline: (baseline && getTraceTokenUsage(baseline)?.totalTokens) ?? null,
-    candidate: getTraceTokenUsage(trace)?.totalTokens ?? null,
-  },
-  cost: {
-    baseline: baseline && getTraceTotalCost(baseline),
-    candidate: getTraceTotalCost(trace),
-  },
-});
-
 /**
  * The chips row's figures in diff mode: latency, tokens and cost before → after (when both
  * traces measured them), a change of status or model, and the redaction marker for either
@@ -223,11 +209,17 @@ export function SpanDiffChips({
 }) {
   const sides = useDiffSides(projectId, trace, diff);
   const { node } = diff;
-  if (!node && diff.root?.tags) return <>{diff.root.tags}</>;
+  const hostChips = !node && !!diff.root?.tags;
+  // The span's figures, or at the root both whole traces', measured again only when either
+  // trace changes rather than on every hover. None where the host's own chips stand in.
+  const figures = useMemo(() => {
+    if (node) return node.metrics;
+    return hostChips ? null : traceFigures(diff.baseline, trace);
+  }, [node, hostChips, diff.baseline, trace]);
+  if (!figures) return <>{diff.root?.tags}</>;
 
-  const figures = node ? node.metrics : traceFigures(diff.baseline, trace);
   const oneSided = !!node && node.state !== "matched";
-  const span = node && (node.candidate ?? node.baseline);
+  const span = node && unionNodeSpan(node);
   const statusChange =
     node?.state === "matched" && node.baseline.status !== node.candidate.status
       ? `${node.baseline.status} → ${node.candidate.status}`
@@ -307,8 +299,11 @@ export function SpanDiffChips({
 }
 
 /** Why a side has no value to show. */
-const missingText = (side: SideValues, field: Field) =>
-  side.loading ? "Loading…" : side.failed ? `Couldn't load this span's ${field}` : `No ${field}`;
+function missingText(side: SideValues, field: Field): string {
+  if (side.loading) return "Loading…";
+  if (side.failed) return `Couldn't load this span's ${field}`;
+  return `No ${field}`;
+}
 
 /** One field compared across both runs, in its box with the layout toggle. A long value
  *  shows its start until asked for in full; the whole values are still compared. */
