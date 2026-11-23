@@ -7,16 +7,19 @@ import type { ScorerDirection } from "@/lib/eval/comparison";
 import { cn } from "@/lib/utils";
 import { CELL_STATE_LABEL, type CellState } from "./cell-state";
 
-/** The Input column, at a fixed width. */
+/** The pinned Input column has a fixed width, so the Run column can be pinned right after
+ *  it (`RUN_COLUMN`'s offset). */
 export const INPUT_COLUMN = "w-[240px] min-w-[240px] max-w-[240px]";
-/** The Run column, beside Input: each run's tag on one line. */
-export const RUN_COLUMN = "whitespace-nowrap";
+/** The Run column, pinned beside Input. */
+export const RUN_COLUMN = "sticky left-[240px] z-[1] whitespace-nowrap";
 /** The comparison table. Unlike the app's other tables it rules its columns: a case is a
  *  stack of lines, text and numbers side by side across many columns, and the rules keep
  *  each value in its column. A row's last cell ends at the table's edge and draws none.
  *  Rows are ruled per case (`GROUP_EDGE`), not per line. */
 export const COMPARISON_TABLE =
   "sticky-sep [&_td]:!border-r [&_th]:!border-r [&_tr>*:last-child]:!border-r-0";
+/** A pinned body cell's fill, which has to follow its case group's: plain or hovered. */
+export const PINNED_FILL = "bg-background group-hover/row:bg-muted";
 
 /** A run's line in a group (a case, or the summary). The table's cell rule sets a fixed
  *  height and no vertical padding; a line sets its own, the group's first and last lines

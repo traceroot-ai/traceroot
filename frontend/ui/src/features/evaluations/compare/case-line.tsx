@@ -10,6 +10,7 @@ import {
   Delta,
   lineClass,
   lineEdge,
+  PINNED_FILL,
   RUN_COLUMN,
   RunCell,
   TextValue,
@@ -194,7 +195,7 @@ export function CaseLine({
         tag={tag}
         label={label}
         isBaseline={isBaseline}
-        className={cn(RUN_COLUMN, edge)}
+        className={cn(RUN_COLUMN, PINNED_FILL, edge)}
       />
       <Td className={cn("max-w-[320px] align-top", edge)}>{output()}</Td>
       {expected}

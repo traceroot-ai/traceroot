@@ -75,7 +75,13 @@ export function SummaryGroup({
             {first && (
               <Td
                 rowSpan={span}
-                className={cn("align-top font-medium text-foreground", INPUT_COLUMN, GROUP_EDGE)}
+                className={cn(
+                  "col-sticky-start align-top font-medium text-foreground",
+                  INPUT_COLUMN,
+                  // A summary, not a case: it keeps its fill under the pointer.
+                  "!bg-background",
+                  GROUP_EDGE,
+                )}
               >
                 {label}
               </Td>
@@ -85,7 +91,7 @@ export function SummaryGroup({
               tag={tagOf(run.id)}
               label={labelOf(run.id)}
               isBaseline={isBaseline}
-              className={cn(RUN_COLUMN, edge)}
+              className={cn(RUN_COLUMN, "bg-background", edge)}
             />
             <Td className={cn("align-top", edge)}>{isBaseline && "Baseline"}</Td>
             {first && <Td rowSpan={span} className={GROUP_EDGE} />}

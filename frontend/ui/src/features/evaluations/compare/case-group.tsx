@@ -5,7 +5,7 @@ import { TBody, Td } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { ResultRow } from "../types";
 import { CaseLine } from "./case-line";
-import { GROUP_EDGE, INPUT_COLUMN, RunStack, TextValue } from "./cells";
+import { GROUP_EDGE, INPUT_COLUMN, PINNED_FILL, RunStack, TextValue } from "./cells";
 import {
   expectedKeyOf,
   inputKeyOf,
@@ -89,7 +89,12 @@ export const CaseGroup = React.memo(function CaseGroup({
       {shared !== undefined ? <TextValue text={shared} /> : split(get)}
     </Td>
   );
-  const input = spanning(INPUT_COLUMN, collapsedInput, (r) => r.input);
+  // Input names the case, so it stays in view while the table scrolls sideways.
+  const input = spanning(
+    cn("col-sticky-start", INPUT_COLUMN, PINNED_FILL),
+    collapsedInput,
+    (r) => r.input,
+  );
   const expected = spanning(
     "max-w-[240px] text-muted-foreground",
     collapsedExpected,
@@ -97,7 +102,8 @@ export const CaseGroup = React.memo(function CaseGroup({
   );
 
   return (
-    <TBody className="hover:bg-muted">
+    // `group/row`: pinned cells take the group's fill.
+    <TBody className="group/row hover:bg-muted">
       {ordered.map((b, i) => {
         const runId = b.run.id;
         return (

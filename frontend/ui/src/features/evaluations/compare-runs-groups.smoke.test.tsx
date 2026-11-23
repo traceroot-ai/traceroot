@@ -4,7 +4,7 @@
  * run, the baseline first and muted, then the other runs in display order. Input and
  * Expected span the group; the Run column names each line. A candidate's line shows its
  * value and its change against the baseline; the baseline's line shows values only.
- * Hovering a line highlights its whole group.
+ * Hovering a line highlights its whole group. The label row, Input and Run stay pinned.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -220,5 +220,25 @@ describe("CompareRunsView — the all-cases group", () => {
     expect(within(lineOf(summaryGroup(), BASELINE_RUN.id)).queryByText("—")).toBeNull();
     // The candidates' lines leave their Output cell empty.
     expect(shownText(cellAt(summaryGroup(), CANDIDATE_RUN.id, "Output"))).toBe("");
+  });
+});
+
+describe("CompareRunsView — pinned while scrolling", () => {
+  it("pins the label row, the Input column and the Run column", () => {
+    mount();
+    const labels = document.querySelector("thead tr") as HTMLTableRowElement;
+    expect(labels.className).toContain("row-sticky-top");
+    const [input, run] = [...labels.cells];
+    expect(shownText(input)).toBe("Input");
+    expect(input.className).toContain("col-sticky-start");
+    expect(shownText(run)).toBe("Run");
+    expect(run.className).toContain("left-[240px]");
+    const group = caseGroup("Ticket 2");
+    expect(cellAt(group, BASELINE_RUN.id, "Input").className).toContain("col-sticky-start");
+    for (const runId of RUN_IDS) {
+      const cell = cellAt(group, runId, "Run");
+      expect(cell.className).toContain("sticky");
+      expect(cell.className).toContain("left-[240px]");
+    }
   });
 });
