@@ -174,6 +174,19 @@ describe("GitHub sign-in, configured", () => {
     );
   });
 
+  it("refuses a first sign-in whose email GitHub has not verified, and creates nothing", async () => {
+    const { auth, db } = await createAuth();
+    github({ id: 303, email: "someone-else@acme.test", verified: false });
+    const result = await signIn(auth);
+    expect(result.session).toBe(false);
+    expect(result.location).toMatch(
+      /^http:\/\/localhost:3000\/auth\/error\?error=email_not_verified&/,
+    );
+    expect(db.user).toHaveLength(0);
+    expect(db.account).toHaveLength(0);
+    expect(hooks.onUserCreated).not.toHaveBeenCalled();
+  });
+
   it("signing in again is the same account, with no second sign-up", async () => {
     const { auth, db } = await createAuth();
     github({ id: 101, email: "kai@acme.test" });

@@ -30,6 +30,8 @@ const errorMessages: Record<string, string> = {
   email_not_found:
     "The provider did not share an email address. Grant access to your email and try again.",
   signup_disabled: "New accounts cannot be created with this provider.",
+  email_not_verified:
+    "That provider has not verified your email address. Verify it there, then sign in again.",
   unable_to_link_account: "The provider account could not be connected. Please try again.",
   Default: "An error occurred during authentication.",
 };

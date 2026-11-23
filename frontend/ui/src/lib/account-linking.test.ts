@@ -1,5 +1,6 @@
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { refuseUnverifiedGitHubSignUp } from "./signup/verified-social-email";
 
 /**
  * Runs the real better-auth OAuth callback against this app's own
@@ -67,14 +68,13 @@ type GithubIdentity = { id: string; email: string; emailVerified: boolean };
  * unexpected outbound call surfaces as a failure instead of being swallowed.
  */
 function stubGithubApi(identity: GithubIdentity) {
-  const realFetch = globalThis.fetch;
   const json = (body: unknown) =>
     new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
 
-  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
     const url =
       typeof input === "string"
         ? input
@@ -109,7 +109,9 @@ function stubGithubApi(identity: GithubIdentity) {
         ]),
       );
     }
-    return realFetch(input, init);
+    // Anything else is a request this test did not expect: fail it here
+    // rather than let it reach the network.
+    throw new Error(`unexpected request to ${url}`);
   });
 }
 
@@ -125,6 +127,7 @@ function createAuth() {
     // gating (social-providers.test.ts covers that).
     socialProviders: { github: { clientId: "test-id", clientSecret: "test-secret" } },
     ...(appAccountOptions ? { account: appAccountOptions } : {}),
+    databaseHooks: { user: { create: { before: refuseUnverifiedGitHubSignUp } } },
   });
   return { auth, db };
 }
@@ -252,22 +255,40 @@ describe("GitHub sign-in for an email that already has an account", () => {
 });
 
 describe("GitHub sign-in for a new email", () => {
-  it("creates the account even when GitHub reports the address as unverified", async () => {
+  it("creates the account when GitHub reports the address as verified", async () => {
     // Untrusting GitHub only affects linking into an existing row; a first-time
-    // sign-in must still work, or the provider is unusable for anyone whose
-    // GitHub address is unconfirmed.
+    // sign-in with a verified address still works.
     const { auth, db } = createAuth();
 
     const result = await signInWithGithub(auth, {
       id: "newcomer-gh-id",
       email: "newcomer@example.com",
-      emailVerified: false,
+      emailVerified: true,
     });
 
     expect(result.location).toBe("/dashboard");
     expect(result.signedIn).toBe(true);
     expect(githubAccountsIn(db)).toHaveLength(1);
     expect(db.user).toHaveLength(1);
+  });
+
+  it("creates no account when GitHub reports the address as unverified", async () => {
+    // The app's sign-up hook refuses it (lib/signup/verified-social-email.ts):
+    // an account's email is trusted elsewhere, for instance to accept a
+    // workspace invite sent to it, so an address nobody confirmed must not
+    // become one.
+    const { auth, db } = createAuth();
+
+    const result = await signInWithGithub(auth, {
+      id: "newcomer-gh-id",
+      email: "invited-person@example.com",
+      emailVerified: false,
+    });
+
+    expect(result.location).toContain("error=email_not_verified");
+    expect(result.signedIn).toBe(false);
+    expect(db.user).toHaveLength(0);
+    expect(githubAccountsIn(db)).toHaveLength(0);
   });
 });
 

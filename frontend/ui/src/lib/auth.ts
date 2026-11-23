@@ -13,6 +13,7 @@ import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
+import { refuseUnverifiedGitHubSignUp } from "@/lib/signup/verified-social-email";
 import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { agentIdProvider } from "@/lib/agentid";
@@ -28,6 +29,8 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
+
+const emailPolicy = signupEmailPolicyHook(isCloud());
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -48,7 +51,10 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        before: signupEmailPolicyHook(isCloud()),
+        before: async (user, context) => {
+          await refuseUnverifiedGitHubSignUp(user, context ?? null);
+          await emailPolicy?.(user, context ?? null);
+        },
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {
