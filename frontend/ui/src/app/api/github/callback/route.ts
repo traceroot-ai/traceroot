@@ -85,7 +85,7 @@ async function processGitHubCallback(
     return NextResponse.json({ error: "Failed to exchange code for token" }, { status: 500 });
   }
 
-  // 2. Require Traceroot session.
+  // 2. Require traceroot session.
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -198,7 +198,7 @@ async function handlePOST(request: NextRequest) {
     // is intentionally skipped (no cookie set in that flow); security is enforced by:
     //   1. Origin header check (same-origin)
     //   2. GitHub validating the OAuth code on exchange
-    //   3. requireAuth() — user must have an active Traceroot session
+    //   3. requireAuth() — user must have an active traceroot session
     //   4. installation_id must appear in the user's /user/installations
     const origin = request.headers.get("origin");
     let parsedOrigin: string;

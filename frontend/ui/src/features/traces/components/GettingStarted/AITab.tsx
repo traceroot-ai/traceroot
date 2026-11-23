@@ -52,7 +52,7 @@ import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
  *
  * Which is also why there is a second state here. When `./commands` cannot tell
  * which deployment served the page, the line it would otherwise render is the
- * bare one, and that signs the reader in against TraceRoot Cloud — so on a
+ * bare one, and that signs the reader in against traceroot Cloud — so on a
  * self-hosted install a command shown here with no flags is not a lesser
  * answer, it is the wrong one. Nothing runnable is drawn in that case: no code
  * block and no copy button, because a command in that frame reads as one to
