@@ -26,7 +26,7 @@ const errorMessages: Record<string, string> = {
   // step differs from the default message.
   account_already_linked_to_different_user:
     "That provider account is already connected to a different account.",
-  "email_doesn't_match": "The provider returned a different email than the account being linked.",
+  email_does_not_match: "The provider returned a different email than the account being linked.",
   email_not_found:
     "The provider did not share an email address. Grant access to your email and try again.",
   signup_disabled: "New accounts cannot be created with this provider.",
