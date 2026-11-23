@@ -1,12 +1,12 @@
 import {
   EMAIL_COLORS,
   EMAIL_FONT_STACK,
-  EMAIL_LOGO_URL,
   EMAIL_PIXEL_WORDMARK_URL,
   escapeHtml,
 } from "@traceroot/core";
 import type { FollowUp } from "@/lib/lifecycle/follow-up";
 import { greeting, LINK_STYLE } from "../welcome/copy";
+import { signatureLogoHtml } from "../welcome/render";
 import { FOLLOW_UP_SIGNOFF, followUpCopy, PRODUCT_OPT_OUT_LABEL, type FollowUpLinks } from "./copy";
 
 const LINK = /\[([^\]]+)\]\(([^\s)]+)\)/g;
@@ -69,7 +69,7 @@ export function renderFollowUp(input: RenderFollowUpInput): {
     ...(copy.button ? [buttonHtml(copy.button.label, copy.button.url)] : []),
     ...after.map(toHtml),
     `<p>${FOLLOW_UP_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
-    `<p style="margin:20px 0 0"><img src="${EMAIL_LOGO_URL}" alt="traceroot" width="106" height="20" style="display:block;border:0;width:106px;height:20px"></p>`,
+    signatureLogoHtml(),
     `<p style="margin-top:32px;font-size:12px;color:${EMAIL_COLORS.muted}"><a href="${escapeHtml(input.unsubscribeUrl)}" ${LINK_STYLE}>${PRODUCT_OPT_OUT_LABEL}</a></p>`,
     "</div>",
     "</body></html>",
