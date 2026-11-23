@@ -16,7 +16,7 @@
 // retried, interrupted or overlaps another just finishes the rest. A dry run
 // writes nothing and calls only the provider's read endpoints. Logs carry
 // counts and user ids, never addresses.
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { ensureContact, resendConfig } from "./resend.ts";
 import { normalizeEmail } from "./unsubscribe.ts";
 
@@ -150,7 +150,7 @@ export interface AudienceRun {
   withoutContact: number;
   /** The provider could not be read or written; tried again next run. */
   failed: number;
-  /** Left for a later run by the batch limit. */
+  /** Left for a later run by the batch limit or the time budget. */
   remaining: number;
   /** Set when nothing could run, and why. */
   notRun?: "no_segment" | "no_api_key" | "no_start";
@@ -166,6 +166,8 @@ export async function runNewsletterAudience(
     apply: boolean;
     /** At most this many people per run; the rest wait for the next. */
     limit?: number;
+    /** Stop starting new people after this long; the rest wait for the next run. */
+    budgetMs?: number;
     /** Minimum time between provider calls. */
     minIntervalMs?: number;
     env?: NodeJS.ProcessEnv;
@@ -196,12 +198,32 @@ export async function runNewsletterAudience(
     mode.kind === "scheduled"
       ? { gte: settings.startAt, lte: new Date(mode.now.getTime() - NEWSLETTER_DELAY_MS) }
       : { lt: settings.startAt };
-  const where = {
+  // Everyone in the window not yet on the segment, and of them who is left out.
+  // The left-out are filtered in the query rather than skipped one by one, so a
+  // batch never fills up with people it will not add.
+  const pending: Prisma.UserWhereInput = {
     createdAt: signedUp,
     OR: [{ onboarding: { is: null } }, { onboarding: { is: { newsletterAddedAt: null } } }],
   };
+  const left = exclusionFilters(settings);
+  const order: LocalExclusion[] = [
+    "listed_test_account",
+    "team_account",
+    "agent_account",
+    "unsubscribed",
+  ];
+  const candidates: Prisma.UserWhereInput = {
+    AND: [pending, { NOT: order.map((reason) => left[reason]) }],
+  };
+  for (const [i, reason] of order.entries()) {
+    const count = await db.user.count({
+      where: { AND: [pending, left[reason], { NOT: order.slice(0, i).map((r) => left[r]) }] },
+    });
+    if (count) run.excluded[reason] = count;
+    run.considered += count;
+  }
   const people = await db.user.findMany({
-    where,
+    where: candidates,
     select: {
       id: true,
       email: true,
@@ -211,9 +233,8 @@ export async function runNewsletterAudience(
     orderBy: { createdAt: "asc" },
     ...(options.limit ? { take: options.limit } : {}),
   });
-  if (options.limit && people.length === options.limit) {
-    run.remaining = (await db.user.count({ where })) - people.length;
-  }
+  const total = options.limit ? await db.user.count({ where: candidates }) : people.length;
+  const started = Date.now();
 
   const exclude = (reason: Exclusion) => {
     run.excluded[reason] = (run.excluded[reason] ?? 0) + 1;
@@ -221,8 +242,13 @@ export async function runNewsletterAudience(
   const segmentPath = (email: string) =>
     `/contacts/${encodeURIComponent(normalizeEmail(email))}/segments/${encodeURIComponent(settings.segmentId!)}`;
 
+  let processed = 0;
   for (const person of people) {
+    // A time budget, so a backlog cannot hold up the caller; the rest wait for the next run.
+    if (options.budgetMs !== undefined && Date.now() - started > options.budgetMs) break;
+    processed += 1;
     run.considered += 1;
+    // The query left these out already; checked again in case a setting reads differently.
     const local = localExclusion(
       {
         email: person.email,
@@ -270,8 +296,34 @@ export async function runNewsletterAudience(
     await stampAdded(db, person.id);
     run.added += 1;
   }
+  run.remaining = total - processed;
   log(`[newsletter] ${apply ? "applied" : "dry run"} (${mode.kind}): ${JSON.stringify(run)}`);
   return run;
+}
+
+/** The query filters for each kind of left-out person, matching `localExclusion`. */
+type LocalExclusion = Exclude<Exclusion, "provider_unsubscribed">;
+
+function exclusionFilters(
+  settings: AudienceSettings,
+): Record<LocalExclusion, Prisma.UserWhereInput> {
+  const insensitive = "insensitive" as const;
+  return {
+    listed_test_account: { email: { in: settings.skipEmails, mode: insensitive } },
+    team_account: {
+      OR: settings.teamDomains.flatMap((team) => [
+        { email: { endsWith: `@${team}`, mode: insensitive } },
+        { email: { endsWith: `.${team}`, mode: insensitive } },
+      ]),
+    },
+    agent_account: {
+      AND: [
+        { accounts: { some: { providerId: AGENT_PROVIDER_ID } } },
+        { accounts: { every: { providerId: AGENT_PROVIDER_ID } } },
+      ],
+    },
+    unsubscribed: { onboarding: { is: { unsubscribedAt: { not: null } } } },
+  };
 }
 
 /** Stamps the addition once; an earlier stamp (an overlapping run) is kept. */

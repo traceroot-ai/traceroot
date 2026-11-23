@@ -47,7 +47,12 @@ describe("runNewsletterJob", () => {
     expect(await runNewsletterJob({ now })).toEqual({ added: 1 });
     expect(core.runNewsletterAudience).toHaveBeenCalledWith(
       { tag: "prisma" },
-      expect.objectContaining({ mode: { kind: "scheduled", now }, apply: true, limit: 25 }),
+      expect.objectContaining({
+        mode: { kind: "scheduled", now },
+        apply: true,
+        limit: 10,
+        budgetMs: 20_000,
+      }),
     );
   });
 

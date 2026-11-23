@@ -27,12 +27,52 @@ type User = {
 };
 let users: User[];
 
-const inRange = (at: Date, r: { gte?: Date; lte?: Date; lt?: Date }) =>
-  (!r.gte || at >= r.gte) && (!r.lte || at <= r.lte) && (!r.lt || at < r.lt);
-const pending = (where: { createdAt: Record<string, Date> }) =>
-  users
-    .filter((u) => inRange(u.createdAt, where.createdAt) && !u.onboarding?.newsletterAddedAt)
-    .sort((a, b) => +a.createdAt - +b.createdAt);
+// Evaluates the Prisma `where` shapes the audience query uses, so the stand-in
+// filters as Postgres would.
+type Where = Record<string, unknown>;
+function matches(value: unknown, cond: unknown): boolean {
+  if (cond === null) return value === null || value === undefined;
+  if (typeof cond !== "object" || cond instanceof Date) return value === cond;
+  const c = cond as Record<string, unknown>;
+  const text = (v: unknown) => (c.mode === "insensitive" ? String(v).toLowerCase() : String(v));
+  if ("in" in c) return (c.in as string[]).map(text).includes(text(value));
+  if ("endsWith" in c) return text(value).endsWith(text(c.endsWith));
+  if ("not" in c) return !matches(value, c.not);
+  if ("gte" in c || "lte" in c || "lt" in c) {
+    const at = value as Date;
+    return (
+      (!c.gte || at >= (c.gte as Date)) &&
+      (!c.lte || at <= (c.lte as Date)) &&
+      (!c.lt || at < (c.lt as Date))
+    );
+  }
+  throw new Error(`unhandled condition ${JSON.stringify(cond)}`);
+}
+function where(user: User, w: Where): boolean {
+  return Object.entries(w).every(([key, cond]) => {
+    if (key === "AND") return (cond as Where[]).every((x) => where(user, x));
+    if (key === "OR") return (cond as Where[]).some((x) => where(user, x));
+    if (key === "NOT") return !(Array.isArray(cond) ? cond : [cond]).some((x) => where(user, x));
+    if (key === "onboarding") {
+      const is = (cond as { is: Where | null }).is;
+      if (is === null) return user.onboarding === null;
+      return (
+        user.onboarding !== null &&
+        Object.entries(is).every(([k, v]) => matches(user.onboarding![k as "unsubscribedAt"], v))
+      );
+    }
+    if (key === "accounts") {
+      const { some, every } = cond as { some?: Where; every?: Where };
+      const ok = (a: { providerId: string }, w2: Where) =>
+        Object.entries(w2).every(([k, v]) => matches(a[k as "providerId"], v));
+      if (some) return user.accounts.some((acc) => ok(acc, some));
+      return user.accounts.every((acc) => ok(acc, every!));
+    }
+    return matches(user[key as keyof User], cond);
+  });
+}
+const pending = (w: Where) =>
+  users.filter((u) => where(u, w)).sort((a, b) => +a.createdAt - +b.createdAt);
 const row = (userId: string) => {
   const user = users.find((u) => u.id === userId)!;
   user.onboarding ??= { unsubscribedAt: null, newsletterAddedAt: null };
@@ -40,15 +80,9 @@ const row = (userId: string) => {
 };
 const db = {
   user: {
-    findMany: async ({
-      where,
-      take,
-    }: {
-      where: { createdAt: Record<string, Date> };
-      take?: number;
-    }) => pending(where).slice(0, take ?? Infinity),
-    count: async ({ where }: { where: { createdAt: Record<string, Date> } }) =>
-      pending(where).length,
+    findMany: async ({ where: w, take }: { where: Where; take?: number }) =>
+      pending(w).slice(0, take ?? Infinity),
+    count: async ({ where: w }: { where: Where }) => pending(w).length,
   },
   userOnboarding: {
     createMany: async ({ data }: { data: { userId: string }[] }) => {
@@ -254,7 +288,7 @@ describe("the one-time import", () => {
 
   it("stopped part way, the next run finishes the rest", async () => {
     const first = await run({ kind: "import" }, true, 1);
-    expect(first).toMatchObject({ considered: 1, added: 1 });
+    expect(first.added).toBe(1);
     expect(first.remaining).toBeGreaterThan(0);
     const rest = await run({ kind: "import" }, true);
     expect(rest.added).toBe(1);
@@ -317,6 +351,55 @@ describe("the 14-day job", () => {
       added: 2,
       remaining: 3,
     });
+  });
+});
+
+describe("a batch never fills up with people it will not add", () => {
+  const signedUp = new Date(START.getTime() + 2 * DAY);
+  const at14 = new Date(signedUp.getTime() + NEWSLETTER_DELAY_MS);
+
+  it("30 agent and team accounts ahead of one real sign-up: the real one is added on the first tick", async () => {
+    for (let i = 0; i < 20; i += 1) {
+      person(`agent${i}`, new Date(signedUp.getTime() - 60_000), {
+        accounts: [{ providerId: "agentid" }],
+      });
+    }
+    for (let i = 0; i < 10; i += 1) {
+      person(`team${i}`, new Date(signedUp.getTime() - 60_000), { email: `t${i}@traceroot.ai` });
+    }
+    person("real", signedUp);
+    const tick = await run({ kind: "scheduled", now: at14 }, true, 25);
+    expect(tick).toMatchObject({
+      added: 1,
+      remaining: 0,
+      excluded: { agent_account: 20, team_account: 10 },
+    });
+    expect([...segment]).toEqual(["real@acme.test"]);
+  });
+
+  it("someone found unsubscribed at the provider is recorded, and not read again next tick", async () => {
+    person("gone", signedUp, { contact: { productTopic: "opt_out" } });
+    await run({ kind: "scheduled", now: at14 }, true);
+    calls = [];
+    expect(await run({ kind: "scheduled", now: at14 }, true)).toMatchObject({
+      excluded: { unsubscribed: 1 },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("stops starting new people once its time budget is spent; the next tick continues", async () => {
+    for (let i = 0; i < 3; i += 1) person(`n${i}`, signedUp);
+    const first = await runNewsletterAudience(db, {
+      mode: { kind: "scheduled", now: at14 },
+      apply: true,
+      budgetMs: -1,
+      env: ENV,
+      fetchImpl: providerFetch,
+      minIntervalMs: 0,
+      log: () => {},
+    });
+    expect(first).toMatchObject({ added: 0, remaining: 3 });
+    expect(await run({ kind: "scheduled", now: at14 }, true)).toMatchObject({ added: 3 });
   });
 });
 
