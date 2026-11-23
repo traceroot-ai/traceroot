@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
- * Above the comparison table, one row: the search, Filters, Sort and the Runs menu, then Export at its end.
- * Runs (N) opens the runs compared, each with its menu to make it the baseline, remove it
- * or open it, and Add runs, which turns the same panel into the run picker. Under the
- * toolbar, one muted line says how many cases there are and how many every run has, with
- * the runs that fall short of their cases noted on hover.
+ * Above the comparison table, one row: the search, Filters, Sort, Display and the Runs
+ * menu, then Export at its end. Runs (N) opens the runs compared, each with its menu to
+ * make it the baseline, remove it or open it, and Add runs, which turns the same panel into
+ * the run picker. Under the toolbar, one muted line says how many cases there are and how
+ * many every run has, with the runs that fall short of their cases noted on hover.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -67,7 +67,7 @@ const runMenu = async (name: RegExp, item: string) => {
 };
 
 describe("CompareRunsView — one-row toolbar", () => {
-  it("puts search, filters, sort and runs on one row, export at its end", () => {
+  it("puts search, filters, sort, display and runs on one row, export at its end", () => {
     mount();
     expect(document.querySelectorAll("[data-toolbar]")).toHaveLength(1);
     const row = within(document.querySelector('[data-toolbar="cases"]') as HTMLElement);
@@ -75,6 +75,7 @@ describe("CompareRunsView — one-row toolbar", () => {
       row.getByRole("textbox", { name: "Search cases" }),
       row.getByRole("button", { name: "Filters" }),
       row.getByRole("combobox", { name: /^Sort cases/ }),
+      row.getByRole("button", { name: "Display" }),
       row.getByRole("button", { name: "Runs (3)" }),
       row.getByRole("button", { name: "Export" }),
     ];

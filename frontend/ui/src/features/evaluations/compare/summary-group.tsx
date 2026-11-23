@@ -4,6 +4,7 @@ import * as React from "react";
 import { TBody, Td } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { GROUP_EDGE, INPUT_COLUMN, lineClass, lineEdge, RUN_COLUMN, RunCell } from "./cells";
+import { isShown, metricColumn, type DisplayPrefs } from "./display";
 import type { CaseFilter } from "./filters";
 import { formatCost, formatMs, signedWith } from "./metric-format";
 import {
@@ -44,6 +45,7 @@ export function SummaryGroup({
   tagOf,
   filters,
   onToggleFilter,
+  display,
   filtering,
 }: {
   model: CompareModel;
@@ -54,6 +56,7 @@ export function SummaryGroup({
   tagOf: (runId: string) => string;
   filters: readonly CaseFilter[];
   onToggleFilter: (filter: CaseFilter) => void;
+  display: DisplayPrefs;
   /** Whether a search or filters narrow the cases it covers. */
   filtering: boolean;
 }) {
@@ -65,6 +68,8 @@ export function SummaryGroup({
     () => new Map([...pairs].map(([runId, pair]) => [runId, countCellsByScorer(pair)])),
     [pairs],
   );
+  const shows = (id: Parameters<typeof isShown>[1]) => isShown(display, id);
+  const metrics = model.scorers.filter((s) => shows(metricColumn(s.name)));
   const label = filtering ? "Matching cases" : "All cases";
   const span = model.runs.length;
 
@@ -81,7 +86,10 @@ export function SummaryGroup({
           <tr
             key={run.id}
             data-run-id={run.id}
-            className={cn(lineClass(first, last), isBaseline && "text-muted-foreground")}
+            className={cn(
+              lineClass(display.density, first, last),
+              isBaseline && "text-muted-foreground",
+            )}
           >
             {first && (
               <Td
@@ -104,9 +112,11 @@ export function SummaryGroup({
               isBaseline={isBaseline}
               className={cn(RUN_COLUMN, "bg-background", edge)}
             />
-            <Td className={cn("align-top", edge)}>{isBaseline && "Baseline"}</Td>
-            {first && <Td rowSpan={span} className={GROUP_EDGE} />}
-            {model.scorers.map((s) => (
+            {shows("output") && (
+              <Td className={cn("align-top", edge)}>{isBaseline && "Baseline"}</Td>
+            )}
+            {first && shows("expected") && <Td rowSpan={span} className={GROUP_EDGE} />}
+            {metrics.map((s) => (
               <Td key={s.name} className={numeric}>
                 {!isBaseline && (
                   <ScorerSummary
@@ -121,26 +131,30 @@ export function SummaryGroup({
                 )}
               </Td>
             ))}
-            <Td className={numeric}>
-              {!isBaseline && (
-                <MeanSummary
-                  mean={durationOf(pair)}
-                  measure="latency"
-                  fmt={formatMs}
-                  fmtDelta={signedWith(formatMs)}
-                />
-              )}
-            </Td>
-            <Td className={numeric}>
-              {!isBaseline && (
-                <MeanSummary
-                  mean={pair?.cost}
-                  measure="cost"
-                  fmt={formatCost}
-                  fmtDelta={signedWith(formatCost)}
-                />
-              )}
-            </Td>
+            {shows("latency") && (
+              <Td className={numeric}>
+                {!isBaseline && (
+                  <MeanSummary
+                    mean={durationOf(pair)}
+                    measure="latency"
+                    fmt={formatMs}
+                    fmtDelta={signedWith(formatMs)}
+                  />
+                )}
+              </Td>
+            )}
+            {shows("cost") && (
+              <Td className={numeric}>
+                {!isBaseline && (
+                  <MeanSummary
+                    mean={pair?.cost}
+                    measure="cost"
+                    fmt={formatCost}
+                    fmtDelta={signedWith(formatCost)}
+                  />
+                )}
+              </Td>
+            )}
           </tr>
         );
       })}

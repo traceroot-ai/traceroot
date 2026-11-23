@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { ResultRow } from "../types";
 import { CaseLine } from "./case-line";
 import { GROUP_EDGE, INPUT_COLUMN, PINNED_FILL, RunStack, TextValue } from "./cells";
+import { isShown, type DisplayPrefs } from "./display";
 import {
   expectedKeyOf,
   inputKeyOf,
@@ -30,6 +31,9 @@ import { clickOpensRow } from "./row-activation";
  * opens it with Enter or Space; it stays a table row (no button role, which would flatten
  * its cells into one label for a screen reader), and `describedBy` tells how to open it.
  *
+ * `display` is the viewer's layout: comfortable lines get more room, wrapped text shows in
+ * full, and a hidden column has no cell.
+ *
  * Memoized: a comparison can hold thousands of cases, and a keystroke in the search or a
  * case opening should re-render only the groups it changes, so every prop is stable.
  */
@@ -42,6 +46,7 @@ export const CaseGroup = React.memo(function CaseGroup({
   labelOf,
   tagOf,
   scorers,
+  display,
   open,
   onOpenRow,
   describedBy,
@@ -56,6 +61,7 @@ export const CaseGroup = React.memo(function CaseGroup({
   labelOf: (runId: string) => string;
   tagOf: (runId: string) => string;
   scorers: ScorerColumn[];
+  display: DisplayPrefs;
   /** Whether the case is the one open in the trace panel. */
   open: boolean;
   /** Open a case; `runId` is the run of the line or value clicked, if any. One handler
@@ -81,10 +87,12 @@ export const CaseGroup = React.memo(function CaseGroup({
   const collapsedInput = collapsed((r) => r.input, inputKeyOf);
   const collapsedExpected = collapsed((r) => r.expectedOutput, expectedKeyOf);
 
+  const wrap = display.text === "wrap";
   // Input or Expected when the runs differ on it: each run's own, marked with its run.
   const split = (get: (r: ResultRow) => string | null) => (
     <RunStack
       tooltipped
+      wrap={wrap}
       values={ordered.flatMap((b) => {
         const r = row.byRun.get(b.run.id);
         if (!r) return [];
@@ -92,7 +100,7 @@ export const CaseGroup = React.memo(function CaseGroup({
           runId: b.run.id,
           dot: dotFor(b.run.id),
           label: labelOf(b.run.id),
-          node: <TextValue text={get(r)} />,
+          node: <TextValue text={get(r)} wrap={wrap} />,
         };
       })}
     />
@@ -103,7 +111,7 @@ export const CaseGroup = React.memo(function CaseGroup({
     get: (r: ResultRow) => string | null,
   ) => (
     <Td rowSpan={ordered.length} className={cn("align-top", className, GROUP_EDGE)}>
-      {shared !== undefined ? <TextValue text={shared} /> : split(get)}
+      {shared !== undefined ? <TextValue text={shared} wrap={wrap} /> : split(get)}
     </Td>
   );
   // Input names the case, so it stays in view while the table scrolls sideways.
@@ -112,11 +120,9 @@ export const CaseGroup = React.memo(function CaseGroup({
     collapsedInput,
     (r) => r.input,
   );
-  const expected = spanning(
-    "max-w-[240px] text-muted-foreground",
-    collapsedExpected,
-    (r) => r.expectedOutput,
-  );
+  const expected =
+    isShown(display, "expected") &&
+    spanning("max-w-[240px] text-muted-foreground", collapsedExpected, (r) => r.expectedOutput);
 
   const onClick = (e: React.MouseEvent<HTMLTableSectionElement>) => {
     const target = e.target as Element;
@@ -155,6 +161,7 @@ export const CaseGroup = React.memo(function CaseGroup({
             baselineResult={row.byRun.get(baseline.run.id)}
             pairCase={pairs.get(runId)?.byCase.get(row.key)}
             scorers={scorers}
+            display={display}
             dot={dotFor(runId)}
             tag={tagOf(runId)}
             label={labelOf(runId)}

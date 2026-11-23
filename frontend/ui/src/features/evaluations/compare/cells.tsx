@@ -4,8 +4,10 @@ import * as React from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { changeSentiment, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
 import type { ScorerDirection } from "@/lib/eval/comparison";
+import type { DiffSegment } from "@/lib/eval/line-diff";
 import { cn } from "@/lib/utils";
 import { CELL_STATE_LABEL, type CellState } from "./cell-state";
+import type { Density } from "./display";
 
 /** The pinned Input column has a fixed width, so the Run column can be pinned right after
  *  it (`RUN_COLUMN`'s offset). */
@@ -26,8 +28,13 @@ export const PINNED_FILL =
 /** A run's line in a group (a case, or the summary). The table's cell rule sets a fixed
  *  height and no vertical padding; a line sets its own, the group's first and last lines
  *  leaving room above and below it. */
-export function lineClass(first: boolean, last: boolean): string {
-  return cn("[&>*]:!h-auto [&>*]:!py-0.5", first && "[&>*]:!pt-1.5", last && "[&>*]:!pb-1.5");
+export function lineClass(density: Density, first: boolean, last: boolean): string {
+  return cn(
+    "[&>*]:!h-auto",
+    density === "comfortable"
+      ? cn("leading-relaxed [&>*]:!py-1", first && "[&>*]:!pt-2.5", last && "[&>*]:!pb-2.5")
+      : cn("[&>*]:!py-0.5", first && "[&>*]:!pt-1.5", last && "[&>*]:!pb-1.5"),
+  );
 }
 
 /** The rule under a group, also drawn by the cells spanning it. Each group is a tbody of
@@ -67,11 +74,64 @@ export function Delta({
   return <span className={cn("ml-1", SENTIMENT_CLASS[sentiment])}>{text}</span>;
 }
 
-/** Text cut off at the cell's edge, with its full value on hover (no click, no chrome). */
-export function TextValue({ text }: { text: string | null }) {
+// `anywhere` lets a long unbroken token (a URL, compact JSON) wrap too, so it can't widen
+// its column past the cell's limit.
+const WRAPPED = "whitespace-pre-wrap [overflow-wrap:anywhere]";
+
+/** Truncated text that reveals its full value on hover (no click, no chrome), or, when
+ *  `wrap`, the full value itself, line breaks kept. `changes` marks the words that
+ *  changed against a reference (`ChangedWords`), under the text and without touching it. */
+export function TextValue({
+  text,
+  wrap = false,
+  changes,
+}: {
+  text: string | null;
+  wrap?: boolean;
+  /** The trimmed text in segments, the changed ones marked. */
+  changes?: readonly DiffSegment[] | null;
+}) {
   const t = text?.trim();
   if (!text || !t) return <span className="text-muted-foreground">—</span>;
-  return <ClippedText text={t} />;
+  const shown = wrap ? (
+    <span className={cn("relative block", WRAPPED)}>{t}</span>
+  ) : (
+    <ClippedText text={t} />
+  );
+  return (
+    <span className="relative block">
+      {changes && <ChangedWords segments={changes} wrap={wrap} />}
+      {shown}
+    </span>
+  );
+}
+
+/** The changed words of a value, marked under its text: a layer laid out like the text
+ *  (clipped or wrapped the same way) whose words are transparent, drawn from `data-text`
+ *  so the layer adds nothing to find, select or copy, and whose changed words' fill shows
+ *  through the text above it. The text itself stays one plain text node. */
+function ChangedWords({ segments, wrap }: { segments: readonly DiffSegment[]; wrap: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute inset-0 select-none text-transparent",
+        wrap ? WRAPPED : "truncate",
+      )}
+    >
+      {segments.map((segment, i) =>
+        segment.changed ? (
+          <mark
+            key={i}
+            data-text={segment.text}
+            className="rounded-[2px] bg-warning-soft text-transparent before:content-[attr(data-text)]"
+          />
+        ) : (
+          <span key={i} data-text={segment.text} className="before:content-[attr(data-text)]" />
+        ),
+      )}
+    </span>
+  );
 }
 
 /** One line of text, cut off at the cell's edge, with its full value on hover. The
@@ -116,11 +176,13 @@ export function CellStateLabel({ state }: { state: Exclude<CellState, { kind: "v
 }
 
 /** One value per run, stacked and colour-keyed (in baseline-first display order). Each
- *  value carries its run's id, so a click on it can tell which run it was about. */
+ *  value carries its run's id, so a click on it can tell which run it was about. With
+ *  `wrap`, a value may run over several lines, and its dot stays on the first. */
 export function RunStack({
   values,
   align = "left",
   tooltipped = false,
+  wrap = false,
 }: {
   values: {
     runId: string;
@@ -131,6 +193,7 @@ export function RunStack({
   align?: "left" | "right";
   /** The values carry their own tooltip, so the native title would stack a second one. */
   tooltipped?: boolean;
+  wrap?: boolean;
 }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", align === "right" && "items-end")}>
@@ -139,10 +202,16 @@ export function RunStack({
           key={v.runId}
           data-run-id={v.runId}
           title={tooltipped ? undefined : v.label}
-          className="flex max-w-full items-center gap-1.5"
+          className={cn("flex max-w-full gap-1.5", wrap ? "items-start" : "items-center")}
         >
-          <Dot color={v.dot} />
-          <span className="min-w-0 truncate">
+          {wrap ? (
+            <span className="flex h-[1lh] shrink-0 items-center">
+              <Dot color={v.dot} />
+            </span>
+          ) : (
+            <Dot color={v.dot} />
+          )}
+          <span className={cn("min-w-0", !wrap && "truncate")}>
             <RunLabel label={v.label} />
             {v.node}
           </span>

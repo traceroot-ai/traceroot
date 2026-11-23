@@ -3,6 +3,7 @@
 import * as React from "react";
 import { TBody } from "@/components/ui/table";
 import { CaseGroup } from "./case-group";
+import { shownColumnCount, type DisplayPrefs } from "./display";
 import { NoMatchingCases } from "./empty-states";
 import type { CaseInspectorState } from "./inspector/use-case-inspector";
 import type { CaseRow, CompareModel, PairComparison, RunBundle } from "./model";
@@ -10,7 +11,7 @@ import type { CaseRow, CompareModel, PairComparison, RunBundle } from "./model";
 /**
  * The comparison table's body: one group of lines per case the search and filters pick, in
  * their order, each opening in the trace panel; or, when they pick none, one row across the
- * columns that says so and clears them.
+ * columns shown that says so and clears them.
  */
 export function ComparisonBody({
   model,
@@ -20,6 +21,7 @@ export function ComparisonBody({
   dotFor,
   labelOf,
   tagOf,
+  display,
   rowProps,
   clearLabel,
   onClear,
@@ -33,6 +35,7 @@ export function ComparisonBody({
   dotFor: (runId: string) => string;
   labelOf: (runId: string) => string;
   tagOf: (runId: string) => string;
+  display: DisplayPrefs;
   /** Each case's way of opening in the trace panel. */
   rowProps: CaseInspectorState["rowProps"];
   /** What the empty row's button takes off (`clearLabel`). */
@@ -43,8 +46,7 @@ export function ComparisonBody({
     return (
       <TBody>
         <tr>
-          {/* Input, Run, Output and Expected, each scorer, then latency and cost. */}
-          <td colSpan={model.scorers.length + 6}>
+          <td colSpan={shownColumnCount(display, model.scorers)}>
             <NoMatchingCases label={clearLabel} onClear={onClear} />
           </td>
         </tr>
@@ -64,6 +66,7 @@ export function ComparisonBody({
           labelOf={labelOf}
           tagOf={tagOf}
           scorers={model.scorers}
+          display={display}
           {...rowProps(row)}
         />
       ))}
