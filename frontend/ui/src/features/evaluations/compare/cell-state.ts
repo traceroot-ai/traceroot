@@ -3,7 +3,7 @@
  * comparison page labels each case's cells by it, and a pair's "not included" counts
  * (`pairExclusions`) are tallied from it, so a cell and the count it falls into always
  * give the same reason. Also whether the comparison compared a cell, the change it found,
- * and why it set a recorded value aside, for the table.
+ * and why it set a recorded value aside, for the table and the export.
  */
 import { latestScoreByName, readScore, type ScorerCellComparison } from "@/lib/eval/comparison";
 import type { ResultRow, ScoreRow } from "../types";

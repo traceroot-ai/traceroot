@@ -5,6 +5,7 @@ import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ExportMenu } from "./export-menu";
 import { FilterMenu } from "./filter-menu";
 import {
   addFilter,
@@ -14,17 +15,21 @@ import {
   sameFilter,
   type CaseAnalysis,
 } from "./filters";
-import type { CompareModel } from "./model";
+import type { CaseRow, CompareModel } from "./model";
 import { SortSelect } from "./sort-select";
 
 /**
  * Above the comparison table, one row under one rule: the search, the Filters menu, the
- * Sort control and `runs` (the Runs menu), left-aligned. Active filters wrap onto a row of
- * their own beneath it, each removable.
+ * Sort control and `runs` (the Runs menu), left-aligned, with the Export menu at its end.
+ * Active filters wrap onto a row of their own beneath it, each removable.
  */
 export function CaseToolbar({
+  projectId,
   model,
   searchRef,
+  cases,
+  casesAnalysis,
+  exportOff,
   analysis,
   onChange,
   tagOf,
@@ -32,9 +37,17 @@ export function CaseToolbar({
   filtersRef,
   runs,
 }: {
+  projectId: string;
   model: CompareModel;
   /** The search box: the page sends focus here when the control that had it goes away. */
   searchRef: React.RefObject<HTMLInputElement | null>;
+  /** The cases an export covers: the table's, in its order. */
+  cases: readonly CaseRow[];
+  /** The search, filters and sort that picked them, which trail `analysis` while the table
+   *  catches up with typing, so an export's record of them matches its rows. */
+  casesAnalysis: CaseAnalysis;
+  /** Why there is no comparison to export, if there isn't one yet. */
+  exportOff: string | null;
   analysis: CaseAnalysis;
   onChange: (next: CaseAnalysis) => void;
   tagOf: (runId: string) => string;
@@ -82,6 +95,15 @@ export function CaseToolbar({
           onChange={(sort) => onChange({ ...analysis, sort })}
         />
         {runs}
+        <div className="ml-auto">
+          <ExportMenu
+            projectId={projectId}
+            model={model}
+            cases={cases}
+            analysis={casesAnalysis}
+            off={exportOff}
+          />
+        </div>
       </div>
       {filters.length > 0 && (
         <div
