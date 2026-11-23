@@ -8,6 +8,7 @@ import { SpanKind, SpanStatus } from "@traceroot/core";
 import { traceUnion } from "@/lib/eval/union-tree";
 import type { Span, TraceDetail } from "@/types/api";
 import { SpanTreeView } from "./SpanTreeView";
+import { DivergenceChip } from "./TraceDiffControls";
 
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -212,5 +213,153 @@ describe("SpanTreeView in diff mode", () => {
       "answer",
       "faithfulness",
     ]);
+  });
+});
+
+describe("SpanTreeView in diff mode on a retried call", () => {
+  // The candidate's `agent` span was never exported: its children name it as their parent
+  // and carry it in their recorded path, so it is drawn as a placeholder. Its first search
+  // failed and was retried, and its answer used more tokens.
+  const under = (name: string): Partial<Span> => ({
+    metadata: JSON.stringify({
+      "traceroot.span.ids_path": ["c-eval", "c-task", "c-agent"],
+      "traceroot.span.path": ["evaluation-item", "task", "agent", name],
+    }),
+  });
+  const RUN_1 = traceOf("t1", [
+    ["b-eval", null, "evaluation-item", SpanKind.EVALUATION, 0, 3000],
+    ["b-task", "b-eval", "task", SpanKind.TASK, 10, 2000],
+    ["b-agent", "b-task", "agent", SpanKind.AGENT, 20, 1990],
+    ["b-s1", "b-agent", "web_search", SpanKind.TOOL, 30, 300],
+    ["b-s2", "b-agent", "web_search", SpanKind.TOOL, 310, 600],
+    ["b-answer", "b-agent", "compose_answer", SpanKind.LLM, 610, 1980, { total_tokens: 1200 }],
+    ["b-quality", "b-eval", "quality", SpanKind.SCORER, 2010, 2990],
+    ["b-judge", "b-quality", "judge", SpanKind.LLM, 2020, 2980, { total_tokens: 500 }],
+  ]);
+  const RUN_2 = traceOf("t2", [
+    ["c-eval", null, "evaluation-item", SpanKind.EVALUATION, 0, 3500],
+    ["c-task", "c-eval", "task", SpanKind.TASK, 10, 2500],
+    [
+      "c-s1",
+      "c-agent",
+      "web_search",
+      SpanKind.TOOL,
+      30,
+      200,
+      { ...under("web_search"), status: SpanStatus.ERROR },
+    ],
+    ["c-s2", "c-agent", "web_search", SpanKind.TOOL, 210, 500, under("web_search")],
+    ["c-s3", "c-agent", "web_search", SpanKind.TOOL, 510, 800, under("web_search")],
+    [
+      "c-answer",
+      "c-agent",
+      "compose_answer",
+      SpanKind.LLM,
+      810,
+      2480,
+      { ...under("compose_answer"), total_tokens: 1900 },
+    ],
+    ["c-quality", "c-eval", "quality", SpanKind.SCORER, 2510, 3490],
+    ["c-judge", "c-quality", "judge", SpanKind.LLM, 2520, 3480, { total_tokens: 530 }],
+  ]);
+
+  it("adds the failed first call, keeps the placeholder and reads the answer's tokens in red", () => {
+    const { rows } = renderTree(
+      { trace: RUN_2 },
+      { baseline: RUN_1, nodes: traceUnion(RUN_1, RUN_2).nodes },
+    );
+    const named = rows().map((r) => [
+      r.dataset.diffState,
+      r.querySelector("[data-span-name]")!.textContent,
+    ]);
+    expect(named).toEqual([
+      ["matched", "evaluation-item"],
+      ["matched", "task"],
+      ["matched", "agent"],
+      ["added", "web_search"],
+      ["matched", "web_search"],
+      ["matched", "web_search"],
+      ["matched", "compose_answer"],
+      ["matched", "quality"],
+      ["matched", "judge"],
+    ]);
+    const row = (name: string, i = 0) =>
+      rows().filter((r) => r.querySelector("[data-span-name]")!.textContent === name)[i];
+
+    // The agent that never arrived reads as the plain tree's placeholder does.
+    expect(row("agent").querySelector("[data-span-name]")!.className).toContain(
+      "text-muted-foreground/60",
+    );
+    // The failed attempt is the added one, in green, with its error.
+    const failed = row("web_search", 0);
+    expect(failed.querySelector("[data-span-name]")!.className).toContain("text-success");
+    expect(failed.textContent).toContain("ERROR");
+
+    const tokens = (name: string) =>
+      row(name).querySelector<HTMLElement>('[data-metric="tokens"]')!;
+    expect(tokens("compose_answer").textContent).toBe("1.2K → 1.9K");
+    expect(tokens("compose_answer").className).toContain("text-danger");
+    // The judge's are the evaluation's: shown, never coloured.
+    expect(tokens("judge").textContent).toBe("500 → 530");
+    expect(tokens("judge").className).toContain("text-muted-foreground");
+  });
+
+  it("counts the run's own spans both ways round, leaving the scorer's out", () => {
+    const chip = (nodes: Parameters<typeof DivergenceChip>[0]["nodes"]) => {
+      const { container } = render(<DivergenceChip nodes={nodes} />);
+      return container.querySelector<HTMLElement>("[data-diff-summary]")!;
+    };
+    const forward = chip(traceUnion(RUN_1, RUN_2).nodes);
+    expect(forward.textContent).toBe("6 matched · 1 added · 0 removed");
+    expect(forward.getAttribute("title")).toBe(
+      "Spans of the run under test. An evaluation's scorer spans aren't counted.",
+    );
+    expect(chip(traceUnion(RUN_2, RUN_1).nodes).textContent).toBe(
+      "6 matched · 0 added · 1 removed",
+    );
+    expect(chip(null).textContent).toBe("No baseline trace to compare with");
+  });
+});
+
+describe("SpanTreeView in diff mode, pairing across a move or a rename", () => {
+  it("flags a span that ran under another parent as moved, with how it was paired", () => {
+    // The candidate's first `step` failed and was retried; its `fetch` is drawn under the
+    // retry, which pairs with the baseline's `step`.
+    const baseline = traceOf("tb", [
+      ["b-root", null, "agent", SpanKind.AGENT, 0, 1000],
+      ["b-step", "b-root", "step", SpanKind.SPAN, 10, 500],
+      ["b-fetch", "b-step", "fetch", SpanKind.TOOL, 20, 400],
+    ]);
+    const candidate = traceOf("tc", [
+      ["c-root", null, "agent", SpanKind.AGENT, 0, 1000],
+      ["c-step1", "c-root", "step", SpanKind.SPAN, 10, 300, { status: SpanStatus.ERROR }],
+      ["c-fetch", "c-step1", "fetch", SpanKind.TOOL, 20, 250],
+      ["c-step2", "c-root", "step", SpanKind.SPAN, 310, 900],
+    ]);
+    const { rows } = renderTree(
+      { trace: candidate },
+      { baseline, nodes: traceUnion(baseline, candidate).nodes },
+    );
+    const fetch = rows().find((r) => r.querySelector("[data-span-name]")!.textContent === "fetch")!;
+    expect(fetch.dataset.diffState).toBe("matched");
+    const moved = [...fetch.querySelectorAll("span")].find((s) => s.textContent === "moved")!;
+    expect(moved.getAttribute("title")).toBe(
+      "Matched by path: agent › step › tool:fetch #1 · in the candidate it sits under step #1",
+    );
+    // Only the span that moved is flagged.
+    expect(rows().filter((r) => r.textContent?.includes("moved"))).toHaveLength(1);
+  });
+
+  it("names a root paired across a rename old → new", () => {
+    const baseline = traceOf("tb", [["b-root", null, "agent", SpanKind.AGENT, 0, 1000]]);
+    const candidate = traceOf("tc", [["c-root", null, "support_agent", SpanKind.AGENT, 0, 1000]]);
+    const { rows } = renderTree(
+      { trace: candidate },
+      { baseline, nodes: traceUnion(baseline, candidate).nodes },
+    );
+    expect(rows().map((r) => r.querySelector("[data-span-name]")!.textContent)).toEqual([
+      "agent → support_agent",
+    ]);
+    expect(rows()[0].dataset.diffState).toBe("matched");
   });
 });
