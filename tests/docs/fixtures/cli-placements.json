@@ -119,7 +119,7 @@
     },
     {
       "command": "instrument",
-      "description": "Generate an agent prompt to instrument this repo with TraceRoot."
+      "description": "Generate an agent prompt to instrument this repo with traceroot."
     },
     {
       "command": "skills list",

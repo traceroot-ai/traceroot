@@ -185,13 +185,13 @@ ${htmlRows}
       </tr>`,
     buttonLabel: "View findings",
     buttonUrl: `${APP_BASE_URL}/projects/${projectId}/detectors`,
-    footerText: `You are receiving this because detector email alerts are enabled for the ${safeProjectName} project on TraceRoot.`,
+    footerText: `You are receiving this because detector email alerts are enabled for the ${safeProjectName} project on traceroot.`,
   });
 
   await transport.sendMail({
     from: SMTP_FROM,
     to: params.to.join(", "),
-    subject: `[TraceRoot Alert] ${total} ${noun} — ${projectName}`,
+    subject: `[traceroot Alert] ${total} ${noun} — ${projectName}`,
     text: textParts.join("\n"),
     html,
   });
@@ -254,8 +254,8 @@ export async function sendUsageQuotaEmail(params: {
 
   const subject =
     kind === "warning"
-      ? `[TraceRoot] ${workspaceName}: approaching your free plan ${copy.label} limit`
-      : `[TraceRoot] ${workspaceName}: free plan ${copy.label} limit reached`;
+      ? `[traceroot] ${workspaceName}: approaching your free plan ${copy.label} limit`
+      : `[traceroot] ${workspaceName}: free plan ${copy.label} limit reached`;
   const cta =
     kind === "warning"
       ? "Upgrade your plan to avoid interruption once the limit is reached."
@@ -384,6 +384,6 @@ function buildUsageQuotaHtml(params: {
       </tr>`,
     buttonLabel: "Manage your plan",
     buttonUrl: billingUrl,
-    footerText: `You are receiving this because you are an admin of the ${safeWorkspaceName} workspace on TraceRoot.`,
+    footerText: `You are receiving this because you are an admin of the ${safeWorkspaceName} workspace on traceroot.`,
   });
 }

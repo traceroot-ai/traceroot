@@ -1,8 +1,8 @@
 /**
- * Anthropic Tool Agent — TraceRoot Observability
+ * Anthropic Tool Agent — traceroot Observability
  *
  * A ReAct-style agent that uses Anthropic's tool_use API to answer queries.
- * Instrumented with TraceRoot via TraceRoot.initialize().
+ * Instrumented with traceroot via TraceRoot.initialize().
  *
  * anthropic: patches the Anthropic SDK to trace all LLM call spans.
  *
@@ -18,9 +18,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as anthropicSDK from '@anthropic-ai/sdk';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({ instrumentModules: { anthropic: anthropicSDK } });
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 // ── Tool implementations ──────────────────────────────────────────────────────
 
@@ -212,7 +212,7 @@ async function main() {
       () =>
         observe({ name: 'demo_session', type: 'agent' }, async () => {
           console.log('='.repeat(60));
-          console.log('Anthropic Tool Agent — Demo (TraceRoot)');
+          console.log('Anthropic Tool Agent — Demo (traceroot)');
           console.log('='.repeat(60));
 
           for (let i = 0; i < DEMO_QUERIES.length; i++) {

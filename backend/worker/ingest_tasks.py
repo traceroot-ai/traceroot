@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from shared.enums import SpanKind
 from worker.celery_app import app
 from worker.staged_batch import UndecodableBatchError, load_staged_batch
+from worker.trace_activity import schedule_trace_activity_report
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +468,13 @@ def process_s3_traces(self, s3_key: str, project_id: str, received_at: str | Non
         # 4. Publish to Redis for live trace streaming
         if spans:
             _publish_live_spans(spans, project_id)
+
+        # 5. Tell the web app this project received traces, at most once per UTC day:
+        # the day the API received the batch, however long it waited in the queue.
+        # Only a batch whose spans were written gets here. The report is queued as its
+        # own task, retried on its own, and queuing it never raises.
+        if spans:
+            schedule_trace_activity_report(project_id, version)
 
         return {
             "s3_key": s3_key,

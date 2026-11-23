@@ -1,5 +1,5 @@
 """
-AutoGen multi-agent conversation with tool use and TraceRoot observability.
+AutoGen multi-agent conversation with tool use and traceroot observability.
 
 Usage:
     cp .env.example .env

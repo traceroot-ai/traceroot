@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
+import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
@@ -15,6 +15,8 @@ import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { agentIdProvider } from "@/lib/agentid";
+import { AGENTID_PROVIDER_ID, configuredSocialProviders } from "@/lib/social-providers";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -22,6 +24,7 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
@@ -29,6 +32,9 @@ export const auth = betterAuth({
 
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
+
+  // Failed OAuth callbacks land on the app's error page, not better-auth's.
+  onAPIError: { errorURL: new URL("/auth/error", env.BETTER_AUTH_URL).toString() },
 
   emailAndPassword: {
     enabled: true,
@@ -45,7 +51,7 @@ export const auth = betterAuth({
           captureServerEvent(user.id, "user_signed_up", signupAttributionProperties(context));
           onUserCreated(
             { id: user.id, email: user.email, name: user.name ?? null },
-            context ? { path: context.path } : null,
+            context ? { path: context.path, provider: context.params?.id } : null,
           ).catch((error) => console.error("[signup] follow-up failed:", error));
         },
       },
@@ -73,6 +79,7 @@ export const auth = betterAuth({
   account: {
     accountLinking: {
       enabled: true,
+      // Never add "agentid": a trusted provider links on email alone.
       trustedProviders: ["google"],
     },
   },
@@ -151,6 +158,9 @@ export const auth = betterAuth({
       jwt: { expirationTime: "10m" },
       jwks: { keyPairConfig: { alg: "EdDSA" } },
     }),
+    ...(configuredSocialProviders(env).includes(AGENTID_PROVIDER_ID)
+      ? [genericOAuth({ config: [agentIdProvider(env)] })]
+      : []),
   ],
 });
 

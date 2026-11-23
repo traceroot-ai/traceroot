@@ -8,7 +8,9 @@ anything the caller sent.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,7 +43,7 @@ class StubService:
         self.raises = raises
         self.calls: list[dict[str, Any]] = []
 
-    def run(self, query, project_id, *, parameters=None, max_rows=None):
+    def run(self, query, project_id, *, parameters=None, max_rows=None, retention_floor=None):
         self.calls.append(
             {
                 "query": query,
@@ -617,3 +619,71 @@ class TestQueryGate:
         stub.run = recording_run
         assert _post(client).status_code == 200
         assert seen == {"shared": 0, "gate": 1}
+
+
+# ---------------------------------------------------------------------------
+# The billing plan's retention cutoff reaches the service as the floor
+# ---------------------------------------------------------------------------
+class FloorRecordingService:
+    """Records the keyword arguments the router passes, including the floor."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def run(self, query, project_id, **kwargs):
+        self.calls.append(kwargs)
+        return _ok_result()
+
+
+@pytest.fixture()
+def floor_recorder(monkeypatch: pytest.MonkeyPatch):
+    recorder = FloorRecordingService()
+    monkeypatch.setattr(sql_router, "SqlQueryService", lambda *a, **kw: recorder)
+    yield recorder
+    app.dependency_overrides.clear()
+
+
+class TestRetentionFloorFromPlan:
+    def test_the_route_passes_the_plans_cutoff_to_the_service(
+        self, floor_recorder: FloorRecordingService
+    ) -> None:
+        sentinel = datetime(2026, 3, 4, 5, 6, 7)
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(billing_plan="pro")
+        with patch.object(sql_router, "get_retention_cutoff", return_value=sentinel) as cutoff:
+            resp = TestClient(app).post(
+                "/api/v1/public/sql",
+                json={"query": "SELECT span_id FROM spans"},
+                headers=AUTH_HEADER,
+            )
+        assert resp.status_code == 200
+        cutoff.assert_called_once_with("pro")
+        assert floor_recorder.calls[0]["retention_floor"] is sentinel
+
+    def test_a_plan_with_no_limit_passes_none(self, floor_recorder: FloorRecordingService) -> None:
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(
+            billing_plan="enterprise"
+        )
+        with patch.object(sql_router, "get_retention_cutoff", return_value=None) as cutoff:
+            resp = TestClient(app).post(
+                "/api/v1/public/sql",
+                json={"query": "SELECT span_id FROM spans"},
+                headers=AUTH_HEADER,
+            )
+        assert resp.status_code == 200
+        cutoff.assert_called_once_with("enterprise")
+        assert floor_recorder.calls[0]["retention_floor"] is None
+
+    def test_a_free_project_is_floored_fifteen_days_back_unpatched(
+        self, floor_recorder: FloorRecordingService
+    ) -> None:
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(
+            billing_plan="free"
+        )
+        resp = TestClient(app).post(
+            "/api/v1/public/sql", json={"query": "SELECT span_id FROM spans"}, headers=AUTH_HEADER
+        )
+        assert resp.status_code == 200
+        floor = floor_recorder.calls[0]["retention_floor"]
+        expected = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=15, hours=1)
+        assert floor is not None
+        assert abs(floor - expected) < timedelta(seconds=5)
