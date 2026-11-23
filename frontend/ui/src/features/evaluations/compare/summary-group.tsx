@@ -64,13 +64,15 @@ export function SummaryGroup({
       {model.runs.map(({ run }, i) => {
         const isBaseline = run.id === model.baselineRunId;
         const first = i === 0;
-        const edge = lineEdge(i === span - 1);
+        const last = i === span - 1;
+        const edge = lineEdge(last);
+        const numeric = cn("text-right align-top tabular-nums", edge);
         const pair = pairs.get(run.id);
         return (
           <tr
             key={run.id}
             data-run-id={run.id}
-            className={cn(lineClass(first, i === span - 1), isBaseline && "text-muted-foreground")}
+            className={cn(lineClass(first, last), isBaseline && "text-muted-foreground")}
           >
             {first && (
               <Td
@@ -96,7 +98,7 @@ export function SummaryGroup({
             <Td className={cn("align-top", edge)}>{isBaseline && "Baseline"}</Td>
             {first && <Td rowSpan={span} className={GROUP_EDGE} />}
             {model.scorers.map((s) => (
-              <Td key={s.name} className={cn("text-right align-top tabular-nums", edge)}>
+              <Td key={s.name} className={numeric}>
                 {!isBaseline && (
                   <ScorerSummary
                     pair={pair}
@@ -108,7 +110,7 @@ export function SummaryGroup({
                 )}
               </Td>
             ))}
-            <Td className={cn("text-right align-top tabular-nums", edge)}>
+            <Td className={numeric}>
               {!isBaseline && (
                 <MeanSummary
                   mean={durationOf(pair)}
@@ -118,7 +120,7 @@ export function SummaryGroup({
                 />
               )}
             </Td>
-            <Td className={cn("text-right align-top tabular-nums", edge)}>
+            <Td className={numeric}>
               {!isBaseline && (
                 <MeanSummary
                   mean={pair?.cost}
