@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, MouseEvent } from "react";
+import { useMemo, type CSSProperties, type MouseEvent } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { SpanStatus } from "@traceroot/core";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -195,7 +195,8 @@ export function TraceRowDiffFigures({
   trace: TraceDetail;
   baseline: TraceDetail;
 }) {
-  const pairs = traceFigures(baseline, trace);
+  // Measured again only when either trace changes, not on every hover.
+  const pairs = useMemo(() => traceFigures(baseline, trace), [baseline, trace]);
   const figures: {
     metric: keyof UnionNodeMetrics;
     name: string;

@@ -113,6 +113,13 @@ export function SpanTimelineView({
   }, []);
 
   const traceDurationMs = useMemo(() => Math.max(1, getTraceDuration(trace) ?? 1), [trace]);
+  // The baseline's whole duration, for its ghost on the trace row; only a measured baseline
+  // draws one.
+  const ghostBaseline = diff?.measured ? diff.baseline : null;
+  const baselineDurationMs = useMemo(
+    () => (ghostBaseline ? (getTraceDuration(ghostBaseline) ?? 0) : 0),
+    [ghostBaseline],
+  );
   // What the ruler and every bar measure against: this trace, or both runs when diffing
   // two measured traces.
   const scaleMs = useMemo(
@@ -298,8 +305,8 @@ export function SpanTimelineView({
                   {diff?.measured && (
                     <GhostBar
                       left="0px"
-                      width={`${((getTraceDuration(diff.baseline) ?? 0) / scaleMs) * 100}%`}
-                      durationMs={getTraceDuration(diff.baseline) ?? 0}
+                      width={`${(baselineDurationMs / scaleMs) * 100}%`}
+                      durationMs={baselineDurationMs}
                     />
                   )}
                   <div
