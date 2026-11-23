@@ -108,7 +108,7 @@ export async function runAgent(input: {
     ...(provider === "openai" && {
       providerOptions: { openai: { reasoningEffort: "none" } },
     }),
-    // Emit OpenTelemetry model/tool spans so TraceRoot captures the agent's
+    // Emit OpenTelemetry model/tool spans so traceroot captures the agent's
     // execution (matches the sibling `examples/typescript/vercel-ai` example).
     experimental_telemetry: { isEnabled: true },
     stopWhen: stepCountIs(5),

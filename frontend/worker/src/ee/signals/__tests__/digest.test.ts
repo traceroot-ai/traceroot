@@ -269,7 +269,7 @@ describe("flushSignalDigest", () => {
     expect(mockEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: ["a@example.com"],
-        subject: "[TraceRoot] Signals in Shop: 1 new",
+        subject: "[traceroot] Signals in Shop: 1 new",
       }),
     );
     expect(updates).toHaveLength(1);

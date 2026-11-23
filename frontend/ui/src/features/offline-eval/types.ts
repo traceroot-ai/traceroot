@@ -7,7 +7,7 @@
  *
  * This version deliberately reuses the *real* trace types (`Span`,
  * `TraceDetail`) rather than a parallel shape, so the trace-inspection UI is the
- * genuine TraceRoot component fed with hardcoded data — not a lookalike.
+ * genuine traceroot component fed with hardcoded data — not a lookalike.
  */
 
 import type { Span, TraceDetail } from "@/types/api";

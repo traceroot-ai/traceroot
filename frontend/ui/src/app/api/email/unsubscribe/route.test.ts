@@ -32,7 +32,7 @@ it("GET renders the opt-out form for a valid token and writes nothing", async ()
   const response = await get("?t=good");
   expect([response.status, response.headers.get("cache-control")]).toEqual([200, "no-store"]);
   const html = await response.text();
-  expect(html).toContain(`Unsubscribe ${EMAIL} from product emails from TraceRoot?`);
+  expect(html).toContain(`Unsubscribe ${EMAIL} from product emails from traceroot?`);
   expect(html).toContain(form("opt_out"));
   expect(core.ensureContact).not.toHaveBeenCalled();
 });

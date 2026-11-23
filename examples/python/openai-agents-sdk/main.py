@@ -1,5 +1,5 @@
 """
-OpenAI Agents SDK with tool use and TraceRoot observability.
+OpenAI Agents SDK with tool use and traceroot observability.
 
 Uses the OpenAI Agents SDK (openai-agents) which handles the agent loop,
 tool execution, and multi-turn conversations automatically.

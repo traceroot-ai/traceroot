@@ -40,7 +40,7 @@ export type IntegrationCategory = "provider" | "framework" | "coding-agent";
  * can only use that provider's key ("fixed"). A provider-agnostic framework
  * will take whatever it is handed, so the honest answer is the provider our own
  * example calls, offered as a starting point the user can change
- * ("suggested"). And an entry can name a provider TraceRoot has no BYOK adapter
+ * ("suggested"). And an entry can name a provider traceroot has no BYOK adapter
  * for at all ("none"), which has to be said rather than papered over with a
  * field that cannot store anything.
  *
