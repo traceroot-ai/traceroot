@@ -74,12 +74,19 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     expect(m.memberCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ workspaceId: "w1", userId: "u1", role: "MEMBER" }),
     });
+    // The invite is used up in the same transaction as the membership.
+    expect(m.inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
+    expect(m.transaction).toHaveBeenCalledWith([
+      m.memberCreate.mock.results[0].value,
+      m.inviteDelete.mock.results[0].value,
+    ]);
   });
 
   it("accepts for a sign-in whose provider verified the address", async () => {
     m.account = { emailVerified: true, accounts: [{ providerId: "github" }] };
     expect((await accept()).status).toBe(200);
     expect(m.transaction).toHaveBeenCalledTimes(1);
+    expect(m.inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
   });
 
   it.each([
