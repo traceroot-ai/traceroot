@@ -1,4 +1,4 @@
-"""OpenAI Cost Tracking Example — TraceRoot Observability.
+"""OpenAI Cost Tracking Example — traceroot Observability.
 
 Demonstrates automatic token counting and cost calculation using a priced model ID.
 

@@ -27,7 +27,7 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
     state: {
       page: 3,
       limit: 50,
-      dateFilter: "all",
+      dateFilter: { id: "all" },
       customStartDate: null,
       customEndDate: null,
       keyword: "",
@@ -50,10 +50,11 @@ vi.mock("@/lib/hooks/use-local-storage", () => ({
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e" } }, isPending: false }),
 }));
+const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
   useSearchParams: () => new URLSearchParams(searchParamsValue),
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push: pushMock }),
 }));
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHideAiButton: vi.fn() }),
@@ -86,6 +87,7 @@ afterEach(() => {
   cleanup();
   prefetch.mockReset();
   autoRefresh = false;
+  searchParamsValue = "";
 });
 
 describe("TracesPage prefetch wiring", () => {
@@ -124,5 +126,20 @@ describe("TracesPage by-id scoping", () => {
     const panel = screen.getByTestId("trace-panel");
     expect(panel.getAttribute("data-trace-id")).toBe("aaaaaaaabbbbccccddddeeeeeeeeeeee");
     expect(panel.getAttribute("data-source")).toBe("user");
+  });
+});
+
+describe("TracesPage user_id filter badge", () => {
+  it("shows a clearable badge for the active user_id filter", () => {
+    searchParamsValue = "user_id=user-42";
+    render(<TracesPage />, { wrapper: Wrapper });
+
+    expect(screen.getByText("User:")).toBeTruthy();
+    expect(screen.getByText("user-42")).toBeTruthy();
+
+    const clearButton = screen.getByText("User:").parentElement?.querySelector("button");
+    expect(clearButton).toBeTruthy();
+    fireEvent.click(clearButton!);
+    expect(pushMock).toHaveBeenCalledWith("/projects/p1/traces?date_filter=all");
   });
 });

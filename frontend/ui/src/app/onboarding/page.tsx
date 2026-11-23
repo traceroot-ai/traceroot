@@ -290,10 +290,10 @@ function OnboardingContent() {
   // An account that already has somewhere for traces to go has nothing to do on
   // this page, and arriving here anyway is not hypothetical. No caller can tell a
   // brand-new account from an existing one at the point it decides where to send
-  // someone: better-auth has no separate social sign-up, so the Google button on
+  // someone: better-auth has no separate social sign-up, so each social button on
   // /auth/sign-up is `signIn.social` either way, and with account linking
-  // enabled for Google (see lib/auth.ts) it also answers for an existing *email*
-  // account at the same address. Predicting newness there has been wrong twice.
+  // enabled for Google only (see lib/auth.ts) Google also answers for an existing
+  // *email* account at the same address. Predicting newness there has been wrong twice.
   // So the page checks the account instead of trusting the route it took.
   //
   // Without this, an existing account that lands here is parked: the form's only

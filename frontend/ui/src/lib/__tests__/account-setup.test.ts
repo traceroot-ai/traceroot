@@ -18,7 +18,7 @@ function workspace(fields: Partial<Workspace>): Workspace {
 // is what would mark a new account as set up if it counted.
 const DEMO = workspace({
   id: "ws-demo",
-  name: "TraceRoot Demo",
+  name: "traceroot Demo",
   role: "VIEWER",
   project_count: 1,
   is_demo: true,

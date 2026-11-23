@@ -1,4 +1,4 @@
-"""FastAPI REST API server for TraceRoot.
+"""FastAPI REST API server for traceroot.
 
 This server handles:
 - OTEL trace ingestion (public API with API key auth)
