@@ -6,7 +6,8 @@ import type { CaseAnalysis } from "./filters";
 import { serializeCompareUrl } from "./url-state";
 
 /** The analysis as the URL writes it, so two that read the same compare equal. */
-const urlForm = (a: CaseAnalysis) => serializeCompareUrl({ runs: [], baseline: null, ...a });
+const urlForm = (a: CaseAnalysis) =>
+  serializeCompareUrl({ runs: [], baseline: null, case: null, pair: null, ...a });
 
 /**
  * The table's search, filters and sort. A change shows at once and is handed to

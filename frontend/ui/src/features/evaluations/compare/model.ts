@@ -51,6 +51,8 @@ export interface CaseRow {
   /** `id:<testCaseId>` for a case on the baseline's dataset, `input:<canonical input>` for
    *  a cross-dataset case whose input no such case carries. */
   key: string;
+  /** Stable display order: the baseline's cases first, in its order. */
+  order: number;
   /** runId → that run's result; absent = the run has no result for this case. */
   byRun: ReadonlyMap<string, ResultRow>;
 }
@@ -200,11 +202,11 @@ export function buildCompareModel(
   const runs = [baseline, ...byAge.filter((b) => b !== baseline)];
   const onBaselineDataset = (b: RunBundle) => b.run.datasetId === baseline.run.datasetId;
 
-  const rows = new Map<string, { key: string; byRun: Map<string, ResultRow> }>();
+  const rows = new Map<string, { key: string; order: number; byRun: Map<string, ResultRow> }>();
   const rowAt = (key: string) => {
     let row = rows.get(key);
     if (!row) {
-      row = { key, byRun: new Map() };
+      row = { key, order: rows.size, byRun: new Map() };
       rows.set(key, row);
     }
     return row;

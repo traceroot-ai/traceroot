@@ -74,6 +74,7 @@ describe("buildCompareModel — cases", () => {
       ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12].map((n) => `case-${n}`),
       "case-10",
     ]);
+    expect(model.cases.map((c) => c.order)).toEqual(model.cases.map((_, i) => i));
     // Case 9 is missing from #2 and case 10 from #1.
     expect(model.sharedByAllCount).toBe(10);
   });
