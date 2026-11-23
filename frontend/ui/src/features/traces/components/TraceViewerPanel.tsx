@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   X,
@@ -36,6 +36,20 @@ import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-finding
 import { TraceDetectorsTab } from "./TraceDetectorsTab";
 import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
 import { RetentionGateBanner } from "@/components/RetentionGateBanner";
+import { traceUnion } from "@/lib/eval/union-tree";
+import { DiffToggle, DivergenceChip } from "./TraceDiffControls";
+import { findUnionNode } from "../utils/diff";
+
+/** A baseline trace of the same case, for the viewer's diff mode. */
+export interface TraceDiffBaseline {
+  /** The baseline's trace; null when there is none to compare with. */
+  trace: TraceDetail | null;
+  /** The baseline trace is a reconstruction (no telemetry was emitted), so its timings and
+   *  usage aren't measurements to compare. */
+  reconstructed?: boolean;
+  /** Why there is no baseline trace, said in place of the divergence. */
+  unavailable?: ReactNode;
+}
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -126,6 +140,35 @@ interface TraceViewerPanelProps {
    */
   headerStatus?: ReactNode;
   /**
+   * Frames the viewer as one item of a list the host steps through other than traces (the
+   * evaluation comparison's cases): `title` stands in for "Trace <id>", previous/next and
+   * close are named for the item, and full screen is reported to the host, which sizes an
+   * embedded viewer itself. Unset in production.
+   */
+  headerItem?: {
+    title: ReactNode;
+    /** What previous/next step through, e.g. "case". */
+    noun: string;
+    onFullscreenChange?: (fullscreen: boolean) => void;
+  };
+  /**
+   * Diff mode (the evaluation comparison): a baseline trace of the same case to compare
+   * this one with. A Diff toggle joins the view tabs; while it is on, how the two traces
+   * diverge and `diffToolbar` sit beside it. Unset in production.
+   */
+  diffBaseline?: TraceDiffBaseline;
+  /** Open with diff mode on; the toggle still turns it off. */
+  defaultDiffOn?: boolean;
+  /** The host's controls beside the Diff toggle while it is on (the comparison's run
+   *  pickers and swap). */
+  diffToolbar?: ReactNode;
+  /**
+   * Shown in place of the tree and details, with nothing fetched: the host has no trace to
+   * show and says why (the comparison's run with no result for the case, or a trace still
+   * being ingested). The header and view bar stay. Unset in production.
+   */
+  notice?: ReactNode;
+  /**
    * Scope the trace fetch: "detector" opens a detector self-trace, "agent"
    * opens an agent (RCA/chat) trace (both excluded from normal reads), "user"
    * excludes internal traces. Omit for no scoping.
@@ -200,6 +243,11 @@ export function TraceViewerPanel({
   onSelectionChange,
   headerIdentity,
   headerStatus,
+  headerItem,
+  diffBaseline,
+  defaultDiffOn,
+  diffToolbar,
+  notice,
   source,
   runTimestamp,
 }: TraceViewerPanelProps) {
@@ -218,6 +266,17 @@ export function TraceViewerPanel({
   // intentionally persists while navigating between traces, since the panel
   // instance stays mounted across ↑/↓ navigation.
   const [isFullscreen, setIsFullscreen] = useState(initialFullscreen ?? false);
+  const toggleFullscreen = () => {
+    const next = !isFullscreen;
+    setIsFullscreen(next);
+    headerItem?.onFullscreenChange?.(next);
+  };
+  // Diff mode is only on offer with a baseline; it then stays as left while the host moves
+  // the panel from case to case.
+  const [diffOn, setDiffOn] = useState(defaultDiffOn ?? false);
+  const diffing = !!diffBaseline && diffOn;
+  // With a notice there is no trace to fetch, stream or look findings up for.
+  const showsTrace = !notice;
   const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
     useLayout();
 
@@ -253,7 +312,7 @@ export function TraceViewerPanel({
   // is always empty.
   const { data: traceFindingsData } = useTraceFindings(
     projectId,
-    traceOverride || !isCustomerTraffic(source) ? "" : traceId,
+    traceOverride || !showsTrace || !isCustomerTraffic(source) ? "" : traceId,
   );
   const traceFinding = traceFindingsData?.findings?.[0];
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
@@ -296,14 +355,21 @@ export function TraceViewerPanel({
   } = useQuery({
     queryKey: traceQueryKey(projectId, traceId, source),
     queryFn: () => getTrace(projectId, traceId, "", undefined, source),
-    enabled: !traceOverride,
+    enabled: !traceOverride && showsTrace,
   });
   const trace = traceOverride ?? fetchedTrace;
 
   const isLoading = traceOverride ? false : isFetching;
 
   // source must match the query key above, or SSE span merging silently no-ops.
-  useTraceStream(projectId, traceId, !traceOverride, source);
+  useTraceStream(projectId, traceId, !traceOverride && showsTrace, source);
+
+  // The two traces as one tree, while diffing and both are in.
+  const baselineTrace = diffBaseline?.trace ?? null;
+  const union = useMemo(
+    () => (diffing && baselineTrace && trace ? traceUnion(baselineTrace, trace) : null),
+    [diffing, baselineTrace, trace],
+  );
 
   // Reset when the displayed trace or the deep link changes, then apply the
   // deep link: `initialSpanId` is a *pending* selection, armed on each
@@ -325,6 +391,23 @@ export function TraceViewerPanel({
     deepLinkRef.current.pending = null;
     setSelection({ type: "span", span });
   }, [traceId, initialSpanId, trace]);
+  // A span only the baseline has, picked in diff mode, isn't in this trace: once the union
+  // no longer has it (diff mode off, another baseline), the selection goes back to the root.
+  useEffect(() => {
+    if (!diffBaseline || selection.type !== "span" || !trace) return;
+    if (selection.span.trace_id === trace.trace_id) return;
+    if (union && findUnionNode(union.nodes, selection.span, baselineTrace?.trace_id ?? null))
+      return;
+    setSelection({ type: "trace" });
+  }, [diffBaseline, selection, trace, union, baselineTrace]);
+  // Leaving diff mode on a span only the baseline has goes back to the root at once, so the
+  // plain details never look that span up in this trace.
+  const toggleDiff = (on: boolean) => {
+    setDiffOn(on);
+    if (!on && selection.type === "span" && trace && selection.span.trace_id !== trace.trace_id) {
+      setSelection({ type: "trace" });
+    }
+  };
   // A manual pick wins over a deep link that has not resolved yet.
   const selectManually = useCallback((sel: TraceSelection) => {
     if (deepLinkRef.current) deepLinkRef.current.pending = null;
@@ -408,7 +491,11 @@ export function TraceViewerPanel({
         // branch is written out in full, in its original order, because the
         // user-trace snapshot test compares this markup byte for byte.
         embedded
-          ? "flex h-full w-full flex-col border-l border-border bg-background"
+          ? cn(
+              "flex h-full w-full flex-col",
+              !headerItem && "border-l border-border",
+              "bg-background",
+            )
           : cn(
               "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200",
               // Fullscreen stays clear of the header and sidebar; AppLayout sets their sizes.
@@ -423,21 +510,27 @@ export function TraceViewerPanel({
         <div className="flex h-11 items-center justify-between border-b border-border px-4">
           <div className="flex min-w-0 items-center gap-1.5">
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="shrink-0 text-[13px] font-medium">
-              {headerIdentity?.label ?? "Trace"}
-            </span>
-            <span className="truncate text-xs text-muted-foreground">
-              {headerIdentity?.value ?? traceId}
-            </span>
-            {/* Copy affordance for the header id. Only offered when an identity is
-                supplied (offline-eval's test case); the standard trace header is
-                unchanged. */}
-            {headerIdentity && (
-              <CopyButton
-                value={headerIdentity.value}
-                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
-              />
+            {headerItem ? (
+              headerItem.title
+            ) : (
+              <>
+                <span className="shrink-0 text-[13px] font-medium">
+                  {headerIdentity?.label ?? "Trace"}
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {headerIdentity?.value ?? traceId}
+                </span>
+                {/* Copy affordance for the header id. Only offered when an identity is
+                    supplied (offline-eval's test case); the standard trace header is
+                    unchanged. */}
+                {headerIdentity && (
+                  <CopyButton
+                    value={headerIdentity.value}
+                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                    title={`Copy ${headerIdentity.label.toLowerCase()} id`}
+                  />
+                )}
+              </>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -448,7 +541,7 @@ export function TraceViewerPanel({
               onClick={() => onNavigate("up")}
               disabled={!canNavigateUp}
               className="h-7 w-7 p-0"
-              title="Previous trace"
+              title={headerItem ? `Previous ${headerItem.noun}` : "Previous trace"}
             >
               <ArrowUp className="h-4 w-4" />
             </Button>
@@ -458,14 +551,14 @@ export function TraceViewerPanel({
               onClick={() => onNavigate("down")}
               disabled={!canNavigateDown}
               className="h-7 w-7 p-0"
-              title="Next trace"
+              title={headerItem ? `Next ${headerItem.noun}` : "Next trace"}
             >
               <ArrowDown className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setIsFullscreen((v) => !v)}
+              onClick={toggleFullscreen}
               className="h-7 w-7 p-0"
               title={isFullscreen ? "Restore default size" : "Expand to full screen"}
             >
@@ -473,7 +566,7 @@ export function TraceViewerPanel({
             </Button>
             {/* Hidden under an override: traceId is the synthetic eval-<resultId>,
                 which nothing downstream can resolve from a URL. */}
-            {!traceOverride && (
+            {!traceOverride && showsTrace && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -525,7 +618,13 @@ export function TraceViewerPanel({
                 <DOMAIN_ICONS.assistant className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="h-7 w-7 p-0"
+              title={headerItem ? "Close" : undefined}
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -569,7 +668,26 @@ export function TraceViewerPanel({
                 <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
               </button>
             )}
+            {diffBaseline && (
+              <>
+                <div aria-hidden className="mx-1 h-4 w-px bg-border" />
+                <DiffToggle on={diffOn} onChange={toggleDiff} />
+              </>
+            )}
           </div>
+          {diffing && (
+            // Scrolls rather than spill out of a narrow panel.
+            <div className="ml-auto flex min-w-0 items-center gap-3 overflow-x-auto pr-4 text-[12px]">
+              {/* Nothing to count until this trace is in. */}
+              {(trace || !baselineTrace) && (
+                <DivergenceChip
+                  nodes={union?.nodes ?? null}
+                  unavailable={diffBaseline.unavailable}
+                />
+              )}
+              {diffToolbar}
+            </div>
+          )}
         </div>
 
         {/* ── CONTENT AREA ── */}
@@ -577,168 +695,172 @@ export function TraceViewerPanel({
           {/* Top-level split: [ main content | AI assistant (optional) ]. The AI
             panel is hoisted up here so it sits beside the main content on every
             view, so it stays usable on the Detectors view too. */}
-          <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
-            <ResizablePanel id="trace-main" minSize="420px" className="min-w-0 overflow-hidden">
-              <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
-                {/* LEFT: tree panel */}
-                <ResizablePanel
-                  id="trace-tree"
-                  defaultSize="32%"
-                  minSize="260px"
-                  maxSize="50%"
-                  className="flex min-w-0 flex-col"
-                >
-                  <div
-                    className="flex flex-shrink-0 items-center border-b border-border px-3"
-                    style={{ height: TREE_LAYOUT.HEADER_HEIGHT }}
+          {!showsTrace ? (
+            <div className="flex min-w-0 flex-1 flex-col overflow-auto">{notice}</div>
+          ) : (
+            <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+              <ResizablePanel id="trace-main" minSize="420px" className="min-w-0 overflow-hidden">
+                <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+                  {/* LEFT: tree panel */}
+                  <ResizablePanel
+                    id="trace-tree"
+                    defaultSize="32%"
+                    minSize="260px"
+                    maxSize="50%"
+                    className="flex min-w-0 flex-col"
                   >
-                    <span className="text-[12px] font-medium text-muted-foreground">
-                      Trace Tree
-                    </span>
-                  </div>
-                  <div
-                    ref={treeScrollRef}
-                    className="flex-1 overflow-y-auto overflow-x-hidden"
-                    onScroll={handleTreeScroll}
-                  >
-                    {trace && (
-                      <SpanTreeView
-                        ref={treeViewRef}
-                        trace={trace}
-                        scrollRef={treeScrollRef}
-                        selection={selection}
-                        onSelect={viewMode === "tree" ? selectManually : handleTimelineSelect}
-                        collapsedIds={collapsedIds}
-                        onToggleCollapse={handleToggleCollapse}
-                        compact={viewMode === "timeline"}
-                        hoveredSpanId={hoveredSpanId}
-                        onHoverChange={setHoveredSpanId}
-                        disableIOPrefetch={!!traceOverride}
-                      />
-                    )}
-                  </div>
-                </ResizablePanel>
-
-                <ResizableHandle />
-
-                {/* RIGHT: span details / timeline */}
-                <ResizablePanel
-                  id="trace-detail"
-                  minSize="320px"
-                  className="min-w-0 overflow-hidden border-l border-border bg-background"
-                >
-                  {/* Detectors fetches its own data by traceId, so it renders
-                    ahead of the trace-load guards — a slow or failed *trace*
-                    fetch must not hide independently-loaded detector data. */}
-                  {viewMode === "detectors" && !detectorsHidden ? (
-                    <TraceDetectorsTab projectId={projectId} traceId={traceId} />
-                  ) : isLoading ? (
-                    <div className="flex h-full items-center justify-center">
-                      <LoadingState label="Loading trace..." />
+                    <div
+                      className="flex flex-shrink-0 items-center border-b border-border px-3"
+                      style={{ height: TREE_LAYOUT.HEADER_HEIGHT }}
+                    >
+                      <span className="text-[12px] font-medium text-muted-foreground">
+                        Trace Tree
+                      </span>
                     </div>
-                  ) : error && isRetentionError(error) ? (
-                    <RetentionGateBanner
-                      projectId={projectId}
-                      detail={getRetentionDetail(error)!}
-                    />
-                  ) : error || !trace ? (
-                    <div className="flex h-full items-center justify-center">
-                      {!isCustomerTraffic(source) &&
-                      (!error || (error instanceof ApiError && error.status === 404)) ? (
-                        source === "agent" ? (
-                          // Every way into an agent trace — a Finding ID cell, a tool
-                          // step's Open span — gates on the execution's
-                          // traceStatus being "available", i.e. the agent already reported
-                          // a successful export. So a 404 here is ingest lag, never a
-                          // failed export, and the detector run's timestamp window below
-                          // says nothing about it: the analysis starts after the run and
-                          // takes minutes.
-                          <p className="text-sm text-muted-foreground">
-                            This analysis trace has been exported but isn&rsquo;t ingested yet.
-                            Check back in a moment.
-                          </p>
-                        ) : source === "detector" ? (
-                          // self_traced is set optimistically at emit time, and the SDK
-                          // export is batched, so the trace may not be ingested yet and a
-                          // 404 miss here is expected, not an error. A non-404 failure
-                          // still surfaces as a real error below. Once the export window
-                          // has passed, the stamp is stale: the export failed and nothing
-                          // will arrive, so say so instead of telling the user to keep
-                          // waiting.
-                          isSelfTracePending(runTimestamp) ? (
-                            <p className="text-sm text-muted-foreground">
-                              This detector run&rsquo;s trace is still being recorded. Check back in
-                              a moment.
-                            </p>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">
-                              No trace was recorded for this run — the self-trace export
-                              didn&rsquo;t reach the backend.
-                            </p>
-                          )
-                        ) : (
-                          // Only the internal kinds above know why their trace can be
-                          // missing; any other internal source gets the plain error
-                          // rather than borrowing a detector run's copy.
-                          <p className="text-sm text-destructive">Error loading trace</p>
-                        )
-                      ) : (
-                        <p className="text-sm text-destructive">Error loading trace</p>
+                    <div
+                      ref={treeScrollRef}
+                      className="flex-1 overflow-y-auto overflow-x-hidden"
+                      onScroll={handleTreeScroll}
+                    >
+                      {trace && (
+                        <SpanTreeView
+                          ref={treeViewRef}
+                          trace={trace}
+                          scrollRef={treeScrollRef}
+                          selection={selection}
+                          onSelect={viewMode === "tree" ? selectManually : handleTimelineSelect}
+                          collapsedIds={collapsedIds}
+                          onToggleCollapse={handleToggleCollapse}
+                          compact={viewMode === "timeline"}
+                          hoveredSpanId={hoveredSpanId}
+                          onHoverChange={setHoveredSpanId}
+                          disableIOPrefetch={!!traceOverride}
+                        />
                       )}
                     </div>
-                  ) : viewMode === "tree" ? (
-                    <SpanInfoPanel
-                      projectId={projectId}
-                      trace={trace}
-                      selection={selection}
-                      onClose={onClose}
-                      dateFilter={dateFilter}
-                      customStartDate={customStartDate}
-                      customEndDate={customEndDate}
-                      spanActions={spanActions?.(selection)}
-                      headerAction={spanHeaderAction?.(selection)}
-                      extraTags={spanExtraTags?.(selection)}
-                      isEvalShaped={!!traceOverride}
-                    />
-                  ) : (
-                    <SpanTimelineView
-                      trace={trace}
-                      selection={selection}
-                      onSelect={handleTimelineSelect}
-                      collapsedIds={collapsedIds}
-                      scrollRef={timelineScrollRef}
-                      onScroll={handleTimelineScroll}
-                      hoveredSpanId={hoveredSpanId}
-                      onHoverChange={setHoveredSpanId}
-                    />
-                  )}
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
+                  </ResizablePanel>
 
-            {!embedded && aiPanelOpen && (
-              <>
-                <ResizableHandle />
-                <ResizablePanel
-                  id="trace-ai-chat"
-                  defaultSize="31%"
-                  minSize="320px"
-                  maxSize="45%"
-                  className="min-w-0 border-l border-border bg-background"
-                >
-                  <AiAssistantPanel
-                    projectId={projectId}
-                    compact
-                    onClose={() => {
-                      setAiPanelOpen(false);
-                      setAiContext(null);
-                      setAiInitialSessionId(undefined);
-                    }}
-                  />
-                </ResizablePanel>
-              </>
-            )}
-          </ResizablePanelGroup>
+                  <ResizableHandle />
+
+                  {/* RIGHT: span details / timeline */}
+                  <ResizablePanel
+                    id="trace-detail"
+                    minSize="320px"
+                    className="min-w-0 overflow-hidden border-l border-border bg-background"
+                  >
+                    {/* Detectors fetches its own data by traceId, so it renders
+                    ahead of the trace-load guards — a slow or failed *trace*
+                    fetch must not hide independently-loaded detector data. */}
+                    {viewMode === "detectors" && !detectorsHidden ? (
+                      <TraceDetectorsTab projectId={projectId} traceId={traceId} />
+                    ) : isLoading ? (
+                      <div className="flex h-full items-center justify-center">
+                        <LoadingState label="Loading trace..." />
+                      </div>
+                    ) : error && isRetentionError(error) ? (
+                      <RetentionGateBanner
+                        projectId={projectId}
+                        detail={getRetentionDetail(error)!}
+                      />
+                    ) : error || !trace ? (
+                      <div className="flex h-full items-center justify-center">
+                        {!isCustomerTraffic(source) &&
+                        (!error || (error instanceof ApiError && error.status === 404)) ? (
+                          source === "agent" ? (
+                            // Every way into an agent trace — a Finding ID cell, a tool
+                            // step's Open span — gates on the execution's
+                            // traceStatus being "available", i.e. the agent already reported
+                            // a successful export. So a 404 here is ingest lag, never a
+                            // failed export, and the detector run's timestamp window below
+                            // says nothing about it: the analysis starts after the run and
+                            // takes minutes.
+                            <p className="text-sm text-muted-foreground">
+                              This analysis trace has been exported but isn&rsquo;t ingested yet.
+                              Check back in a moment.
+                            </p>
+                          ) : source === "detector" ? (
+                            // self_traced is set optimistically at emit time, and the SDK
+                            // export is batched, so the trace may not be ingested yet and a
+                            // 404 miss here is expected, not an error. A non-404 failure
+                            // still surfaces as a real error below. Once the export window
+                            // has passed, the stamp is stale: the export failed and nothing
+                            // will arrive, so say so instead of telling the user to keep
+                            // waiting.
+                            isSelfTracePending(runTimestamp) ? (
+                              <p className="text-sm text-muted-foreground">
+                                This detector run&rsquo;s trace is still being recorded. Check back
+                                in a moment.
+                              </p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                No trace was recorded for this run — the self-trace export
+                                didn&rsquo;t reach the backend.
+                              </p>
+                            )
+                          ) : (
+                            // Only the internal kinds above know why their trace can be
+                            // missing; any other internal source gets the plain error
+                            // rather than borrowing a detector run's copy.
+                            <p className="text-sm text-destructive">Error loading trace</p>
+                          )
+                        ) : (
+                          <p className="text-sm text-destructive">Error loading trace</p>
+                        )}
+                      </div>
+                    ) : viewMode === "tree" ? (
+                      <SpanInfoPanel
+                        projectId={projectId}
+                        trace={trace}
+                        selection={selection}
+                        onClose={onClose}
+                        dateFilter={dateFilter}
+                        customStartDate={customStartDate}
+                        customEndDate={customEndDate}
+                        spanActions={spanActions?.(selection)}
+                        headerAction={spanHeaderAction?.(selection)}
+                        extraTags={spanExtraTags?.(selection)}
+                        isEvalShaped={!!traceOverride}
+                      />
+                    ) : (
+                      <SpanTimelineView
+                        trace={trace}
+                        selection={selection}
+                        onSelect={handleTimelineSelect}
+                        collapsedIds={collapsedIds}
+                        scrollRef={timelineScrollRef}
+                        onScroll={handleTimelineScroll}
+                        hoveredSpanId={hoveredSpanId}
+                        onHoverChange={setHoveredSpanId}
+                      />
+                    )}
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              </ResizablePanel>
+
+              {!embedded && aiPanelOpen && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel
+                    id="trace-ai-chat"
+                    defaultSize="31%"
+                    minSize="320px"
+                    maxSize="45%"
+                    className="min-w-0 border-l border-border bg-background"
+                  >
+                    <AiAssistantPanel
+                      projectId={projectId}
+                      compact
+                      onClose={() => {
+                        setAiPanelOpen(false);
+                        setAiContext(null);
+                        setAiInitialSessionId(undefined);
+                      }}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          )}
         </div>
       </div>
     </div>

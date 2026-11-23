@@ -10,6 +10,6 @@ export { ContentRenderer } from "./ContentRenderer";
 export { SpanInfoPanel } from "./SpanInfoPanel";
 export { ColumnPicker } from "./ColumnPicker";
 export { TraceListTable } from "./TraceListTable";
-export { TraceViewerPanel } from "./TraceViewerPanel";
+export { TraceViewerPanel, type TraceDiffBaseline } from "./TraceViewerPanel";
 export { SessionDetailPanel } from "./SessionDetailPanel";
 export { GettingStarted } from "./GettingStarted";
