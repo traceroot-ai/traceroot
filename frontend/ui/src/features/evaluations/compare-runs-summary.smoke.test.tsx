@@ -56,6 +56,7 @@ function cellIn(row: HTMLElement, header: string): HTMLElement {
   const index = screen
     .getAllByRole("columnheader")
     .findIndex((h) => h.textContent?.startsWith(header));
+  if (index === -1) throw new Error(`No column header starts with "${header}"`);
   return row.querySelectorAll("td")[index] as HTMLElement;
 }
 const caseRow = (input: string) => screen.getByText(input).closest("tr") as HTMLElement;
@@ -172,9 +173,9 @@ describe("CompareRunsView — run identity", () => {
 
   it("leaves a value that has its own tooltip without a native title", () => {
     mount();
-    const input = cellIn(caseRow("Ticket 2"), "Output");
-    expect(input.querySelectorAll(".sr-only").length).toBeGreaterThan(0);
-    expect(input.querySelectorAll("[title]")).toHaveLength(0);
+    const output = cellIn(caseRow("Ticket 2"), "Output");
+    expect(output.querySelectorAll(".sr-only").length).toBeGreaterThan(0);
+    expect(output.querySelectorAll("[title]")).toHaveLength(0);
   });
 
   it("names the run behind each summary entry", () => {

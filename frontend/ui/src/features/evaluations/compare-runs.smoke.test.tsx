@@ -565,7 +565,9 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row2).getByText("C-out")).toBeTruthy();
     // (d): C's per-row duration (4.4s) shows in both rows, and both count in its mean latency.
     expect(screen.getAllByText("4.4s").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("2.1s → 4.4s")).toBeTruthy();
+    // C's own summary line (the td also stacks B's), so the n is the one beside its mean.
+    const line = screen.getByText("2.1s → 4.4s").closest(".inline-flex") as HTMLElement;
+    expect(within(line).getByText("n=2")).toBeTruthy();
   });
 
   it("takes only a cross-dataset run's FIRST case for an input it measured more than once", () => {
