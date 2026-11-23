@@ -540,7 +540,7 @@ describe("pending copy recovery", () => {
 });
 
 describe("production wiring", () => {
-  it("embeds with the deployment key and uses Jev only with TraceRoot's TypeSafe key", async () => {
+  it("embeds with the deployment key and uses Jev only with traceroot's TypeSafe key", async () => {
     mockRound.mockResolvedValue({ waiting: 0, remaining: false, readAt: T0 });
     await processSignalAssignJob(job({ projectId: "p", detectorId: "d" }), "tok");
     const deps = mockRound.mock.calls[0][0] as RoundDeps;

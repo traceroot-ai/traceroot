@@ -38,9 +38,9 @@ describe("sendInviteEmail", () => {
     const mail = sendMail.mock.calls[0][0];
 
     expect(mail.to).toBe("new.member@example.com");
-    expect(mail.subject).toBe('Kai invited you to join "Acme" on TraceRoot');
+    expect(mail.subject).toBe('Kai invited you to join "Acme" on traceroot');
 
-    expect(mail.html).toContain("Join Acme on TraceRoot");
+    expect(mail.html).toContain("Join Acme on traceroot");
     expect(mail.html).toContain("kai@example.com");
     // role is title-cased for display
     expect(mail.html).toContain("<strong>Member</strong>");
