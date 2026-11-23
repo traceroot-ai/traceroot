@@ -133,9 +133,13 @@ export async function followUpFacts(
     githubConnected: github > 0,
     slackConnected: slack > 0,
     hasRunEval: evalRun > 0,
-    // A claimed email counts from its claim: one in flight is not sent again
-    // and holds its place in the frequency limits.
-    sends: sends.map((s) => ({ campaign: s.campaign as Campaign, at: s.sentAt ?? s.claimedAt })),
+    // A claimed follow-up counts from its claim: one in flight is not sent
+    // again and holds its place in the frequency limits. The welcome counts
+    // only once it was sent: the follow-ups continue it, and a claim whose send
+    // never finished (failed, or still under way) is no evidence it arrived.
+    sends: sends
+      .filter((s) => s.campaign !== "welcome" || s.sentAt !== null)
+      .map((s) => ({ campaign: s.campaign as Campaign, at: s.sentAt ?? s.claimedAt })),
   };
 }
 
