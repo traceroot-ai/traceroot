@@ -8,7 +8,7 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRunDetails } from "../hooks";
 import { COMPARISON_TABLE } from "../compare/cells";
 import { hasPairedCases, noResultsText } from "../compare/coverage";
-import { NoSharedInputs } from "../compare/empty-states";
+import { NoSharedInputs, RunsNotLoaded } from "../compare/empty-states";
 import {
   clearLabel,
   clearSearchAndFilters,
@@ -69,7 +69,8 @@ export function CompareRunsView({
   const filtersButton = React.useRef<HTMLButtonElement>(null);
 
   const isLoading = queries.some((q) => q.isLoading);
-  const isError = queries.some((q) => q.isError);
+  // Selected runs whose read settled with nothing to show.
+  const failed = isLoading ? [] : queries.filter((q) => !q.data);
 
   // Per-run colour by selection order (not display order), kept while the run is selected.
   const dotFor = useRunDots(runIds);
@@ -195,9 +196,26 @@ export function CompareRunsView({
           <div className="p-3">
             <EmptyState>Comparing…</EmptyState>
           </div>
-        ) : isError || ordered.length !== runIds.length || !baseline ? (
+        ) : failed.length > 0 || !baseline ? (
           <div className="p-3">
-            <EmptyState>Couldn’t load one or more of these runs.</EmptyState>
+            <RunsNotLoaded
+              count={failed.length}
+              onRemove={
+                loaded.length > 0
+                  ? () => {
+                      const runs = runIds.filter((_, i) => queries[i]?.data);
+                      // The loaded runs' baseline is the one left in charge.
+                      onChangeRuns(runs, baselineId, analysisFor(runs, model.baselineRunId));
+                      // The button unmounts with the error panel; keep focus in the page.
+                      searchRef.current?.focus();
+                    }
+                  : undefined
+              }
+              onRetry={() => {
+                failed.forEach((q) => void q.refetch());
+                searchRef.current?.focus();
+              }}
+            />
           </div>
         ) : !hasPairedCases(model) ? (
           <div className="p-3">

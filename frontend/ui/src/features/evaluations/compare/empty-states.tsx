@@ -4,6 +4,34 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/features/offline-eval/components";
 
+/** Some of the runs couldn't be read: go on without them (when any others loaded), or
+ *  read them again. */
+export function RunsNotLoaded({
+  count,
+  onRemove,
+  onRetry,
+}: {
+  count: number;
+  onRemove?: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <EmptyState>
+      <p>{count === 1 ? "1 run couldn’t be loaded." : `${count} runs couldn’t be loaded.`}</p>
+      <div className="mt-3 flex justify-center gap-2">
+        {onRemove && (
+          <Button variant="outline" size="sm" className="text-[12px]" onClick={onRemove}>
+            Remove missing runs
+          </Button>
+        )}
+        <Button variant="outline" size="sm" className="text-[12px]" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
+    </EmptyState>
+  );
+}
+
 /** The runs have no case in common, so there is nothing to compare until they change:
  *  a run goes (from its menu in the Runs menu) or one that shares inputs comes in. */
 export function NoSharedInputs({

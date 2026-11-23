@@ -543,6 +543,25 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
     );
   });
 
+  it("drops the filters on runs that couldn't be loaded along with them", () => {
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: id === FAST_RUN.id ? undefined : PAIRED_FIXTURE.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: id === FAST_RUN.id,
+        refetch: vi.fn(),
+      })),
+    );
+    const onChangeRuns = vi.fn();
+    const unmatched = { kind: "unmatched" as const, scorer: "any", runId: "any" };
+    mount({ filters: [...onCandidate(FAST_RUN.id), unmatched] }, { onChangeRuns });
+    fireEvent.click(screen.getByRole("button", { name: "Remove missing runs" }));
+    expect(onChangeRuns).toHaveBeenCalledWith([BASELINE_RUN.id, CANDIDATE_RUN.id], null, {
+      ...NO_ANALYSIS,
+      filters: [unmatched],
+    });
+  });
+
   it("reads the run that takes over as the baseline when the baseline leaves", async () => {
     const onChangeRuns = vi.fn();
     mount({ filters: onCandidate(CANDIDATE_RUN.id) }, { onChangeRuns });
