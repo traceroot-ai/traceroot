@@ -82,112 +82,134 @@ Claude Code、Codex、Cursor、OpenCode、Pi、Antigravity などに対応して
 [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) はブラウザ経由でサインイン（無料アカウントの作成が可能）し、プロジェクトAPIキーをアプリケーションの env ファイルに書き込み、Claude Code や Codex に SDK を追加させ、最初のトレースを待機します。Node.js 20.12 以降が必要です。
 
 - 別のコーディングエージェントをお使いですか？セットアップコマンドで変更内容をタスクとして出力し、実行させることができます。
-- セルフホスティングの場合：`--host`（APIのオリジン）と `--auth-host`（認証のオリジン）でインスタンスを指定してください。
+- セルフホスティングの場合：`--host`（APIのオリジン）と `--auth-host`（ウェブアプリのオリジン）でインスタンスを指定してください。
 
-### 手動セットアップ
+各ステップ、セルフホスティング、トラブルシューティングについては、[セットアップガイド](https://traceroot.ai/docs/tracing/get-started) をご覧ください。
 
-<Tabs>
-  <Tab title="Python">
-    ```bash
-    pip install traceroot
-    ```
+### SDKで手動セットアップ
 
-    ```python
-    import traceroot
-    from traceroot import Integration
+自身で計測を設定したい場合は、**[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** または **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)** を使用してください。以下の例は、TypeScriptアプリケーションからモデル呼び出しのトレースを1件送信します。
 
-    traceroot.initialize(
-        integrations=[Integration.OPENAI], # または ANTHROPIC、LANGCHAIN、CREWAI、AGNO など
-    )
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```bash
-    npm install @traceroot-ai/traceroot
-    ```
+<details>
+<summary>最小限の TypeScript の例を実行する</summary>
 
-    ```typescript
-    import { traceroot, Integration } from "@traceroot-ai/traceroot";
+Node.js、npm、traceroot プロジェクトAPIキー、OpenAI APIキーが必要です。セルフホスティングの場合は、以下のホストURLをご自身のインスタンスのAPIオリジン（例: `http://localhost:8000`）に置き換えてください。
 
-    traceroot.initialize({
-      integrations: [Integration.OPENAI], // または ANTHROPIC、LANGCHAIN、CREWAI、MASTRA など
-    });
-    ```
-  </Tab>
-</Tabs>
+**1. SDKをインストール:** TypeScriptプロジェクトで実行します:
+
+```sh
+npm install @traceroot-ai/traceroot openai
+```
+
+**2. APIキーを設定:**
+
+```bash
+export TRACEROOT_API_KEY="your-project-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+**3. エージェントの呼び出しを追跡:** 以下を `example.ts` として保存します:
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+const openai = new OpenAI();
+
+const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: query }],
+  });
+  return response.choices[0].message.content;
+});
+
+async function main() {
+  try {
+    await myAgent("What's the weather in SF?");
+  } finally {
+    await TraceRoot.shutdown();
+  }
+}
+
+main().catch(console.error);
+```
+
+**4. 実行:** `npx tsx example.ts` を実行し、プロジェクトの **Traces** ページでエージェントの実行を確認します。この例ではOpenAI APIを1回呼び出します。
+
+</details>
 
 ## traceroot を始める
 
 ### traceroot Cloud
 
-最も迅速に開始できる方法です。十分なストレージとテスト用LLMトークンが含まれており、クレジットカードは不要です。[無料アカウントを作成](https://app.traceroot.ai)してください。
+プラットフォームをご自身で運用することなく開始するには、[アカウントを作成](https://app.traceroot.ai) してください。
 
 ### セルフホスティング
 
-traceroot はオープンソースであり、ご自身のインフラストラクチャ上で簡単に実行できます。
-
-#### 前提条件
-
-- [Docker](https://docs.docker.com/get-docker/) および [Docker Compose](https://docs.docker.com/compose/install/)
-- Git
-
-#### クイックスタート
+Git、Docker Compose、Make がインストールされている状態で、ローカルで以下を実行します：
 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
-./tools/selfhost/run.sh
+cp .env.example .env
+make prod-lite
 ```
 
-Docker Compose を使用してすべてのサービスを起動します。準備ができたら、ブラウザで [http://localhost:3000](http://localhost:3000) を開いてアカウントを作成してください。
+`make prod-lite` は `.env` に独自の認証情報を生成します。そのファイルのバックアップを保持してください。既存インストールのアップグレードについては、以下のガイドを参照してください。
 
-完全なセルフホスティングガイド（本番環境設定、Kubernetes デプロイ、構成オプションを含む）については、[セルフホスティングのドキュメント](https://traceroot.ai/docs/self-hosting/overview) をご覧ください。
+[localhost:3000](http://localhost:3000) を開きます。設定とデプロイの詳細については、[セルフホスティングガイド](https://traceroot.ai/docs/developer/self-hosting) をご覧ください。
 
-## サポートされている統合
+## 統合
 
-traceroot は主要なすべてのフレームワーク、プロバイダー、コーディングエージェントを自動計測します。
+### ネイティブ SDK
 
-<details>
-<summary>サポートされているすべての統合を表示</summary>
+| 言語 | リポジトリ |
+| -------- | ---------- |
+| Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
+| TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
-### AIエージェントフレームワーク
+<details open>
+<summary>サポートされているフレームワーク、モデルプロバイダー、コーディングエージェント</summary>
+
+### エージェントフレームワーク
 
 | 統合 | 対応言語 | 説明 |
 | ----------- | -------- | ----------- |
-| [Agno](https://traceroot.ai/docs/integrations/agno) | Python | Agno（旧 Phidata）エージェントの実行、ツール呼び出し、モデルインタラクションを自動計測します。 |
-| [Anthropic Claude Agent SDK](https://traceroot.ai/docs/integrations/claude-agent-sdk) | Python, JS/TS | Anthropic Claude Agent SDK を使用したエージェントの実行、ツール呼び出し、サブエージェントを自動計測します。 |
-| [AutoGen](https://traceroot.ai/docs/integrations/autogen) | Python | AutoGen/AG2 マルチエージェントの会話、メッセージ、ツール実行を自動計測します。 |
-| [AWS Bedrock Agents](https://traceroot.ai/docs/integrations/bedrock) | Python, JS/TS | Bedrock サービス経由の Converse API 呼び出し、ツール使用、ガードレールを自動計測します。 |
-| [CrewAI](https://traceroot.ai/docs/integrations/crewai) | Python | クルーの実行、タスクの委任、ツール使用、エージェント間通信を自動計測します。 |
-| [DeepSeek Tool Agent](https://traceroot.ai/docs/integrations/deepseek) | Python, JS/TS | DeepSeek モデルのチャット完了、ツール呼び出し、構造化出力を自動計測します。 |
-| [DSPy](https://traceroot.ai/docs/integrations/dspy) | Python | DSPy モジュールの呼び出し、オプティマイザーのステップ、LM 呼び出しを自動計測します。 |
-| [Google Agent Development Kit (ADK)](https://traceroot.ai/docs/integrations/google-adk) | Python | Google ADK エージェントの実行、ツール実行、セッション状態を自動計測します。 |
-| [Groq Tool Agent](https://traceroot.ai/docs/integrations/groq) | Python, JS/TS | Groq の超高速推論、チャット完了、ツール呼び出しを自動計測します。 |
-| [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | LangChain チェーン、LangGraph ワークフローノード、ツール呼び出し、状態遷移を自動計測します。 |
-| [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | LlamaIndex クエリエンジン、インデックス検索、エージェントワークフローを自動計測します。 |
-| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Mastra エージェントの実行、ワークフローステップ、ツール実行、エージェント同期を自動計測します。 |
-| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Microsoft Agent Framework エージェントの実行、ツール呼び出し、ハンドオフ遷移を自動計測します。 |
-| [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents) | Python | OpenAI Agents SDK の実行、ツール実行、ハンドオフ遷移を自動計測します。 |
-| [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | pydantic-ai のネイティブ OpenTelemetry サポートを介して、エージェントの実行、LLM 呼び出し、ツール呼び出しを自動計測します。 |
-| [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | ネイティブ OpenTelemetry トレース — `instrumentModules` の設定は不要です。AI SDK 7 には `@ai-sdk/otel` が必要で、AI SDK 6（レガシー）は `experimental_telemetry` を使用します。 |
+| [Agno](https://traceroot.ai/docs/integrations/agno) | Python | エージェントの実行、ツール呼び出し、マルチステップの推論を自動計測します。 |
+| [AutoGen](https://traceroot.ai/docs/integrations/autogen) | Python | マルチエージェントの会話、エージェントループ、ツール呼び出しを自動計測します。 |
+| [Claude Agent SDK](https://traceroot.ai/docs/integrations/claude-agent-sdk) | Python, JS/TS | エージェントの呼び出し、サブエージェントへの委任、ツール呼び出し、トークン使用量を自動計測します。 |
+| [CrewAI](https://traceroot.ai/docs/integrations/crewai) | Python | マルチエージェントの協調ワークフローとタスク実行を自動計測します。 |
+| [DSPy](https://traceroot.ai/docs/integrations/dspy) | Python | モジュールの実行、シグネチャの予測、基盤となるLLM呼び出しを自動計測します。 |
+| [Google ADK](https://traceroot.ai/docs/integrations/google-adk) | Python | エージェントの実行、ツールの実行、マルチターンエージェントループを自動計測します。 |
+| [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | LangChainアプリケーションにコールバックハンドラーを渡すことで自動計測します。 |
+| [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | DeepAgentsパイプラインにコールバックハンドラーを渡すことで自動計測します。 |
+| [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | RAGパイプライン、ドキュメントのインジェスチョン、検索、LLMによる要約を自動計測します。 |
+| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Agent Frameworkに組み込まれたOpenTelemetryを介して、エージェントの実行、モデル呼び出し、ツールの実行を自動計測します。 |
+| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | traceroot OTLPエクスポーターを介して自動計測します。 |
+| [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | エージェントの実行、ツールの実行、ハンドオフの遷移を自動計測します。 |
+| [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | pydantic-aiのネイティブOpenTelemetryサポートを介して、エージェントの実行、LLM呼び出し、ツール呼び出しを自動計測します。 |
+| [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | ネイティブOpenTelemetryトレース — `instrumentModules`の設定は不要です。AI SDK 7には`@ai-sdk/otel`が必要で、AI SDK 6（レガシー）は`experimental_telemetry`を使用します。 |
 
 ### モデルプロバイダー
 
 | 統合 | 対応言語 | 説明 |
 | ----------- | -------- | ----------- |
-| [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | Messages API を自動計測します。 |
-| [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Google GenAI SDK 経由で自動計測します。 |
-| [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Mistral のチャット完了、ツール呼び出し、ストリーミングレスポンスを自動計測します。 |
-| [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Chat Completions および Responses API を自動計測します。 |
-| [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI SDK の base URL 経由で OpenAI 互換のトレースを収集します。[Python](./examples/python/openrouter-tool-agent) および [TypeScript](./examples/typescript/openrouter) の例を参照してください。 |
+| [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | Messages APIを自動計測します。 |
+| [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Google GenAI SDK経由で自動計測します。 |
+| [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Mistralのチャット完了、ツール呼び出し、ストリーミングレスポンスを自動計測します。 |
+| [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Chat CompletionsおよびResponses APIを自動計測します。 |
+| [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI SDKのbase URL経由でOpenAI互換トレースを収集します。[Python](./examples/python/openrouter-tool-agent)および[TypeScript](./examples/typescript/openrouter)の例を参照してください。 |
 
 ### コーディングエージェント
 
 | 統合 | 対応言語 | 説明 |
 | ----------- | -------- | ----------- |
-| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | プラグイン | traceroot プラグインを使用して、Claude Code のリクエスト、ツール呼び出し、サブエージェント、トークン使用量を追跡します。 |
-| [Codex](https://traceroot.ai/docs/integrations/codex) | プラグイン | traceroot プラグインを使用して、Codex のターン、ツール呼び出し、サブエージェント、トークン使用量をリアルタイムに追跡します。 |
-| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | 拡張機能 | traceroot 拡張機能を使用して、対話型 pi CLI セッション、ターン、ツール呼び出し、トークン使用量を追跡します。 |
+| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | プラグイン | tracerootプラグインを使用して、Claude Codeのリクエスト、ツール呼び出し、サブエージェント、トークン使用量を追跡します。 |
+| [Codex](https://traceroot.ai/docs/integrations/codex) | プラグイン | tracerootプラグインを使用して、Codexのターン、ツール呼び出し、サブエージェント、トークン使用量をリアルタイムに追跡します。 |
+| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | 拡張機能 | traceroot拡張機能を使用して、対話型pi CLIセッション、ターン、ツール呼び出し、トークン使用量を追跡します。 |
 
 </details>
 
