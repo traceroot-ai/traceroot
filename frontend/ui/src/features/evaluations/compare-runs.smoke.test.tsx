@@ -129,6 +129,8 @@ const mount = (baselineId = "opus") =>
       baselineId={baselineId}
       onChangeBaseline={vi.fn()}
       onChangeRuns={vi.fn()}
+      inspected={null}
+      onInspect={vi.fn()}
     />,
   );
 
@@ -194,6 +196,8 @@ describe("CompareRunsView — N-run diff table", () => {
         baselineId={null}
         onChangeBaseline={vi.fn()}
         onChangeRuns={vi.fn()}
+        inspected={null}
+        onInspect={vi.fn()}
       />,
     );
     expect(baselineChip().textContent).toContain("ticket-routing-quality #41 opus");
@@ -408,6 +412,8 @@ describe("CompareRunsView — N-run diff table", () => {
         baselineId="opus"
         onChangeBaseline={vi.fn()}
         onChangeRuns={vi.fn()}
+        inspected={null}
+        onInspect={vi.fn()}
       />,
     );
     // Same datasetId across all three → NOT cross-dataset, despite the differing names.
@@ -467,6 +473,8 @@ describe("CompareRunsView — N-run diff table", () => {
         baselineId="opus"
         onChangeBaseline={vi.fn()}
         onChangeRuns={vi.fn()}
+        inspected={null}
+        onInspect={vi.fn()}
       />,
     );
     // The edited-input case survived: B's edited text is shown (aligned to A by row id,
@@ -566,6 +574,8 @@ describe("CompareRunsView — N-run diff table", () => {
         baselineId="opus"
         onChangeBaseline={vi.fn()}
         onChangeRuns={vi.fn()}
+        inspected={null}
+        onInspect={vi.fn()}
       />,
     );
     // (a) + (b): TWO rows for the duplicate input — case-2 is NOT dropped, and BOTH A and B

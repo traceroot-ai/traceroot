@@ -14,6 +14,7 @@ import {
   type RunBundle,
   type ScorerColumn,
 } from "./model";
+import { clickOpensRow } from "./row-activation";
 
 /**
  * One case across the compared runs, as a group of lines: one line per run (`CaseLine`),
@@ -21,10 +22,16 @@ import {
  * group, showing one value when every run that has the case agrees on it, else each run's
  * own, marked with its run. A line's scorer values are the scores the comparison read,
  * with the change it found against the baseline, so a value never contradicts the
- * summary's improved/regressed counts. Hovering any line highlights all of it.
+ * summary's improved/regressed counts.
  *
- * Memoized: a comparison can hold thousands of cases, and a keystroke in the search
- * should re-render only the groups it changes, so every prop is stable.
+ * The group is one target. Hovering any line highlights all of it. A click anywhere but
+ * on a control opens the case in the trace panel on the run of the line clicked (the
+ * baseline's line opens the default pair). The first line is the group's one tab stop and
+ * opens it with Enter or Space; it stays a table row (no button role, which would flatten
+ * its cells into one label for a screen reader), and `describedBy` tells how to open it.
+ *
+ * Memoized: a comparison can hold thousands of cases, and a keystroke in the search or a
+ * case opening should re-render only the groups it changes, so every prop is stable.
  */
 export const CaseGroup = React.memo(function CaseGroup({
   row,
@@ -35,6 +42,9 @@ export const CaseGroup = React.memo(function CaseGroup({
   labelOf,
   tagOf,
   scorers,
+  open,
+  onOpenRow,
+  describedBy,
 }: {
   row: CaseRow;
   ordered: RunBundle[];
@@ -46,6 +56,13 @@ export const CaseGroup = React.memo(function CaseGroup({
   labelOf: (runId: string) => string;
   tagOf: (runId: string) => string;
   scorers: ScorerColumn[];
+  /** Whether the case is the one open in the trace panel. */
+  open: boolean;
+  /** Open a case; `runId` is the run of the line or value clicked, if any. One handler
+   *  for every group. */
+  onOpenRow: (row: CaseRow, runId: string | null) => void;
+  /** Id of the text telling how to open a case. */
+  describedBy?: string;
 }) {
   const present = [...row.byRun.values()];
 
@@ -101,9 +118,32 @@ export const CaseGroup = React.memo(function CaseGroup({
     (r) => r.expectedOutput,
   );
 
+  const onClick = (e: React.MouseEvent<HTMLTableSectionElement>) => {
+    const target = e.target as Element;
+    if (!clickOpensRow(target, e.currentTarget)) return;
+    // Selecting text to copy it is not a request to open the case.
+    if (window.getSelection()?.toString()) return;
+    onOpenRow(row, target.closest("[data-run-id]")?.getAttribute("data-run-id") ?? null);
+  };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTableSectionElement>) => {
+    // Only the group's own tab stop, not a control inside it.
+    if (e.target !== e.currentTarget.firstElementChild) return;
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    onOpenRow(row, null);
+  };
+
   return (
-    // `group/row`: pinned cells take the group's fill.
-    <TBody className="group/row hover:bg-muted">
+    <TBody
+      data-selected={open ? "true" : undefined}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      className={cn(
+        // `group/row`: pinned cells take the group's fill.
+        "group/row cursor-pointer",
+        open ? "bg-accent" : "hover:bg-muted has-[>tr:focus-visible]:bg-muted",
+      )}
+    >
       {ordered.map((b, i) => {
         const runId = b.run.id;
         return (
@@ -122,6 +162,7 @@ export const CaseGroup = React.memo(function CaseGroup({
             last={i === ordered.length - 1}
             input={i === 0 ? input : undefined}
             expected={i === 0 ? expected : undefined}
+            tabStop={i === 0 ? { order: row.order, open, describedBy } : undefined}
           />
         );
       })}

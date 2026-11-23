@@ -17,7 +17,6 @@ import {
 } from "./compare/__tests__/paired-fixture";
 import type { ComparisonExport } from "./compare/export";
 import { NO_ANALYSIS, type CaseAnalysis } from "./compare/filters";
-import { caseGroups, linesOf } from "./compare/__tests__/table-grid";
 import { runLabeler, runTagger } from "./compare/run-tags";
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
@@ -87,6 +86,8 @@ const view = (analysis: CaseAnalysis = NO_ANALYSIS) => (
     baselineId={null}
     onChangeBaseline={vi.fn()}
     onChangeRuns={vi.fn()}
+    inspected={null}
+    onInspect={vi.fn()}
     analysis={analysis}
   />
 );
@@ -119,7 +120,9 @@ const csvCases = (text: string) =>
 
 /** The table's inputs, top to bottom. */
 const tableInputs = () =>
-  caseGroups().map((group) => linesOf(group)[0].querySelector("td")?.textContent);
+  Array.from(document.querySelectorAll("tbody tr[data-row]")).map(
+    (tr) => tr.querySelector("td")?.textContent,
+  );
 
 describe("CompareRunsView — export", () => {
   it("puts Export at the end of the search, filters, sort and runs row", () => {
@@ -303,6 +306,8 @@ describe("CompareRunsView — export", () => {
         baselineId={null}
         onChangeBaseline={vi.fn()}
         onChangeRuns={vi.fn()}
+        inspected={null}
+        onInspect={vi.fn()}
         analysis={NO_ANALYSIS}
       />,
     );

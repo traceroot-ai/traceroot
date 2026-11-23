@@ -115,7 +115,8 @@ function LineMessage({ failure }: { failure: LineFailure }) {
  * One run's line in a case's group: its Run cell, then its output, metrics, latency and
  * cost. The baseline's line is muted and shows values only; every other line shows its
  * value and the change the comparison found against the baseline. The group's first line
- * also carries the cells spanning the group (Input before Run, Expected after Output).
+ * also carries the cells spanning the group (Input before Run, Expected after Output) and
+ * is the group's tab stop.
  *
  * A run with nothing to show on the line says so once (`lineFailure`): no result in the
  * output's place, with one empty cell across the rest; a failed task across the metric
@@ -138,6 +139,7 @@ export function CaseLine({
   last,
   input,
   expected,
+  tabStop,
 }: {
   runId: string;
   /** The run's result for the case; absent when it has none. */
@@ -158,6 +160,9 @@ export function CaseLine({
   input?: React.ReactNode;
   /** On the first line: the Expected cell spanning the group. */
   expected?: React.ReactNode;
+  /** On the first line: the group's tab stop, whether its case is open, and the text
+   *  telling how to open it. */
+  tabStop?: { order: number; open: boolean; describedBy?: string };
 }) {
   const edge = lineEdge(last);
   const failure = lineFailure(
@@ -187,7 +192,16 @@ export function CaseLine({
   return (
     <tr
       data-run-id={runId}
-      className={cn(lineClass(first, last), isBaseline && "text-muted-foreground")}
+      data-row={tabStop?.order}
+      tabIndex={tabStop ? 0 : undefined}
+      aria-current={tabStop?.open || undefined}
+      aria-describedby={tabStop?.describedBy}
+      className={cn(
+        lineClass(first, last),
+        isBaseline && "text-muted-foreground",
+        tabStop &&
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+      )}
     >
       {input}
       <RunCell

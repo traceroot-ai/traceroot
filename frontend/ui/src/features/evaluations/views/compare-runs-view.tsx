@@ -19,6 +19,7 @@ import {
   toggleFilter,
   type CaseAnalysis,
 } from "../compare/filters";
+import { InspectorHost, useCaseInspector, type InspectedCase } from "../compare/inspector";
 import { buildCompareModel, comparePairs, type RunBundle } from "../compare/model";
 import { useRunDots } from "../compare/run-colors";
 import { newestRun } from "../compare/run-order";
@@ -34,8 +35,8 @@ import { useCaseAnalysis } from "../compare/use-analysis";
 // A run comparison is N runs (2+) lined up case-by-case, anchored on the baseline run
 // (alignment lives in `../compare/model`). Each case is a group of lines, one per run,
 // the baseline's first; against it every other run's line also shows a green/red
-// improvement/regression change. The "All cases" group leads the body and compares each
-// other run with the baseline on the cases both of them scored.
+// improvement/regression change. A line opens its case in the trace panel, two runs at a
+// time.
 
 export function CompareRunsView({
   projectId,
@@ -43,18 +44,23 @@ export function CompareRunsView({
   baselineId,
   onChangeBaseline,
   onChangeRuns,
+  inspected,
+  onInspect,
   analysis: fromUrl = NO_ANALYSIS,
   onChangeAnalysis,
 }: {
   projectId: string;
   runIds: string[];
   baselineId: string | null;
-  /** The baseline, with the search, filters and sort to write along with it. */
-  onChangeBaseline: (baselineId: string | null, analysis?: CaseAnalysis) => void;
+  /** The baseline, with the search, filters and sort to write along with it, and the
+   *  baseline it replaces. */
+  onChangeBaseline: (baselineId: string | null, analysis?: CaseAnalysis, replaced?: string) => void;
   /** The runs to compare, in the order they were selected, and the baseline to keep: the
    *  one being compared against, or null when it was removed; with the search, filters
    *  and sort to write along with them. */
   onChangeRuns: (runIds: string[], baselineId: string | null, analysis?: CaseAnalysis) => void;
+  inspected: InspectedCase | null;
+  onInspect: (next: InspectedCase | null) => void;
   /** The table's search, filters and sort, as the URL holds them. */
   analysis?: CaseAnalysis;
   /** Writes them back once a change settles. */
@@ -115,11 +121,12 @@ export function CompareRunsView({
     return next;
   };
 
-  // Stable while the runs are, so the memoized case groups don't re-render on every
-  // keystroke.
+  const inspector = useCaseInspector({ projectId, model, rows: visible, inspected, onInspect });
+  // Stable while the runs are, so the memoized rows don't re-render on every keystroke.
   const tagOf = React.useMemo(() => runTagger(ordered), [ordered]);
   const labelOf = React.useMemo(() => runLabeler(ordered, tagOf), [ordered, tagOf]);
   // Runs with no results; with fewer than two runs left, that is why nothing is compared.
+  const emptyTags = ordered.filter((b) => b.results.length === 0).map((b) => tagOf(b.run.id));
   // Runs to add are suggested from before the newest one compared.
   const newest = newestRun(ordered);
   // Export covers the table, so it waits for one: why, while the branches below show
@@ -134,7 +141,6 @@ export function CompareRunsView({
           : !hasPairedCases(model)
             ? "These runs have no matching inputs"
             : null;
-  const emptyTags = ordered.filter((b) => b.results.length === 0).map((b) => tagOf(b.run.id));
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -168,7 +174,8 @@ export function CompareRunsView({
                       dotFor,
                       tagOf,
                       canRemove: runIds.length > 2,
-                      onSetBaseline: (id) => onChangeBaseline(id, analysisFor(runIds, id)),
+                      onSetBaseline: (id) =>
+                        onChangeBaseline(id, analysisFor(runIds, id), model.baselineRunId),
                       onRemove: (runId) => {
                         const runs = runIds.filter((id) => id !== runId);
                         const keep = runId === model.baselineRunId ? null : model.baselineRunId;
@@ -250,7 +257,7 @@ export function CompareRunsView({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <ScopeLine model={model} matching={filtering ? visible.length : null} tagOf={tagOf} />
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div ref={inspector.tableRef} className="min-h-0 flex-1 overflow-auto">
               <Table className={COMPARISON_TABLE}>
                 <ComparisonHead model={model} />
                 <SummaryGroup
@@ -273,6 +280,7 @@ export function CompareRunsView({
                   dotFor={dotFor}
                   labelOf={labelOf}
                   tagOf={tagOf}
+                  rowProps={inspector.rowProps}
                   clearLabel={clearLabel(analysis)}
                   onClear={() => {
                     setAnalysis(clearSearchAndFilters(analysis));
@@ -283,6 +291,7 @@ export function CompareRunsView({
                 />
               </Table>
             </div>
+            <InspectorHost inspector={inspector} tagOf={tagOf} dotFor={dotFor} />
           </div>
         )}
       </div>

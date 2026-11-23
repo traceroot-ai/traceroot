@@ -22,11 +22,11 @@ export function caseGroup(text: string): HTMLElement {
 export const summaryGroup = () =>
   within(comparisonTable()).getByRole("rowgroup", { name: /^(All|Matching) cases$/ });
 
-/** Every case group, in table order (the summary group, which is labelled, and the empty
- *  row excluded); none when there is no table. */
+/** Every case group, in table order (the summary group and the empty row excluded); none
+ *  when there is no table. */
 export const caseGroups = () =>
   [...(screen.queryAllByRole("table")[0]?.querySelectorAll<HTMLElement>("tbody") ?? [])].filter(
-    (g) => !g.hasAttribute("aria-label") && g.querySelector("tr[data-run-id]"),
+    (g) => g.querySelector("tr[data-row]"),
   );
 
 /** A group's lines, in order. */

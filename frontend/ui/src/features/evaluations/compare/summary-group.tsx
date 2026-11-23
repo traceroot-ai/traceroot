@@ -34,7 +34,7 @@ const durationOf = (pair: PairComparison | undefined): PairedMean | undefined =>
  * baseline's line is labelled "Baseline" and repeats no number: each candidate's line
  * already reads "baseline → candidate" for its own pair, and the baseline's mean differs
  * from pair to pair when they cover different cases. It scrolls with the cases; only the
- * label row stays on top.
+ * label row stays on top. It is a summary, not a case, so it opens nothing.
  */
 export function SummaryGroup({
   model,

@@ -7,8 +7,8 @@
  * every run's values. They're added from the toolbar's Filters menu or from the summary
  * row's improved/regressed counts, and each shows as a removable chip. The cases can be
  * sorted worst regression first. With a search or filters on, the summary covers exactly
- * the cases shown and says so. Runs with no input in common and filters that leave
- * nothing each say so, with a way out.
+ * the cases shown and says so, and the trace panel walks them in the table's order. Runs
+ * with no input in common and filters that leave nothing each say so, with a way out.
  */
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,14 +27,7 @@ import {
 } from "./compare/__tests__/paired-fixture";
 import { NO_ANALYSIS, type CaseAnalysis } from "./compare/filters";
 import { runsLegend } from "./compare/__tests__/runs-menu";
-import {
-  caseGroup,
-  caseGroups,
-  cellAt,
-  columnTexts,
-  linesOf,
-  summaryGroup,
-} from "./compare/__tests__/table-grid";
+import { caseGroup, cellAt, columnTexts, summaryGroup } from "./compare/__tests__/table-grid";
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
@@ -43,6 +36,15 @@ const hooks = vi.hoisted(() => ({
   useEvaluationRuns: vi.fn(),
 }));
 vi.mock("./hooks", () => hooks);
+// A case opens in the trace panel, which the trace panel's own tests mount for real.
+vi.mock("@/features/traces/components", async () => ({
+  TraceViewerPanel: (await import("./compare/__tests__/viewer-stand-in")).ViewerStandIn,
+}));
+vi.mock("@/features/traces/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/traces/hooks")>();
+  const pending = { data: undefined, isLoading: true, isFetching: true, isError: false };
+  return { ...actual, useTrace: () => ({ ...pending, refetch: vi.fn() }) };
+});
 
 import { CompareRunsView } from "./views/compare-runs-view";
 
@@ -83,6 +85,8 @@ const view = (
     baselineId={null}
     onChangeBaseline={vi.fn()}
     onChangeRuns={vi.fn()}
+    inspected={null}
+    onInspect={vi.fn()}
     analysis={analysis}
     onChangeAnalysis={onChangeAnalysis}
     {...props}
@@ -94,9 +98,11 @@ const mount = (analysis: Partial<CaseAnalysis> = {}, props: Partial<ViewProps> =
   return { ...utils, onChangeAnalysis };
 };
 
-/** Each case's input, in table order. */
+/** Each body row's input, in table order. */
 const shownInputs = () =>
-  caseGroups().map((group) => linesOf(group)[0].querySelector("td")?.textContent);
+  Array.from(document.querySelectorAll("tbody tr[data-row]")).map(
+    (tr) => tr.querySelector("td")?.textContent,
+  );
 const search = () => screen.getByRole("textbox", { name: "Search cases" }) as HTMLInputElement;
 /** The summary's cell under `header` on `runId`'s line. */
 const summaryCell = (runId: string, header: string) => cellAt(summaryGroup(), runId, header);
@@ -278,6 +284,8 @@ describe("CompareRunsView — the Filters menu", () => {
         baselineId={null}
         onChangeBaseline={vi.fn()}
         onChangeRuns={vi.fn()}
+        inspected={null}
+        onInspect={vi.fn()}
         analysis={NO_ANALYSIS}
         onChangeAnalysis={onChangeAnalysis}
       />,
@@ -468,6 +476,25 @@ describe("CompareRunsView — the summary over the cases shown", () => {
     expect(screen.getByText("12 cases · 10 in all runs")).toBeTruthy();
     expect(screen.queryByText(/matching/)).toBeNull();
   });
+
+  it("walks the trace panel through the cases shown, in the table's order", () => {
+    const onInspect = vi.fn();
+    mount(
+      {
+        filters: [{ kind: "changed", scorer: QUALITY, runId: CANDIDATE_RUN.id }],
+        sort: { kind: "regression", scorer: QUALITY, runId: CANDIDATE_RUN.id },
+      },
+      { inspected: { caseToken: "id:case-12", pair: null }, onInspect },
+    );
+    // Shown: 2, 3, 4, 5, 11, 12, 1 — case 12 is the 6th of 7.
+    const inspector = screen.getByRole("dialog", { name: "Case 6 of 7" });
+    fireEvent.click(within(inspector).getByRole("button", { name: "Next case" }));
+    expect(onInspect).toHaveBeenLastCalledWith(expect.objectContaining({ caseToken: "id:case-1" }));
+    fireEvent.click(within(inspector).getByRole("button", { name: "Previous case" }));
+    expect(onInspect).toHaveBeenLastCalledWith(
+      expect.objectContaining({ caseToken: "id:case-11" }),
+    );
+  });
 });
 
 describe("CompareRunsView — changing runs keeps only the filters that still apply", () => {
@@ -506,7 +533,8 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
       ],
       sort: { kind: "dataset" },
     };
-    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, kept);
+    // With the baseline it replaces, so the trace panel can follow the table.
+    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, kept, BASELINE_RUN.id);
     expect(chips()).toEqual(["Errors · any metric · #2", "Unmatched · any run"]);
   });
 
@@ -518,10 +546,11 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
       screen.getByRole("button", { name: "Show 10 cases where #3 regressed on quality" }),
     );
     await runMenu(/#2 candidate-v2/, "Set as baseline");
-    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, {
-      ...NO_ANALYSIS,
-      filters: [{ kind: "regressed", scorer: QUALITY, runId: FAST_RUN.id }],
-    });
+    expect(onChangeBaseline).toHaveBeenCalledWith(
+      CANDIDATE_RUN.id,
+      { ...NO_ANALYSIS, filters: [{ kind: "regressed", scorer: QUALITY, runId: FAST_RUN.id }] },
+      BASELINE_RUN.id,
+    );
     act(() => vi.advanceTimersByTime(300));
     expect(onChangeAnalysis).not.toHaveBeenCalled();
   });

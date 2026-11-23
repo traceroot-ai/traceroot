@@ -4,12 +4,13 @@ import * as React from "react";
 import { TBody } from "@/components/ui/table";
 import { CaseGroup } from "./case-group";
 import { NoMatchingCases } from "./empty-states";
+import type { CaseInspectorState } from "./inspector/use-case-inspector";
 import type { CaseRow, CompareModel, PairComparison, RunBundle } from "./model";
 
 /**
  * The comparison table's body: one group of lines per case the search and filters pick, in
- * their order; or, when they pick none, one row across the columns that says so and clears
- * them.
+ * their order, each opening in the trace panel; or, when they pick none, one row across the
+ * columns that says so and clears them.
  */
 export function ComparisonBody({
   model,
@@ -19,6 +20,7 @@ export function ComparisonBody({
   dotFor,
   labelOf,
   tagOf,
+  rowProps,
   clearLabel,
   onClear,
 }: {
@@ -31,6 +33,8 @@ export function ComparisonBody({
   dotFor: (runId: string) => string;
   labelOf: (runId: string) => string;
   tagOf: (runId: string) => string;
+  /** Each case's way of opening in the trace panel. */
+  rowProps: CaseInspectorState["rowProps"];
   /** What the empty row's button takes off (`clearLabel`). */
   clearLabel: string;
   onClear: () => void;
@@ -60,6 +64,7 @@ export function ComparisonBody({
           labelOf={labelOf}
           tagOf={tagOf}
           scorers={model.scorers}
+          {...rowProps(row)}
         />
       ))}
     </>
