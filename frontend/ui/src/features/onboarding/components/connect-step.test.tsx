@@ -201,7 +201,7 @@ describe("choosing a Slack channel", () => {
     // Public channels first, then private, by name.
     expect(options).toEqual(["#alerts", "#general", "#incidentsprivate"]);
     expect(
-      screen.getByText(/Private channels show up once the TraceRoot app is invited/),
+      screen.getByText(/Private channels show up once the traceroot app is invited/),
     ).toBeDefined();
   });
 
