@@ -356,7 +356,7 @@ function ChannelPicker({
       <p className="mt-1.5 text-[11.5px] text-muted-foreground">
         Pick a channel from the list.
         {data?.hasPrivateChannelAccess === false &&
-          " Private channels show up once the TraceRoot app is invited to them."}
+          " Private channels show up once the traceroot app is invited to them."}
       </p>
     </div>
   );
