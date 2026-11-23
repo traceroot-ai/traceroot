@@ -150,6 +150,27 @@ describe("sideBySide", () => {
 describe("markChangedWords", () => {
   const marked = (before: string, after: string) => markChangedWords(diff(before, after));
 
+  it("marks only the reworded words when two JSON replies differ in key order and wording", () => {
+    const lines = markChangedWords(
+      diffValues(
+        '{"route":"billing","reply":"Refund issued to the original card."}',
+        '{"reply":"Refund issued to a new card.","route":"billing"}',
+      ),
+    );
+    const changed = lines.filter((l) => l.type !== "context");
+    expect(changed.map((l) => [l.type, l.text])).toEqual([
+      ["remove", '  "reply": "Refund issued to the original card.",'],
+      ["add", '  "reply": "Refund issued to a new card.",'],
+    ]);
+    const marks = (type: string) =>
+      changed
+        .find((l) => l.type === type)
+        ?.segments?.filter((s) => s.changed)
+        .map((s) => s.text);
+    expect(marks("remove")).toEqual(["the original"]);
+    expect(marks("add")).toEqual(["a new"]);
+  });
+
   it("marks the words that changed inside a changed line, on both sides", () => {
     expect(marked("route billing now", "route technical now")).toEqual([
       {
