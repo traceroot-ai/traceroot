@@ -14,73 +14,67 @@ const render = (
 ) => renderFollowUp({ campaign, firstName, links: LINKS, unsubscribeUrl: UNSUB });
 
 const SIGNOFF = "Best,\nXinwei He\nTraceRoot.AI | CEO";
-const OPT_OUT = `If you don't want to hear from us again, let us know: ${UNSUB}`;
+const OPT_OUT = `Unsubscribe from product emails: ${UNSUB}`;
+
+/** The plain text of one email: greeting, body, sign-off and opt-out. */
+const email = (...body: string[]) =>
+  ["Hi Kai,", "", body.join("\n\n"), "", SIGNOFF, "", OPT_OUT].join("\n");
 
 describe("the follow-up emails, as approved", () => {
   it("Setup help", () => {
     const { subject, text, html } = render("setup_help");
-    expect(subject).toBe("Stuck on setup?");
+    expect(subject).toBe("Where did setup get stuck?");
     expect(text).toBe(
-      [
-        "Hi Kai,",
-        "",
-        "Your project has not received a trace yet. Setup is one command, run in the project you want to trace:",
-        "",
-        "    npx -y traceroot-cli@latest setup",
-        "",
-        "If that did not work, the setup page has the manual steps for your framework.",
-        "",
+      email(
+        "If you’ve tried setup and your trace hasn’t appeared, reply with your framework and the step where it stopped. Please leave out any API keys.",
+        "If you’d rather set it up by hand, the setup page has the steps for your framework.",
         `Open setup: ${LINKS.setupUrl}`,
-        "",
-        "Or reply with your framework and the step where it stopped. Please leave API keys out of your reply.",
-        "",
         `Prefer to do it together? Pick a time (${LINKS.bookingUrl}) and we will set it up on a call.`,
-        "",
-        SIGNOFF,
-        "",
-        OPT_OUT,
-      ].join("\n"),
+      ),
     );
-    expect(html).toContain(`href="${LINKS.setupUrl}"`);
+    expect(html).toContain(`<a href="${LINKS.setupUrl}" style="display:inline-block`);
     expect(html).toContain(">Open setup</a>");
-    expect(html).toContain(`<a href="${LINKS.bookingUrl}"`);
-    expect(html).toContain("<code>npx -y traceroot-cli@latest setup</code>");
+    expect(html).toContain(
+      `<a href="${LINKS.bookingUrl}" style="color:#0B1015;text-decoration:underline">Pick a time</a>`,
+    );
   });
 
   it("Last note", () => {
-    const { subject, text } = render("last_note");
+    const { subject, text, html } = render("last_note");
     expect(subject).toBe("One last note on setup");
-    expect(text).toContain("This is the last email we will send about setup.");
-    expect(text).toContain(
-      "If now is not the time, the demo project stays open and shows what a traced agent looks like.",
+    expect(text).toBe(
+      email(
+        "I’ll leave setup here. If you’d still like to see what a traced agent looks like, you can open a real run in the demo project.",
+        `Open the demo project: ${LINKS.demoUrl}`,
+      ),
     );
-    expect(text).toContain(`Open the demo project: ${LINKS.demoUrl}`);
-    expect(text).toContain(
-      "If something blocked you, reply with one line. It tells us what to fix.",
-    );
+    expect(html).toContain(`<a href="${LINKS.demoUrl}" style="display:inline-block`);
   });
 
-  it("Slack and GitHub, without the opening sentence that is still to be chosen", () => {
+  it("Slack and GitHub", () => {
     const { subject, text, html } = render("connect_slack_github");
-    expect(subject).toBe("Get findings where your team works");
-    expect(text).toContain(
-      "Connect Slack and each finding is posted to a channel. Connect GitHub and a finding links to the code that produced it.",
+    expect(subject).toBe("Connect your team’s tools");
+    expect(text).toBe(
+      email(
+        "You can choose a Slack channel for alerts and connect the GitHub repo your agent runs from. Both settings are in your workspace.",
+        `Open integrations: ${LINKS.integrationsUrl}`,
+      ),
     );
-    expect(text).toContain(`Connect Slack and GitHub: ${LINKS.integrationsUrl}`);
-    expect(text.toLowerCase()).not.toContain("detector");
-    expect(html.toLowerCase()).not.toContain("detector");
+    expect(html).toContain(`<a href="${LINKS.integrationsUrl}" style="display:inline-block`);
   });
 
   it("First eval", () => {
-    const { subject, text } = render("first_eval");
-    expect(subject).toBe("Check a change before you ship it");
-    expect(text).toContain(
-      "When you change a prompt, a model or a tool, run the same cases before and after.",
+    const { subject, text, html } = render("first_eval");
+    expect(subject).toBe("Try an eval on one change");
+    expect(text).toBe(
+      email(
+        "Next time you change a prompt or a model, pick a few cases you care about and run them before and after the change. The guide walks you through your first comparison.",
+        "Run your first eval: https://traceroot.ai/docs/evals/get-started",
+      ),
     );
-    expect(text).toContain(
-      "An eval takes a small set of cases and shows which got better and which got worse.",
+    expect(html).toContain(
+      '<a href="https://traceroot.ai/docs/evals/get-started" style="display:inline-block',
     );
-    expect(text).toContain("Run your first eval: https://traceroot.ai/docs/evals/get-started");
   });
 });
 
@@ -92,7 +86,9 @@ describe("every follow-up", () => {
       expect(html.match(/border-radius:6px"><a /g) ?? []).toHaveLength(1);
       expect(text).toContain(SIGNOFF);
       expect(text.endsWith(OPT_OUT)).toBe(true);
-      expect(html).toContain(`<a href="${UNSUB}"`);
+      expect(html).toContain(
+        `<a href="${UNSUB}" style="color:#0B1015;text-decoration:underline">Unsubscribe from product emails</a>`,
+      );
       expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
       expect(`${text}${html}`).not.toContain("Founder");
     },

@@ -15,10 +15,13 @@ import {
   EMAIL_PIXEL_WORDMARK_URL,
   escapeHtml,
 } from "@traceroot/core";
-import { greeting, LINK_STYLE, optOutLine, optOutLineHtml } from "./welcome/copy";
+import { greeting, LINK_STYLE } from "./welcome/copy";
 
 /** "Best," and Xinwei's signature, written as in his own email. */
 export const FOUNDER_SIGNOFF = ["Best,", "Xinwei He", "TraceRoot.AI | CEO"];
+
+/** The opt-out under the signature, linked to the unsubscribe page. */
+export const PRODUCT_OPT_OUT_LABEL = "Unsubscribe from product emails";
 
 export interface FounderEmailCopy {
   subject: string;
@@ -65,7 +68,7 @@ export function renderFounderEmail(
     "",
     ...FOUNDER_SIGNOFF,
     "",
-    optOutLine(input.unsubscribeUrl),
+    `${PRODUCT_OPT_OUT_LABEL}: ${input.unsubscribeUrl}`,
   ].join("\n");
 
   const html = [
@@ -80,7 +83,7 @@ export function renderFounderEmail(
     ...after.map(toHtml),
     `<p>${FOUNDER_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
     `<p style="margin:20px 0 0"><img src="${EMAIL_LOGO_URL}" alt="traceroot" width="106" height="20" style="display:block;border:0;width:106px;height:20px"></p>`,
-    `<p style="margin-top:32px;font-size:12px;color:${EMAIL_COLORS.muted}">${optOutLineHtml(escapeHtml(input.unsubscribeUrl))}</p>`,
+    `<p style="margin-top:32px;font-size:12px;color:${EMAIL_COLORS.muted}"><a href="${escapeHtml(input.unsubscribeUrl)}" ${LINK_STYLE}>${PRODUCT_OPT_OUT_LABEL}</a></p>`,
     "</div>",
     "</body></html>",
   ].join("\n");
