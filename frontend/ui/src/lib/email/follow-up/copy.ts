@@ -1,6 +1,5 @@
 /**
- * The four follow-up emails, word for word as approved, apart from the one
- * sentence still open (see `connect_slack_github`). Each is the greeting, a few
+ * The four follow-up emails, word for word as approved. Each is the greeting, a few
  * paragraphs, at most one button, the founder's sign-off and the opt-out line.
  *
  * In a paragraph, `[label](url)` is a link and an indented line is a command.
@@ -27,22 +26,19 @@ export interface FollowUpCopy {
   after?: string[];
 }
 
-export const SETUP_COMMAND = "npx -y traceroot-cli@latest setup";
 export const EVALS_DOCS_URL = "https://traceroot.ai/docs/evals/get-started";
 
 export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUpCopy {
   switch (campaign) {
     case "setup_help":
       return {
-        subject: "Stuck on setup?",
+        subject: "Where did setup get stuck?",
         paragraphs: [
-          "Your project has not received a trace yet. Setup is one command, run in the project you want to trace:",
-          `    ${SETUP_COMMAND}`,
-          "If that did not work, the setup page has the manual steps for your framework.",
+          "If you’ve tried setup and your trace hasn’t appeared, reply with your framework and the step where it stopped. Please leave out any API keys.",
+          "If you’d rather set it up by hand, the setup page has the steps for your framework.",
         ],
         button: { label: "Open setup", url: links.setupUrl },
         after: [
-          "Or reply with your framework and the step where it stopped. Please leave API keys out of your reply.",
           `Prefer to do it together? [Pick a time](${links.bookingUrl}) and we will set it up on a call.`,
         ],
       };
@@ -50,29 +46,23 @@ export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUp
       return {
         subject: "One last note on setup",
         paragraphs: [
-          "This is the last email we will send about setup.",
-          "If now is not the time, the demo project stays open and shows what a traced agent looks like.",
+          "I’ll leave setup here. If you’d still like to see what a traced agent looks like, you can open a real run in the demo project.",
         ],
         button: { label: "Open the demo project", url: links.demoUrl },
-        after: ["If something blocked you, reply with one line. It tells us what to fix."],
       };
     case "connect_slack_github":
-      // The approved draft opens with a sentence about detectors, which are now
-      // optional; its replacement is still to be chosen, so the email starts at
-      // the second paragraph until then.
       return {
-        subject: "Get findings where your team works",
+        subject: "Connect your team’s tools",
         paragraphs: [
-          "Connect Slack and each finding is posted to a channel. Connect GitHub and a finding links to the code that produced it.",
+          "You can choose a Slack channel for alerts and connect the GitHub repo your agent runs from. Both settings are in your workspace.",
         ],
-        button: { label: "Connect Slack and GitHub", url: links.integrationsUrl },
+        button: { label: "Open integrations", url: links.integrationsUrl },
       };
     case "first_eval":
       return {
-        subject: "Check a change before you ship it",
+        subject: "Try an eval on one change",
         paragraphs: [
-          "When you change a prompt, a model or a tool, run the same cases before and after.",
-          "An eval takes a small set of cases and shows which got better and which got worse.",
+          "Next time you change a prompt or a model, pick a few cases you care about and run them before and after the change. The guide walks you through your first comparison.",
         ],
         button: { label: "Run your first eval", url: EVALS_DOCS_URL },
       };
@@ -81,3 +71,6 @@ export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUp
 
 /** "Best," and Xinwei's signature, written as in his own email. */
 export const FOLLOW_UP_SIGNOFF = ["Best,", "Xinwei He", "TraceRoot.AI | CEO"];
+
+/** The opt-out under the signature, linked to the unsubscribe page. */
+export const PRODUCT_OPT_OUT_LABEL = "Unsubscribe from product emails";
