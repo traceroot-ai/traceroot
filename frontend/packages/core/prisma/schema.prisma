@@ -262,6 +262,10 @@ model UserOnboarding {
   // wrote to us), and why: outreach, manual or conversation. Resume clears both.
   followUpsPausedAt    DateTime?  @map("follow_ups_paused_at") @db.Timestamp(6)
   followUpsPauseReason String?    @map("follow_ups_pause_reason") @db.VarChar
+  // When the caller decided the latest pause or resume applied. An older
+  // decision arriving later (a retry, or a call that timed out and committed
+  // late) is ignored, so the latest intent always wins.
+  followUpsIntentAt    DateTime?  @map("follow_ups_intent_at") @db.Timestamp(3)
   // The person unsubscribed from product email; "Subscribe again" clears it.
   // Kept apart from the pause, so neither undoes the other.
   unsubscribedAt       DateTime?  @map("unsubscribed_at") @db.Timestamp(6)

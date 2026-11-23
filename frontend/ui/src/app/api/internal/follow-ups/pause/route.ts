@@ -9,6 +9,9 @@ const bodySchema = z
     userId: z.string().min(1).max(100),
     action: z.enum(["pause", "resume"]),
     reason: z.enum(PAUSE_REASONS).optional(),
+    // When the caller decided this state. Only a decision later than the latest
+    // applied one takes effect, so out-of-order and repeated calls are harmless.
+    intentAt: z.string().datetime({ offset: true }),
   })
   .strict();
 
@@ -28,7 +31,9 @@ function authorized(request: NextRequest): boolean {
 // outreach starts, when someone presses Pause or Resume on a lead card, and when
 // the person posts in their shared channel. Answers where the person now stands,
 // including an unsubscribe, which resuming does not clear. Repeating a call
-// changes nothing. Its own secret (LIFECYCLE_PAUSE_SECRET), as a bearer token.
+// changes nothing, and each call carries intentAt, when the caller decided it:
+// one older than the latest applied is ignored, so a late or retried call can
+// never undo a newer one. Its own secret (LIFECYCLE_PAUSE_SECRET), as a bearer token.
 export async function POST(request: NextRequest) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -37,11 +42,18 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
-  const { userId, action, reason } = parsed.data;
-  const hold = await setFollowUpPause(userId, action, reason);
-  if (!hold) return NextResponse.json({ error: "Unknown user" }, { status: 404 });
+  const { userId, action, reason, intentAt } = parsed.data;
+  const result = await setFollowUpPause(userId, action, new Date(intentAt), reason);
+  if (!result) return NextResponse.json({ error: "Unknown user" }, { status: 404 });
   console.log(
-    `[follow-ups] ${action} for user ${userId}${action === "pause" ? ` (${reason ?? "manual"})` : ""}`,
+    `[follow-ups] ${action} for user ${userId}${action === "pause" ? ` (${reason ?? "manual"})` : ""}: ${result.applied ? "applied" : "older than the latest applied, unchanged"}`,
   );
-  return NextResponse.json({ userId, ...hold });
+  return NextResponse.json({
+    userId,
+    paused: result.paused,
+    pauseReason: result.pauseReason,
+    unsubscribed: result.unsubscribed,
+    intentAt: result.intentAt?.toISOString() ?? null,
+    applied: result.applied,
+  });
 }
