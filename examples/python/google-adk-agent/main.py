@@ -1,5 +1,5 @@
 """
-Google ADK agent with tool use and TraceRoot observability.
+Google ADK agent with tool use and traceroot observability.
 
 Uses the Google Agent Development Kit (ADK) which handles the agent loop,
 tool execution, and multi-turn conversations automatically.
@@ -28,7 +28,7 @@ traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from google.adk.agents import Agent
+from google.adk import Agent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
@@ -84,7 +84,7 @@ def calculate(expression: str) -> dict:
 
 agent = Agent(
     name="assistant",
-    model="gemini-2.5-flash",
+    model="gemini-3.8-flash",
     description="Helpful assistant with access to tools.",
     instruction=(
         "You are a helpful AI assistant with access to tools. "

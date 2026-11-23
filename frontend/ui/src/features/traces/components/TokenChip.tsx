@@ -43,7 +43,7 @@ export function TokenChip({
             {delta}
           </div>
         </TooltipTrigger>
-        <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
+        <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
           <TokenUsageBreakdown
             inputTokens={inputTokens}
             outputTokens={outputTokens}

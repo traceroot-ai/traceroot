@@ -226,8 +226,8 @@ class TestInsertSpansBatch:
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
-        # then source, environment and is_evaluation added.
-        assert len(columns) == 27
+        # then source, environment, is_evaluation and error_type added.
+        assert len(columns) == 28
         # Addressed by name, not position: `is_evaluation` extends the row, and a
         # positional assert would silently follow the wrong column.
         assert "is_evaluation" in columns
@@ -266,6 +266,7 @@ class TestInsertSpansBatch:
             "source",
             "status",
             "status_message",
+            "error_type",
             "model_name",
             "cost",
             "input_tokens",
@@ -311,6 +312,41 @@ class TestInsertSpansBatch:
         assert _value(row, columns, "output_tokens") is None
         assert _value(row, columns, "total_tokens") is None
         assert _value(row, columns, "environment") is None
+
+    def test_error_type_passthrough_and_default(self):
+        """Spans carry error_type through; spans without one write the column default."""
+        mock_internal = MagicMock()
+        client = ClickHouseClient(mock_internal)
+
+        spans = [
+            {
+                "span_id": "span-1",
+                "trace_id": "trace-1",
+                "project_id": "proj-1",
+                "span_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                "name": "failed-span",
+                "span_kind": "TOOL",
+                "status": "ERROR",
+                "status_message": "boom",
+                "error_type": "TimeoutError",
+            },
+            {
+                "span_id": "span-2",
+                "trace_id": "trace-1",
+                "project_id": "proj-1",
+                "span_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                "name": "ok-span",
+                "span_kind": "TOOL",
+            },
+        ]
+        client.insert_spans_batch(spans)
+
+        rows = mock_internal.insert.call_args[0][1]
+        columns = mock_internal.insert.call_args[1]["column_names"]
+        assert _value(rows[0], columns, "error_type") == "TimeoutError"
+        assert _value(rows[0], columns, "status_message") == "boom"
+        assert _value(rows[1], columns, "error_type") == ""
+        assert all(len(row) == len(columns) for row in rows)
 
     def test_source_passthrough_and_default(self):
         """Spans carry their source through; spans without one write 'user'."""

@@ -22,6 +22,24 @@ scope the route needs:
 Each ``*StampedAuth`` annotation stamps the rate-limit identity onto the request
 during dependency resolution, so always depend on the stamped variant on a
 rate-limited route — never on the unstamped intermediates.
+
+Access-key scope
+----------------
+An API key additionally carries a scope — ``ingest`` or ``admin``. The
+annotation above fixes *which credential* a route accepts; the scope fixes *what
+that credential may do*, and the two are independent, so a route that accepts an
+API key still has to say whether an ``ingest`` one is enough.
+
+Key management (``/public/api-keys``) requires ``admin``. Every other route an
+API key can reach is reachable with an ``ingest`` key: ingestion, ``whoami``, the
+project-scoped reads, and the evaluation SDK's dataset and run reporting writes,
+which the SDK performs with the same key it sends telemetry with.
+
+To require more on a key-only route, depend on :func:`require_admin_key_scope`
+alongside the stamped annotation — see ``routers/public/api_keys.py`` for how.
+``tests/rest/test_public_route_scopes.py`` pins the credential and scope of every
+public route, so adding one without deciding its scope fails there rather than
+shipping unchecked.
 """
 
 import hashlib
@@ -95,24 +113,28 @@ def _is_jwt(token: str) -> bool:
     return len(parts) == 3 and all(parts)
 
 
-async def _verify_access_jwt(token: str) -> str:
-    """Verify a CLI access JWT offline and return its subject (the user id).
+async def _verify_access_jwt(token: str) -> tuple[str, str]:
+    """Verify a CLI access JWT offline and return its subject and session id.
 
     The trust anchor for the CLI JWT path. Pins ``EdDSA`` (rejecting
     ``alg=none``/HS*/RS* and any algorithm-confusion), validates the issuer,
     audience, and expiry, and requires ``sub``. The signing key is resolved by
-    ``kid`` from the cached JWKS.
+    ``kid`` from the cached JWKS. The ``sid`` claim (the minting session's id)
+    is surfaced alongside so the write path can check the session is still
+    live, and is required: a token without one would silently skip that check.
 
     Args:
         token (str): The raw JWT (already known to be JWT-shaped).
 
     Returns:
-        str: The verified ``sub`` claim (the user id).
+        tuple[str, str]: The verified ``sub`` claim (the user id) and the
+            ``sid`` claim (the minting session's row id).
 
     Raises:
         HTTPException: 401 for any verification failure (bad signature, expired,
-            wrong issuer/audience, missing claims, unknown/absent/malformed ``kid``); 503
-            (fail closed) if the JWKS cannot be fetched.
+            wrong issuer/audience, missing claims including ``sid``,
+            unknown/absent/malformed ``kid``); 503 (fail closed) if the JWKS
+            cannot be fetched.
     """
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -161,7 +183,66 @@ async def _verify_access_jwt(token: str) -> str:
     sub = claims.get("sub")
     if not sub or not isinstance(sub, str):
         raise invalid
-    return sub
+
+    # The write path checks this against the live session row, and skips the
+    # check whenever it is absent. Treating a missing/malformed sid as "no
+    # session to check" would let a token that carries none write past a revoked
+    # session, so reject it here instead: every token this issuer mints has one.
+    sid = claims.get("sid")
+    if not isinstance(sid, str) or not sid:
+        raise invalid
+    return sub, sid
+
+
+# ── Access-key scope ────────────────────────────────────────────────────
+
+# What an access key is allowed to do. Two values rather than a permission
+# matrix, and the vocabulary is the control plane's: these are the strings stored
+# in ``access_keys.scope`` and reported by ``validate-api-key``, so the two sides
+# cannot drift (frontend/ui/src/lib/public-auth.ts).
+#
+# ``ingest`` is the credential an instrumented application carries. It travels to
+# wherever that application runs — into CI, containers and images — so it may
+# send telemetry and read, and nothing else. ``admin`` is everything the project
+# allows, including managing the project's keys.
+ApiKeyScope = Literal["ingest", "admin"]
+
+# The body the control plane answers an under-scoped key with, character for
+# character (``requireApiKeyProject`` in lib/public-auth.ts). Both layers
+# enforce and a caller must not be able to tell which one refused it; a
+# difference in wording would be precisely that tell, so this string is asserted
+# against the control plane's own source by test_public_key_scope.py.
+INSUFFICIENT_SCOPE_DETAIL = (
+    "This API key is scoped to telemetry ingestion and cannot manage project settings."
+)
+
+
+def parse_scope(value: object) -> ApiKeyScope:
+    """Narrow a reported scope, failing closed to ``ingest``.
+
+    The Python mirror of ``parseScope()`` in ``lib/public-auth.ts``, and
+    deliberately total: anything that is not exactly ``"admin"`` — a scope this
+    build does not recognise, a non-string, or the field being absent — resolves
+    to the narrow scope.
+
+    Absence is the case that matters, and it is not hypothetical. A control plane
+    older than the scope field omits it from every ``validate-api-key`` response,
+    which is the steady state of a rolling deploy that updates this service
+    first, and of the key-validator stub the contract job runs. Reading that
+    silence as ``admin`` would hand full project rights to every key for the
+    length of the rollout. Reading it as ``ingest`` refuses an administrative
+    call that would otherwise have been allowed — the direction an authorization
+    decision has to fail in.
+
+    Args:
+        value (object): The ``scope`` field as the control plane reported it, or
+            ``None`` when it reported none.
+
+    Returns:
+        ApiKeyScope: ``"admin"`` for an exact ``"admin"``, ``"ingest"`` for
+            anything else.
+    """
+    return "admin" if value == "admin" else "ingest"
 
 
 @dataclass
@@ -176,7 +257,8 @@ class AuthResult:
     ``kind`` discriminates the credential that produced this result: an API key
     (``"api_key"``, the default so every existing construction stays valid) or a
     user session token (``"user"``). ``user_id``/``role`` are populated only on
-    the user path; they are ``None`` for API-key results.
+    the user path; they are ``None`` for API-key results. ``scope`` is the mirror
+    image: populated only on the API-key path, ``None`` for a user.
 
     Which fields are meaningful depends on how the result was constructed:
 
@@ -202,11 +284,22 @@ class AuthResult:
     workspace_name: str | None = None
     key_name: str | None = None
     key_hint: str | None = None
+    # What the authenticating key may do, as the control plane reported it and
+    # ``parse_scope`` narrowed it. Set only on the API-key path: a user
+    # credential has no key scope — its authority is its project role — so this
+    # stays None rather than being fabricated as the narrow scope, which a scope
+    # check would otherwise read as grounds to refuse a signed-in member.
+    scope: ApiKeyScope | None = None
     kind: Literal["api_key", "user"] = "api_key"
     user_id: str | None = None
     # Reserved for the Epic B guardrails layer (role-based authorization); no
     # consumer reads it yet, so a new reader need not hunt for one.
     role: str | None = None
+    # Populated only for JWT credentials (from the token's ``sid`` claim); the
+    # write-path liveness dependency (require_live_session) keys on it. Stays
+    # None for API keys and for session-token credentials, whose introspection
+    # already proved the session live.
+    session_id: str | None = None
 
 
 async def authenticate_api_key(
@@ -329,6 +422,12 @@ async def authenticate_api_key(
         workspace_name=data.get("workspaceName"),
         key_name=data.get("keyName"),
         key_hint=data.get("keyHint"),
+        # Narrowed, never taken as given: an unrecognised value and an absent
+        # field both become ``ingest`` rather than a full-access grant. Unlike
+        # the fields above, a malformed scope is deliberately NOT a 503 —
+        # refusing the whole request would take ingestion down across a rolling
+        # deploy, when the narrow scope already denies everything it guards.
+        scope=parse_scope(data.get("scope")),
     )
 
 
@@ -561,7 +660,7 @@ async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
             to ``project_id``, and 503 (fail closed) for any JWKS or
             membership-introspection ambiguity.
     """
-    user_id = await _verify_access_jwt(token)
+    user_id, session_id = await _verify_access_jwt(token)
 
     data = await _post_internal_auth(
         "/api/internal/user-project-access",
@@ -609,16 +708,26 @@ async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
         ingestion_blocked=True,
         role=role,
         user_id=user_id,
+        session_id=session_id,
     )
 
 
-def _account_result_for_user(user_id: str) -> AuthResult:
+def _account_result_for_user(user_id: str, session_id: str | None = None) -> AuthResult:
     """Build the account-scope AuthResult for a resolved user id.
 
     Account scope has no single project/workspace/plan — the user id is the
     identity, project/workspace stay empty, and the plan defaults to free (used
     only for per-user rate-limit keying). Shared by the session-token and JWT
     account paths.
+
+    Args:
+        user_id (str): The authenticated user's id.
+        session_id (str | None): The JWT's ``sid`` claim on the JWT path;
+            ``None`` on the session-token path, whose introspection already
+            proved the session live.
+
+    Returns:
+        AuthResult: The account-scope result carrying the user identity.
     """
     return AuthResult(
         kind="user",
@@ -627,6 +736,7 @@ def _account_result_for_user(user_id: str) -> AuthResult:
         billing_plan="free",
         ingestion_blocked=True,
         user_id=user_id,
+        session_id=session_id,
     )
 
 
@@ -826,8 +936,8 @@ async def authenticate_account_caller(
     # A JWT-shaped credential is a CLI access token: verified offline against the
     # JWKS, no introspection call needed (identity is all account scope requires).
     if _is_jwt(token):
-        user_id = await _verify_access_jwt(token)
-        return _account_result_for_user(user_id)
+        user_id, sid = await _verify_access_jwt(token)
+        return _account_result_for_user(user_id, session_id=sid)
 
     # Session-token path: introspect WITHOUT a projectId (no 403 access branch
     # here — a live session alone is sufficient).
@@ -857,11 +967,15 @@ _AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
 async def authenticate_and_stamp_account_caller(request: Request, auth: _AccountAuth) -> AuthResult:
     """Authenticate an account-scope caller, then stamp a per-user rate-limit id.
 
-    Account ops have no workspace, so the bucket is keyed per user: an empty
-    ``workspace_id`` plus ``auth.user_id`` in the dedicated user slot of
+    These callers have no workspace resolved at auth time — account ops have
+    none at all, and the write routes leave the project's workspace to the
+    write service — so the bucket is keyed per user: an empty ``workspace_id``
+    plus ``auth.user_id`` in the dedicated user slot of
     :func:`set_rate_limit_identity`, which yields the clean key
-    ``rl:read:{plan}:{user_id}``. It runs during dependency resolution, before
-    slowapi evaluates the limit, so ``key_func`` sees the identity on
+    ``rl:{bucket}:{plan}:{user_id}``. The bucket is the route's own — ``read``
+    for the account reads, ``write`` for the account and project writes that
+    share this stamper. It runs during dependency resolution, before slowapi
+    evaluates the limit, so ``key_func`` sees the identity on
     ``request.state``.
 
     Args:
@@ -879,3 +993,160 @@ async def authenticate_and_stamp_account_caller(request: Request, auth: _Account
 
 
 AccountStampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_account_caller)]
+
+
+async def _check_session_live(session_id: str) -> bool:
+    """Ask the internal validate-session-live route whether a session is live.
+
+    A dedicated caller rather than :func:`_post_internal_auth` because the
+    liveness route speaks a ``{live: boolean}`` envelope with HTTP 200 for both
+    verdicts — the shared helper's ``valid``-discriminator handling would read
+    every such body as a 401. Fails closed with a 503 on any ambiguity —
+    network error, non-200 status, or a body without a boolean ``live`` — so an
+    introspection outage can never be read as "still live".
+
+    Args:
+        session_id (str): The session id (the JWT's ``sid`` claim) to check.
+            Never logged.
+
+    Returns:
+        bool: ``True`` when the session row exists and has not expired,
+            ``False`` when it is gone or expired.
+
+    Raises:
+        HTTPException: 503 (fail closed) on a network error, an unexpected
+            status, or a malformed body.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{settings.traceroot_ui_url}/api/internal/validate-session-live",
+                json={"sessionId": session_id},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
+            )
+    except httpx.RequestError as e:
+        logger.error(f"Failed to check session liveness: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        ) from e
+
+    if response.status_code != 200:
+        logger.error(f"Unexpected response from auth service: {response.status_code}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    try:
+        data = response.json()
+    except ValueError as e:
+        logger.error(f"Malformed JSON from auth service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+
+    live = data.get("live") if isinstance(data, dict) else None
+    if not isinstance(live, bool):
+        logger.error("Auth service returned a session-liveness body without a boolean live")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+    return live
+
+
+def require_scope(auth: AuthResult, required: ApiKeyScope) -> None:
+    """Refuse an API key whose scope does not cover ``required``.
+
+    The single rule behind every scope refusal on this service, so 403 is raised
+    in exactly one place.
+
+    A user credential always passes. Scope is a property of a key; a signed-in
+    member's authority is their project role, which is checked where roles are
+    checked. Only a ``kind="api_key"`` result has a scope to check, and
+    fabricating the narrow one for a user would turn an admin-scoped route into
+    one no person could call.
+
+    403, not 401: the key is genuine, so sending the caller back to
+    re-authenticate with a credential that will never work is a worse answer than
+    naming what it lacks. The status and the body are the control plane's,
+    verbatim — see :data:`INSUFFICIENT_SCOPE_DETAIL`.
+
+    Args:
+        auth (AuthResult): The resolved credential.
+        required (ApiKeyScope): The scope the route requires.
+
+    Returns:
+        None: The request may proceed.
+
+    Raises:
+        HTTPException: 403 when an API key's scope does not cover ``required``.
+    """
+    if auth.kind != "api_key":
+        return
+    # The control plane's rule, kept literal (``resolveApiKeyProject``): the only
+    # requirement there is to express is ``admin``, and ``ingest`` is the floor
+    # every valid key already meets, so there is nothing to check for it. A third
+    # scope would need a rule here rather than another branch.
+    if required == "admin" and parse_scope(auth.scope) != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=INSUFFICIENT_SCOPE_DETAIL,
+        )
+
+
+async def require_admin_key_scope(auth: KeyAuth) -> None:
+    """Require an ``admin``-scoped key on a key-only public route.
+
+    Depend on this alongside :data:`KeyStampedAuth`; both resolve through the same
+    inner :func:`authenticate_api_key`, which FastAPI caches per request, so the
+    credential costs one round-trip to the control plane rather than two.
+
+    Args:
+        auth (AuthResult): The resolved API-key credential, supplied by FastAPI
+            via the same inner dependency the stamped annotation uses.
+
+    Returns:
+        None: The request may proceed.
+
+    Raises:
+        HTTPException: 403 when the key is not ``admin``-scoped.
+    """
+    require_scope(auth, "admin")
+
+
+async def require_live_session(auth: _AccountAuth) -> None:
+    """Block a write when the JWT's minting session has been revoked or expired.
+
+    Reads keep the JWT's offline verification (cheap, no extra hop); writes are
+    higher-stakes, so a JWT credential additionally checks its ``sid`` against
+    the live session row — revoking the session takes effect instantly where it
+    matters. Verification rejects a JWT without a ``sid``, so a token can never
+    reach this check with nothing to verify. Session-token credentials carry no
+    ``session_id`` (introspection already proved the session live) and skip the
+    hop entirely, as do API keys.
+
+    Depend on this alongside the stamped auth annotation on write routes; the
+    inner account-auth dependency is shared with the stamped variant, so the
+    credential is only resolved once per request.
+
+    Args:
+        auth (AuthResult): The resolved account-scope auth result, supplied by
+            FastAPI via the same inner dependency the stamped annotation uses.
+
+    Returns:
+        None: The write may proceed.
+
+    Raises:
+        HTTPException: 401 when the session row is gone or expired, 503 (fail
+            closed) when liveness cannot be determined.
+    """
+    if auth.session_id is None:
+        return
+    if not await _check_session_live(auth.session_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session revoked or expired",
+        )

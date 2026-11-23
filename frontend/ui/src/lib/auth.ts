@@ -1,18 +1,30 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
+import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
 import { getSocialAuthConfig } from "@/lib/social-auth";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
+import { createAccessControl } from "better-auth/plugins/access";
+import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
+import { supportPlugin } from "@/lib/support/auth-plugin";
+import { captureServerEvent } from "@/lib/posthog-server";
+import { onUserCreated } from "@/lib/signup/on-user-created";
+import { signupAttributionProperties } from "@/lib/signup/attribution";
+import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
+import { isCloud } from "@/lib/server/cloud";
+import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { agentIdProvider } from "@/lib/agentid";
+import { AGENTID_PROVIDER_ID, configuredSocialProviders } from "@/lib/social-providers";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
   SESSION_UPDATE_AGE_SECONDS,
 } from "@/lib/session-config";
 
+const ac = createAccessControl(defaultStatements);
 const { socialProviders } = getSocialAuthConfig();
 
 export const auth = betterAuth({
@@ -23,9 +35,40 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
 
+  // Failed OAuth callbacks land on the app's error page, not better-auth's.
+  onAPIError: { errorURL: new URL("/auth/error", env.BETTER_AUTH_URL).toString() },
+
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+  },
+
+  databaseHooks: {
+    user: {
+      create: {
+        before: signupEmailPolicyHook(isCloud()),
+        // better-auth awaits after-hooks and a throw propagates into the sign-up
+        // response, so this calls without awaiting and the callee never rejects.
+        after: async (user, context) => {
+          captureServerEvent(user.id, "user_signed_up", signupAttributionProperties(context));
+          onUserCreated(
+            { id: user.id, email: user.email, name: user.name ?? null },
+            context ? { path: context.path, provider: context.params?.id } : null,
+          ).catch((error) => console.error("[signup] follow-up failed:", error));
+        },
+      },
+    },
+    session: {
+      create: {
+        // Each login re-checks the demo workspace membership, so users that
+        // the backfill missed (or that were removed) join at their next login.
+        // Not awaited, and ensureDemoMembership never rejects, so it cannot
+        // slow down or break sign-in.
+        after: async (session) => {
+          void ensureDemoMembership(session.userId);
+        },
+      },
+    },
   },
 
   socialProviders,
@@ -43,6 +86,7 @@ export const auth = betterAuth({
       // costs nothing a real user notices: a GitHub identity whose address *is*
       // verified still links, and a first-time GitHub sign-in still creates an
       // account either way. account-linking.test.ts pins both halves.
+      // Never add "agentid" either: a trusted provider links on email alone.
       trustedProviders: ["google"],
     },
   },
@@ -87,8 +131,15 @@ export const auth = betterAuth({
 
   plugins: [
     admin({
-      impersonationSessionDuration: 60 * 60 * 24, // 1 day
+      ac,
+      roles: {
+        admin: adminAc,
+        support: ac.newRole({ user: ["list", "get", "impersonate"], session: [] }),
+      },
+      adminRoles: ["admin", "support"],
+      impersonationSessionDuration: SESSION_EXPIRES_IN_SECONDS,
     }),
+    supportPlugin(),
     // The CLI credential is a session token, but bearer() is deliberately NOT
     // enabled: it would let that token authenticate every /api/auth/* endpoint
     // and would expose session tokens to page JS on sign-in. The backend
@@ -109,9 +160,14 @@ export const auth = betterAuth({
     // `jwks` table. bearer() stays off — the exchange route validates the
     // session by a direct lookup, so the session token never rides /api/auth.
     jwt({
+      // Browser get-session must never mint an exportable customer JWT.
+      disableSettingJwtHeader: true,
       jwt: { expirationTime: "10m" },
       jwks: { keyPairConfig: { alg: "EdDSA" } },
     }),
+    ...(configuredSocialProviders(env).includes(AGENTID_PROVIDER_ID)
+      ? [genericOAuth({ config: [agentIdProvider(env)] })]
+      : []),
   ],
 });
 

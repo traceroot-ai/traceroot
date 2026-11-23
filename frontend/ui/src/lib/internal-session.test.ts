@@ -12,6 +12,18 @@ beforeEach(() => {
 });
 
 describe("resolveSessionFromToken", () => {
+  it("rejects a live impersonated token before CLI exchange or internal introspection", async () => {
+    findUniqueMock.mockResolvedValue({
+      id: "support-session",
+      impersonatedBy: "staff",
+      expiresAt: new Date(Date.now() + 60000),
+      user: { id: "customer", email: "customer@example.com" },
+    });
+    await expect(resolveSessionFromToken("copied-token")).resolves.toBeNull();
+    expect(findUniqueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.objectContaining({ impersonatedBy: true }) }),
+    );
+  });
   it("returns the session id + user for a live (unexpired) session, looked up by token", async () => {
     findUniqueMock.mockResolvedValue({
       id: "sess-1",

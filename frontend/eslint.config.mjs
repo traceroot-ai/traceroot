@@ -36,6 +36,20 @@ const registryGlyphPattern =
   "FolderKanban|Globe|Layers|Layers3|LayoutDashboard|LayoutGrid|Shapes|Users|" +
   "Workflow|Wrench)(Icon)?$";
 
+// The public demo workspace has every user as a member. A query over one user's
+// memberships must say whether the demo counts, or it silently changes things
+// like onboarding and the "only workspace" guard. This selector rejects a
+// hand-written per-user `where` (one with userId but no workspaceId); use
+// userMembershipWhere() from ui/src/lib/demo-workspace.ts.
+const demoWorkspaceQueryRestrictions = [
+  {
+    selector:
+      "CallExpression[callee.object.property.name='workspaceMember'][callee.property.name=/^(findMany|findFirst|count)$/] > ObjectExpression > Property[key.name='where'] > ObjectExpression:has(> Property[key.name='userId']):not(:has(> Property[key.name='workspaceId']))",
+    message:
+      'Build a per-user membership `where` with userMembershipWhere(userId, "include-demo" | "exclude-demo") from @/lib/demo-workspace, so the query chooses whether the demo workspace counts.',
+  },
+];
+
 export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -95,6 +109,13 @@ export default [
     files: ["ui/src/components/icons/domain-icons.ts", "ui/src/**/*.{test,spec}.{ts,tsx}"],
     rules: {
       "no-restricted-imports": ["error", { patterns: relativeImportPatterns }],
+    },
+  },
+  {
+    files: ["ui/src/**/*.{ts,tsx}"],
+    ignores: ["**/*.{test,spec}.{ts,tsx}", "**/__tests__/**"],
+    rules: {
+      "no-restricted-syntax": ["error", ...demoWorkspaceQueryRestrictions],
     },
   },
   {

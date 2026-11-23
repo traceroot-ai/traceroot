@@ -11,6 +11,7 @@ import {
   type AlertFilter,
   type AlertNoDataMode,
   type AlertRenotify,
+  type AlertSeverity,
   type AlertThresholdOperator,
   type AlertView,
   type AlertWindow,
@@ -34,6 +35,22 @@ export interface AlertRowLike {
   readonly severity: string;
   readonly severityChangedAt: Date | null;
   readonly alertedAt: Date | null;
+  readonly lastNotifyStatus: string | null;
+  readonly lastNotifyError: string | null;
+  readonly lastNotifyAt: Date | null;
+  readonly lastNotifySeverity: string | null;
+  /** The workspace Slack integration's `updateTime`; the claim reads it only for a failed page. */
+  readonly slackUpdatedAt: Date | null;
+}
+
+/** The last delivery attempt, and when Slack's settings last moved, for a retry to judge. */
+export interface AlertLastDelivery {
+  readonly status: string | null;
+  readonly error: string | null;
+  readonly at: Date | null;
+  /** What that attempt announced. Null when it predates the column, or cannot be read. */
+  readonly severity: AlertSeverity | null;
+  readonly slackUpdatedAt: Date | null;
 }
 
 export interface AlertRule {
@@ -50,6 +67,7 @@ export interface AlertRule {
   readonly renotify: AlertRenotify;
   readonly noDataMode: AlertNoDataMode;
   readonly state: AlertRuntimeState;
+  readonly lastDelivery: AlertLastDelivery;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,8 +114,8 @@ function isFilterShaped(entry: unknown): entry is AlertFilter {
 
 /**
  * Null for a stored filter that cannot form a predicate, so the row is dropped
- * after its claim rather than sent on to fail evaluation. There is no parked
- * status, so such a row keeps being read and discarded once a minute.
+ * after its claim rather than sent on to fail evaluation. The caller parks such
+ * a row: no later tick can read what this one could not.
  */
 function parseFilters(value: unknown): readonly AlertFilter[] | null {
   if (value === null || value === undefined) return [];
@@ -116,6 +134,14 @@ function parseState(row: AlertRowLike): AlertRuntimeState {
     severityChangedAt: row.severityChangedAt,
     alertedAt: row.alertedAt,
   };
+}
+
+/**
+ * Never defaulted, unlike the rule's own severity: a replay announces exactly this,
+ * so a value it cannot read leaves nothing to announce.
+ */
+function parseNotifySeverity(value: string | null): AlertSeverity | null {
+  return value !== null && isAlertSeverity(value) ? value : null;
 }
 
 /** Null when the stored rule can no longer be evaluated; the caller skips it. */
@@ -152,5 +178,12 @@ export function parseAlertRule(row: AlertRowLike): AlertRule | null {
     // default is the reading that decides the least.
     noDataMode: isAlertNoDataMode(row.noDataMode) ? row.noDataMode : DEFAULT_ALERT_NO_DATA_MODE,
     state: parseState(row),
+    lastDelivery: {
+      status: row.lastNotifyStatus,
+      error: row.lastNotifyError,
+      at: row.lastNotifyAt,
+      severity: parseNotifySeverity(row.lastNotifySeverity),
+      slackUpdatedAt: row.slackUpdatedAt,
+    },
   };
 }

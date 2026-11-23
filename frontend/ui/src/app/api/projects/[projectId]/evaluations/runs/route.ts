@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
@@ -61,7 +62,7 @@ const MAX_INMEMORY_SORT = 500;
 // GET — evaluation runs (executions) for the project. Filters: evaluation_id,
 // dataset_id, status, search_query, started_after, started_before. Sort:
 // sort/order over startedAt|cost|elapsedMs|status.
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId } = await params;
@@ -325,3 +326,4 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ data, meta: { page, limit, total } });
 }
+export const GET = withImpersonationPolicy(handleGET);

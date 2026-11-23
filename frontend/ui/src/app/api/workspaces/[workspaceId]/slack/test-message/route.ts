@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { prisma } from "@traceroot/core";
@@ -11,7 +12,7 @@ function mapSlackError(code: string): string {
     case "channel_not_found":
       return "Channel not found. Make sure the channel ID is correct.";
     case "not_in_channel":
-      return "TraceRoot is not in this channel. Invite the app with `/invite @TraceRoot` in the channel and try again.";
+      return "traceroot is not in this channel. Invite the app with `/invite @TraceRoot` in the channel and try again.";
     case "is_archived":
       return "This channel is archived. Pick an active channel.";
     case "invalid_auth":
@@ -23,7 +24,7 @@ function mapSlackError(code: string): string {
   }
 }
 
-export async function POST(
+async function handlePOST(
   _request: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
@@ -53,13 +54,13 @@ export async function POST(
   const blocks = [
     {
       type: "header",
-      text: { type: "plain_text", text: "🎉 Test Message from TraceRoot", emoji: true },
+      text: { type: "plain_text", text: "🎉 Test Message from traceroot", emoji: true },
     },
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "Hello from TraceRoot! This is a test message to verify your Slack integration is working properly.",
+        text: "Hello from traceroot! This is a test message to verify your Slack integration is working properly.",
       },
     },
     {
@@ -76,7 +77,7 @@ export async function POST(
       elements: [
         {
           type: "button",
-          text: { type: "plain_text", text: "Open TraceRoot" },
+          text: { type: "plain_text", text: "Open traceroot" },
           url: `${APP_BASE_URL}/workspaces/${workspaceId}/settings/integrations`,
           style: "primary",
         },
@@ -90,7 +91,7 @@ export async function POST(
     const res = await client.chat.postMessage({
       channel: channelId,
       blocks: blocks as any,
-      text: "Test message from TraceRoot",
+      text: "Test message from traceroot",
       unfurl_links: false,
       unfurl_media: false,
     });
@@ -107,3 +108,4 @@ export async function POST(
     channel: { id: channelId, name: channelName },
   });
 }
+export const POST = withImpersonationPolicy(handlePOST);

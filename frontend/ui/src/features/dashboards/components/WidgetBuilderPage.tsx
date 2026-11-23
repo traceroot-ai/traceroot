@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -19,11 +18,13 @@ import { DEFAULT_RANGE_ID, RANGE_PRESETS, makeRange } from "../range-presets";
 import { readStoredDateFilter, writeStoredDateFilter } from "@/lib/date-filter-storage";
 import {
   BREAKDOWN_REQUIRED_DISPLAYS,
+  BREAKDOWN_UNSUPPORTED_DISPLAYS,
   DISPLAY_TYPES,
   generateWidgetTitle,
   isSpecComplete,
   parseSpec,
   type DraftSpec,
+  type WidgetFilterValue,
   type WidgetSchemaField,
 } from "../types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
@@ -157,7 +158,7 @@ export function WidgetBuilderPage({
   // shape — so we cast through unknown here to satisfy the type checker.
   function handleFilterChange(
     idx: number,
-    patch: Partial<{ field: string; op: string; value: string | number }>,
+    patch: Partial<{ field: string; op: string; value: WidgetFilterValue | "" }>,
   ) {
     setDraft(
       (d) =>
@@ -233,7 +234,7 @@ export function WidgetBuilderPage({
       display: { type: t },
       // histogram has its own shape and a number tile shows a single value —
       // neither can express a breakdown, so clear it automatically
-      ...(t === "histogram" || t === "number" ? { breakdown: null } : {}),
+      ...(BREAKDOWN_UNSUPPORTED_DISPLAYS.has(t) ? { breakdown: null } : {}),
     }));
   }
 
@@ -292,31 +293,27 @@ export function WidgetBuilderPage({
         <div className="flex w-1/3 min-w-[340px] max-w-[420px] flex-col">
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
             <SectionBox label="Data selection">
-              <div className="p-3">
+              <div className="p-4">
                 <FieldLabel>View</FieldLabel>
                 <Select value={view ?? ""} onValueChange={handleViewChange}>
-                  <SelectTrigger className="h-7 text-[12px]">
+                  <SelectTrigger className="h-8 text-[13px]">
                     <SelectValue placeholder="Select view" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="traces" className="text-[12px]">
-                      Traces
-                    </SelectItem>
-                    <SelectItem value="spans" className="text-[12px]">
-                      Spans
-                    </SelectItem>
+                    <SelectItem value="traces">Traces</SelectItem>
+                    <SelectItem value="spans">Spans</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="p-3">
+              <div className="p-4">
                 <FieldLabel>Filters</FieldLabel>
                 <div className="flex flex-col gap-1.5">
                   {filters.map((f, i) => (
                     <FilterRow
                       key={i}
                       index={i}
-                      filter={f as { field: string; op: string; value: string | number }}
+                      filter={f as { field: string; op: string; value: WidgetFilterValue }}
                       filterableFields={filterableFields}
                       fieldsMap={viewFields}
                       fieldsLoading={isSchemaPending}
@@ -341,11 +338,11 @@ export function WidgetBuilderPage({
                 </div>
               </div>
 
-              <div className="p-3">
+              <div className="p-4">
                 <FieldLabel>Metric</FieldLabel>
                 <div className="flex flex-col gap-1.5">
                   <Select value={measure} onValueChange={handleMeasureChange} disabled={!view}>
-                    <SelectTrigger className="h-7 text-[12px]">
+                    <SelectTrigger className="h-8 text-[13px]">
                       <SelectValue placeholder="Measure" />
                     </SelectTrigger>
                     <SelectContent>
@@ -365,12 +362,12 @@ export function WidgetBuilderPage({
                     </SelectContent>
                   </Select>
                   <Select value={agg} onValueChange={handleAggChange} disabled={!measure}>
-                    <SelectTrigger className="h-7 text-[12px]">
+                    <SelectTrigger className="h-8 text-[13px]">
                       <SelectValue placeholder="Aggregation" />
                     </SelectTrigger>
                     <SelectContent>
                       {allowedAggs.map((a) => (
-                        <SelectItem key={a} value={a} className="text-[12px]">
+                        <SelectItem key={a} value={a}>
                           {a}
                         </SelectItem>
                       ))}
@@ -379,22 +376,22 @@ export function WidgetBuilderPage({
                 </div>
               </div>
 
-              <div className="p-3">
+              <div className="p-4">
                 <FieldLabel>Breakdown</FieldLabel>
                 <Select
                   value={draft.breakdown ?? NONE_SENTINEL}
                   onValueChange={handleBreakdownChange}
                   disabled={
-                    !view || draft.display?.type === "histogram" || draft.display?.type === "number"
+                    !view ||
+                    (!!draft.display?.type &&
+                      BREAKDOWN_UNSUPPORTED_DISPLAYS.has(draft.display.type))
                   }
                 >
-                  <SelectTrigger className="h-7 text-[12px]">
+                  <SelectTrigger className="h-8 text-[13px]">
                     <SelectValue placeholder="None" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NONE_SENTINEL} className="text-[12px]">
-                      None
-                    </SelectItem>
+                    <SelectItem value={NONE_SENTINEL}>None</SelectItem>
                     {groupableFields.map(([key, meta]) => {
                       const Icon = fieldIcon(key);
                       return (
@@ -415,20 +412,20 @@ export function WidgetBuilderPage({
                         icon={<ModelIcon className="h-3.5 w-3.5 text-muted-foreground" />}
                       >
                         Model
-                        <span className="ml-1 text-[10.5px] text-muted-foreground">· Spans</span>
+                        <span className="ml-1 text-[12px] text-muted-foreground">· Spans</span>
                       </SelectItem>
                     )}
                   </SelectContent>
                 </Select>
-                {(draft.display?.type === "histogram" || draft.display?.type === "number") && (
-                  <p className="mt-1 text-[10.5px] text-muted-foreground">
+                {draft.display?.type && BREAKDOWN_UNSUPPORTED_DISPLAYS.has(draft.display.type) && (
+                  <p className="mt-1 text-[12px] text-muted-foreground">
                     Not available for this display type
                   </p>
                 )}
                 {draft.display?.type &&
                   BREAKDOWN_REQUIRED_DISPLAYS.has(draft.display.type) &&
                   !draft.breakdown && (
-                    <p className="mt-1 text-[10.5px] text-amber-600">
+                    <p className="mt-1 text-[12px] text-warning">
                       A {draft.display.type} chart needs a breakdown dimension
                     </p>
                   )}
@@ -436,38 +433,37 @@ export function WidgetBuilderPage({
             </SectionBox>
 
             <SectionBox label="Visualization">
-              <div className="p-3">
+              <div className="p-4">
                 <FieldLabel>Display</FieldLabel>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="grid grid-cols-4 gap-2">
                   {DISPLAY_TYPES.map((t) => (
                     <Button
                       key={t}
                       type="button"
-                      size="sm"
                       variant={draft.display?.type === t ? "default" : "outline"}
                       onClick={() => handleDisplayChange(t)}
                       // Entering the state is blocked when we already know the
                       // engine will reject it; the hint below covers reaching
                       // it the other way round (picking the measure last).
                       disabled={t === "histogram" && measureField?.histogrammable === false}
-                      className="h-7 text-[12px]"
+                      className="w-full"
                     >
                       {t}
                     </Button>
                   ))}
                 </div>
                 {histogramBlocked && (
-                  <p className="mt-1 text-[10.5px] text-amber-600">
+                  <p className="mt-1 text-[12px] text-warning">
                     {measureField?.label ?? draft.metric?.measure} can&apos;t be histogrammed — pick
                     another measure or display
                   </p>
                 )}
               </div>
 
-              <div className="p-3">
+              <div className="p-4">
                 <FieldLabel>Name</FieldLabel>
                 <Input
-                  className="h-7 text-[12px]"
+                  className="h-8 text-[13px]"
                   placeholder="Widget name"
                   value={effectiveTitle}
                   onChange={(e) => {
@@ -488,21 +484,10 @@ export function WidgetBuilderPage({
               </p>
             ) : null}
             <div className="flex justify-end gap-2">
-              <Link
-                href={dashboardUrl}
-                className={cn(
-                  buttonVariants({ variant: "outline", size: "sm" }),
-                  "h-7 text-[12px]",
-                )}
-              >
+              <Link href={dashboardUrl} className={buttonVariants({ variant: "outline" })}>
                 Cancel
               </Link>
-              <Button
-                size="sm"
-                className="h-7 text-[12px]"
-                disabled={!canSave}
-                onClick={handleSave}
-              >
+              <Button disabled={!canSave} onClick={handleSave}>
                 Save widget
               </Button>
             </div>
@@ -511,9 +496,9 @@ export function WidgetBuilderPage({
 
         {/* right: preview card */}
         <div className="flex min-w-0 flex-1 flex-col border border-border">
-          <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
+          <div className="flex h-9 items-center justify-between border-b border-border px-4">
             <span
-              className="truncate text-[12px] font-medium text-muted-foreground"
+              className="truncate text-[13px] font-medium text-foreground"
               title={effectiveTitle}
             >
               {effectiveTitle || "Preview"}

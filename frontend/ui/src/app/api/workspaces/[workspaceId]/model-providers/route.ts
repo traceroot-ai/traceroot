@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
@@ -16,6 +17,8 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -28,12 +31,15 @@ const ADAPTER_VALUES = [
   LLMAdapter.XAI,
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
+  LLMAdapter.TYPESAFE,
 ] as const;
 
 const createSchema = z.object({
   adapter: z.enum(ADAPTER_VALUES),
   provider: z.string().min(1).max(100), // user-defined label
-  apiKey: z.string().optional(), // not required for bedrock with default creds
+  // Trimmed, so a blank key fails the required check below. Not required for
+  // bedrock with default creds.
+  apiKey: z.string().trim().optional(),
   baseUrl: z.string().url().optional(),
   customModels: z.array(z.string().min(1)).default([]),
   withDefaultModels: z.boolean().default(true),
@@ -49,7 +55,7 @@ const createSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId]/model-providers
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -57,6 +63,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(authResult.user.id, workspaceId);
   if (membershipResult.error) return membershipResult.error;
+  if (isDemoViewer(workspaceId, membershipResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -88,7 +97,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/workspaces/[workspaceId]/model-providers
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -164,48 +173,53 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     providerConfig.awsRegion = awsRegion;
   }
 
-  const modelProvider = await prisma.modelProvider.upsert({
+  const existingProvider = await prisma.modelProvider.findUnique({
     where: {
       workspaceId_provider: { workspaceId, provider },
     },
-    create: {
-      workspaceId,
-      adapter,
-      provider,
-      keyCipher,
-      keyPreview: credentialPreview,
-      baseUrl: baseUrl || null,
-      customModels,
-      withDefaultModels,
-      config: Object.keys(providerConfig).length > 0 ? (providerConfig as object) : undefined,
-      enabled: enabled ?? true,
-      createdBy: user.id,
-    },
-    update: {
-      adapter,
-      keyCipher,
-      keyPreview: credentialPreview,
-      baseUrl: baseUrl || null,
-      customModels,
-      withDefaultModels,
-      config: Object.keys(providerConfig).length > 0 ? (providerConfig as object) : undefined,
-      enabled: enabled ?? true,
-    },
-    select: {
-      id: true,
-      adapter: true,
-      provider: true,
-      keyPreview: true,
-      baseUrl: true,
-      customModels: true,
-      withDefaultModels: true,
-      config: true,
-      enabled: true,
-      createdBy: true,
-      createTime: true,
-      updateTime: true,
-    },
   });
+  if (existingProvider) {
+    return errorResponse("A provider with this name already exists in this workspace", 409);
+  }
 
-  return successResponse(modelProvider, 201);
+  try {
+    const modelProvider = await prisma.modelProvider.create({
+      data: {
+        workspaceId,
+        adapter,
+        provider,
+        keyCipher,
+        keyPreview: credentialPreview,
+        baseUrl: baseUrl || null,
+        customModels,
+        withDefaultModels,
+        config: Object.keys(providerConfig).length > 0 ? (providerConfig as object) : undefined,
+        enabled: enabled ?? true,
+        createdBy: user.id,
+      },
+      select: {
+        id: true,
+        adapter: true,
+        provider: true,
+        keyPreview: true,
+        baseUrl: true,
+        customModels: true,
+        withDefaultModels: true,
+        config: true,
+        enabled: true,
+        createdBy: true,
+        createTime: true,
+        updateTime: true,
+      },
+    });
+
+    return successResponse(modelProvider, 201);
+  } catch (error) {
+    if (isPrismaKnownError(error, "P2002")) {
+      return errorResponse("A provider with this name already exists in this workspace", 409);
+    }
+    throw error;
+  }
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

@@ -7,7 +7,7 @@
  *
  * This version deliberately reuses the *real* trace types (`Span`,
  * `TraceDetail`) rather than a parallel shape, so the trace-inspection UI is the
- * genuine TraceRoot component fed with hardcoded data — not a lookalike.
+ * genuine traceroot component fed with hardcoded data — not a lookalike.
  */
 
 import type { Span, TraceDetail } from "@/types/api";
@@ -64,6 +64,7 @@ export const SPAN_KIND_LABEL: Record<SpanKind, string> = {
   AGENT: "Agent step",
   TOOL: "Tool call",
   SPAN: "Step",
+  DECISION: "Decision",
   EVALUATION: "Evaluation",
   TASK: "Task",
   SCORER: "Scorer",

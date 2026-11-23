@@ -100,7 +100,7 @@ async function rowAction(name: "Edit" | "Delete") {
 describe("New dataset panel", () => {
   it("stays disabled until a name is typed, then POSTs name + description", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New dataset" }));
 
     const create = screen.getByRole("button", { name: "Create" });
     expect(create.hasAttribute("disabled")).toBe(true);
@@ -119,12 +119,12 @@ describe("New dataset panel", () => {
     expect(post?.url).toContain("/api/projects/p1/datasets");
     expect(post?.body).toEqual({ name: "Refund routing", description: "Refund tickets" });
     // Creating closes the panel.
-    await waitFor(() => expect(screen.queryByText("New dataset")).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText("New dataset")).toHaveLength(1));
   });
 
   it("an empty description persists as null, never as an empty string", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New dataset" }));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Refund routing" },
     });
@@ -140,7 +140,7 @@ describe("New dataset panel", () => {
     // Convergence: a name that already resolves to a dataset opens it rather than erroring.
     createReturnsExisting = true;
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New dataset" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Billing routing" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
@@ -150,38 +150,52 @@ describe("New dataset panel", () => {
 
   it("closes on Cancel, on the X, and on Escape", async () => {
     mount();
-    const open = await screen.findByRole("button", { name: "New Dataset" });
+    const open = await screen.findByRole("button", { name: "New dataset" });
 
     fireEvent.click(open);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByText("New dataset")).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText("New dataset")).toHaveLength(1));
 
     fireEvent.click(open);
     fireEvent.click(await screen.findByLabelText("Close"));
-    await waitFor(() => expect(screen.queryByText("New dataset")).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText("New dataset")).toHaveLength(1));
 
     fireEvent.click(open);
-    await screen.findByText("New dataset");
+    await waitFor(() => expect(screen.queryAllByText("New dataset")).toHaveLength(2));
     // The modal listens for Escape via a window capture-phase keydown listener; a
     // keydown dispatched at `document` reaches it during the capture phase.
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByText("New dataset")).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText("New dataset")).toHaveLength(1));
   });
 
   it("surfaces a create failure as a warning toast and keeps the panel open", async () => {
     writesFail = true;
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New dataset" }));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Refund routing" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByText("Could not create dataset")).toBeDefined();
-    expect(screen.getByText("New dataset")).toBeDefined();
+    expect(screen.getAllByText("New dataset")).toHaveLength(2);
   });
 });
 
 describe("Edit dataset panel", () => {
+  it("disables Save until a field is edited", async () => {
+    mount();
+    await rowAction("Edit");
+    const save = await screen.findByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    const name = screen.getByLabelText("Name") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "Billing routing v2" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.change(name, { target: { value: "Billing routing" } });
+    expect(save.hasAttribute("disabled")).toBe(true);
+  });
+
   it("opens seeded from the row and PATCHes the edited name", async () => {
     mount();
     await rowAction("Edit");
@@ -202,11 +216,51 @@ describe("Edit dataset panel", () => {
     expect(patch?.body).toEqual({ name: "Billing routing v2", description: "Routing tickets" });
   });
 
+  it("normalizing whitespace in a stored name enables Save and PATCHes the trimmed value", async () => {
+    global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const s = String(url);
+      requests.push({ url: s, method, body: init?.body ? JSON.parse(init.body as string) : null });
+      if (s.includes("/evaluations")) {
+        return { ok: true, status: 200, json: async () => ({ data: [] }) };
+      }
+      if (s.includes("/datasets")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ ...DATASET, name: "Billing routing " }],
+            meta: { page: 0, limit: 50, total: 1 },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+
+    mount();
+    await rowAction("Edit");
+    const save = await screen.findByRole("button", { name: "Save" });
+    const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    expect(name.value).toBe("Billing routing ");
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Trimming the editor side enables Save because it normalizes stored whitespace.
+    fireEvent.change(name, { target: { value: "Billing routing" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(save);
+    expect(await screen.findByText("Dataset saved")).toBeDefined();
+    const patch = requests.find((r) => r.method === "PATCH");
+    expect(patch?.body).toEqual({ name: "Billing routing", description: "Routing tickets" });
+  });
+
   it("surfaces a save failure and closes on Cancel", async () => {
     writesFail = true;
     mount();
     await rowAction("Edit");
-    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    const name = await screen.findByLabelText("Name");
+    fireEvent.change(name, { target: { value: "Billing routing error" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Could not save dataset")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

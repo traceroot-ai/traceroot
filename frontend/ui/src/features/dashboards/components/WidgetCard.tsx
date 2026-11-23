@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useWidgetData } from "../hooks/use-widget-data";
+import { useWidgetData, type WidgetDataRefetchOptions } from "../hooks/use-widget-data";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import { parseSpec, type TimeRange, type Widget } from "../types";
 import { QueryWidgetRenderer } from "./renderers";
@@ -17,10 +17,12 @@ function QueryWidgetBody({
   projectId,
   widget,
   range,
+  queryOptions,
 }: {
   projectId: string;
   widget: Widget;
   range: TimeRange;
+  queryOptions?: WidgetDataRefetchOptions;
 }) {
   const spec = parseSpec(widget.spec);
 
@@ -38,10 +40,11 @@ function QueryWidgetBody({
     },
     range,
     spec !== null,
+    queryOptions,
   );
 
   if (!spec) {
-    return <div className="p-2 text-[12px] text-red-600">Invalid widget spec — edit to fix</div>;
+    return <div className="p-2 text-[12px] text-danger">Invalid widget spec — edit to fix</div>;
   }
   // isPending (no data yet), not isLoading (pending AND fetching): while the
   // auth session is still resolving the query is disabled — not fetching — and
@@ -51,7 +54,7 @@ function QueryWidgetBody({
   }
   if (error) {
     return (
-      <div className="p-2 text-[12px] text-red-600">
+      <div className="p-2 text-[12px] text-danger">
         Query failed{error instanceof Error ? `: ${error.message}` : ""}
       </div>
     );
@@ -65,6 +68,46 @@ function QueryWidgetBody({
       seriesLabel={spec.metric.measure}
       agg={spec.metric.agg}
     />
+  );
+}
+
+/**
+ * A tile's body alone: the per-type dispatch every surface that draws a widget
+ * shares, so the dashboard's card and the assistant panel's scaled-down
+ * preview render one widget one way. `queryOptions` lets a caller drawing a
+ * frozen snapshot pin its queries' refetch behavior; the dashboard leaves it
+ * unset and keeps the live defaults.
+ */
+export function WidgetBody({
+  projectId,
+  widget,
+  range,
+  queryOptions,
+}: {
+  projectId: string;
+  widget: Widget;
+  range: TimeRange;
+  queryOptions?: WidgetDataRefetchOptions;
+}) {
+  return (
+    <>
+      {widget.type === "query" && (
+        <QueryWidgetBody
+          projectId={projectId}
+          widget={widget}
+          range={range}
+          queryOptions={queryOptions}
+        />
+      )}
+      {widget.type === "trace_feed" && (
+        <TraceFeedWidget
+          projectId={projectId}
+          spec={widget.spec as { limit?: number }}
+          range={range}
+          queryOptions={queryOptions}
+        />
+      )}
+    </>
   );
 }
 
@@ -92,7 +135,7 @@ export function WidgetCard({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
-              className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
               aria-label="Widget options"
             >
               <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
@@ -100,7 +143,10 @@ export function WidgetCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {widget.type === "query" && <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>}
-            <DropdownMenuItem onSelect={onDelete} className="text-red-600 focus:text-red-600">
+            <DropdownMenuItem
+              onSelect={onDelete}
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            >
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -109,16 +155,7 @@ export function WidgetCard({
 
       {/* Body */}
       <div className="min-h-0 flex-1">
-        {widget.type === "query" && (
-          <QueryWidgetBody projectId={projectId} widget={widget} range={range} />
-        )}
-        {widget.type === "trace_feed" && (
-          <TraceFeedWidget
-            projectId={projectId}
-            spec={widget.spec as { limit?: number }}
-            range={range}
-          />
-        )}
+        <WidgetBody projectId={projectId} widget={widget} range={range} />
       </div>
     </div>
   );

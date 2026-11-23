@@ -15,25 +15,35 @@ import {
   type DotItemDotProps,
 } from "recharts";
 import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
-import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import {
   useWidgetPreview,
   type WidgetPreviewData,
 } from "@/features/dashboards/hooks/use-widget-data";
 import {
+  CHART_MARGIN,
   ChartTip,
-  SERIES_COLORS,
+  Y_AXIS_TICK,
+  Y_AXIS_WIDTH,
+  Y_AXIS_WIDTH_WITH_UNIT,
   bucketLabel,
   fmtAxisTick,
   isAdditiveAgg,
   seriesNameFormatter,
   pivotRows,
 } from "@/features/dashboards/components/renderers";
+import { SERIES_COLORS } from "@/features/dashboards/series-colors";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { makeRange } from "@/features/dashboards/range-presets";
 import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
 import type { TimeRange } from "@/features/dashboards/types";
-import type { AlertAggregation, AlertFilter, AlertOperator, AlertView } from "../rule-model";
+import {
+  getAlertUnitForSource,
+  withAlertUnit,
+  type AlertAggregation,
+  type AlertFilter,
+  type AlertOperator,
+  type AlertView,
+} from "../rule-model";
 import { buildPreviewSpec, parseThreshold } from "../preview";
 
 interface AlertPreviewProps {
@@ -50,14 +60,14 @@ interface AlertPreviewProps {
   window: AlertWindow;
 }
 
-// Red is reserved for the threshold and the breach; the series takes palette entry 1.
-const PREVIEW_SERIES_COLOR = SERIES_COLORS[1];
+// Red is reserved for the threshold and the breach; the series takes the first series color.
+const PREVIEW_SERIES_COLOR = SERIES_COLORS[0];
 
 const DAY_MS = 86_400_000;
 
 // Mirrors MAX_EXPLICIT_BUCKETS in backend/rest/services/widget_query.py, which
 // rejects a range the rule's window divides into more points than this.
-const MAX_PREVIEW_BUCKETS = 500;
+export const MAX_PREVIEW_BUCKETS = 500;
 
 function rangeFor(
   option: DateFilterOption,
@@ -76,7 +86,7 @@ const THRESHOLD_GRAPHIC_CLASS = "text-destructive";
 
 // The destructive token lands near 3.8:1, under the 4.5:1 text needs, so the
 // label steps one shade darker on light and lighter on dark.
-const THRESHOLD_TEXT_CLASS = "text-red-700 dark:text-red-400";
+const THRESHOLD_TEXT_CLASS = "text-danger ";
 
 /**
  * Null for an equality condition, which is a value rather than a side. The
@@ -96,7 +106,12 @@ function PreviewMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PreviewChart({
+/**
+ * The rule's chart: the measure as a series over the range, the threshold
+ * as a line with the breach side shaded. Exported for the assistant panel's
+ * alert cards, which draw the same chart in their own frame.
+ */
+export function AlertPreviewChart({
   data,
   thresholdValue,
   operator,
@@ -109,7 +124,12 @@ function PreviewChart({
 }) {
   const { spec, result } = data;
   const additive = isAdditiveAgg(spec.metric.agg);
-  const unit = FIELD_UNIT[spec.metric.measure];
+  // From the spec that produced these rows, not the live draft: keepPreviousData
+  // serves the previous query's rows while a changed measure is still loading.
+  const unit = getAlertUnitForSource(
+    { view: spec.view, field: spec.metric.measure },
+    spec.metric.agg,
+  );
   const { data: rows } = useMemo(
     () => pivotRows(result.columns, result.rows, additive ? 0 : null),
     [result, additive],
@@ -145,7 +165,7 @@ function PreviewChart({
     // The axes inherit currentColor; the threshold elements override it below.
     <div className="h-full text-muted-foreground">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+        <LineChart data={rows} margin={CHART_MARGIN}>
           <CartesianGrid strokeOpacity={0.15} vertical={false} />
           <XAxis
             dataKey="bucket"
@@ -156,10 +176,11 @@ function PreviewChart({
                 : (v: unknown) => String(v).slice(5, 16).replace("T", " ")
             }
           />
-          {/* Widths mirror the dashboard renderers' tick gutters. */}
+          {/* The dashboard renderers' own chrome, so both surfaces plot a
+              result on the same geometry. */}
           <YAxis
-            tick={{ fontSize: 10 }}
-            width={unit ? 58 : 42}
+            tick={Y_AXIS_TICK}
+            width={unit ? Y_AXIS_WIDTH_WITH_UNIT : Y_AXIS_WIDTH}
             tickFormatter={(v: unknown) => fmtAxisTick(v, unit)}
           />
           <Tooltip
@@ -198,7 +219,7 @@ function PreviewChart({
             >
               <Label
                 className={THRESHOLD_TEXT_CLASS}
-                value={`Alert ${operator} ${thresholdValue}`}
+                value={`Alert ${operator} ${withAlertUnit(String(thresholdValue), unit)}`}
                 position={side === "below" ? "insideBottomLeft" : "insideTopLeft"}
                 fill="currentColor"
                 fontSize={12}
@@ -266,8 +287,8 @@ export function AlertPreview({
 
   return (
     <div className="flex min-h-[320px] min-w-0 flex-1 flex-col border border-border">
-      <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
-        <span className="text-[12px] font-medium text-muted-foreground">Live preview</span>
+      <div className="flex h-9 items-center justify-between border-b border-border px-4">
+        <span className="text-[13px] font-medium text-foreground">Live preview</span>
         <DateFilterSelect
           dateFilter={dateFilter}
           customStartDate={customStart}
@@ -277,7 +298,7 @@ export function AlertPreview({
             setCustomStart(start);
             setCustomEnd(end);
           }}
-          className="h-7 min-w-0 text-[12px]"
+          className="min-w-0"
         />
       </div>
       <div className="min-h-0 flex-1 p-4">
@@ -288,7 +309,7 @@ export function AlertPreview({
         ) : preview.error ? (
           <PreviewMessage>Preview failed to load.</PreviewMessage>
         ) : preview.data ? (
-          <PreviewChart
+          <AlertPreviewChart
             data={preview.data}
             thresholdValue={thresholdValue}
             operator={operator}

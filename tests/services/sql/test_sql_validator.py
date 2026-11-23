@@ -1,0 +1,917 @@
+"""Security-policy tests for the allowlist-primary SQL validator (Layer 1).
+
+Tests are parametrized over two matrices:
+  ALLOWED — queries that must pass without raising.
+  REJECTED — queries that must raise SqlValidationError.
+
+The module is pure: no DB, no network, no config dependency.
+
+Empirical sqlglot findings documented here
+------------------------------------------
+* Trailing ``;``      — produces ONE statement (``SELECT 1;`` → 1 stmt); handled correctly.
+* ``SELECT 1; SELECT 2`` — produces TWO statements; rejected by multi-statement check.
+* ``quantile(0.95)(duration_ms)``  — parses as ``exp.Quantile``; ``sql_name()`` == ``QUANTILE``
+  → lowercased ``quantile`` is in ALLOWED_FUNCTIONS.
+* ``count()``  — parses as ``exp.Count``; ``sql_name()`` == ``COUNT``.
+* ``FORMAT JSON`` — captured in ``tree.args["format"]`` on the ``Select`` node.
+* ``INTO OUTFILE`` — raises ``ParseError``; caught by the parse-error rejection path.
+* ``FINAL`` — sqlglot wraps the ``Table`` in ``exp.Final``; detected via walk.
+* CASE expressions — parse as ``exp.Case`` (an ``exp.Func`` subclass); added to the
+  skip list alongside ``exp.Cast`` so they are allowed implicitly (see validator.py).
+* ``uniq()`` — maps to ``exp.ApproxDistinct``; ``sql_name()`` == ``APPROX_DISTINCT`` which
+  is NOT in ALLOWED_FUNCTIONS.  Because no ALLOWED test exercises ``uniq`` and the
+  validator is allowlist-primary, this is conservative-correct (``uniq`` is rejected).
+  Noted in the report.
+"""
+
+from __future__ import annotations
+
+import pytest
+import sqlglot
+import sqlglot.expressions as exp
+
+from rest.services.sql import validator as validator_module
+from rest.services.sql.errors import SqlValidationError
+from rest.services.sql.validator import (
+    ALLOWED_FUNCTIONS,
+    BLOCKED_FUNCTIONS,
+    BLOCKED_PREFIXES,
+    validate,
+)
+
+# ---------------------------------------------------------------------------
+# ALLOWED matrix — must NOT raise
+# ---------------------------------------------------------------------------
+ALLOWED_CASES = [
+    # Aggregate over public table
+    "SELECT count() FROM spans",
+    # count(*) — exp.Count(this=Star); name-extraction must resolve to `count`
+    "SELECT count(*) FROM spans",
+    "SELECT count(*) FROM traces",
+    "SELECT model_name, count(*) FROM spans GROUP BY model_name",
+    # Group-by with aggregate
+    "SELECT model_name, sum(cost) FROM spans GROUP BY model_name",
+    # now() + INTERVAL — now is Anonymous, INTERVAL is not a Func node
+    "SELECT * FROM spans WHERE span_start_time >= now() - INTERVAL 24 HOUR",
+    # CTE (non-shadow) + public table inside
+    "WITH t AS (SELECT trace_id FROM traces) SELECT count() FROM t",
+    # Subquery
+    "SELECT trace_id FROM (SELECT trace_id FROM traces) s",
+    # UNION ALL
+    "SELECT span_id FROM spans UNION ALL SELECT span_id FROM spans",
+    # Parametric aggregate — quantile(0.95)(duration_ms)
+    "SELECT model_name, quantile(0.95)(duration_ms) FROM spans GROUP BY model_name",
+    # CAST — exp.Cast is in the skip list → implicitly allowed
+    "SELECT CAST(cost AS Float64) FROM spans",
+    # CASE expression — exp.Case is a Func subclass; added to skip list (see validator.py)
+    "SELECT CASE WHEN cost > 0 THEN cost ELSE 0 END FROM spans",
+    # Pure arithmetic (operators are non-Func)
+    "SELECT cost * 2 FROM spans",
+    # IN (exp.In is not a Func subclass)
+    "SELECT span_id FROM spans WHERE span_id IN ('a', 'b')",
+    # BETWEEN (exp.Between is not a Func subclass)
+    "SELECT * FROM spans WHERE cost BETWEEN 0 AND 100",
+    # LIKE (exp.Like is not a Func subclass)
+    "SELECT * FROM spans WHERE name LIKE '%test%'",
+    # --- Scope-aware CTE regression: legitimate in-scope references (P1 fix) ---
+    # CTE whose alias is an arbitrary non-public name — in-scope reference is allowed
+    "WITH evil AS (SELECT 1 AS n) SELECT n FROM evil",
+    # Chained CTEs: later CTE references earlier CTE in the same WITH block
+    "WITH a AS (SELECT span_id FROM spans), b AS (SELECT span_id FROM a) SELECT count() FROM b",
+    # Mixed-case CTE alias — the in-scope reference must be allowed (identifier
+    # matching is case-insensitive; scope.cte_sources preserves original case).
+    "WITH MyCte AS (SELECT trace_id FROM traces) SELECT count() FROM MyCte",
+    # Mixed-case public table name, matched case-insensitively here like every
+    # other identifier. The rewriter then emits the curated view under its own
+    # canonical name, so this is a query the gateway answers rather than one it
+    # merely parses, and the stages downstream must spell the table the same way
+    # the schema does rather than the way the caller did.
+    "SELECT span_id FROM SPANS",
+    "SELECT trace_id FROM Traces",
+]
+
+
+@pytest.mark.parametrize("sql", ALLOWED_CASES)
+def test_allowed_queries_do_not_raise(sql: str) -> None:
+    result = validate(sql)
+    assert isinstance(result, exp.Query)
+
+
+# ---------------------------------------------------------------------------
+# REJECTED matrix — must raise SqlValidationError
+# ---------------------------------------------------------------------------
+REJECTED_CASES = [
+    # ----- Write / DDL operations ------------------------------------------
+    pytest.param("INSERT INTO spans VALUES (1)", id="reject-insert"),
+    pytest.param("UPDATE spans SET cost = 0", id="reject-update"),
+    pytest.param("DELETE FROM spans", id="reject-delete"),
+    pytest.param("ALTER TABLE spans ADD COLUMN x Int32", id="reject-alter"),
+    pytest.param("DROP TABLE spans", id="reject-drop"),
+    pytest.param("TRUNCATE TABLE spans", id="reject-truncate"),
+    pytest.param("OPTIMIZE TABLE spans FINAL", id="reject-optimize"),
+    pytest.param("SYSTEM RELOAD CONFIG", id="reject-system"),
+    pytest.param("SET max_threads = 1", id="reject-set"),
+    # ----- Multi-statement injection ----------------------------------------
+    pytest.param("SELECT 1; SELECT 2", id="reject-multi-stmt"),
+    pytest.param("SELECT 1; DROP TABLE spans", id="reject-trailing-injection"),
+    # ----- Unknown / forbidden tables ---------------------------------------
+    pytest.param("SELECT * FROM users", id="reject-unknown-table"),
+    pytest.param("SELECT * FROM system.tables", id="reject-db-qualified"),
+    pytest.param("SELECT * FROM default.spans", id="reject-db-qualified-spans"),
+    pytest.param("SELECT * FROM spans_public_v1", id="reject-internal-view"),
+    # ----- Table functions (not real tables) --------------------------------
+    pytest.param("SELECT * FROM url('http://evil/x', 'CSV')", id="reject-table-fn-url"),
+    pytest.param("SELECT * FROM s3('http://x','CSV')", id="reject-table-fn-s3"),
+    pytest.param("SELECT * FROM remote('h', default.spans)", id="reject-table-fn-remote"),
+    pytest.param("SELECT * FROM numbers(1000000000)", id="reject-table-fn-numbers"),
+    # ----- Blocked functions ------------------------------------------------
+    pytest.param("SELECT sleep(10)", id="reject-fn-sleep"),
+    pytest.param("SELECT getSetting('max_threads')", id="reject-fn-getsetting"),
+    pytest.param("SELECT currentUser()", id="reject-fn-currentuser"),
+    # ----- Blocked by prefix ------------------------------------------------
+    pytest.param("SELECT dictGet('d', 'a', toUInt64(1))", id="reject-prefix-dictget"),
+    pytest.param("SELECT joinGet('j', 'a', 1)", id="reject-prefix-joinget"),
+    # ----- project_id references -------------------------------------------
+    pytest.param("SELECT project_id FROM spans", id="reject-project-id-select"),
+    pytest.param("SELECT count() FROM spans WHERE project_id = 'x'", id="reject-project-id-where"),
+    pytest.param("SELECT span_id AS project_id FROM spans", id="reject-project-id-alias"),
+    # project_id blocked as a table alias and as a column table-qualifier too
+    # (policy consistency; not a scoping bypass — the rewriter scopes by table
+    # identity regardless of alias).
+    pytest.param("SELECT span_id FROM spans AS project_id", id="reject-project-id-table-alias"),
+    pytest.param(
+        "SELECT project_id.span_id FROM spans AS project_id",
+        id="reject-project-id-column-qualifier",
+    ),
+    # ----- CTE shadow -------------------------------------------------------
+    pytest.param(
+        "WITH spans AS (SELECT 1 AS x) SELECT x FROM spans",
+        id="reject-cte-shadow-spans",
+    ),
+    # Case-insensitive CTE matching must NOT reopen the scope-aware bypass: the
+    # outer `Evil` is a real out-of-scope table; the same-named CTE lives only in
+    # the subquery, so it must still be rejected despite the case difference.
+    pytest.param(
+        "SELECT span_id FROM Evil WHERE 1 IN (WITH evil AS (SELECT 1 AS n) SELECT n FROM evil)",
+        id="reject-mixed-case-out-of-scope-table",
+    ),
+    # ----- SETTINGS ---------------------------------------------------------
+    pytest.param(
+        "SELECT count() FROM spans SETTINGS max_execution_time = 99999",
+        id="reject-settings",
+    ),
+    # SETTINGS/FORMAT can attach to a set-operation (Union) or Subquery root,
+    # not just a Select — those must be rejected too.
+    pytest.param(
+        "SELECT span_id FROM spans UNION ALL (SELECT span_id FROM spans) "
+        "SETTINGS max_execution_time = 99999",
+        id="reject-settings-union-root",
+    ),
+    pytest.param(
+        "(SELECT span_id FROM spans UNION ALL SELECT span_id FROM spans) FORMAT JSON",
+        id="reject-format-union-subquery-root",
+    ),
+    # ----- Unknown functions (allowlist-primary: reject unknown) ------------
+    pytest.param("SELECT mystery(span_id) FROM spans", id="reject-fn-unknown-mystery"),
+    pytest.param("SELECT reverse(name) FROM spans", id="reject-fn-unknown-reverse"),
+    pytest.param("SELECT arrayJoin(name) FROM spans", id="reject-fn-unknown-arrayjoin"),
+    # ----- FINAL modifier ---------------------------------------------------
+    pytest.param("SELECT * FROM spans FINAL", id="reject-final"),
+    # ----- Output escape hatches --------------------------------------------
+    pytest.param("SELECT * FROM spans FORMAT JSON", id="reject-format-json"),
+    # INTO OUTFILE raises ParseError → caught by parse-error rejection path
+    pytest.param(
+        "SELECT * FROM spans INTO OUTFILE '/tmp/x'",
+        id="reject-into-outfile-parse-error",
+    ),
+    # ----- Empty / whitespace-only ------------------------------------------
+    pytest.param("", id="reject-empty"),
+    pytest.param("   ", id="reject-whitespace"),
+    # ----- Scope-aware CTE bypass (P1 regression) ---------------------------
+    # Outer FROM references a real table whose name matches a CTE defined only
+    # inside an inner subquery — must be rejected, not allowlisted by mistake.
+    pytest.param(
+        "SELECT * FROM evil WHERE 1 IN (WITH evil AS (SELECT 1 AS n) SELECT n FROM evil)",
+        id="reject-cte-scope-bypass-subquery",
+    ),
+    # First UNION arm's table is a real (unknown) table; the CTE is scoped only
+    # to the second arm — the outer reference must be rejected.
+    pytest.param(
+        "SELECT n FROM evil UNION ALL WITH evil AS (SELECT 1 AS n) SELECT n FROM evil",
+        id="reject-cte-scope-bypass-union",
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", REJECTED_CASES)
+def test_rejected_queries_raise_sql_validation_error(sql: str) -> None:
+    with pytest.raises(SqlValidationError):
+        validate(sql)
+
+
+# ---------------------------------------------------------------------------
+# Error message sanity
+# ---------------------------------------------------------------------------
+def test_error_message_is_non_empty() -> None:
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate("SELECT sleep(10)")
+    assert str(exc_info.value).strip()
+
+
+def test_error_message_does_not_echo_raw_sql() -> None:
+    raw = "SELECT sleep(10) FROM spans"
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(raw)
+    # message must not contain the raw SQL
+    assert raw not in str(exc_info.value)
+
+
+def test_parse_error_message_does_not_leak_sql_or_tenant_data() -> None:
+    # The parse-error path must not echo the raw SQL fragment or any embedded
+    # tenant value (sqlglot's exception text would otherwise carry both).
+    secret = "tenant-SECRET-42"
+    malformed = f"SELECT * FROM spans WHERE project_id = '{secret}' AND ("
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(malformed)
+    msg = str(exc_info.value)
+    assert msg.startswith("SQL statement could not be parsed near line ")
+    assert secret not in msg
+    assert "project_id" not in msg
+    assert "FROM spans" not in msg
+
+
+def _message(sql: str) -> str:
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(sql)
+    return str(exc_info.value)
+
+
+# sqlglot parses input that does not open with a statement keyword as a bare
+# expression (`selec x` is the column `selec` aliased `x`). Its author made a
+# typo, so the message says what a query starts with instead of talking about
+# writes.
+BARE_EXPRESSION_CASES = [
+    pytest.param("selec x", id="typo-selec-alias"),
+    pytest.param("selec", id="typo-selec-alone"),
+    pytest.param("-- note\nselec x", id="typo-after-comment"),
+    pytest.param("spans", id="bare-identifier"),
+    pytest.param("1 + 1", id="bare-arithmetic"),
+    pytest.param("; selec x", id="typo-after-semicolon"),
+    pytest.param(";\nselec x", id="typo-after-semicolon-and-newline"),
+    pytest.param(";; selec x", id="typo-after-two-semicolons"),
+    pytest.param("; selec x;", id="typo-between-semicolons"),
+    pytest.param("; spans", id="bare-identifier-after-semicolon"),
+    pytest.param("; 1 + 1", id="bare-arithmetic-after-semicolon"),
+]
+
+
+@pytest.mark.parametrize("sql", BARE_EXPRESSION_CASES)
+def test_a_bare_expression_is_told_what_a_query_starts_with(sql: str) -> None:
+    assert _message(sql) == "SQL statement must start with SELECT or WITH"
+
+
+# A misspelt first word followed by a query body does not parse, and the parse
+# error's position points past the word that is wrong. No query opens with a
+# plain word, so these get the same message as a bare expression.
+MISSPELT_FIRST_WORD_CASES = [
+    pytest.param("selec * from spans", id="typo-select-star"),
+    pytest.param("selct name from spans", id="typo-select-column"),
+    pytest.param("SELEC count() FROM spans", id="typo-uppercase-count"),
+    pytest.param("-- note\nselec * from spans", id="typo-after-line-comment"),
+    pytest.param("/* note */ selec * from spans", id="typo-after-block-comment"),
+    pytest.param("; selec * from spans", id="typo-after-semicolon"),
+]
+
+
+@pytest.mark.parametrize("sql", MISSPELT_FIRST_WORD_CASES)
+def test_a_misspelt_first_word_before_a_query_body_is_told_what_a_query_starts_with(
+    sql: str,
+) -> None:
+    assert _message(sql) == "SQL statement must start with SELECT or WITH"
+
+
+# Every recognised non-read statement keeps the SELECT-only message, including
+# the ones sqlglot only understands as an opaque exp.Command.
+STATEMENT_CASES = [
+    pytest.param("INSERT INTO spans VALUES (1)", id="insert"),
+    pytest.param("DELETE FROM spans", id="delete"),
+    pytest.param("DROP TABLE spans", id="drop"),
+    pytest.param("ALTER TABLE spans DELETE WHERE 1", id="alter"),
+    pytest.param("TRUNCATE TABLE spans", id="truncate"),
+    pytest.param("SET max_threads = 1", id="set"),
+    pytest.param("USE default", id="use"),
+    pytest.param("DESCRIBE spans", id="describe"),
+    pytest.param("GRANT SELECT ON spans TO x", id="grant"),
+    pytest.param("EXPLAIN SELECT 1", id="command-explain"),
+    pytest.param("SHOW TABLES", id="command-show"),
+    pytest.param("OPTIMIZE TABLE spans FINAL", id="command-optimize"),
+    pytest.param("SYSTEM FLUSH LOGS", id="command-system"),
+    pytest.param("WITH t AS (SELECT 1) DELETE FROM spans", id="with-then-delete"),
+    pytest.param("; DELETE FROM spans", id="delete-after-semicolon"),
+    pytest.param(";;\nDROP TABLE spans", id="drop-after-two-semicolons"),
+    pytest.param("; INSERT INTO spans VALUES (1)", id="insert-after-semicolon"),
+    pytest.param("; SHOW TABLES", id="command-after-semicolon"),
+    pytest.param("; WITH t AS (SELECT 1) DELETE FROM spans", id="with-then-delete-after-semicolon"),
+]
+
+
+@pytest.mark.parametrize("sql", STATEMENT_CASES)
+def test_a_non_read_statement_keeps_the_select_only_message(sql: str) -> None:
+    assert "Only SELECT statements are allowed" in _message(sql)
+
+
+def test_a_parse_error_names_its_position_but_not_the_sql() -> None:
+    msg = _message("SELECT 1 FORM spans")
+    assert msg == "SQL statement could not be parsed near line 1, column 19"
+    assert "FORM" not in msg and "spans" not in msg
+
+
+# Input that opens with a statement keyword, or with anything other than a plain
+# word, keeps the parse error and its position.
+@pytest.mark.parametrize(
+    ("sql", "column"),
+    [
+        pytest.param("WITH t AS (SELECT 1) selec x", 28, id="with-then-typo"),
+        pytest.param("(SELECT 1 FORM spans)", 20, id="parenthesised-select"),
+        pytest.param("DELETE FROM spans WHERE (", 25, id="mangled-delete"),
+        pytest.param("ALTER TABLE spans RENAME TO", 27, id="mangled-alter"),
+    ],
+)
+def test_a_parse_error_after_a_keyword_keeps_its_position(sql: str, column: int) -> None:
+    assert _message(sql) == f"SQL statement could not be parsed near line 1, column {column}"
+
+
+def test_a_token_error_still_reads_as_a_parse_error() -> None:
+    # An unterminated string fails in the tokenizer, which carries no position.
+    assert _message("SELECT 'abc") == "SQL statement could not be parsed"
+
+
+def test_a_failing_first_token_check_falls_back_to_the_select_only_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("tokenizer unavailable")
+
+    monkeypatch.setattr(validator_module.sqlglot, "tokenize", boom)
+    assert "Only SELECT statements are allowed" in _message("selec x")
+
+
+def test_a_failing_first_token_check_keeps_the_parse_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("tokenizer unavailable")
+
+    monkeypatch.setattr(validator_module.sqlglot, "tokenize", boom)
+    assert (
+        _message("selec * from spans") == "SQL statement could not be parsed near line 1, column 12"
+    )
+
+
+def test_a_failing_statement_table_lookup_falls_back_to_the_select_only_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(validator_module, "_CLICKHOUSE", object())
+    assert "Only SELECT statements are allowed" in _message("selec x")
+
+
+# A file saved with a byte order mark, or SQL pasted with a zero-width space or
+# full-width letters, opens with what reads as SELECT. The tokenizer takes that
+# first word as a plain one, so the message names the character instead of
+# contradicting what its author sees.
+NON_ASCII_FIRST_WORD_CASES = [
+    pytest.param("\ufeffSELECT 1 FROM spans", id="bom-before-query"),
+    pytest.param("\ufeffSELECT x", id="bom-before-bare-expression"),
+    pytest.param("-- note\n\ufeffSELECT 1 FROM spans", id="bom-after-comment"),
+    pytest.param("SELECT\u200b1 FROM spans", id="zero-width-space"),
+    pytest.param("\uff33\uff25\uff2c\uff25\uff23\uff34 1", id="full-width-select"),
+    pytest.param("s\u00e9lect x", id="accented-typo"),
+]
+
+
+@pytest.mark.parametrize("sql", NON_ASCII_FIRST_WORD_CASES)
+def test_a_non_ascii_first_word_is_named_in_the_start_with_message(sql: str) -> None:
+    assert _message(sql) == (
+        "SQL statement must start with SELECT or WITH; its first word contains "
+        "a non-ASCII character, such as an invisible byte order mark"
+    )
+
+
+# Only an unquoted first word can be a misspelt keyword.
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param('"s\u00e9lect" x', id="quoted-name"),
+        pytest.param("'caf\u00e9'", id="string-literal"),
+    ],
+)
+def test_a_quoted_non_ascii_opening_keeps_the_plain_start_with_message(sql: str) -> None:
+    assert _message(sql) == "SQL statement must start with SELECT or WITH"
+
+
+class _OddParseError(sqlglot.errors.ParseError):
+    def __init__(self, errors: object) -> None:
+        super().__init__("odd")
+        self.errors = errors
+
+
+@pytest.mark.parametrize("errors", [[], None, ["not a dict"], [{"line": "1", "col": 2}]])
+def test_an_unreadable_parse_error_position_yields_no_suffix(
+    monkeypatch: pytest.MonkeyPatch, errors: object
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise _OddParseError(errors)
+
+    monkeypatch.setattr(validator_module.sqlglot, "parse", boom)
+    assert _message("SELECT 1") == "SQL statement could not be parsed"
+
+
+def test_a_non_parse_error_never_contributes_a_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OtherError(Exception):
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+            self.errors = [{"line": 1, "col": 2}]
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise OtherError("x")
+
+    monkeypatch.setattr(validator_module.sqlglot, "parse", boom)
+    assert _message("SELECT 1") == "SQL statement could not be parsed"
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "-- nothing here",
+        "/* nothing here */",
+        "-- a\n-- b",
+        "-- a\n;",
+        "/* x */;",
+        "/* x */ ; /* y */",
+    ],
+)
+def test_comment_only_input_is_empty(sql: str) -> None:
+    assert _message(sql) == "SQL statement must not be empty"
+
+
+# str.strip keeps a byte order mark, which an editor can save into an otherwise
+# empty file.
+@pytest.mark.parametrize("sql", ["\ufeff", "\ufeff\n", " \ufeff\t\ufeff "])
+def test_a_byte_order_mark_alone_is_empty(sql: str) -> None:
+    assert _message(sql) == "SQL statement must not be empty"
+
+
+def test_a_statement_followed_by_a_comment_is_still_two_statements() -> None:
+    assert _message("SELECT 1; -- note") == "Exactly one SELECT statement is required; got 2"
+
+
+def test_two_statements_keep_their_own_message() -> None:
+    assert _message("SELECT 1; SELECT 2") == "Exactly one SELECT statement is required; got 2"
+
+
+def test_error_message_does_not_contain_internal_view_names() -> None:
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate("SELECT * FROM spans_public_v1")
+    msg = str(exc_info.value)
+    assert "spans_public_v1" not in msg
+    assert "traces_public_v1" not in msg
+
+
+# ---------------------------------------------------------------------------
+# Module-level constant shape tests
+# ---------------------------------------------------------------------------
+def test_allowed_functions_is_frozenset() -> None:
+    assert isinstance(ALLOWED_FUNCTIONS, frozenset)
+    assert len(ALLOWED_FUNCTIONS) > 0
+    for name in ALLOWED_FUNCTIONS:
+        assert name == name.lower(), f"ALLOWED_FUNCTIONS entry not lowercased: {name!r}"
+
+
+def test_blocked_functions_is_frozenset() -> None:
+    assert isinstance(BLOCKED_FUNCTIONS, frozenset)
+    assert len(BLOCKED_FUNCTIONS) > 0
+    for name in BLOCKED_FUNCTIONS:
+        assert name == name.lower(), f"BLOCKED_FUNCTIONS entry not lowercased: {name!r}"
+
+
+def test_blocked_prefixes_is_tuple_of_lowercase_strings() -> None:
+    assert isinstance(BLOCKED_PREFIXES, tuple)
+    assert len(BLOCKED_PREFIXES) > 0
+    for prefix in BLOCKED_PREFIXES:
+        assert isinstance(prefix, str)
+        assert prefix == prefix.lower(), f"BLOCKED_PREFIXES entry not lowercased: {prefix!r}"
+
+
+def test_blocked_and_allowed_sets_do_not_overlap() -> None:
+    # The invariant that keeps precedence from ever being exercised in production.
+    assert BLOCKED_FUNCTIONS.isdisjoint(ALLOWED_FUNCTIONS), (
+        "BLOCKED_FUNCTIONS and ALLOWED_FUNCTIONS must not overlap"
+    )
+
+
+def test_blocklist_wins_when_a_name_reaches_both_sets(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Because the two sets are disjoint today, the precedence branch is dead code from
+    # the test suite's point of view and could regress unnoticed. Force the overlap the
+    # invariant above forbids: a blocked name that is ALSO allowlisted stays rejected.
+    monkeypatch.setattr(validator_module, "ALLOWED_FUNCTIONS", ALLOWED_FUNCTIONS | {"sleep"})
+    with pytest.raises(SqlValidationError):
+        validate("SELECT sleep(10) FROM spans")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT span_id FROM spans;", id="terminator"),
+        pytest.param("SELECT span_id FROM spans ;", id="spaced-terminator"),
+    ],
+)
+def test_bare_trailing_semicolon_is_one_statement(sql: str) -> None:
+    # A terminator is not a second statement: the parse yields one statement, and the
+    # rewriter renders the AST rather than the caller's text, so the `;` never reaches
+    # ClickHouse. Anything AFTER the `;` IS a second statement and is rejected — see
+    # `reject-multi-stmt` and `reject-trailing-injection` in the rejection matrix.
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_validate_returns_query_ast_on_success() -> None:
+    result = validate("SELECT count() FROM spans")
+    assert isinstance(result, exp.Query)
+
+
+def test_validate_raises_sql_validation_error_not_generic_exception() -> None:
+    """SqlValidationError must be raised, not a raw ValueError or Exception."""
+    with pytest.raises(SqlValidationError):
+        validate("DROP TABLE spans")
+
+
+def test_sql_validation_error_is_value_error_subclass() -> None:
+    assert issubclass(SqlValidationError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Reserved scope-parameter placeholders (defense-in-depth: user SQL must not
+# reference the server-side scope bind namespace)
+# ---------------------------------------------------------------------------
+RESERVED_PLACEHOLDER_CASES = [
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {project_id:String}",
+        id="reject-user-project-id-placeholder",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {PROJECT_ID:String}",
+        id="reject-user-project-id-placeholder-uppercase",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {scope_project_id:String}",
+        id="reject-user-scope-project-id-placeholder",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {scope_evil:String}",
+        id="reject-user-scope-namespace-placeholder",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {SCOPE_PROJECT_ID:String}",
+        id="reject-user-scope-placeholder-uppercase",
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", RESERVED_PLACEHOLDER_CASES)
+def test_reserved_scope_placeholders_are_rejected(sql: str) -> None:
+    with pytest.raises(SqlValidationError):
+        validate(sql)
+
+
+def test_user_placeholder_outside_scope_namespace_is_allowed() -> None:
+    # The reserved namespace is what keeps a caller parameter away from the scope
+    # bind; everything else is a value the server substitutes.
+    assert isinstance(
+        validate("SELECT span_id FROM spans WHERE span_id = {myval:String}"), exp.Query
+    )
+
+
+def test_both_spellings_of_distinct_count_are_allowed() -> None:
+    # uniqExact keeps its name; uniq normalises to ApproxDistinct, which is why it
+    # was absent while that was only an observation about sqlglot. Both are allowed
+    # now, and both are pinned so an upgrade that changes normalisation fails here
+    # rather than silently refusing one of them again.
+    assert isinstance(validate("SELECT uniqExact(span_id) FROM spans"), exp.Query)
+    assert isinstance(validate("SELECT uniq(span_id) FROM spans"), exp.Query)
+
+
+# ---------------------------------------------------------------------------
+# Public is_blocked_function helper (exposed for the rewriter's re-scan)
+# ---------------------------------------------------------------------------
+def test_is_blocked_function_flags_blocked_name_and_prefix() -> None:
+    import sqlglot
+
+    from rest.services.sql.validator import is_blocked_function
+
+    for sql in ("SELECT sleep(1)", "SELECT dictGet('d', 'a', toUInt64(1))"):
+        tree = sqlglot.parse_one(sql, read="clickhouse")
+        assert any(is_blocked_function(n) for n in tree.find_all(exp.Func))
+
+
+def test_is_blocked_function_false_for_safe_and_non_function() -> None:
+    import sqlglot
+
+    from rest.services.sql.validator import is_blocked_function
+
+    tree = sqlglot.parse_one("SELECT count() FROM spans WHERE span_id = 'x'", read="clickhouse")
+    # safe/allowed function nodes are not blocked
+    assert all(not is_blocked_function(n) for n in tree.find_all(exp.Func))
+    # a non-function node (a column) is not blocked
+    col = next(iter(tree.find_all(exp.Column)))
+    assert is_blocked_function(col) is False
+
+
+# ---------------------------------------------------------------------------
+# F5: widened analytics-function allowlist (one case per added function, so a
+# sqlglot canonical-name change surfaces as a failure rather than silent drift)
+# ---------------------------------------------------------------------------
+F5_ALLOWED_CASES = [
+    "SELECT toStartOfMinute(span_start_time) FROM spans",
+    "SELECT toStartOfHour(span_start_time) FROM spans",
+    "SELECT toStartOfDay(span_start_time) FROM spans",
+    "SELECT toStartOfInterval(span_start_time, INTERVAL 1 HOUR) FROM spans",
+    "SELECT toYYYYMM(span_start_time) FROM spans",
+    "SELECT toHour(span_start_time) FROM spans",
+    "SELECT formatDateTime(span_start_time, '%Y-%m') FROM spans",
+    "SELECT concat(name, status) FROM spans",
+    "SELECT any(name) FROM spans",
+    "SELECT argMax(name, cost) FROM spans",
+    "SELECT argMin(name, cost) FROM spans",
+    "SELECT groupArray(name) FROM spans",
+    "SELECT stddevPop(cost) FROM spans",
+    "SELECT stddevSamp(cost) FROM spans",
+    "SELECT row_number() OVER (ORDER BY cost) FROM spans",
+    "SELECT rank() OVER (ORDER BY cost) FROM spans",
+    "SELECT dense_rank() OVER (ORDER BY cost) FROM spans",
+    # Conditional aggregates and the two functions whose omission was an artifact
+    # of sqlglot naming rather than a decision.
+    "SELECT countIf(cost > 1) FROM spans",
+    "SELECT sumIf(cost, cost > 1) FROM spans",
+    "SELECT avgIf(cost, cost > 1) FROM spans",
+    "SELECT minIf(cost, cost > 1) FROM spans",
+    "SELECT maxIf(cost, cost > 1) FROM spans",
+    "SELECT uniq(trace_id) FROM spans",
+    "SELECT quantiles(0.5, 0.95)(cost) FROM spans",
+    "SELECT topK(3)(name) FROM spans",
+]
+
+
+@pytest.mark.parametrize("sql", F5_ALLOWED_CASES)
+def test_f5_widened_functions_are_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_a_conditional_aggregate_reaches_no_further_than_its_long_form() -> None:
+    """The reason the -If family is safe to allow, asserted rather than assumed.
+
+    Each one is the already-allowed CASE or if() spelling of the same aggregate,
+    so allowing it widens ergonomics and not reach. If that ever stops being true
+    the two sides stop agreeing and this fails.
+    """
+    for short, long in (
+        ("countIf(cost > 1)", "count(CASE WHEN cost > 1 THEN 1 END)"),
+        ("sumIf(cost, cost > 1)", "sum(if(cost > 1, cost, 0))"),
+    ):
+        assert isinstance(validate(f"SELECT {short} FROM spans"), exp.Query)
+        assert isinstance(validate(f"SELECT {long} FROM spans"), exp.Query)
+
+
+def test_widening_the_allowlist_did_not_open_the_blocklist() -> None:
+    # The blocklist wins over the allowlist, and nothing added here is a prefix or
+    # a relative of something blocked. Spot-checked on the families most likely to
+    # be confused with a conditional aggregate or a top-N.
+    for sql in (
+        "SELECT topKWeighted(3)(name, cost) FROM spans",
+        "SELECT uniqTheta(trace_id) FROM spans",
+        "SELECT countIfState(cost > 1) FROM spans",
+        "SELECT dictGetString('d', 'k', toUInt64(1)) FROM spans",
+    ):
+        with pytest.raises(SqlValidationError):
+            validate(sql)
+
+
+def test_restricted_column_error_does_not_name_project_id() -> None:
+    # The blocked-column error must not echo the reserved column name (keeps the
+    # message sanitized and avoids confirming the internal scoping column).
+    for sql in ("SELECT project_id FROM spans", "SELECT span_id AS project_id FROM spans"):
+        with pytest.raises(SqlValidationError) as exc_info:
+            validate(sql)
+        assert "project_id" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Curated `metadata` Map column: keying needs no function, inspecting does.
+# ---------------------------------------------------------------------------
+METADATA_MAP_CASES = [
+    "SELECT metadata['user_id'] FROM spans",
+    "SELECT count() FROM spans WHERE metadata['tier'] = 'pro'",
+    "SELECT mapKeys(metadata) FROM spans",
+    "SELECT mapValues(metadata) FROM traces",
+    "SELECT name FROM spans WHERE mapContains(metadata, 'tenant')",
+]
+
+
+@pytest.mark.parametrize("sql", METADATA_MAP_CASES)
+def test_metadata_map_access_is_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_map_functions_do_not_open_the_wider_array_surface() -> None:
+    # Only the three map accessors were added; array functions that happen to
+    # compose with mapKeys() are still rejected by the allowlist.
+    with pytest.raises(SqlValidationError):
+        validate("SELECT arrayJoin(mapKeys(metadata)) FROM spans")
+
+
+# ---------------------------------------------------------------------------
+# Identifier placeholders. ClickHouse substitutes `{name:Identifier}` as a table
+# or column name on the SERVER, after validation — so the allowlists here would
+# be inspecting an AST that never held the identifier the query actually reads.
+# ---------------------------------------------------------------------------
+IDENTIFIER_PLACEHOLDER_CASES = [
+    pytest.param("SELECT {col:Identifier} FROM spans", id="select-list"),
+    pytest.param("SELECT * FROM {tbl:Identifier}", id="table-position"),
+    pytest.param("SELECT * FROM spans WHERE {c:Identifier} = 1", id="predicate"),
+]
+
+
+@pytest.mark.parametrize("sql", IDENTIFIER_PLACEHOLDER_CASES)
+def test_identifier_placeholders_are_rejected(sql: str) -> None:
+    with pytest.raises(SqlValidationError):
+        validate(sql)
+
+
+def test_identifier_placeholder_in_table_position_raises_the_domain_error() -> None:
+    # It reaches the table walk as a Var rather than a table name; before the
+    # placeholder gate this escaped as a raw AttributeError, which is a 500 and a
+    # stack trace rather than a rejected query.
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate("SELECT * FROM {tbl:Identifier}")
+    assert "tbl" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT count() FROM spans WHERE span_id = {v:String}", id="string"),
+        pytest.param("SELECT * FROM spans WHERE cost > {c:Float64}", id="float"),
+    ],
+)
+def test_value_placeholders_are_allowed(sql: str) -> None:
+    # The caller's payload is bound by the execution layer, which scrubs the
+    # reserved names before merging the scope bind over the top.
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_reserved_parameter_names_keep_their_own_error() -> None:
+    # The reserved-name check must stay distinct from the blanket refusal above:
+    # it is the branch that survives when user parameters are wired.
+    for sql in (
+        "SELECT span_id FROM spans WHERE trace_id = {project_id:String}",
+        "SELECT span_id FROM spans WHERE trace_id = {scope_project_id:String}",
+    ):
+        with pytest.raises(SqlValidationError) as exc_info:
+            validate(sql)
+        assert "reserved name" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# EXISTS is a predicate over a subquery, not a call the allowlist rules on.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT span_id FROM spans WHERE EXISTS (SELECT 1 FROM traces)", id="exists"),
+        pytest.param(
+            "SELECT span_id FROM spans AS s"
+            " WHERE NOT EXISTS (SELECT 1 FROM traces AS t WHERE t.trace_id = s.trace_id)",
+            id="not-exists-correlated",
+        ),
+    ],
+)
+def test_exists_is_allowed_like_its_not_in_equivalent(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_exists_subquery_is_still_validated() -> None:
+    # Skipping the function gate for EXISTS must not skip the walk inside it.
+    for sql in (
+        "SELECT span_id FROM spans WHERE EXISTS (SELECT 1 FROM system.tables)",
+        "SELECT span_id FROM spans WHERE EXISTS (SELECT sleep(5) FROM traces)",
+    ):
+        with pytest.raises(SqlValidationError):
+            validate(sql)
+
+
+# ---------------------------------------------------------------------------
+# The reserved tenant name is refused in every identifier position, including the
+# two that introduce a name rather than reference one.
+# ---------------------------------------------------------------------------
+RESERVED_ALIAS_CASES = [
+    pytest.param("WITH project_id AS (SELECT 1 AS x) SELECT x FROM project_id", id="cte-alias"),
+    pytest.param(
+        "SELECT span_id FROM (SELECT span_id FROM spans) AS project_id", id="derived-table-alias"
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", RESERVED_ALIAS_CASES)
+def test_reserved_name_is_refused_as_a_cte_or_derived_table_alias(sql: str) -> None:
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(sql)
+    # Same generic wording as the other positions: the error never names the column.
+    assert "project_id" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param(
+            "WITH recent AS (SELECT span_id FROM spans) SELECT span_id FROM recent", id="cte"
+        ),
+        pytest.param("SELECT span_id FROM (SELECT span_id FROM spans) AS s", id="derived-table"),
+    ],
+)
+def test_ordinary_cte_and_derived_table_aliases_still_pass(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_reserved_name_is_refused_as_an_alias_on_a_cte_reference() -> None:
+    # A CTE reference takes an early exit from the table walk, which used to skip
+    # the reserved-alias check that a plain table reference still went through.
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate("WITH c AS (SELECT 1 AS x) SELECT x FROM c AS project_id")
+    assert "project_id" not in str(exc_info.value)
+
+
+def test_ordinary_alias_on_a_cte_reference_still_passes() -> None:
+    assert isinstance(validate("WITH c AS (SELECT 1 AS x) SELECT x FROM c AS ok"), exp.Query)
+
+
+# ---------------------------------------------------------------------------
+# Boolean connectors. sqlglot models AND and OR as Func subclasses, so the
+# function gate refused every query that contained one until they were skipped.
+# ---------------------------------------------------------------------------
+CONNECTOR_CASES = [
+    pytest.param("SELECT span_id FROM spans WHERE status = 'OK' AND span_kind = 'llm'", id="and"),
+    pytest.param("SELECT span_id FROM spans WHERE status = 'OK' OR span_kind = 'llm'", id="or"),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE cost > 1 AND cost < 5 AND status = 'OK'",
+        id="three-conjuncts",
+    ),
+    pytest.param(
+        "SELECT s.span_id FROM spans AS s"
+        " JOIN traces AS t ON s.trace_id = t.trace_id AND t.name = 'x'",
+        id="join-on-and",
+    ),
+    pytest.param("SELECT span_id FROM spans WHERE NOT status = 'OK'", id="not"),
+]
+
+
+@pytest.mark.parametrize("sql", CONNECTOR_CASES)
+def test_boolean_connectors_are_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_connectors_do_not_open_the_function_gate() -> None:
+    # Skipping the connector types must not smuggle their operands past the gate.
+    for sql in (
+        "SELECT span_id FROM spans WHERE status = 'OK' AND sleep(5) = 1",
+        "SELECT span_id FROM spans WHERE currentUser() = 'x' OR status = 'OK'",
+    ):
+        with pytest.raises(SqlValidationError):
+            validate(sql)
+
+
+# ---------------------------------------------------------------------------
+# Time functions a caller needs to express a window the rewriter can extract.
+# ---------------------------------------------------------------------------
+WINDOW_FUNCTION_CASES = [
+    pytest.param("SELECT count() FROM spans WHERE span_start_time >= now64(3)", id="now64"),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= toDateTime64('2026-09-01', 3)",
+        id="todatetime64",
+    ),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= addDays(now(), -1)", id="adddays"
+    ),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= subtractDays(now(), 1)",
+        id="subtractdays",
+    ),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= toStartOfDay(now())",
+        id="tostartofday",
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", WINDOW_FUNCTION_CASES)
+def test_window_functions_are_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)

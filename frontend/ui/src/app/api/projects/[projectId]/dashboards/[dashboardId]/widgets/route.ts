@@ -1,15 +1,16 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
-import { WIDGET_TITLE_MAX } from "@/features/dashboards/types";
+import { createWidgetWithPlacement } from "@/lib/dashboard-layout";
+import { isWidgetType, WIDGET_TITLE_MAX, WIDGET_TYPES } from "@/features/dashboards/types";
+import { parseWidgetSpec } from "@/lib/write-services/dashboards";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
-const WIDGET_TYPES = new Set(["query", "trace_feed"]);
-
 // POST .../widgets — add a widget to a dashboard
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId } = auth.params;
@@ -29,11 +30,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (title.trim().length > WIDGET_TITLE_MAX) {
     return errorResponse(`title must be at most ${WIDGET_TITLE_MAX} characters`, 400);
   }
-  if (typeof type !== "string" || !WIDGET_TYPES.has(type)) {
-    return errorResponse(`type must be one of ${[...WIDGET_TYPES].join(", ")}`, 400);
+  if (!isWidgetType(type)) {
+    return errorResponse(`type must be one of ${WIDGET_TYPES.join(", ")}`, 400);
   }
-  // Structural check only — deep spec validation happens in the query engine
-  // at execution time, which is the single source of truth.
   if (spec === null || typeof spec !== "object" || Array.isArray(spec)) {
     return errorResponse("spec must be a JSON object", 400);
   }
@@ -43,15 +42,33 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   ) {
     return errorResponse("displayConfig must be a JSON object", 400);
   }
+  // A query spec the schema can't read, or that names fields the registry
+  // doesn't know, stores fine and then fails at query time forever, with no UI
+  // path to repair it. Refuse both and store the parsed spec (defaults filled,
+  // undeclared keys dropped), through the same check the API/agent path uses.
+  let storedSpec = spec as object;
+  if (type === "query") {
+    const parsedSpec = parseWidgetSpec(type, spec as Record<string, unknown>);
+    if (!parsedSpec.ok) return errorResponse(parsedSpec.error, 400);
+    storedSpec = parsedSpec.spec;
+  }
 
-  const widget = await prisma.widget.create({
-    data: {
-      dashboardId,
-      title: title.trim(),
-      type,
-      spec: spec as object,
-      displayConfig: (displayConfig as object) ?? {},
-    },
-  });
+  // The widget row and its grid placement land together — a widget with no
+  // placement renders through the grid's unpersisted client fallback, as a
+  // narrow stack down the left edge, until someone drags a tile.
+  const widget = await prisma.$transaction((tx) =>
+    createWidgetWithPlacement(tx, { dashboardId, projectId, type }, () =>
+      tx.widget.create({
+        data: {
+          dashboardId,
+          title: title.trim(),
+          type,
+          spec: storedSpec,
+          displayConfig: (displayConfig as object) ?? {},
+        },
+      }),
+    ),
+  );
   return successResponse({ widget }, 201);
 }
+export const POST = withImpersonationPolicy(handlePOST);

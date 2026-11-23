@@ -1,5 +1,5 @@
 /**
- * Vercel AI SDK Agent — Streaming Handler with Deferred Work (TraceRoot)
+ * Vercel AI SDK Agent — Streaming Handler with Deferred Work (traceroot)
  *
  * A multi-phase research assistant exposed as a streaming HTTP handler
  * (`POST /api/chat`): the handler returns its response stream to the client
@@ -38,7 +38,7 @@ import { openai } from '@ai-sdk/openai';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
 TraceRoot.initialize();
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 // How long the simulated streaming handler "stays open" before returning its
 // response stream to the client. This is what makes the root span short relative

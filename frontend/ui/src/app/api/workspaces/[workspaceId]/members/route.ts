@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role, RoleSchema } from "@traceroot/core";
@@ -7,6 +8,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isDemoWorkspace } from "@/lib/demo-workspace";
 
 const addMemberSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -16,14 +18,20 @@ const addMemberSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId]/members - List workspace members
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId);
+  // Every user is a member of the demo workspace, so its member list holds the
+  // email of every user. Only its admins can read it.
+  const membershipResult = await requireWorkspaceMembership(
+    user.id,
+    workspaceId,
+    isDemoWorkspace(workspaceId) ? Role.ADMIN : undefined,
+  );
   if (membershipResult.error) return membershipResult.error;
 
   const memberships = await prisma.workspaceMember.findMany({
@@ -53,7 +61,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/workspaces/[workspaceId]/members - Add a member (ADMIN+)
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -124,3 +132,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     { status: 201 },
   );
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

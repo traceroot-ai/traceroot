@@ -36,13 +36,13 @@ export function ColumnPicker({
           title="Choose which fields appear as columns"
           // Sits beside the date filter in the filter bar, so it matches that control's
           // width and height (h-8) exactly rather than reading as a smaller sibling.
-          className="flex h-8 min-w-[140px] items-center justify-between gap-2 rounded-md border border-border px-2.5 text-[12px] text-foreground transition-colors hover:border-foreground/40 hover:bg-muted"
+          className="flex h-8 min-w-[140px] items-center justify-between gap-2 rounded-[2px] bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
         >
           <span className="flex items-center gap-1.5">
             <Columns3 className="h-3.5 w-3.5 text-muted-foreground" />
             Columns
           </span>
-          <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">
+          <span className="rounded-[2px] bg-muted px-1 text-[12px] text-muted-foreground">
             {shownCount}/{totalCount}
           </span>
         </button>
@@ -63,9 +63,8 @@ export function ColumnPicker({
                 title={isLastVisible ? LAST_COLUMN_TITLE : undefined}
                 onClick={() => onToggleField(column.id)}
                 className={cn(
-                  "flex items-center gap-2 rounded px-2 py-1 text-left text-[13px] transition-colors",
-                  isVisible && "bg-muted/40",
-                  isLastVisible ? "cursor-not-allowed opacity-50" : "hover:bg-muted/50",
+                  "flex h-7 items-center gap-2 rounded-[2px] px-2 text-left text-[13px] transition-colors",
+                  isLastVisible ? "cursor-not-allowed opacity-50" : "hover:bg-muted",
                 )}
               >
                 <Check
@@ -86,7 +85,7 @@ export function ColumnPicker({
           <button
             type="button"
             onClick={onReset}
-            className="w-full rounded px-2 py-1 text-left text-[12px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            className="h-8 w-full rounded-[2px] px-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             Reset to default
           </button>

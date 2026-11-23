@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -7,6 +8,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { revokeProjectAccessKey } from "@/lib/revoke-access-key";
 
 const updateAccessKeySchema = z.object({
   name: z.string().max(100, "Name too long").nullable(),
@@ -15,7 +17,7 @@ const updateAccessKeySchema = z.object({
 type RouteParams = { params: Promise<{ projectId: string; keyId: string }> };
 
 // PATCH /api/projects/[projectId]/api-keys/[keyId] - Update access key name (MEMBER+)
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+async function handlePATCH(request: NextRequest, { params }: RouteParams) {
   const { projectId, keyId } = await params;
 
   const authResult = await requireAuth();
@@ -69,31 +71,22 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/projects/[projectId]/api-keys/[keyId] - Delete an access key (ADMIN+)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { projectId, keyId } = await params;
 
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
+  // revokeProjectAccessKey checks ADMIN too; checking here keeps the route's
+  // role floor in its own handler.
   const accessResult = await requireProjectAccess(user.id, projectId, Role.ADMIN);
   if (accessResult.error) return accessResult.error;
 
-  // Check access key exists and belongs to this project
-  const accessKey = await prisma.accessKey.findFirst({
-    where: {
-      id: keyId,
-      projectId,
-    },
-  });
-
-  if (!accessKey) {
-    return errorResponse("Access key not found", 404);
-  }
-
-  await prisma.accessKey.delete({
-    where: { id: keyId },
-  });
+  const revokeResult = await revokeProjectAccessKey(user.id, projectId, keyId);
+  if (revokeResult.error) return revokeResult.error;
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

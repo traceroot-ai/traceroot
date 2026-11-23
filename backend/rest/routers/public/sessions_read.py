@@ -27,7 +27,7 @@ from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public/sessions", tags=["Sessions (Public)"])
+router = APIRouter(prefix="/public/sessions", tags=["Sessions"])
 
 
 @router.get("", response_model=SessionListResponse, operation_id="list_sessions")

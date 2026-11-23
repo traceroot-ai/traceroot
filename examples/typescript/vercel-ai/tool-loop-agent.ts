@@ -1,7 +1,7 @@
 /**
- * Vercel AI SDK — ToolLoopAgent + friends, all traced by TraceRoot
+ * Vercel AI SDK — ToolLoopAgent + friends, all traced by traceroot
  *
- * TraceRoot's Vercel AI SDK integration works at the OpenTelemetry layer: it
+ * traceroot's Vercel AI SDK integration works at the OpenTelemetry layer: it
  * enriches the spans the AI SDK emits when `experimental_telemetry: { isEnabled:
  * true }` is set, rather than wrapping any single function. Every core function
  * is traced on equal footing — including the `ToolLoopAgent` class, which is
@@ -55,12 +55,12 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 // No instrumentModules needed — Vercel AI SDK telemetry is handled automatically
 // via the OpenInference span processor registered inside TraceRoot.initialize().
 // Every AI SDK call below just sets experimental_telemetry: { isEnabled: true }.
 TraceRoot.initialize();
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 const LLM = openai('gpt-4o-mini');
 const EMBEDDINGS = openai.embedding('text-embedding-3-small');
@@ -93,7 +93,7 @@ const KNOWLEDGE_BASE = [
 // The centerpiece. `ToolLoopAgent` (v6; formerly `Experimental_Agent` / `Agent`)
 // runs the model → tool → model loop for you. Under the hood it calls
 // generateText/streamText, so it emits the identical OpenTelemetry spans and is
-// traced by TraceRoot with zero extra setup.
+// traced by traceroot with zero extra setup.
 //
 // The tool `execute` bodies are NOT wrapped in observe(): the AI SDK already emits
 // an `ai.toolCall` span for each with the args as input and the return value as
@@ -111,7 +111,7 @@ const supportAgent = new ToolLoopAgent({
   // Stop after at most 5 model steps (loop iterations). Default would be 20.
   stopWhen: stepCountIs(5),
   // ↓ This single line makes the agent's underlying generateText/streamText calls
-  // emit Vercel AI SDK OpenTelemetry spans. TraceRoot enriches them automatically.
+  // emit Vercel AI SDK OpenTelemetry spans. traceroot enriches them automatically.
   experimental_telemetry: { isEnabled: true, functionId: 'support_agent' },
   tools: {
     getOrderStatus: tool({
@@ -157,7 +157,7 @@ const supportAgent = new ToolLoopAgent({
 
 // ── Structured-output schema (generateObject) ───────────────────────────────────
 // After the agent answers, we extract a schema-validated triage record. This
-// exercises generateObject, which TraceRoot also traces natively.
+// exercises generateObject, which traceroot also traces natively.
 
 const triageSchema = z.object({
   category: z.enum(['orders', 'refunds', 'billing', 'other']),

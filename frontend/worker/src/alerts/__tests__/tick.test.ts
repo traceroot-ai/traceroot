@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { ALERT_EVALUATION_OFFSET_MS, ALERT_WINDOWS, windowToMs } from "@traceroot/core";
 import {
+  ALERT_CADENCE_CAP_MS,
   ALERT_TICK_CRON,
   ALERT_TICK_MS,
+  alertCadenceMs,
+  alertNextRunAt,
   alertWindowStart,
   computeAlertTick,
   floorToMinute,
@@ -56,20 +59,13 @@ describe("computeAlertTick", () => {
     expect(tick.windowEnd.toISOString()).toBe("2026-08-12T10:36:30.000Z");
   });
 
-  it("schedules the next run one minute past the boundary", () => {
-    const tick = computeAlertTick(new Date("2026-08-12T10:37:42.913Z"));
-
-    expect(tick.nextRunAt.toISOString()).toBe("2026-08-12T10:38:00.000Z");
-    expect(tick.nextRunAt.getTime() - tick.boundary.getTime()).toBe(ALERT_TICK_MS);
-  });
-
   it("produces identical edges anywhere inside the same minute", () => {
     const early = computeAlertTick(new Date("2026-08-12T10:37:00.001Z"));
     const late = computeAlertTick(new Date("2026-08-12T10:37:59.999Z"));
 
     expect(early.boundary).toEqual(late.boundary);
     expect(early.windowEnd).toEqual(late.windowEnd);
-    expect(early.nextRunAt).toEqual(late.nextRunAt);
+    expect(alertNextRunAt(early, "10m")).toEqual(alertNextRunAt(late, "10m"));
   });
 
   it("advances by exactly one minute across consecutive ticks", () => {
@@ -107,5 +103,66 @@ describe("alertWindowStart", () => {
     expect(short.to).toEqual(long.to);
     expect(short.from).not.toEqual(long.from);
     expect(long.from.getTime()).toBeLessThan(short.from.getTime());
+  });
+});
+
+describe("alertCadenceMs", () => {
+  it("leaves a window at or under the cap on its own duration", () => {
+    expect(alertCadenceMs("1m")).toBe(60_000);
+    expect(alertCadenceMs("5m")).toBe(ALERT_CADENCE_CAP_MS);
+  });
+
+  it("holds every wider window at the cap", () => {
+    expect(alertCadenceMs("10m")).toBe(ALERT_CADENCE_CAP_MS);
+    expect(alertCadenceMs("30m")).toBe(ALERT_CADENCE_CAP_MS);
+    expect(alertCadenceMs("1h")).toBe(ALERT_CADENCE_CAP_MS);
+    expect(alertCadenceMs("2h")).toBe(ALERT_CADENCE_CAP_MS);
+  });
+
+  it("never outruns the window it measures, so no span falls between two runs", () => {
+    for (const token of Object.keys(ALERT_WINDOWS) as (keyof typeof ALERT_WINDOWS)[]) {
+      expect(alertCadenceMs(token)).toBeLessThanOrEqual(windowToMs(token));
+    }
+  });
+
+  it("never asks to run more often than the scheduler ticks", () => {
+    for (const token of Object.keys(ALERT_WINDOWS) as (keyof typeof ALERT_WINDOWS)[]) {
+      expect(alertCadenceMs(token)).toBeGreaterThanOrEqual(ALERT_TICK_MS);
+    }
+  });
+
+  it("falls back to the tick for a window this build cannot read", () => {
+    // Such a row is discarded after its claim either way; backing it off would
+    // only delay the error its owner is waiting to read.
+    expect(alertCadenceMs("24h")).toBe(ALERT_TICK_MS);
+    expect(alertCadenceMs("")).toBe(ALERT_TICK_MS);
+  });
+});
+
+describe("alertNextRunAt", () => {
+  it("adds the rule's cadence to the boundary, not to the raw now", () => {
+    const tick = computeAlertTick(new Date("2026-08-12T10:37:42.913Z"));
+
+    expect(alertNextRunAt(tick, "1m").toISOString()).toBe("2026-08-12T10:38:00.000Z");
+    expect(alertNextRunAt(tick, "2h").toISOString()).toBe("2026-08-12T10:42:00.000Z");
+  });
+
+  it("gives two windows in one tick different re-arms off the same boundary", () => {
+    const tick = computeAlertTick(new Date("2026-08-12T10:37:42.913Z"));
+
+    const narrow = alertNextRunAt(tick, "1m");
+    const wide = alertNextRunAt(tick, "30m");
+
+    expect(narrow.getTime() - tick.boundary.getTime()).toBe(ALERT_TICK_MS);
+    expect(wide.getTime() - tick.boundary.getTime()).toBe(ALERT_CADENCE_CAP_MS);
+    expect(wide.getTime()).toBeGreaterThan(narrow.getTime());
+  });
+
+  it("lands on a minute boundary, so a re-armed rule is due on a tick", () => {
+    const tick = computeAlertTick(new Date("2026-08-12T10:37:42.913Z"));
+
+    for (const token of Object.keys(ALERT_WINDOWS) as (keyof typeof ALERT_WINDOWS)[]) {
+      expect(alertNextRunAt(tick, token).getTime() % ALERT_TICK_MS).toBe(0);
+    }
   });
 });

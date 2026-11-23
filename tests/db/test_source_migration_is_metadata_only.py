@@ -10,6 +10,8 @@ rewrite trips a test instead of a production surprise.
 import re
 from pathlib import Path
 
+import pytest
+
 MIGRATIONS_DIR = (
     Path(__file__).resolve().parents[2] / "backend" / "db" / "clickhouse" / "migrations"
 )
@@ -48,9 +50,29 @@ def _key_clauses(sql: str) -> list[str]:
     flat = re.sub(r"\s+", " ", no_comments)
     return re.findall(
         r"\b(?:ORDER BY|PARTITION BY|PRIMARY KEY).*?"
-        r"(?=\bORDER BY\b|\bPARTITION BY\b|\bPRIMARY KEY\b|\bSETTINGS\b|\bTTL\b|;|$)",
+        r"(?=\bORDER BY\b|\bPARTITION BY\b|\bPRIMARY KEY\b|\bSETTINGS\b|\bTTL\b"
+        # A table key clause never contains WHERE or LIMIT. A view body does: the public
+        # views dedup with `ORDER BY ch_update_time DESC LIMIT 1 BY <id>` and then filter
+        # on `source`, and without these terminators that filter reads as part of a key.
+        r"|\bLIMIT\b|\bWHERE\b|;|$)",
         flat,
     )
+
+
+def test_key_clauses_stops_at_query_clauses():
+    """A view's `ORDER BY ... LIMIT 1 BY` dedup is not a table key.
+
+    Without a terminator the clause would run on into the view's own WHERE and report
+    any column filtered there, `source` included, as part of a sort key.
+    """
+    sql = (
+        "CREATE VIEW v AS SELECT a FROM (SELECT a, source FROM t "
+        "WHERE project_id = 'p' ORDER BY ch_update_time DESC LIMIT 1 BY a) "
+        "WHERE source = 'user';"
+    )
+    clauses = _key_clauses(sql)
+    assert clauses, "the ORDER BY should still be captured"
+    assert not any(re.search(r"\bsource\b", c) for c in clauses), clauses
 
 
 def test_key_clauses_sees_multiline_declarations():
@@ -85,6 +107,20 @@ def test_key_clauses_sees_primary_key():
     assert any(clause.startswith("PRIMARY KEY") and "source" in clause for clause in clauses)
 
 
+def test_error_type_migration_adds_defaulted_column_to_spans():
+    """Up adds error_type as LowCardinality(String) DEFAULT '' on spans; Down drops it."""
+    up, down = _split_goose_sections((MIGRATIONS_DIR / "013_add_error_type.sql").read_text())
+    add = re.search(
+        r"ALTER TABLE spans\s+ADD COLUMN IF NOT EXISTS error_type"
+        r"\s+LowCardinality\(String\)\s+DEFAULT ''",
+        up,
+    )
+    assert add, "Up must ADD COLUMN error_type LowCardinality(String) DEFAULT '' to spans"
+    assert re.search(r"ALTER TABLE spans\s+DROP COLUMN IF EXISTS error_type", down), (
+        "Down must DROP COLUMN error_type from spans"
+    )
+
+
 def test_source_migration_adds_defaulted_column_to_both_tables():
     """Up adds source with DEFAULT 'user' to spans and traces; Down drops it."""
     sql = SOURCE_MIGRATION.read_text()
@@ -102,8 +138,9 @@ def test_source_migration_adds_defaulted_column_to_both_tables():
         assert drop, f"Down must DROP COLUMN source from {table}"
 
 
-def test_source_stays_out_of_every_sort_and_partition_key():
-    """No key clause across the migrations references source.
+@pytest.mark.parametrize("column", ["source", "error_type"])
+def test_defaulted_column_stays_out_of_every_sort_and_partition_key(column):
+    """No key clause across the migrations references the column.
 
     Covers the live schema wherever it is defined — the original CREATEs,
     the spans sort-key rebuild (including its projection's ORDER BY), and
@@ -120,9 +157,9 @@ def test_source_stays_out_of_every_sort_and_partition_key():
     offenders = [
         (name, clause)
         for name, clause in clauses
-        if re.search(r"\bsource\b", clause, re.IGNORECASE)
+        if re.search(rf"\b{column}\b", clause, re.IGNORECASE)
     ]
     assert not offenders, (
-        "source appears in a sort or partition key, so ALTERs on it are no longer "
+        f"{column} appears in a sort or partition key, so ALTERs on it are no longer "
         f"metadata-only: {offenders}"
     )

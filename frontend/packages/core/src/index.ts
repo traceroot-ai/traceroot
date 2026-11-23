@@ -10,7 +10,14 @@ export { encryptKey, decryptKey, maskKey } from "./lib/encryption.ts";
 export { resolveWorkspaceApiKey } from "./lib/workspace-api-key.ts";
 
 // Transactional-email card template
-export { escapeHtml, renderEmailCard } from "./lib/email-card.ts";
+export {
+  EMAIL_COLORS,
+  EMAIL_FONT_STACK,
+  EMAIL_LOGO_URL,
+  EMAIL_PIXEL_WORDMARK_URL,
+  escapeHtml,
+  renderEmailCard,
+} from "./lib/email-card.ts";
 
 // Re-export Prisma types
 export type {
@@ -23,6 +30,8 @@ export type {
   Account,
   GitHubInstallation,
   ModelProvider,
+  TurnKind,
+  TraceStatus,
   // Offline evaluation
   Dataset,
   DatasetVersion,
@@ -44,13 +53,21 @@ export * from "./alerts.ts";
 // LLM Providers
 export * from "./llm-providers.ts";
 
+// The models a workspace can run a detector on, and the check a detector write makes against them
+export * from "./workspace-models.ts";
+
 // Model Pricing (DB-backed)
 export * from "./model-pricing/index.ts";
 
 // Shared types
 export * from "./types/index.ts";
 
-// NOTE: pi-ai Model resolver lives at `@traceroot/core/model-resolver` (subpath).
-// We do NOT re-export it here — pulling pi-ai into the main barrel would bundle
-// Node-only code (`node:fs`, etc.) into the Next.js client. Server-side
-// consumers (agent, detector worker) import explicitly from the subpath.
+// NOTE: pi-ai Model resolver lives at `@traceroot/core/model-resolver` (subpath),
+// the capture policy for persisted tool I/O (agent StreamPersister + SDK
+// captureToolIo) at `@traceroot/core/capture-policy`, and the detector
+// execution helpers at `@traceroot/core/rca-executions`. We do NOT re-export
+// them here — pulling pi-ai or node:crypto/Buffer into the main barrel would
+// bundle Node-only code into the Next.js client. Server-side consumers (agent,
+// detector worker) import explicitly from the subpath. The reader-facing
+// wording for output the policy withheld is dependency-free and lives at
+// `@traceroot/core/capture-note` (shared by the agent's spans and the UI).

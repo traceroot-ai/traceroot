@@ -30,22 +30,22 @@ describe("resolveAlertDisplayState", () => {
 
     expect(badge("OK")).toEqual({ label: "OK", tone: "ok" });
     expect(badge("ALERT")).toEqual({ label: "Alert", tone: "alert" });
-    expect(badge("NO_DATA")).toEqual({ label: "No Data", tone: "warning" });
-    expect(badge("UNKNOWN")).toEqual({ label: "No Data", tone: "warning" });
+    expect(badge("NO_DATA")).toEqual({ label: "No data", tone: "warning" });
+    expect(badge("UNKNOWN")).toEqual({ label: "No data", tone: "warning" });
   });
 
   it("waits for a first check only when the row says the rule has never run", () => {
     const waiting = stateOf({ severity: "UNKNOWN", lastEvaluatedAt: null });
 
-    expect(waiting.label).toBe("No Data");
+    expect(waiting.label).toBe("No data");
     expect(waiting.tone).toBe("warning");
     expect(waiting.detail).toContain("has not run yet");
 
     // An omitted timestamp is not the claim that the rule never ran.
-    expect(stateOf({ severity: "UNKNOWN", lastEvaluatedAt: undefined }).label).toBe("No Data");
+    expect(stateOf({ severity: "UNKNOWN", lastEvaluatedAt: undefined }).label).toBe("No data");
   });
 
-  it("ranks Paused over Failing, and Failing over a rule that has never run", () => {
+  it("ranks Parked over Paused, Paused over Failing, and Failing over a rule that has never run", () => {
     const failedFirstRun = {
       severity: "ALERT" as const,
       lastError: "ClickHouse read timeout",
@@ -58,6 +58,36 @@ describe("resolveAlertDisplayState", () => {
     const paused = stateOf({ ...failedFirstRun, status: "PAUSED" });
     expect(paused.label).toBe("Paused");
     expect(paused.isPaused).toBe(true);
+    expect(paused.isStopped).toBe(true);
+
+    const parked = stateOf({ ...failedFirstRun, status: "PARKED" });
+    expect(parked.label).toBe("Parked");
+    expect(parked.isStopped).toBe(true);
+    // Not paused: nobody chose this, and the action that clears it is different.
+    expect(parked.isPaused).toBe(false);
+  });
+
+  it("states the reason once, trusting it to already say what restarts the rule", () => {
+    // Every real parking path bakes "edit and save" into the stored reason
+    // itself (claim.ts's UNEVALUABLE_RULE_ERROR, scheduler.ts's
+    // PARKED_RULE_SUFFIX), so the badge must not repeat it — that reads as the
+    // same sentence twice in one popover.
+    const parked = stateOf({
+      status: "PARKED",
+      lastError: "measure: unknown; open it and save it again to correct them",
+    });
+
+    expect(parked.detail).toBe(
+      "Stopped: measure: unknown; open it and save it again to correct them.",
+    );
+    // The sentence this status exists to stop telling.
+    expect(parked.detail).not.toContain("retry");
+
+    // A row parked with no reason at all is the one case with nothing of its
+    // own to say, so only here does the badge supply the fix itself.
+    const bare = stateOf({ status: "PARKED", lastError: null });
+    expect(bare.detail).toContain("cannot be evaluated");
+    expect(bare.detail).toContain("Edit and save");
   });
 
   it("shows Failing on a rule whose last run errored, even while it still holds a green OK", () => {
@@ -123,6 +153,7 @@ describe("resolveAlertDisplayState", () => {
       label: "OK",
       tone: "ok",
       isPaused: false,
+      isStopped: false,
     });
   });
 });

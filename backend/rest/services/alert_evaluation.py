@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from typing import Any, NamedTuple
 
 from rest.schemas.alerts import (
+    ALERT_ERROR_KIND_QUERY,
+    ALERT_ERROR_KIND_SPEC,
     MAX_ALERT_WINDOW,
     MAX_ALERT_WINDOW_END_LAG,
     AlertEvaluationResult,
@@ -120,11 +122,21 @@ def _evaluate_one(
             row_count=row_count,
         )
     except WidgetSpecError as e:
-        # Step-prefixed: a broken rule is a different answer than a transient failure.
-        return AlertEvaluationResult(alert_id=alert.alert_id, error=f"{e.step}: {e.message}")
+        # Step-prefixed, and kind-tagged: a broken rule is a different answer than
+        # a transient failure, and the caller acts on the difference by parking
+        # the rule rather than retrying it every minute.
+        return AlertEvaluationResult(
+            alert_id=alert.alert_id,
+            error=f"{e.step}: {e.message}",
+            error_kind=ALERT_ERROR_KIND_SPEC,
+        )
     except Exception as e:
         logger.exception(f"Alert evaluation failed for {alert.alert_id}: {e}")
-        return AlertEvaluationResult(alert_id=alert.alert_id, error="Query execution failed")
+        return AlertEvaluationResult(
+            alert_id=alert.alert_id,
+            error="Query execution failed",
+            error_kind=ALERT_ERROR_KIND_QUERY,
+        )
 
 
 def _measured_value(value: float | None, row_count: int, agg: AggName) -> float | None:

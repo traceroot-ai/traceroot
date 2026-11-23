@@ -1,6 +1,7 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { getRequestSession } from "@/lib/request-session";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 import { prisma, getStripeOrThrow, mapPriceIdToPlan } from "@traceroot/core";
 
 export interface SubscriptionInfo {
@@ -9,9 +10,9 @@ export interface SubscriptionInfo {
   billingPeriod: { start: Date; end: Date } | null;
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await getRequestSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -28,10 +29,14 @@ export async function GET(req: NextRequest) {
         id: workspaceId,
         members: { some: { userId: session.user.id } },
       },
+      include: { members: { where: { userId: session.user.id }, select: { role: true } } },
     });
 
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+    if (isDemoViewer(workspace.id, workspace.members[0]?.role ?? "")) {
+      return NextResponse.json({ error: DEMO_VIEWER_FORBIDDEN }, { status: 403 });
     }
 
     // No subscription = free plan, no extra info needed
@@ -104,3 +109,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to get subscription info" }, { status: 500 });
   }
 }
+export const GET = withImpersonationPolicy(handleGET);

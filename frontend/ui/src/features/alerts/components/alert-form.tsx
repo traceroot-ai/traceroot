@@ -3,14 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
 import {
+  DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_VIEW,
+  alertThresholdProblem,
   getMeasure,
   isCompleteAlertFilter,
   type AlertAggregation,
   type AlertFilter,
+  type AlertNoDataMode,
   type AlertOperator,
   type AlertRenotify,
   type AlertView,
@@ -21,14 +25,16 @@ import { useAlertCapacity, useCreateAlert, useUpdateAlert } from "../hooks/use-a
 import { AlertPreview } from "./alert-preview";
 import { AlertsCapacityNotice } from "./alerts-capacity-notice";
 import { ConditionSection } from "./condition-section";
-import { MetricSection } from "./metric-section";
 import { NotificationsSection } from "./notifications-section";
+import { ScopeSection } from "./scope-section";
 
 interface AlertFormProps {
   projectId: string;
   /** Present in edit mode; the rule the submit PATCHes. */
   alertId?: string;
   initialDraft?: AlertDraft;
+  /** Edit mode only: the stored rule has an alert open that a rule change would close. */
+  hasOpenPage?: boolean;
 }
 
 // The draft rule the form edits. `view` is carried but never rendered: only
@@ -41,6 +47,7 @@ export interface AlertDraft {
   operator: AlertOperator;
   threshold: string;
   window: AlertWindow;
+  noDataMode: AlertNoDataMode;
   renotify: AlertRenotify;
   name: string;
 }
@@ -53,6 +60,7 @@ const INITIAL_DRAFT: AlertDraft = {
   operator: ">",
   threshold: "",
   window: DEFAULT_ALERT_WINDOW,
+  noDataMode: DEFAULT_ALERT_NO_DATA_MODE,
   renotify: DEFAULT_ALERT_RENOTIFY,
   name: "",
 };
@@ -63,8 +71,9 @@ const INITIAL_DRAFT: AlertDraft = {
  * route seeds `initialDraft` from the loaded rule, so the first render already
  * previews the right metric.
  */
-export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) {
+export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: AlertFormProps) {
   const router = useRouter();
+  const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const [draft, setDraft] = useState<AlertDraft>(initialDraft ?? INITIAL_DRAFT);
   const createAlert = useCreateAlert(projectId);
   const updateAlert = useUpdateAlert(projectId);
@@ -87,6 +96,22 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
   // Parsed, not coerced: Number("") is 0, and 0 is a threshold the schema
   // accepts, so a blank input would silently save a rule that fires above zero.
   const threshold = parseThreshold(draft.threshold);
+  // The write service's own check, so the form holds back what the API would
+  // refuse and says why instead of answering with a failed save. Like the
+  // service, an edit is judged only when it changes the loaded condition, so a
+  // rule saved before this check can still be renamed.
+  const measure = getMeasure(draft.view, draft.measureId);
+  const changesCondition =
+    !isEdit ||
+    initialDraft === undefined ||
+    draft.view !== initialDraft.view ||
+    draft.measureId !== initialDraft.measureId ||
+    draft.operator !== initialDraft.operator ||
+    threshold !== parseThreshold(initialDraft.threshold);
+  const thresholdProblem =
+    threshold === null || measure === undefined || !changesCondition
+      ? null
+      : alertThresholdProblem(measure, draft.operator, threshold);
   const isNameValid = draft.name.trim() !== "";
   // The same predicate the preview panel reports unavailable through, and the
   // one the API gates on.
@@ -95,7 +120,12 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
   const isPending = createAlert.isPending || updateAlert.isPending;
   const submitError = createAlert.error ?? updateAlert.error;
   const canSubmit =
-    threshold !== null && isNameValid && isDraftEvaluable && !isPending && !isBlockedByCapacity;
+    threshold !== null &&
+    thresholdProblem === null &&
+    isNameValid &&
+    isDraftEvaluable &&
+    !isPending &&
+    !isBlockedByCapacity;
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -120,10 +150,16 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
       thresholdOperator: draft.operator,
       threshold,
       renotify: draft.renotify,
+      noDataMode: draft.noDataMode,
     };
-    const options = { onSuccess: () => router.push(`/projects/${projectId}/alerts`) };
+    // Both saves return to the list page the user came from. A created rule is
+    // no exception: the list is oldest-first, so a new rule lands on the last
+    // page. Resetting to the first page would not reliably show it either, and
+    // would lose the user's place.
+    const options = { onSuccess: () => router.push(listHref) };
     // The whole rule goes on every edit, not a diff: the route's change
-    // detection compares values, so unchanged fields stay unchanged.
+    // detection compares values, so unchanged fields stay unchanged. The
+    // threshold check judges the submitted rule, not the change.
     if (alertId !== undefined) updateAlert.mutate({ alertId, input }, options);
     else createAlert.mutate(input, options);
   };
@@ -138,36 +174,41 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
             action bar stays in reach. `min-h-0` is what lets a flex child
             shrink to scroll. */}
         <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          <MetricSection
+          {/* In the order the rule reads: which spans, what is computed and
+              compared over them, then when and whom it tells. */}
+          <ScopeSection
             projectId={projectId}
-            view={draft.view}
-            measureId={draft.measureId}
-            aggregation={draft.aggregation}
             filters={draft.filters}
-            onMeasureChange={handleMeasureChange}
-            onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}
             onFiltersChange={(filters) => setDraft((d) => ({ ...d, filters }))}
           />
 
           <ConditionSection
+            view={draft.view}
+            measureId={draft.measureId}
+            aggregation={draft.aggregation}
             operator={draft.operator}
             threshold={draft.threshold}
+            thresholdProblem={thresholdProblem}
             window={draft.window}
-            renotify={draft.renotify}
+            onMeasureChange={handleMeasureChange}
+            onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}
             onOperatorChange={(operator) => setDraft((d) => ({ ...d, operator }))}
             onThresholdChange={(threshold) => setDraft((d) => ({ ...d, threshold }))}
             onWindowChange={(window) => setDraft((d) => ({ ...d, window }))}
-            onRenotifyChange={(renotify) => setDraft((d) => ({ ...d, renotify }))}
           />
 
           <NotificationsSection
             projectId={projectId}
+            noDataMode={draft.noDataMode}
+            renotify={draft.renotify}
             name={draft.name}
+            onNoDataModeChange={(noDataMode) => setDraft((d) => ({ ...d, noDataMode }))}
+            onRenotifyChange={(renotify) => setDraft((d) => ({ ...d, renotify }))}
             onNameChange={(name) => setDraft((d) => ({ ...d, name }))}
           />
         </div>
 
-        <div className="shrink-0 bg-background pt-3">
+        <div className="shrink-0 border-t border-border bg-background pt-3">
           <div className="flex items-center justify-end gap-2">
             {!isEdit && (
               <AlertsCapacityNotice capacity={capacity} className="mr-auto text-muted-foreground" />
@@ -175,17 +216,18 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
             {submitError && (
               <p className="mr-auto text-[12px] text-destructive">{submitError.message}</p>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(`/projects/${projectId}/alerts`)}
-              className="h-7 text-[12px]"
-            >
+            {/* A hint, not a gate: the save stays one click, and a rename closes nothing. */}
+            {isEdit && hasOpenPage && !submitError && (
+              <p className="mr-auto text-[12px] text-muted-foreground">
+                This alert is open. Saving a change to its conditions will close it and post an [OK]
+                to Slack.
+              </p>
+            )}
+            <Button type="button" variant="outline" onClick={() => router.push(listHref)}>
               Cancel
             </Button>
-            <Button type="submit" size="sm" className="h-7 text-[12px]" disabled={!canSubmit}>
-              {isEdit ? "Save Alert" : "Create Alert"}
+            <Button type="submit" disabled={!canSubmit}>
+              {isEdit ? "Save alert" : "Create alert"}
             </Button>
           </div>
         </div>

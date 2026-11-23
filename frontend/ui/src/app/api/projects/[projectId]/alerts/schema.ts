@@ -5,8 +5,9 @@ import {
   ALERT_NAME_MAX,
   ALERT_RENOTIFY_MAX_MINUTES,
   ALERT_RENOTIFY_MIN_MINUTES,
-  ALERT_STATUSES,
   KEYED_ALERT_FILTER_FIELDS,
+  SETTABLE_ALERT_STATUSES,
+  alertThresholdProblem,
   getMeasure,
   isAlertAggregation,
   isAlertFilterField,
@@ -21,6 +22,12 @@ import {
 const FILTER_TOKEN_MAX = 128;
 const FILTER_VALUE_MAX = 1024;
 export const ALERT_FILTERS_MAX = 50;
+
+// Keeps one project's rules a small fraction of the scheduler's per-tick claim
+// (ALERT_CLAIM_LIMIT in frontend/worker/src/alerts/claim.ts), so a single
+// tenant cannot crowd the round-robin. Bounds one tenant's share, not total
+// load.
+export const MAX_ALERTS_PER_PROJECT = 100;
 
 // The threshold column is Decimal(65,30), so anything past 35 integer digits is
 // a database error rather than a validation one.
@@ -104,7 +111,9 @@ const alertRuleShape = {
 
 export const alertCreateSchema = z.object(alertRuleShape);
 export const alertUpdateSchema = z.object(alertRuleShape).partial();
-export const alertPauseSchema = z.object({ status: z.enum(ALERT_STATUSES) });
+// Settable statuses only: PARKED is the evaluator's verdict about the stored
+// rule, so a client that could ask for it could stop a rule that still runs.
+export const alertPauseSchema = z.object({ status: z.enum(SETTABLE_ALERT_STATUSES) });
 
 export type AlertCreateInput = z.infer<typeof alertCreateSchema>;
 export type AlertUpdateInput = z.infer<typeof alertUpdateSchema>;
@@ -135,6 +144,22 @@ export function isAggregationValidForMeasure(
 ): boolean {
   if (!isAlertView(view) || !isAlertAggregation(aggregation)) return false;
   return isEvaluableAlertMetric(view, measure, aggregation, filters);
+}
+
+/**
+ * Why the threshold can never decide anything on this measure, or null. An
+ * undeclared view, measure or operator has its own refusal, so it gets no
+ * opinion here.
+ */
+export function thresholdProblemForMeasure(
+  view: string,
+  measure: string,
+  operator: string,
+  threshold: number,
+): string | null {
+  if (!isAlertView(view) || !isAlertThresholdOperator(operator)) return null;
+  const known = getMeasure(view, measure);
+  return known === undefined ? null : alertThresholdProblem(known, operator, threshold);
 }
 
 /**

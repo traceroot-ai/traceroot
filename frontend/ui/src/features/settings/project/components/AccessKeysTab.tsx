@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
+import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ function formatKeyHint(keyHint: string): string {
 
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
+  const formId = useId();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -50,7 +52,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["access-keys", projectId],
     queryFn: () => getAccessKeys(projectId),
   });
@@ -100,42 +102,61 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const accessKeys = data?.access_keys || [];
 
   const envBlockContent = newKeyData
-    ? `TRACEROOT_API_KEY = "${newKeyData.key}"`
+    ? `TRACEROOT_API_KEY="${newKeyData.key}"`
     : accessKeys.length > 0
-      ? `TRACEROOT_API_KEY = "${formatKeyHint(accessKeys[0].key_hint)}"`
-      : `TRACEROOT_API_KEY = "tr-..."`;
+      ? `TRACEROOT_API_KEY="${formatKeyHint(accessKeys[0].key_hint)}"`
+      : `TRACEROOT_API_KEY="tr-..."`;
+
+  if (error instanceof ImpersonationError) {
+    return (
+      <p role="alert" className="text-sm text-muted-foreground">
+        {error.message}
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex items-center gap-1.5">
-          <h2 className="text-lg font-semibold">Project API Keys</h2>
+          <h2 className="text-[15px] font-medium">Project API Keys</h2>
           <Info className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
-        <AddButton onClick={() => setShowCreateDialog(true)}>Create new API key</AddButton>
+        <AddButton
+          onClick={() => {
+            createMutation.reset();
+            setShowCreateDialog(true);
+          }}
+        >
+          Create new API key
+        </AddButton>
       </div>
 
       <div className="border">
-        <div className="flex items-center justify-between border-b px-4 py-2">
-          <span className="text-xs text-muted-foreground">.env</span>
-          <CopyButton value={envBlockContent} className="h-6 w-6" />
+        <div className="flex h-9 items-center justify-between border-b px-4">
+          <span className="text-[13px] font-medium">.env</span>
+          <CopyButton
+            aria-label="Copy environment configuration"
+            value={envBlockContent}
+            className="h-7 w-7"
+          />
         </div>
-        <div className="bg-muted px-4 py-3 font-mono text-xs">
+        <div className="bg-muted px-4 py-2.5 font-mono text-[12px]">
           <pre className="whitespace-pre-wrap">{envBlockContent}</pre>
         </div>
       </div>
 
       {newKeyData && (
-        <div className="border border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950">
+        <div className="border border-success-border bg-success-soft">
           <div className="px-4 py-3">
-            <p className="mb-2 text-xs font-medium text-green-800 dark:text-green-200">
+            <p className="mb-2 text-xs font-medium text-success">
               New API key created! Copy it now - you won&apos;t see it again.
             </p>
             <div className="mb-2 flex items-center gap-2">
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
                 {newKeyData.key}
               </code>
-              <CopyButton value={newKeyData.key} variant="outline" />
+              <CopyButton aria-label="Copy API key" value={newKeyData.key} variant="outline" />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
               I&apos;ve copied the key
@@ -149,18 +170,26 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <DialogHeader>
             <DialogTitle>Create API Key</DialogTitle>
             <DialogDescription>
-              Create a new API key to authenticate with the TraceRoot SDK.
+              Create a new API key to authenticate with the traceroot SDK.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <label className="mb-2 block text-sm font-medium">Name (optional)</label>
+          <div>
+            <label htmlFor={`${formId}-key-name`} className="mb-2 block text-sm font-medium">
+              Name (optional)
+            </label>
             <Input
               placeholder="e.g., Production, Development"
+              id={`${formId}-key-name`}
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
           </div>
+          {createMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {createMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancel
@@ -178,9 +207,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             <DialogTitle>Edit Note</DialogTitle>
             <DialogDescription>Update the note for this API key.</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <Input
               placeholder="e.g., Production, Development"
+              aria-label="Note"
               value={editingKey?.name || ""}
               onChange={(e) =>
                 setEditingKey(editingKey ? { ...editingKey, name: e.target.value } : null)
@@ -188,6 +218,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               onKeyDown={(e) => e.key === "Enter" && handleSaveNote()}
             />
           </div>
+          {updateMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {updateMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingKey(null)}>
               Cancel
@@ -219,7 +254,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               &quot;.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-2">
+          <div>
             <p className="mb-2 text-sm text-muted-foreground">
               Type{" "}
               <span className="font-mono font-semibold text-foreground">
@@ -234,6 +269,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               className="h-8 text-[13px]"
             />
           </div>
+          {deleteMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setKeyToDelete(null)}>
               Cancel
@@ -263,9 +303,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             No API keys yet. Create one to start using the SDK.
           </div>
         ) : (
-          <table className="w-full text-[13px]">
+          <table className="data-table w-full">
             <thead>
-              <tr className="border-b bg-muted/30 text-left">
+              <tr className="border-b text-left">
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Name</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Key</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Created</th>
@@ -277,17 +317,20 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             </thead>
             <tbody>
               {accessKeys.map((key: AccessKey) => (
-                <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted">
                   <td className="px-3 py-2">
                     <button
-                      onClick={() => setEditingKey({ id: key.id, name: key.name || "" })}
+                      onClick={() => {
+                        updateMutation.reset();
+                        setEditingKey({ id: key.id, name: key.name || "" });
+                      }}
                       className="cursor-pointer text-left hover:underline"
                     >
                       {key.name || <span className="text-muted-foreground">-</span>}
                     </button>
                   </td>
                   <td className="px-3 py-2">
-                    <code className="bg-muted px-1.5 py-0.5 font-mono text-[11px]">
+                    <code className="bg-muted px-1.5 py-0.5 font-mono text-[12px]">
                       {formatKeyHint(key.key_hint)}
                     </code>
                   </td>
@@ -299,8 +342,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   </td>
                   <td className="px-3 py-2">
                     <DeleteIconButton
+                      aria-label={`Delete API key ${key.name || formatKeyHint(key.key_hint)}`}
                       className="h-6 w-6"
                       onClick={() => {
+                        deleteMutation.reset();
                         setKeyToDelete(key);
                         setDeleteConfirmText("");
                       }}

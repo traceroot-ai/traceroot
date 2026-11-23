@@ -1,17 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
 const detectorFindFirstMock = vi.fn();
 const detectorUpdateMock = vi.fn();
-vi.mock("@traceroot/core", () => ({
-  prisma: {
+const detectorDeleteMock = vi.fn();
+const auditCreateMock = vi.fn();
+// The handlers delegate to the write service, which runs its own tenancy
+// check and audit inside a transaction on this same client.
+vi.mock("@traceroot/core", () => {
+  const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
+  const client = {
+    project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
+    workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
     detector: {
       findFirst: (...args: unknown[]) => detectorFindFirstMock(...args),
       update: (...args: unknown[]) => detectorUpdateMock(...args),
+      delete: (...args: unknown[]) => detectorDeleteMock(...args),
     },
-  },
-}));
+    auditLog: { create: (...args: unknown[]) => auditCreateMock(...args) },
+    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
+  };
+  return {
+    Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
+    hasMinRole: (userRole: string, minRole: string) =>
+      ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    prisma: client,
+  };
+});
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -22,7 +43,8 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (data: unknown, status = 200) => ({ status, json: async () => data }),
 }));
 
-import { PATCH } from "./route";
+import { Role } from "@traceroot/core";
+import { PATCH, DELETE } from "./route";
 
 function makeRequest(body: unknown) {
   return { json: async () => body } as unknown as Parameters<typeof PATCH>[0];
@@ -35,12 +57,128 @@ function makeParams() {
 beforeEach(() => {
   detectorFindFirstMock.mockReset();
   detectorUpdateMock.mockReset();
+  detectorDeleteMock.mockReset();
+  auditCreateMock.mockReset();
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireProjectAccessMock.mockResolvedValue({});
   detectorFindFirstMock.mockResolvedValue({ id: "det-1", projectId: "proj-1" });
   detectorUpdateMock.mockResolvedValue({ id: "det-1" });
+  detectorDeleteMock.mockResolvedValue({ id: "det-1" });
+});
+
+describe("PATCH .../detectors/[detectorId] — role gating", () => {
+  it("returns 403 for a VIEWER-role member and never updates", async () => {
+    requireProjectAccessMock.mockResolvedValue({
+      error: { status: 403, json: async () => ({ error: "Requires MEMBER role or higher" }) },
+    });
+
+    const res = await PATCH(makeRequest({ name: "Renamed" }), makeParams());
+
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("Requires MEMBER role or higher");
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a MEMBER-role member update a detector", async () => {
+    const res = await PATCH(makeRequest({ name: "Renamed" }), makeParams());
+
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
+    expect(res.status).toBe(200);
+    expect(detectorUpdateMock).toHaveBeenCalledTimes(1);
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ operation: "update_detector", transport: "ui" }),
+    });
+  });
+
+  it("rejects an empty patch with 400 instead of issuing an empty update", async () => {
+    const res = await PATCH(makeRequest({}), makeParams());
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("No fields to update");
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a patch that changes nothing with 200 and no write", async () => {
+    detectorFindFirstMock.mockResolvedValue({ id: "det-1", projectId: "proj-1", name: "Same" });
+    const res = await PATCH(makeRequest({ name: "Same" }), makeParams());
+    expect(res.status).toBe(200);
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+    expect(auditCreateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH .../detectors/[detectorId] — name conflicts", () => {
+  /** A duck-typed Prisma unique-violation naming the violated constraint. */
+  const p2002 = (target: unknown) =>
+    Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
+
+  it("returns 409 when a rename collides on the per-project unique index (index-name target)", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002("uq_detector_project_name"));
+    const res = await PATCH(makeRequest({ name: "Taken" }), makeParams());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "A detector with this name already exists",
+    );
+  });
+
+  it("returns 409 when the unique violation is reported as the (projectId, name) fields", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002(["projectId", "name"]));
+    const res = await PATCH(makeRequest({ name: "Taken" }), makeParams());
+    expect(res.status).toBe(409);
+  });
+
+  it("rethrows a trigger-upsert P2002 even when the PATCH also carries a name", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002("detector_triggers_detector_id_key"));
+    await expect(
+      PATCH(makeRequest({ name: "Renamed", triggerConditions: [] }), makeParams()),
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("rethrows a P2002 that names no constraint at all", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002(undefined));
+    await expect(PATCH(makeRequest({ name: "Renamed" }), makeParams())).rejects.toMatchObject({
+      code: "P2002",
+    });
+  });
+
+  it("propagates non-P2002 update failures", async () => {
+    detectorUpdateMock.mockRejectedValue(new Error("Database connection lost"));
+    await expect(PATCH(makeRequest({ name: "Renamed" }), makeParams())).rejects.toThrow(
+      "Database connection lost",
+    );
+  });
+});
+
+describe("DELETE .../detectors/[detectorId] — role gating", () => {
+  it("returns 403 for a VIEWER-role member and never deletes", async () => {
+    requireProjectAccessMock.mockResolvedValue({
+      error: { status: 403, json: async () => ({ error: "Requires MEMBER role or higher" }) },
+    });
+
+    const res = await DELETE(makeRequest({}), makeParams());
+
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("Requires MEMBER role or higher");
+    expect(detectorDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a MEMBER-role member delete a detector", async () => {
+    const res = await DELETE(makeRequest({}), makeParams());
+
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
+    expect(res.status).toBe(200);
+    expect(detectorDeleteMock).toHaveBeenCalledTimes(1);
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_detector",
+        transport: "ui",
+        summary: expect.objectContaining({ reason: "Deleted from the web app" }),
+      }),
+    });
+  });
 });
 
 describe("PATCH .../detectors/[detectorId] — trigger conditions", () => {

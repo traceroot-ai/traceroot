@@ -3,11 +3,15 @@
 import base64
 import json
 
+import pytest
+
 from shared.span_attributes import (
+    CAPTURE_BUDGET_EXCEEDED,
     SPAN_IDS_PATH,
     SPAN_PATH,
     SPAN_STARTS_PATH,
     SPAN_TREE_ATTRIBUTES,
+    TRUNCATED,
 )
 from worker.otel_transform import _is_known_attribute, transform_otel_to_clickhouse
 
@@ -215,6 +219,45 @@ def test_openinference_reasoning_key_persisted():
     assert spans[0]["usage_details"]["reasoning_tokens"] == 220
 
 
+@pytest.mark.parametrize(
+    "malformed",
+    ["", "n/a", True, -5, 10**9 + 1],
+    ids=["empty", "non_numeric", "bool", "negative", "over_bound"],
+)
+def test_malformed_reasoning_key_does_not_suppress_valid_fallback(malformed):
+    """A malformed high-priority reasoning attr must not hide a valid lower-priority
+    one, the same as for every other token field, nor be stored as a count itself."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "o1-2024-12-17"),
+            _attr("gen_ai.usage.input_tokens", 500),
+            _attr("gen_ai.usage.output_tokens", 300),
+            _attr("llm.token_count.completion_details.reasoning", malformed),
+            _attr("gen_ai.usage.reasoning_tokens", 120),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["usage_details"]["reasoning_tokens"] == 120
+
+
+def test_bool_reasoning_attr_alone_is_not_counted():
+    """A bool is not a token count: ``True`` must not be stored as 1 reasoning token."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "o1-2024-12-17"),
+            _attr("gen_ai.usage.input_tokens", 500),
+            _attr("gen_ai.usage.output_tokens", 300),
+            _attr("llm.token_count.completion_details.reasoning", True),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["usage_details"]["reasoning_tokens"] == 0
+
+
 def test_reasoning_tokens_do_not_change_cost():
     """Reasoning is a subset of output, already priced at the output rate, so it
     must be display-only — the cost must be identical with and without it."""
@@ -384,6 +427,39 @@ def test_span_path_attributes_survive_alongside_explicit_metadata():
     assert metadata[SPAN_PATH] == ["root", "child"]
     assert metadata[SPAN_IDS_PATH] == ["root-id"]
     assert metadata[SPAN_STARTS_PATH] == ["1700000000000000000"]
+
+
+def test_capture_markers_survive_alongside_explicit_metadata():
+    """A span that says its content was cut must keep saying so.
+
+    The agent self-trace's root is both: it stamps the trace metadata and
+    records a prompt and answer the capture policy may have cut. Dropping the
+    marker here leaves a reader treating a 16 KB slice as the whole prompt —
+    the exact thing design B7/B8 added the attribute to prevent.
+    """
+    payload = _otel_payload(
+        [
+            _attr("traceroot.span.metadata", json.dumps({"kind": "chat"})),
+            _attr(TRUNCATED, True),
+            _attr(CAPTURE_BUDGET_EXCEEDED, True),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    metadata = json.loads(spans[0]["metadata"])
+
+    assert metadata["kind"] == "chat"
+    assert metadata[TRUNCATED] is True
+    assert metadata[CAPTURE_BUDGET_EXCEEDED] is True
+
+
+def test_capture_markers_survive_without_explicit_metadata():
+    """The other branch keeps them too — they are ordinary unknown attributes there."""
+    payload = _otel_payload([_attr(TRUNCATED, True)])
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(spans[0]["metadata"])[TRUNCATED] is True
 
 
 def test_non_object_explicit_metadata_is_stored_verbatim():

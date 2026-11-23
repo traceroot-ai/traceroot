@@ -1,11 +1,21 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, PlanType } from "@traceroot/core";
+import { getRequestSession } from "@/lib/request-session";
+import {
+  prisma,
+  getStripeOrThrow,
+  getPlanConfig,
+  isUpgrade,
+  PlanType,
+  METERED_PRICE_ENV_VARS,
+  getMeteredPriceIds,
+  findPlanItem,
+  discountsToKeepForPlan,
+} from "@traceroot/core";
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await getRequestSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -80,18 +90,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Case 3: Has subscription, changing to another paid plan
-    const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
+    const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId, {
+      expand: ["discounts"],
+    });
+    // Discounts on the subscription (promo codes). Unexpanded entries are bare ids
+    // with no coupon to read, so they are left alone.
+    const activeDiscounts = (subscription.discounts ?? []).filter(
+      (d): d is Exclude<typeof d, string> => typeof d !== "string",
+    );
 
     // All metered usage price IDs — must be excluded when finding the plan item,
     // and preserved across plan changes / downgrade schedules so meter events
     // continue to bill correctly.
-    const meteredPriceEnvVars: Array<[string, string | undefined]> = [
-      ["STRIPE_PRICE_ID_AI_USAGE", process.env.STRIPE_PRICE_ID_AI_USAGE],
-      ["STRIPE_PRICE_ID_RCA_USAGE", process.env.STRIPE_PRICE_ID_RCA_USAGE],
-      ["STRIPE_PRICE_ID_DETECTOR_USAGE", process.env.STRIPE_PRICE_ID_DETECTOR_USAGE],
-    ];
-    for (const [envName, priceId] of meteredPriceEnvVars) {
-      if (!priceId) {
+    for (const envName of METERED_PRICE_ENV_VARS) {
+      if (!process.env[envName]) {
         // Loud warning so prod misconfig surfaces. If the existing subscription
         // has a real metered item with this missing-from-env ID, plan-item
         // detection below will treat it as the plan item — wrong, and likely
@@ -102,10 +114,8 @@ export async function POST(req: NextRequest) {
         );
       }
     }
-    const meteredPriceIds = new Set(
-      meteredPriceEnvVars.map(([, p]) => p).filter((p): p is string => Boolean(p)),
-    );
-    const planItem = subscription.items.data.find((item) => !meteredPriceIds.has(item.price.id));
+    const meteredPriceIds = getMeteredPriceIds();
+    const planItem = findPlanItem(subscription.items.data, meteredPriceIds);
 
     if (!planItem) {
       return NextResponse.json({ error: "Plan subscription item not found" }, { status: 500 });
@@ -157,12 +167,21 @@ export async function POST(req: NextRequest) {
         // symmetrically via proration — customer pays full new-plan price
         // minus refund for unused old-plan time.
         billing_cycle_anchor: "now",
+        // A promo discount tied to another plan ends with the upgrade, in the same
+        // update, so the proration invoice is priced without it. Discounts tied to
+        // the new plan or not tied to a plan stay. Left out entirely when there is none.
+        ...(activeDiscounts.length > 0
+          ? (() => {
+              const keep = discountsToKeepForPlan(activeDiscounts, newPlan);
+              return { discounts: keep.length > 0 ? keep.map((id) => ({ discount: id })) : "" };
+            })()
+          : {}),
       });
 
       console.log("Stripe subscription updated:", {
         id: updatedSub.id,
         status: updatedSub.status,
-        currentPriceId: updatedSub.items.data[0]?.price.id,
+        currentPriceId: findPlanItem(updatedSub.items.data, meteredPriceIds)?.price.id,
       });
 
       // Update database immediately for better UX (webhook will also update, but may be delayed)
@@ -203,6 +222,12 @@ export async function POST(req: NextRequest) {
               { price: planItem.price.id, quantity: planItem.quantity ?? 1 },
               ...meteredPhaseItems,
             ],
+            // Phases are replaced wholesale, so the current discount must be passed
+            // again or it is dropped. It only covers the current phase: a plan-bound
+            // discount belongs to the higher plan being left.
+            ...(activeDiscounts.length > 0
+              ? { discounts: activeDiscounts.map((d) => ({ discount: d.id })) }
+              : {}),
             start_date: schedule.phases[0].start_date,
             end_date: subscription.current_period_end,
           },
@@ -223,3 +248,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to change plan" }, { status: 500 });
   }
 }
+export const POST = withImpersonationPolicy(handlePOST);

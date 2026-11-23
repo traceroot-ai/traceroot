@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import AuthResult, authenticate_api_key, authenticate_public_caller
 
 UI = "http://localhost:3000"
 AUTH_HEADER = {"Authorization": "Bearer tr_key"}
@@ -28,7 +28,9 @@ def make_auth() -> AuthResult:
 
 @pytest.fixture()
 def client():
+    # The writes authenticate with the API key; the reads take the dual credential.
     app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -68,17 +70,6 @@ def test_forwards_nested_subpath_for_version_publish(client):
     assert resp.status_code == 201
     assert resp.json()["version_number"] == 2
     assert route.called
-
-
-@respx.mock
-def test_forwards_query_params_on_list(client):
-    route = respx.get(f"{UI}/api/public/datasets").mock(
-        return_value=Response(200, json={"datasets": [], "next_cursor": None})
-    )
-    resp = client.get("/api/v1/public/datasets?limit=2&name=bill", headers=AUTH_HEADER)
-    assert resp.status_code == 200
-    assert route.called
-    assert dict(route.calls.last.request.url.params) == {"limit": "2", "name": "bill"}
 
 
 @respx.mock
@@ -267,3 +258,26 @@ def test_typed_route_rejects_invalid_body_before_forwarding(client):
     )
     assert resp.status_code == 422
     assert not route.called
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/api/v1/public/datasets?limit=0",
+        "/api/v1/public/datasets?limit=500",
+        "/api/v1/public/datasets/ds1/versions?limit=0",
+        "/api/v1/public/datasets/ds1/versions?limit=500",
+        "/api/v1/public/dataset-versions/dv1?limit=0",
+        "/api/v1/public/dataset-versions/dv1?limit=5000",
+    ],
+)
+def test_dataset_reads_reject_an_out_of_range_limit(client, url):
+    """The PUBLISHED bound is the gateway's, and it rejects rather than clamps.
+
+    Same convention as every other public paged read (see test_public_detectors_read).
+    It is also the better answer: a caller who asked for 5000 learns the request was not
+    honoured, instead of silently receiving a capped page and believing it was complete.
+    The control-plane handler clamps as a backstop for requests that never pass through
+    here, so neither layer can return an unbounded body.
+    """
+    assert client.get(url).status_code == 422

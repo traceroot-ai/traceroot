@@ -6,8 +6,9 @@ Findings live in ClickHouse (`detector_findings`, a `ReplacingMergeTree` keyed b
 live in Postgres. All reads are scoped to the caller's `project_id`.
 
 Postgres is best-effort for enrichment: an RCA or template lookup that is missing
-or fails degrades to ``None`` and never prevents a finding from being returned. A
-ClickHouse failure on the finding read itself propagates (the router maps it to a
+or fails degrades to ``None`` (or, for the kept-answer fallback of an RCA, to the
+latest attempt) and never prevents a finding from being returned. A ClickHouse
+failure on the finding read itself propagates (the router maps it to a
 controlled 500).
 """
 
@@ -19,11 +20,13 @@ from typing import Any
 import psycopg2
 
 from db.clickhouse import get_clickhouse_client
+from rest.retention import get_retention_cutoff
 from rest.schemas.public import (
     DetectorDetail,
     DetectorItem,
     DetectorResultItem,
     FindingDetail,
+    FindingSignal,
     FindingSummary,
     RCAResult,
 )
@@ -281,8 +284,13 @@ class DetectorReaderService:
             for row in result.result_rows
         ]
         run_ids = self._run_ids_for_findings(project_id, [it.finding_id for it in items])
+        signals = self._read_signals(project_id, [it.finding_id for it in items])
         for it in items:
             it.run_ids = run_ids.get(it.finding_id, [])
+            it.signals = [
+                FindingSignal(detector_id=detector_id, **fields)
+                for detector_id, fields in signals.get(it.finding_id, {}).items()
+            ]
         return items, total
 
     def _run_ids_for_findings(
@@ -347,7 +355,9 @@ class DetectorReaderService:
     # ------------------------------------------------------------------ #
     # detail
     # ------------------------------------------------------------------ #
-    def get_finding(self, project_id: str, finding_id: str) -> FindingDetail | None:
+    def get_finding(
+        self, project_id: str, finding_id: str, billing_plan: str | None = None
+    ) -> FindingDetail | None:
         """Get one finding by id.
 
         Stored finding ids are uuid-hyphenated, but display surfaces render
@@ -357,6 +367,8 @@ class DetectorReaderService:
         Args:
             project_id (str): Project that owns the finding.
             finding_id (str): The finding id, with or without hyphens.
+            billing_plan (str | None): The caller's plan; an RCA inherited from
+                a signal is read only from findings inside its retention window.
 
         Returns:
             FindingDetail | None: The finding, or None when no row matches.
@@ -365,14 +377,16 @@ class DetectorReaderService:
             "replaceAll(finding_id, '-', '') = replaceAll({finding_id:String}, '-', '')",
             {"project_id": project_id, "finding_id": finding_id},
         )
-        return self._build_detail(project_id, row) if row else None
+        return self._build_detail(project_id, row, billing_plan) if row else None
 
-    def get_finding_by_trace(self, project_id: str, trace_id: str) -> FindingDetail | None:
+    def get_finding_by_trace(
+        self, project_id: str, trace_id: str, billing_plan: str | None = None
+    ) -> FindingDetail | None:
         row = self._fetch_finding(
             "trace_id = {trace_id:String}",
             {"project_id": project_id, "trace_id": trace_id},
         )
-        return self._build_detail(project_id, row) if row else None
+        return self._build_detail(project_id, row, billing_plan) if row else None
 
     def _fetch_finding(self, predicate: str, params: dict) -> tuple | None:
         query = f"""
@@ -386,11 +400,14 @@ class DetectorReaderService:
         rows = result.result_rows
         return rows[0] if rows else None
 
-    def _build_detail(self, project_id: str, row: tuple) -> FindingDetail:
+    def _build_detail(
+        self, project_id: str, row: tuple, billing_plan: str | None = None
+    ) -> FindingDetail:
         finding_id, _project_id, trace_id, summary, payload, timestamp = row
         items = [item for item in self._parse_payload(payload) if isinstance(item, dict)]
         detector_ids = [str(item.get("detectorId") or "") for item in items]
         templates = self._read_templates(project_id, [d for d in detector_ids if d])
+        signals = self._read_signals(project_id, [finding_id]).get(finding_id, {})
         results = [
             DetectorResultItem(
                 detector_id=detector_id,
@@ -399,9 +416,13 @@ class DetectorReaderService:
                 summary=str(item.get("summary") or ""),
                 identified=True,
                 data=item.get("data"),
+                **signals.get(detector_id, {}),
             )
             for item, detector_id in zip(items, detector_ids)
         ]
+        rca = self._read_rca(project_id, finding_id)
+        if rca is None and signals:
+            rca = self._read_inherited_rca(project_id, results, billing_plan)
         return FindingDetail(
             finding_id=finding_id,
             project_id=project_id,
@@ -410,8 +431,12 @@ class DetectorReaderService:
             timestamp=timestamp,
             detectors=[r.detector_name for r in results],
             results=results,
-            rca=self._read_rca(project_id, finding_id),
+            rca=rca,
             run_ids=self._run_ids_for_findings(project_id, [finding_id]).get(finding_id, []),
+            signals=[
+                FindingSignal(detector_id=detector_id, **fields)
+                for detector_id, fields in signals.items()
+            ],
         )
 
     def _read_templates(self, project_id: str, detector_ids: list[str]) -> dict[str, str | None]:
@@ -430,7 +455,14 @@ class DetectorReaderService:
             return {}
 
     def _read_rca(self, project_id: str, finding_id: str) -> RCAResult | None:
-        """Read the finding's free-text RCA from Postgres; None if missing/failed."""
+        """Read the finding's free-text RCA from Postgres; None if missing or the lookup fails.
+
+        The finding's row holds only the latest attempt, which a later signal on
+        the same trace resets and may fail. While that attempt is not done, the
+        newest successful answer kept on one of the finding's signal openings
+        stands for it; if that second lookup fails, the latest attempt is
+        returned as it is.
+        """
         try:
             rows = self._pg_rows(
                 "SELECT status, result FROM detector_rcas "
@@ -442,7 +474,116 @@ class DetectorReaderService:
             return None
         if not rows:
             return None
-        return RCAResult(status=rows[0][0], result=rows[0][1])
+        status, result = rows[0]
+        if status != "done":
+            try:
+                kept = self._pg_rows(
+                    "SELECT sr.result FROM signal_rcas sr "
+                    "JOIN detector_rcas dr ON dr.finding_id = sr.finding_id "
+                    "WHERE dr.project_id = %s AND sr.finding_id = %s "
+                    "AND sr.result IS NOT NULL "
+                    "ORDER BY sr.create_time DESC LIMIT 1",
+                    (project_id, finding_id),
+                )
+            except Exception:
+                # The latest attempt's state is still worth returning.
+                logger.warning(
+                    "kept RCA lookup failed; returning the latest attempt", exc_info=True
+                )
+                kept = []
+            if kept:
+                return RCAResult(status="done", result=kept[0][0])
+        return RCAResult(status=status, result=result)
+
+    def _read_signals(
+        self, project_id: str, finding_ids: list[str]
+    ) -> dict[str, dict[str, dict[str, str]]]:
+        """Map finding_id -> detector_id -> the signal its hit belongs to.
+
+        Best-effort like the other Postgres enrichment: ``{}`` on a failed
+        lookup, and a hit that is not grouped (signals off, or not assigned
+        yet) is simply absent.
+        """
+        ids = [f for f in finding_ids if f]
+        if not ids:
+            return {}
+        try:
+            rows = self._pg_rows(
+                "SELECT sh.finding_id, sh.detector_id, s.id, s.title, s.status "
+                "FROM signal_hits sh JOIN signals s ON s.id = sh.signal_id "
+                "WHERE sh.project_id = %s AND sh.finding_id = ANY(%s)",
+                (project_id, ids),
+            )
+        except Exception:
+            logger.warning("signal lookup failed; signal fields will be null", exc_info=True)
+            return {}
+        out: dict[str, dict[str, dict[str, str]]] = {}
+        for finding_id, detector_id, signal_id, title, status in rows:
+            out.setdefault(finding_id, {})[detector_id] = {
+                "signal_id": signal_id,
+                "signal_title": title,
+                "signal_status": status,
+            }
+        return out
+
+    def _read_inherited_rca(
+        self,
+        project_id: str,
+        results: list[DetectorResultItem],
+        billing_plan: str | None = None,
+    ) -> RCAResult | None:
+        """The RCAs a finding inherits from the signals its hits joined.
+
+        A hit that joins a known signal runs no RCA of its own; the signal's
+        canonical RCA (the successful answer kept on its newest opening that has
+        one; a later failed attempt on a shared finding does not remove it)
+        stands for it. The answer comes from another trace, so with a plan it is
+        read only from openings whose finding was detected inside the plan's
+        retention window, as the finding itself is.
+        One section per grouped detector, labelled with the signal and the trace
+        the RCA analysed. None when no signal has a finished RCA or the lookup
+        fails.
+        """
+        grouped = [r for r in results if r.signal_id]
+        if not grouped:
+            return None
+        cutoff = get_retention_cutoff(billing_plan) if billing_plan else None
+        retained = (
+            " AND EXISTS (SELECT 1 FROM signal_hits rh "
+            "WHERE rh.finding_id = sr.finding_id AND rh.seen_at >= %s)"
+            if cutoff
+            else ""
+        )
+        params: tuple = ([r.signal_id for r in grouped], project_id)
+        try:
+            rows = self._pg_rows(
+                "SELECT DISTINCT ON (sr.signal_id) sr.signal_id, sr.result, "
+                "(SELECT sh.trace_id FROM signal_hits sh "
+                " WHERE sh.finding_id = sr.finding_id LIMIT 1) "
+                "FROM signal_rcas sr JOIN detector_rcas dr ON dr.finding_id = sr.finding_id "
+                "WHERE sr.signal_id = ANY(%s) AND dr.project_id = %s AND sr.result IS NOT NULL"
+                + retained
+                + " ORDER BY sr.signal_id, sr.reopen_seq DESC",
+                (*params, cutoff) if cutoff else params,
+            )
+        except Exception:
+            logger.warning("inherited RCA lookup failed; returning rca=None", exc_info=True)
+            return None
+        by_signal = {row[0]: (row[1], row[2]) for row in rows}
+        sections = []
+        for r in grouped:
+            if r.signal_id not in by_signal:
+                continue
+            result, trace_id = by_signal[r.signal_id]
+            source = f"from trace {trace_id}" if trace_id else "from an earlier trace"
+            sections.append(
+                f'## {r.detector_name}: signal "{r.signal_title}"\n'
+                f"This hit joined a known signal, so no new RCA ran. "
+                f"The signal's RCA, {source}:\n\n{result or ''}"
+            )
+        if not sections:
+            return None
+        return RCAResult(status="done", result="\n\n".join(sections), inherited=True)
 
 
 # Singleton instance

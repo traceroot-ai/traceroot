@@ -1,10 +1,15 @@
-import { getSocialAuthConfig } from "@/lib/social-auth";
+import { env } from "@/env";
+import { isCloud } from "@/lib/server/cloud";
+import { configuredSocialProviders } from "@/lib/social-providers";
 import { SignUpClient } from "./sign-up-client";
 
 export const dynamic = "force-dynamic";
 
 export default function SignUpPage() {
-  const { enabledProviders } = getSocialAuthConfig();
-
-  return <SignUpClient enabledProviders={enabledProviders} />;
+  return (
+    <SignUpClient
+      socialProviders={configuredSocialProviders(env)}
+      emailDomainPolicyEnabled={isCloud()}
+    />
+  );
 }

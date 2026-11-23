@@ -4,6 +4,7 @@ GET /api/v1/public/traces and GET /api/v1/public/traces/{trace_id}. Reads are
 scoped to the API key's project; the client never supplies a project id.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -393,6 +394,38 @@ class TestPublicGetTrace:
         resp = client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to get trace"
+
+    @pytest.mark.parametrize(
+        "path", ["/api/v1/public/traces/abc123", "/api/v1/public/traces/abc123/export"]
+    )
+    def test_reader_is_acquired_on_the_loop_and_read_off_it(self, client, mock_reader, path):
+        """The reader singleton's lazy init isn't thread-safe, so it must be built on the loop."""
+        import rest.routers.public.traces_read as mod
+
+        def on_loop() -> bool:
+            try:
+                asyncio.get_running_loop()
+                return True
+            except RuntimeError:
+                return False
+
+        seen: dict[str, bool] = {}
+
+        def acquire():
+            seen["acquire"] = on_loop()
+            return mock_reader
+
+        def read(**_kwargs):
+            seen["read"] = on_loop()
+            return dict(TRACE_DETAIL)
+
+        mod.get_trace_reader_service = acquire
+        mock_reader.get_trace.side_effect = read
+
+        resp = client.get(path, headers=AUTH_HEADER)
+
+        assert resp.status_code == 200
+        assert seen == {"acquire": True, "read": False}
 
 
 class TestPublicGetTraceDropsSpanTreeMetadata:
