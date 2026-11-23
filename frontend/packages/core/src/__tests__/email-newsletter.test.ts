@@ -1,6 +1,8 @@
 // The newsletter audience against an in-memory stand-in for the two tables it
 // reads and a fake provider that records every call, so nothing leaves the test.
-import { beforeEach, describe, expect, it } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   localExclusion,
   NEWSLETTER_DELAY_MS,
@@ -419,5 +421,132 @@ describe("does nothing without its settings", () => {
     });
     expect(result.notRun).toBe(reason);
     expect(calls).toEqual([]);
+  });
+});
+
+// The real adapter against a local HTTP endpoint that answers as the provider
+// does, so a lost response is a real dropped connection.
+describe("adding to the segment, against a local endpoint", () => {
+  type Behavior = "ok" | "lost" | "fail" | "duplicate";
+  const members = new Map<string, string[]>();
+  const behavior = new Map<string, Behavior>();
+  const requests: string[] = [];
+  let server: Server;
+  let base = "";
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      const url = new URL(req.url!, "http://local");
+      const parts = url.pathname.split("/").map(decodeURIComponent);
+      const email = parts[2];
+      requests.push(`${req.method} ${parts.slice(3).join("/") || "contact"}${url.search}`);
+      const json = (status: number, body: unknown) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (req.method === "GET" && parts.length === 3)
+        return json(200, { email, unsubscribed: false });
+      if (req.method === "GET" && parts[3] === "topics") return json(200, { data: [] });
+      if (req.method === "GET" && parts[3] === "segments") {
+        // 100 to a page at most, after the given id, as the provider pages them.
+        const all = members.get(email) ?? [];
+        const after = url.searchParams.get("after");
+        const start = after ? all.indexOf(after) + 1 : 0;
+        const limit = Number(url.searchParams.get("limit") ?? 20);
+        const page = all.slice(start, start + limit).map((id) => ({ id, name: id }));
+        return json(200, { object: "list", data: page, has_more: start + limit < all.length });
+      }
+      if (req.method === "POST" && parts[3] === "segments") {
+        const mode = behavior.get(email) ?? "ok";
+        if (mode === "fail") return json(500, { name: "application_error" });
+        const list = members.get(email) ?? [];
+        const already = list.includes(parts[4]);
+        if (!already) members.set(email, [...list, parts[4]]);
+        if (mode === "lost") return req.socket.destroy();
+        if (mode === "duplicate" && already) return json(422, { name: "invalid_parameter" });
+        return json(200, { id: parts[4] });
+      }
+      return json(404, { name: "not_found" });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  const local = ((url: string, init: RequestInit) =>
+    fetch(url.replace("https://api.resend.com", base), init)) as typeof fetch;
+  const tick = (apply = true) =>
+    runNewsletterAudience(db, {
+      mode: { kind: "scheduled", now: new Date(START.getTime() + 20 * DAY) },
+      apply,
+      env: ENV,
+      fetchImpl: local,
+      minIntervalMs: 0,
+      log: () => {},
+    });
+  const stamped = (id: string) => !!users.find((u) => u.id === id)!.onboarding?.newsletterAddedAt;
+  const signedUp = new Date(START.getTime() + DAY);
+
+  beforeEach(() => {
+    members.clear();
+    behavior.clear();
+    requests.length = 0;
+  });
+
+  it("a normal add is stamped on the provider's answer, without reading the membership", async () => {
+    person("ok", signedUp);
+    expect(await tick()).toMatchObject({ added: 1, failed: 0 });
+    expect(stamped("ok")).toBe(true);
+    expect(members.get("ok@acme.test")).toEqual(["seg_news"]);
+    expect(requests.filter((r) => r.startsWith("GET segments"))).toEqual([]);
+  });
+
+  it("an add applied whose answer was lost is confirmed in the exact segment, across pages, then stamped", async () => {
+    person("lost", signedUp);
+    // In 150 other segments already, so the one added lands on the second page.
+    members.set(
+      "lost@acme.test",
+      Array.from({ length: 150 }, (_, i) => `seg_other_${i}`),
+    );
+    behavior.set("lost@acme.test", "lost");
+    expect(await tick()).toMatchObject({ added: 1, failed: 0 });
+    expect(stamped("lost")).toBe(true);
+    expect(requests.filter((r) => r.startsWith("GET segments"))).toEqual([
+      "GET segments?limit=100",
+      "GET segments?limit=100&after=seg_other_99",
+    ]);
+  });
+
+  it("a member already, answered with an error, is confirmed and stamped", async () => {
+    person("dup", signedUp);
+    members.set("dup@acme.test", ["seg_news"]);
+    behavior.set("dup@acme.test", "duplicate");
+    expect(await tick()).toMatchObject({ added: 1, failed: 0 });
+    expect(stamped("dup")).toBe(true);
+  });
+
+  it("membership of another segment does not count", async () => {
+    person("other", signedUp);
+    members.set("other@acme.test", ["seg_news_old"]);
+    behavior.set("other@acme.test", "fail");
+    expect(await tick()).toMatchObject({ added: 0, failed: 1 });
+    expect(stamped("other")).toBe(false);
+  });
+
+  it("a genuine failure is not stamped, and the next run adds them", async () => {
+    person("fail", signedUp);
+    behavior.set("fail@acme.test", "fail");
+    expect(await tick()).toMatchObject({ added: 0, failed: 1 });
+    expect(stamped("fail")).toBe(false);
+    behavior.delete("fail@acme.test");
+    expect(await tick()).toMatchObject({ added: 1, failed: 0 });
+    expect(stamped("fail")).toBe(true);
+  });
+
+  it("a dry run neither adds nor reads the membership", async () => {
+    person("dry", signedUp);
+    expect(await tick(false)).toMatchObject({ added: 1 });
+    expect(requests.some((r) => r.startsWith("POST") || r.startsWith("GET segments"))).toBe(false);
+    expect(stamped("dry")).toBe(false);
   });
 });

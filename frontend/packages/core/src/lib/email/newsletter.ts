@@ -111,6 +111,44 @@ async function call(
   }
 }
 
+const isSuccess = (result: { status: number | null; body: unknown }, segmentId: string) =>
+  result.status !== null &&
+  result.status >= 200 &&
+  result.status < 300 &&
+  (result.body as { id?: string } | null)?.id === segmentId;
+
+/** Most pages read for one contact's segments; a contact is in very few. */
+const MAX_SEGMENT_PAGES = 20;
+
+/**
+ * Whether the contact is in this exact segment, reading every page of their
+ * segments; null when that cannot be read.
+ */
+export async function inSegment(
+  email: string,
+  segmentId: string,
+  apiKey: string,
+  fetchImpl: Fetch,
+): Promise<boolean | null> {
+  const base = `/contacts/${encodeURIComponent(normalizeEmail(email))}/segments?limit=100`;
+  let after: string | undefined;
+  for (let page = 0; page < MAX_SEGMENT_PAGES; page += 1) {
+    const result = await call(
+      "GET",
+      after ? `${base}&after=${encodeURIComponent(after)}` : base,
+      apiKey,
+      fetchImpl,
+    );
+    if (result.status !== 200) return null;
+    const body = result.body as { data?: { id: string }[]; has_more?: boolean } | null;
+    const data = body?.data ?? [];
+    if (data.some((segment) => segment.id === segmentId)) return true;
+    if (!body?.has_more || data.length === 0) return false;
+    after = data[data.length - 1].id;
+  }
+  return null;
+}
+
 export type ProviderState = "subscribed" | "no_contact" | "unsubscribed" | "unknown";
 
 /** Where the person stands at the provider. Reads only. */
@@ -288,7 +326,14 @@ export async function runNewsletterAudience(
       }
     }
     const added = await call("POST", segmentPath(person.email), config.apiKey, fetchImpl);
-    if (added.status === null || added.status >= 300) {
+    // The provider documents the success answer only (the segment's id). A
+    // lost answer, an error or anything else may still have added them, or
+    // they may have been a member already, so their membership of this exact
+    // segment decides.
+    const confirmed =
+      isSuccess(added, settings.segmentId) ||
+      (await inSegment(person.email, settings.segmentId, config.apiKey, fetchImpl)) === true;
+    if (!confirmed) {
       log(`[newsletter] user ${person.id}: not added (${added.status ?? "network error"})`);
       run.failed += 1;
       continue;
