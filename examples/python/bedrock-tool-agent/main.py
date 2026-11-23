@@ -10,6 +10,8 @@ Usage:
 import json
 import logging
 from datetime import datetime
+from datetime import timezone as dt_timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -95,8 +97,13 @@ def calculate(expression: str) -> dict:
 
 @observe(name="get_current_time", type="tool")
 def get_current_time(timezone: str = "UTC") -> dict:
-    """Get current time."""
-    return {"timezone": timezone, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    """Get current time in the requested timezone."""
+    try:
+        zone = ZoneInfo(timezone)
+    except ZoneInfoNotFoundError:
+        zone = dt_timezone.utc
+        timezone = "UTC"
+    return {"timezone": timezone, "time": datetime.now(zone).strftime("%Y-%m-%d %H:%M:%S")}
 
 
 TOOLS = {
@@ -238,12 +245,14 @@ class ReActAgent:
                         logger.info(f"Tool call: {name}({tool_input})")
                         result = self._execute_tool(name, tool_input)
                         logger.info(f"Tool result: {result}")
+                        result_obj = json.loads(result)
+                        tool_status = "error" if "error" in result_obj else "success"
                         tool_results.append(
                             {
                                 "toolResult": {
                                     "toolUseId": tool_id,
                                     "content": [{"text": result}],
-                                    "status": "success",
+                                    "status": tool_status,
                                 }
                             }
                         )
