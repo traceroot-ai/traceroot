@@ -55,4 +55,11 @@ describe("social providers", () => {
     expect(configuredSocialProviders(all)).toEqual(["github", "google", "agentid"]);
     expect(Object.keys(socialProviderOptions(all))).toEqual(["github", "google"]);
   });
+
+  it("reads an environment without GitHub's settings as GitHub not configured", () => {
+    const { AUTH_GITHUB_CLIENT_ID: _id, AUTH_GITHUB_CLIENT_SECRET: _secret, ...rest } = NONE;
+    const env = { ...rest, AUTH_GOOGLE_CLIENT_ID: "o", AUTH_GOOGLE_CLIENT_SECRET: "o" };
+    expect(configuredSocialProviders(env)).toEqual(["google"]);
+    expect(Object.keys(socialProviderOptions(env))).toEqual(["google"]);
+  });
 });

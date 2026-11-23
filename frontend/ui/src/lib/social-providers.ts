@@ -3,18 +3,20 @@ export const AGENTID_PROVIDER_ID = "agentid" as const;
 export type SocialProvider = "github" | "google" | typeof AGENTID_PROVIDER_ID;
 
 interface SocialProviderEnv {
-  AUTH_GITHUB_CLIENT_ID: string;
-  AUTH_GITHUB_CLIENT_SECRET: string;
+  // Optional so that a caller (or a test's stand-in environment) that predates
+  // GitHub sign-in reads as GitHub not configured.
+  AUTH_GITHUB_CLIENT_ID?: string;
+  AUTH_GITHUB_CLIENT_SECRET?: string;
   AUTH_GOOGLE_CLIENT_ID: string;
   AUTH_GOOGLE_CLIENT_SECRET: string;
   AUTH_AGENTID_CLIENT_ID: string;
   AUTH_AGENTID_CLIENT_SECRET: string;
 }
 
-/** Trimmed credentials, or null when either half is missing. */
-function credentials(clientId: string, clientSecret: string) {
-  const id = clientId.trim();
-  const secret = clientSecret.trim();
+/** Trimmed credentials, or null when either half is missing or blank. */
+function credentials(clientId: string | undefined, clientSecret: string | undefined) {
+  const id = clientId?.trim() ?? "";
+  const secret = clientSecret?.trim() ?? "";
   return id && secret ? { clientId: id, clientSecret: secret } : null;
 }
 
