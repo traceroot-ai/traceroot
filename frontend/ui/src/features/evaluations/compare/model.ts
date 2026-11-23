@@ -265,13 +265,16 @@ function pairedCost(cases: CaseRow[], baselineRunId: string, candidateRunId: str
   };
 }
 
-/** Pair summaries, keyed by candidate run id. Each pair uses only the cases both of its
- *  runs have. */
-export function comparePairs(model: CompareModel): Map<string, PairComparison> {
+/** Pair summaries restricted to `keys` (all cases when omitted), keyed by candidate run id.
+ *  Each pair uses only the cases both of its runs have. */
+export function comparePairs(
+  model: CompareModel,
+  keys?: ReadonlySet<string>,
+): Map<string, PairComparison> {
   const pairs = new Map<string, PairComparison>();
   const baseline = model.runs.find((b) => b.run.id === model.baselineRunId);
   if (!baseline) return pairs;
-  const { cases } = model;
+  const cases = keys ? model.cases.filter((c) => keys.has(c.key)) : model.cases;
   // The engine pairs by `testCaseId`; hand it each run's aligned results under the row key.
   const resultsOf = (runId: string): ComparisonResult[] =>
     toComparisonResults(
