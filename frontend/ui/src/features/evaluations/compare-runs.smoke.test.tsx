@@ -157,6 +157,37 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.getAllByText(/#41 · opus/).length).toBeGreaterThan(0);
   });
 
+  it("falls back to the oldest run as the baseline when the URL names none", () => {
+    // Run numbers restart per evaluation: sonnet is #2 of a newer evaluation, opus is #41
+    // of an older one. With no baseline in the URL, the earliest-started run anchors.
+    const R: Record<string, unknown> = {
+      opus: {
+        ...OPUS,
+        run: { ...OPUS.run, startedAt: "2026-07-20T10:00:00.000Z" },
+      },
+      sonnet: {
+        ...SONNET,
+        run: {
+          ...runDetail("sonnet", 2, "sonnet"),
+          evaluationName: "ticket-routing-v2",
+          startedAt: "2026-07-25T10:00:00.000Z",
+        },
+      },
+    };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
+    );
+    render(
+      <CompareRunsView
+        projectId="p1"
+        runIds={["sonnet", "opus"]}
+        baselineId={null}
+        onChangeBaseline={vi.fn()}
+      />,
+    );
+    expect(screen.getByTitle("Baseline run").textContent).toContain("#41 · opus");
+  });
+
   it("shows a regression delta against the baseline in the cells", () => {
     mount("opus");
     const row = screen

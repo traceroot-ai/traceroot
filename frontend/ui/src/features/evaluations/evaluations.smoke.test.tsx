@@ -396,11 +396,51 @@ describe("real Datasets + Evaluations views render server data", () => {
     });
     fireEvent.click(await screen.findByText("Compare"));
     // No "same dataset" refusal, and it navigates to the shareable compare route with
-    // both ids (in run-number order) and the oldest run seeding the baseline.
+    // both ids (oldest first) and the oldest run seeding the baseline.
     expect(screen.queryByText(/same dataset/i)).toBeNull();
     await waitFor(() =>
       expect(nav.push).toHaveBeenCalledWith(
         "/projects/p1/evaluations/compare?runs=run0,run1&baseline=run0",
+      ),
+    );
+  });
+
+  it("seeds the comparison baseline with the oldest selected run, not the lowest run number", async () => {
+    // Run numbers restart per evaluation, so across evaluations a low number can be the
+    // newer run: #3 of "Refund routing" started after #26 of "Billing routing".
+    const RUN_NEWER_LOW_NUMBER = {
+      ...RUN,
+      id: "run9",
+      evaluationId: "eval2",
+      evaluationName: "Refund routing",
+      runNumber: 3,
+      candidateVersion: "git:9999999",
+      startedAt: "2026-07-18T10:24:00Z",
+      completedAt: "2026-07-18T10:30:00Z",
+    };
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const s = String(url);
+      const isRunsList = s.includes("/evaluations/runs") && !/\/evaluations\/runs\/[^/?]+/.test(s);
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          isRunsList
+            ? { data: [RUN_NEWER_LOW_NUMBER, RUN_OLDER], meta: { page: 0, limit: 50, total: 2 } }
+            : payloadFor(s),
+      };
+    }) as unknown as typeof fetch;
+    mount(<EvaluationsView projectId="p1" />);
+    fireEvent.click(await screen.findByLabelText("Select run git:9999999 #3"));
+    fireEvent.click(await screen.findByLabelText("Select run git:0000000 #26"));
+    fireEvent.pointerDown(await screen.findByRole("button", { name: /Actions \(2 selected\)/ }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByText("Compare"));
+    await waitFor(() =>
+      expect(nav.push).toHaveBeenCalledWith(
+        "/projects/p1/evaluations/compare?runs=run0,run9&baseline=run0",
       ),
     );
   });

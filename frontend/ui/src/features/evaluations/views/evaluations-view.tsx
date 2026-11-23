@@ -298,11 +298,12 @@ function RunsTab({ projectId }: { projectId: string }) {
   const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(runs.map((r) => r.id)));
 
   // Compare two OR MORE runs on the shareable /evaluations/compare view. The oldest
-  // (lowest run number) seeds the baseline; the page lets you re-pick it.
+  // (earliest started) seeds the baseline; the page lets you re-pick it. Not the lowest
+  // run number: numbers restart per evaluation, so they can't order runs across them.
   const compareSelected = () => {
     const chosen = runs
       .filter((r) => selectedIds.has(r.id))
-      .sort((a, b) => a.runNumber - b.runNumber);
+      .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
     if (chosen.length < 2) return;
     // Cross-dataset selections are allowed (no pre-flight refusal): the compare view keys
     // alignment off the stable `datasetId`, lining rows up by dataset-row id within one

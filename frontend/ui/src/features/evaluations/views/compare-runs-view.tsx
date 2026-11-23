@@ -286,19 +286,30 @@ export function CompareRunsView({
   }, [loaded]);
   const { crossDataset, datasetNames } = alignment;
 
+  // The URL's baseline, or the oldest run (earliest started) when it names none of these
+  // runs. Not the lowest run number: numbers restart per evaluation.
+  const effectiveBaselineId = React.useMemo(() => {
+    if (loaded.some((b) => b.run.id === baselineId)) return baselineId;
+    const [oldest] = [...loaded].sort(
+      (a, b) => Date.parse(a.run.startedAt) - Date.parse(b.run.startedAt),
+    );
+    return oldest?.run.id ?? null;
+  }, [loaded, baselineId]);
+
   // Baseline-first display order (baseline, then by run number). Baseline-independent
   // maps are carried through unchanged — only the ORDER depends on the baseline.
   const orderedBundles = React.useMemo<RunBundle[]>(
     () =>
       [...loaded].sort((a, b) => {
-        if (a.run.id === baselineId) return -1;
-        if (b.run.id === baselineId) return 1;
+        if (a.run.id === effectiveBaselineId) return -1;
+        if (b.run.id === effectiveBaselineId) return 1;
         return a.run.runNumber - b.run.runNumber;
       }),
-    [loaded, baselineId],
+    [loaded, effectiveBaselineId],
   );
 
-  const baselineBundle = orderedBundles.find((b) => b.run.id === baselineId) ?? orderedBundles[0];
+  const baselineBundle =
+    orderedBundles.find((b) => b.run.id === effectiveBaselineId) ?? orderedBundles[0];
 
   // Project every run against the baseline: a run on the baseline's dataset aligns by
   // `testCaseId` (stable across input edits), any other run aligns by canonical input.
@@ -332,7 +343,7 @@ export function CompareRunsView({
     });
   }, [orderedBundles, baselineBundle]);
 
-  const baseline = ordered.find((b) => b.run.id === baselineId) ?? ordered[0];
+  const baseline = ordered.find((b) => b.run.id === effectiveBaselineId) ?? ordered[0];
 
   const crossExperiment = new Set(ordered.map((b) => b.run.evaluationName)).size > 1;
 
@@ -454,7 +465,7 @@ export function CompareRunsView({
           {ordered.length > 0 && baseline && (
             <div className="ml-auto flex items-center gap-2">
               <span className="text-[12px] text-muted-foreground">Baseline</span>
-              <Select value={baselineId ?? ""} onValueChange={(v) => onChangeBaseline(v)}>
+              <Select value={effectiveBaselineId ?? ""} onValueChange={(v) => onChangeBaseline(v)}>
                 {/* `[&>span]:!flex` overrides the trigger's base `line-clamp-1`
                   (display:-webkit-box), which would otherwise swallow the dot. */}
                 <SelectTrigger
