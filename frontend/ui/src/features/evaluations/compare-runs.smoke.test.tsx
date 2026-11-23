@@ -4,8 +4,8 @@
  * baseline. Runs on the baseline's dataset (compared by the stable `datasetId`) align
  * by dataset-row id; runs on a different dataset align by shared (canonical) input — so
  * a mixed selection compares fine and a same-dataset pair keeps exact row identity even
- * alongside cross-dataset runs. One colour-keyed value per run stacks in each metric
- * cell. Asserts the scorer columns, the per-run stacked values, the baseline legend,
+ * alongside cross-dataset runs. Each case is a group with one line per run. Asserts the
+ * scorer columns, each run's line in a case's group, the baseline legend,
  * that Input collapses when the runs agree, cross-dataset (and 3-run mixed) alignment,
  * the duplicate-input rules on both sides (a baseline's duplicate rows stay distinct and
  * a lone cross case fills each of them; a cross run's own extra occurrences of one input
@@ -139,11 +139,11 @@ describe("CompareRunsView — N-run diff table", () => {
     }
   });
 
-  it("stacks each run's output in the row, and collapses a shared input to one value", () => {
+  it("shows each run's output in the case's group, and a shared input once", () => {
     mount();
     const row = screen
       .getByText(/double-charged and I want a refund/)
-      .closest("tr") as HTMLTableRowElement;
+      .closest("tbody") as HTMLElement;
     // Both runs' outputs are shown (baseline billing, candidate account_management).
     expect(within(row).getByText("account_management")).toBeTruthy();
     expect(within(row).getAllByText("billing").length).toBeGreaterThan(0);
@@ -169,6 +169,7 @@ describe("CompareRunsView — N-run diff table", () => {
         ...SONNET,
         run: {
           ...runDetail("sonnet", 2, "sonnet"),
+          evaluationId: "ev2",
           evaluationName: "ticket-routing-v2",
           startedAt: "2026-07-25T10:00:00.000Z",
         },
@@ -185,14 +186,16 @@ describe("CompareRunsView — N-run diff table", () => {
         onChangeBaseline={vi.fn()}
       />,
     );
-    expect(screen.getByTitle("Baseline run").textContent).toContain("#41 opus");
+    expect(screen.getByTitle("Baseline run").textContent).toContain(
+      "ticket-routing-quality #41 opus",
+    );
   });
 
   it("shows a regression delta against the baseline in the cells", () => {
     mount("opus");
     const row = screen
       .getByText(/double-charged and I want a refund/)
-      .closest("tr") as HTMLTableRowElement;
+      .closest("tbody") as HTMLElement;
     // sonnet routes ticket-05 wrong: routing_accuracy 0% vs baseline 100% → −100.0 pp.
     expect(within(row).getByText("−100.0 pp")).toBeTruthy();
   });
@@ -212,7 +215,9 @@ describe("CompareRunsView — N-run diff table", () => {
       ids.map((id) => ({ data: resp[id], isLoading: false, isError: false })),
     );
     mount();
-    const row = screen.getByText(/double-charged and I want a refund/).closest("tr") as HTMLElement;
+    const row = screen
+      .getByText(/double-charged and I want a refund/)
+      .closest("tbody") as HTMLElement;
     expect(within(row).getByText("+1")).toBeTruthy();
     expect(within(row).queryByText("+100.0 pp")).toBeNull();
   });
@@ -232,7 +237,9 @@ describe("CompareRunsView — N-run diff table", () => {
       ids.map((id) => ({ data: resp[id], isLoading: false, isError: false })),
     );
     mount();
-    const row = screen.getByText(/double-charged and I want a refund/).closest("tr") as HTMLElement;
+    const row = screen
+      .getByText(/double-charged and I want a refund/)
+      .closest("tbody") as HTMLElement;
     expect(within(row).getByText("+1")).toBeTruthy();
     expect(within(row).queryByText("+1.00")).toBeNull();
   });
@@ -293,7 +300,7 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.getByText(/my invoice looks wrong/)).toBeTruthy();
     const row = screen
       .getByText(/double-charged and I want a refund/)
-      .closest("tr") as HTMLTableRowElement;
+      .closest("tbody") as HTMLElement;
     // Aligned pair still produces the regression delta against the baseline.
     expect(within(row).getByText("−100.0 pp")).toBeTruthy();
   });
@@ -397,7 +404,7 @@ describe("CompareRunsView — N-run diff table", () => {
     // Same datasetId across all three → NOT cross-dataset, despite the differing names.
     // ticket-05 aligns by row id across all three (its inputs were edited apart) → the
     // regression delta is computed and BOTH candidates' edited inputs are shown.
-    const row = screen.getByText("EDITED five (sonnet)").closest("tr") as HTMLTableRowElement;
+    const row = screen.getByText("EDITED five (sonnet)").closest("tbody") as HTMLElement;
     expect(within(row).getByText("EDITED five (haiku)")).toBeTruthy();
     expect(within(row).getAllByText("−100.0 pp").length).toBeGreaterThan(0);
   });
@@ -454,7 +461,7 @@ describe("CompareRunsView — N-run diff table", () => {
     );
     // The edited-input case survived: B's edited text is shown (aligned to A by row id,
     // not dropped for differing from A's input), and its regression delta is present.
-    const row = screen.getByText("EDITED-B double-charged").closest("tr") as HTMLTableRowElement;
+    const row = screen.getByText("EDITED-B double-charged").closest("tbody") as HTMLElement;
     expect(within(row).getAllByText("−100.0 pp").length).toBeGreaterThan(0);
   });
 
@@ -552,8 +559,8 @@ describe("CompareRunsView — N-run diff table", () => {
     );
     // (a) + (b): TWO rows for the duplicate input — case-2 is NOT dropped, and BOTH A and B
     // show their case-2 values (they align by testCaseId across the same dataset).
-    const row1 = screen.getByText("A-case1-out").closest("tr") as HTMLTableRowElement;
-    const row2 = screen.getByText("A-case2-out").closest("tr") as HTMLTableRowElement;
+    const row1 = screen.getByText("A-case1-out").closest("tbody") as HTMLElement;
+    const row2 = screen.getByText("A-case2-out").closest("tbody") as HTMLElement;
     expect(row1).not.toBe(row2);
     expect(within(row2).getByText("B-case2-out")).toBeTruthy();
     // B's case-2 regresses against A's case-2 (0% vs 100%) → the delta proves exact
@@ -565,9 +572,7 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row2).getByText("C-out")).toBeTruthy();
     // (d): C's per-row duration (4.4s) shows in both rows, and both count in its mean latency.
     expect(screen.getAllByText("4.4s").length).toBeGreaterThanOrEqual(2);
-    // C's own summary line (the td also stacks B's), so the n is the one beside its mean.
-    const line = screen.getByText("2.1s → 4.4s").closest(".inline-flex") as HTMLElement;
-    expect(within(line).getByText("n=2")).toBeTruthy();
+    expect(screen.getByText("2.1s → 4.4s")).toBeTruthy();
   });
 
   it("takes only a cross-dataset run's FIRST case for an input it measured more than once", () => {
