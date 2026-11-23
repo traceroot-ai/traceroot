@@ -79,4 +79,5 @@ export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUp
   }
 }
 
-export const FOLLOW_UP_SIGNOFF = ["Best,", "Xinwei", "Founder, traceroot"];
+/** "Best," and Xinwei's signature, written as in his own email. */
+export const FOLLOW_UP_SIGNOFF = ["Best,", "Xinwei He", "TraceRoot.AI | CEO"];
