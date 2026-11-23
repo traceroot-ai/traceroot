@@ -165,4 +165,58 @@ describe("ResultUsageSummary", () => {
     );
     expect(rowText("Task cost")).toContain("Unknown");
   });
+
+  it("names the execution half as the caller labels it", () => {
+    render(
+      <ResultUsageSummary
+        usage={attributeTraceUsage(null)}
+        durationMs={null}
+        taskCost={null}
+        executionLabel="Task execution"
+      />,
+    );
+    expect(screen.getByText("Task execution")).toBeTruthy();
+    expect(screen.queryByText("Candidate execution")).toBeNull();
+  });
+
+  it("formats durations and costs as the caller does around it, Unknown still Unknown", () => {
+    render(
+      <ResultUsageSummary
+        usage={attributeTraceUsage([
+          span("r", null, "EVALUATION"),
+          span("t", "r", "TASK"),
+          span("tl", "t", "LLM", { total_tokens: 100, cost: 0.003, model_name: "m" }),
+          span("s", "r", "SCORER"),
+          span("sl", "s", "LLM", { total_tokens: 50, cost: 0.001, model_name: "judge" }),
+        ])}
+        durationMs={65000}
+        taskCost={null}
+        formatDuration={(ms) => `${ms / 1000} seconds`}
+        formatCost={(c) => `${c * 100} cents`}
+      />,
+    );
+    expect(rowText("Duration")).toContain("65 seconds");
+    expect(rowText("Task cost")).toContain("Unknown");
+    expect(rowText("Judge cost")).toContain("0.1 cents");
+  });
+
+  it("isn't tinted under the pointer, since nothing in it responds to one", () => {
+    const { container } = render(
+      <ResultUsageSummary usage={attributeTraceUsage(null)} durationMs={null} taskCost={null} />,
+    );
+    expect((container.firstElementChild as HTMLElement).className).not.toMatch(/hover:/);
+  });
+
+  it("words a missing figure as the caller asks, and defaults to Unknown", () => {
+    const usage = attributeTraceUsage(null);
+    const { rerender } = render(
+      <ResultUsageSummary usage={usage} durationMs={null} taskCost={null} />,
+    );
+    expect(rowText("Duration")).toContain("Unknown");
+    rerender(
+      <ResultUsageSummary usage={usage} durationMs={null} taskCost={null} unknownText="—" />,
+    );
+    expect(rowText("Duration")).toBe("Duration—");
+    expect(rowText("Task cost")).toBe("Task cost—");
+  });
 });
