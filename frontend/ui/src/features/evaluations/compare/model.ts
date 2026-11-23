@@ -33,6 +33,7 @@ import {
 } from "@/lib/eval/comparison";
 import { parseScorers, toComparisonResults, toComparisonRun } from "@/lib/eval/comparison-db";
 import { canonicalInputKey } from "@/lib/eval/json-value";
+import { normalizeForDiff } from "@/lib/eval/line-diff";
 import type { ResultRow, RunDetail } from "../types";
 import { isCompared, scoreRowsOf, scorerCellState, type CellFailure } from "./cell-state";
 import { inferMetricFormat, type MetricFormat } from "./metric-format";
@@ -101,6 +102,19 @@ export function inputKeyOf(r: ResultRow): string {
   if (key === undefined) {
     key = canonicalInputKey(r.input);
     inputKeys.set(r, key);
+  }
+  return key;
+}
+
+const expectedKeys = new WeakMap<ResultRow, string>();
+/** Whether two results expect the same output, by the text a value diff reads
+ *  (`normalizeForDiff`), so key order, spacing or a JSON-encoded copy don't split one
+ *  expected output in two. None and an empty one stay apart. Worked out once per result. */
+export function expectedKeyOf(r: ResultRow): string {
+  let key = expectedKeys.get(r);
+  if (key === undefined) {
+    key = r.expectedOutput === null ? "" : `v:${normalizeForDiff(r.expectedOutput)}`;
+    expectedKeys.set(r, key);
   }
   return key;
 }
