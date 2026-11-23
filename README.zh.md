@@ -29,6 +29,7 @@ traceroot：持续改进你的 AI Agent 的开源平台。
   <a href="./README.md"><img alt="README in English" src="https://img.shields.io/badge/English-f8f8f8"></a>
   <a href="./README.zh.md"><img alt="简体中文版自述文件" src="https://img.shields.io/badge/简体中文-f8f8f8"></a>
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
+  <a href="./README.ja.md"><img alt="日本語 README" src="https://img.shields.io/badge/日本語-f8f8f8"></a>
 </p>
 
 <p align="center">⭐ 为本仓库点亮 Star，让更多开发者了解 traceroot，一起壮大社区！</p>
