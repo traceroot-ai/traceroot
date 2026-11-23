@@ -1,17 +1,17 @@
 /**
- * Vercel AI SDK Agent — TraceRoot Observability
+ * Vercel AI SDK Agent — traceroot Observability
  *
  * A multi-step tool-use agent built with the Vercel AI SDK (ai package).
- * Instrumented with TraceRoot — no instrumentModules needed.
+ * Instrumented with traceroot — no instrumentModules needed.
  *
  * The Vercel AI SDK emits OpenTelemetry spans natively via experimental_telemetry.
- * TraceRoot enriches those spans with OpenInference semantic conventions automatically.
+ * traceroot enriches those spans with OpenInference semantic conventions automatically.
  *
  * Prompt caching: this agent uses a large (>1024 token) system prompt that is
  * identical on every call, plus the Chat Completions API (openai.chat). OpenAI
  * automatically caches the shared prefix after the first request, so subsequent
  * model calls — across steps and across queries — report cache-read tokens.
- * TraceRoot persists these as cache_read_tokens (visible in the usage breakdown).
+ * traceroot persists these as cache_read_tokens (visible in the usage breakdown).
  * Note: the default `openai('model')` routes through the Responses API, which
  * does NOT report cache hits here — `openai.chat('model')` is required.
  *
@@ -28,12 +28,12 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 // No instrumentModules needed — Vercel AI SDK telemetry is handled automatically
 // via the OpenInference span processor registered inside TraceRoot.initialize().
 // Just enable experimental_telemetry on each AI SDK call (see agent below).
 TraceRoot.initialize();
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
 
@@ -98,7 +98,7 @@ async function runAgent(query: string): Promise<string> {
       system: SYSTEM_PROMPT,
       prompt: query,
       // ↓ This single line activates Vercel AI SDK's built-in OpenTelemetry spans.
-      // TraceRoot enriches them automatically — no other setup needed.
+      // traceroot enriches them automatically — no other setup needed.
       experimental_telemetry: { isEnabled: true },
       tools: {
         getWeather: tool({
@@ -179,7 +179,7 @@ async function main() {
       () =>
         observe({ name: 'demo_session', type: 'agent' }, async () => {
           console.log('='.repeat(60));
-          console.log('Vercel AI SDK Agent — Demo (TraceRoot)');
+          console.log('Vercel AI SDK Agent — Demo (traceroot)');
           console.log('='.repeat(60));
 
           for (let i = 0; i < DEMO_QUERIES.length; i++) {

@@ -51,9 +51,9 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
   const roleName = role.charAt(0) + role.slice(1).toLowerCase();
 
   await transporter.sendMail({
-    from: `TraceRoot <${mailFrom}>`,
+    from: `traceroot <${mailFrom}>`,
     to,
-    subject: `${inviterName} invited you to join "${workspaceName}" on TraceRoot`,
+    subject: `${inviterName} invited you to join "${workspaceName}" on traceroot`,
     html: buildHtmlEmail({ inviterName, inviterEmail, workspaceName, acceptLink, roleName }),
     text: buildTextEmail({ inviterName, inviterEmail, workspaceName, acceptLink, roleName }),
   });
@@ -79,7 +79,7 @@ function buildHtmlEmail(params: EmailContentParams): string {
   const safeRoleName = escapeHtml(roleName);
 
   return renderEmailCard({
-    title: `Join ${safeWorkspaceName} on TraceRoot`,
+    title: `Join ${safeWorkspaceName} on traceroot`,
     bodyHtml: `
       <!-- Body -->
       <tr>
@@ -88,7 +88,7 @@ function buildHtmlEmail(params: EmailContentParams): string {
             <strong>${safeInviterName}</strong> (${safeInviterEmail}) has invited you to join the <strong>${safeWorkspaceName}</strong> workspace as a <strong>${safeRoleName}</strong>.
           </p>
           <p style="margin: 12px 0 0 0; color: ${C.muted}; font-size: 14px; line-height: 1.6;">
-            If you don't have a TraceRoot account yet, you'll be prompted to create one.
+            If you don't have a traceroot account yet, you'll be prompted to create one.
           </p>
         </td>
       </tr>`,
@@ -102,14 +102,14 @@ function buildTextEmail(params: EmailContentParams): string {
   const { inviterName, inviterEmail, workspaceName, acceptLink, roleName } = params;
 
   return `
-You've been invited to TraceRoot
+You've been invited to traceroot
 
 ${inviterName} (${inviterEmail}) has invited you to join the "${workspaceName}" workspace as a ${roleName}.
 
 Accept the invitation:
 ${acceptLink}
 
-If you don't have a TraceRoot account, you'll be prompted to create one.
+If you don't have a traceroot account, you'll be prompted to create one.
 
 ---
 If you didn't expect this invitation, you can safely ignore this email.

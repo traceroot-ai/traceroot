@@ -50,6 +50,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
+
 import { ManualSetupStep } from "./manual-setup-step";
 
 function renderStep() {
@@ -71,6 +74,7 @@ function isAbove(first: Element, second: Element): boolean {
 
 afterEach(() => {
   cleanup();
+  capture.mockReset();
   projectQuery.data = { workspace_id: "ws-1" };
   projectQuery.isLoading = false;
 });
@@ -140,6 +144,11 @@ describe("what onboarding's manual step asks for", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Back to the terminal command" }));
     expect(onBack).toHaveBeenCalledTimes(1);
+
+    expect(capture.mock.calls).toEqual([
+      ["setup_skipped", { project_id: "proj-1", surface: "onboarding", step: "manual" }],
+      ["setup_route_chosen", { project_id: "proj-1", surface: "onboarding", route: "command" }],
+    ]);
   });
 });
 

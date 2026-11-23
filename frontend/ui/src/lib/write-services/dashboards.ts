@@ -101,7 +101,7 @@ const widgetSchema = z.object({
  * update checks the spec against the widget's stored type, and a spec in the
  * other dialect is refused with a message naming the expected one.
  */
-function parseWidgetSpec(
+export function parseWidgetSpec(
   type: WidgetType,
   spec: Record<string, unknown>,
 ): { ok: true; spec: Record<string, unknown> } | { ok: false; error: string } {
