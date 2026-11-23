@@ -24,7 +24,7 @@ export interface UsageSide {
 
 /** What a result's trace says it used. A result that reported no trace has unknown usage,
  *  not usage still on its way. */
-export function usageOf(side: Pick<UsageSide, "result" | "trace">): TraceUsage {
+function usageOf(side: Pick<UsageSide, "result" | "trace">): TraceUsage {
   const usage = attributeTraceUsage(side.trace?.spans);
   return side.result && !side.result.traceId ? { ...usage, state: "unknown" } : usage;
 }

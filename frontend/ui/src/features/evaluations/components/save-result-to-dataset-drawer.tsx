@@ -41,7 +41,7 @@ export interface ResultForDataset {
   testCaseId: string;
 }
 
-const ACTION_META: Record<
+export const ACTION_META: Record<
   ResultDatasetAction,
   { title: string; blurb: string; picksDataset: boolean }
 > = {

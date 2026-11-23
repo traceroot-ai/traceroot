@@ -11,27 +11,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  ACTION_META,
   SaveResultToDatasetDrawer,
   type ResultDatasetAction,
 } from "../../components/save-result-to-dataset-drawer";
 import type { ResultRow, RunDetail } from "../../types";
 
-// The drawer's three actions, named as its title names them.
-const ACTIONS: readonly { action: ResultDatasetAction; title: string; hint: string }[] = [
+// The drawer's three actions, each with the hint the menu adds under its title.
+const ACTIONS: readonly { action: ResultDatasetAction; hint: string }[] = [
   {
     action: "update_existing_case",
-    title: "Update source case",
     hint: "Publish a new version of this case",
   },
   // Its own dataset already holds the case, which refuses a copy of it as a new case.
   {
     action: "save_new_case",
-    title: "Save as a new case",
     hint: "Add it to another dataset as a new case",
   },
   {
     action: "duplicate_as_variant",
-    title: "Duplicate as a variant",
     hint: "Branch this case without touching the original",
   },
 ];
@@ -77,7 +75,7 @@ export const SaveToDatasetMenu = React.forwardRef<
         }}
       >
         <DropdownMenuLabel>{`Candidate · ${tag}`}</DropdownMenuLabel>
-        {ACTIONS.map(({ action, title, hint }) => (
+        {ACTIONS.map(({ action, hint }) => (
           <DropdownMenuItem
             key={action}
             className="h-auto flex-col items-start gap-0 py-1.5"
@@ -86,7 +84,7 @@ export const SaveToDatasetMenu = React.forwardRef<
               onPick(action);
             }}
           >
-            <span className="text-[12px] font-medium">{title}</span>
+            <span className="text-[12px] font-medium">{ACTION_META[action].title}</span>
             <span className="text-[12px] text-muted-foreground">{hint}</span>
           </DropdownMenuItem>
         ))}
