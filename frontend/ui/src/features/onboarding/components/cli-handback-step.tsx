@@ -4,6 +4,11 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
 import { SectionLink } from "@/features/traces/components/GettingStarted/SectionLink";
+import {
+  useSetupCommandCopied,
+  useSetupRouteChosen,
+  useSetupSkipped,
+} from "@/features/traces/components/GettingStarted/use-setup-command-copied";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */
@@ -53,7 +58,7 @@ interface CliHandbackStepProps {
  *
  * On a deployment whose own origin cannot be resolved there is no command to
  * run, and nothing runnable is drawn: `setupCommand` has no flags to put on the
- * line there, and the line without them is the TraceRoot Cloud one — so a
+ * line there, and the line without them is the traceroot Cloud one — so a
  * self-hosted operator who pasted it would sign this machine in against someone
  * else's deployment and send their first traces there, on the last page of
  * signing up. What is drawn instead names the variable and the value it holds,
@@ -71,6 +76,9 @@ export function CliHandbackStep({
   onSkip,
 }: CliHandbackStepProps) {
   const setup = setupCommand({ projectId });
+  const onCommandCopied = useSetupCommandCopied(projectId, "onboarding");
+  const recordRoute = useSetupRouteChosen(projectId, "onboarding");
+  const recordSkip = useSetupSkipped(projectId, "onboarding");
 
   return (
     <div className="flex flex-col gap-3">
@@ -99,7 +107,7 @@ export function CliHandbackStep({
             </p>
           </div>
 
-          <CodeBlock label="terminal" value={setup.command} />
+          <CodeBlock label="terminal" value={setup.command} onCopy={onCommandCopied} />
         </>
       ) : (
         <div>
@@ -122,11 +130,22 @@ export function CliHandbackStep({
           variant="outline"
           size="sm"
           className="h-7 px-4 text-[12px]"
-          onClick={onSetUpManually}
+          onClick={() => {
+            recordRoute("manual");
+            onSetUpManually();
+          }}
         >
           Set up manually
         </Button>
-        <Button variant="ghost" size="sm" className="h-7 px-4 text-[12px]" onClick={onSkip}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-4 text-[12px]"
+          onClick={() => {
+            recordSkip("command");
+            onSkip();
+          }}
+        >
           Skip for now
         </Button>
       </div>

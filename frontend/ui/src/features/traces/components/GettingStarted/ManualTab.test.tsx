@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 // The walkthrough is the unit under test; mock the surrounding hooks and
 // side-effecting children so the tab renders without a query client or network
@@ -37,6 +37,9 @@ vi.mock("@/components/slack/SlackConnectButton", () => ({
   SlackConnectButton: () => <div data-testid="slack-connect" />,
 }));
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
+
 import { INTEGRATIONS } from "./integrations";
 import { ManualTab } from "./ManualTab";
 
@@ -49,6 +52,8 @@ afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
   vi.resetModules();
+  capture.mockReset();
+  Reflect.deleteProperty(navigator, "clipboard");
   projectQuery.data = { workspace_id: "ws_1" };
   projectQuery.isLoading = false;
 });
@@ -78,6 +83,25 @@ function envBlock(container: HTMLElement): string {
 }
 
 describe("ManualTab", () => {
+  it("records which snippet was copied, for which stack and surface", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    render(<ManualTab projectId="proj_1" integration={byId("openai")} surface="onboarding" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy python snippet" }));
+
+    await waitFor(() =>
+      expect(capture).toHaveBeenCalledWith("setup_snippet_copied", {
+        project_id: "proj_1",
+        surface: "onboarding",
+        snippet: "sdk_init",
+        integration: "openai",
+      }),
+    );
+  });
+
   it("is five steps: the key, the install, the environment, the call, and the run", () => {
     // The stack picker and the model key are above this section now, shared
     // with the command. What is numbered here is what is actually done in order
@@ -276,7 +300,7 @@ describe("ManualTab with no stack chosen above it", () => {
 });
 
 describe("the environment step", () => {
-  // Neither SDK loads a `.env` file, and both default to TraceRoot Cloud when
+  // Neither SDK loads a `.env` file, and both default to traceroot Cloud when
   // `TRACEROOT_HOST_URL` is unset, so a walkthrough that stops at the key sends
   // a self-hosted reader's key and first traces to Cloud.
   it("sets the host to the origin the setup command uses, on a self-hosted deployment", async () => {

@@ -1,7 +1,7 @@
 # Microsoft Agent Framework Multi-Agent App
 
 A multi-agent travel concierge built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
-and traced end-to-end with [TraceRoot](https://traceroot.ai).
+and traced end-to-end with [traceroot](https://traceroot.ai).
 
 Agent Framework is Microsoft's successor to AutoGen + Semantic Kernel, and its
 defining feature is multi-agent orchestration. This example shows a

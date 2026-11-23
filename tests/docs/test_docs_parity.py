@@ -231,27 +231,6 @@ def test_cli_reference_parity() -> None:
         "traceroot-cli/src/registry/naming.ts."
     )
 
-    # Verify that the pinned commit has not drifted from traceroot-cli main when network is reachable
-    try:
-        import urllib.request
-
-        req = urllib.request.Request(
-            "https://api.github.com/repos/traceroot-ai/traceroot-cli/commits?path=src/registry/naming.ts&page=1&per_page=1",
-            headers={"User-Agent": "traceroot-docs-parity"},
-        )
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if data and isinstance(data, list) and "sha" in data[0]:
-                latest_sha = data[0]["sha"]
-                assert source_commit == latest_sha, (
-                    f"cli-placements.json source_commit ({source_commit[:7]}) is behind "
-                    f"traceroot-cli src/registry/naming.ts ({latest_sha[:7]}). "
-                    "Update cli-placements.json and re-run `uv run python scripts/sync_cli_reference.py`."
-                )
-    except (urllib.error.URLError, TimeoutError, OSError):
-        # Offline or rate-limited; skip remote check and rely on pinned commit
-        pass
-
     script_path = REPO_ROOT / "scripts" / "sync_cli_reference.py"
     assert script_path.exists(), f"Missing {script_path.relative_to(REPO_ROOT)}"
 

@@ -1,5 +1,5 @@
 """
-DeepAgents multi-agent research pipeline with TraceRoot observability.
+DeepAgents multi-agent research pipeline with traceroot observability.
 
 A supervisor agent orchestrates two sub-agents:
   - research-agent: gathers information on the query topic

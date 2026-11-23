@@ -5,6 +5,7 @@ import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AITab } from "./AITab";
 import { ManualTab } from "./ManualTab";
+import { useSetupRouteChosen } from "./use-setup-command-copied";
 
 type Tab = "ai" | "manual";
 
@@ -26,6 +27,14 @@ interface GettingStartedProps {
  */
 export function GettingStarted({ projectId }: GettingStartedProps) {
   const [tab, setTab] = useState<Tab>("ai");
+  const recordRoute = useSetupRouteChosen(projectId, "project");
+
+  // Records only an actual change of tab.
+  const switchTo = (next: Tab) => {
+    if (next === tab) return;
+    recordRoute(next === "ai" ? "command" : "manual");
+    setTab(next);
+  };
 
   return (
     <div className="w-full p-4">
@@ -38,7 +47,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
         <div className="mt-4 flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setTab("ai")}
+            onClick={() => switchTo("ai")}
             className={cn(
               "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
               tab === "ai"
@@ -51,7 +60,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
           </button>
           <button
             type="button"
-            onClick={() => setTab("manual")}
+            onClick={() => switchTo("manual")}
             className={cn(
               "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
               tab === "manual"

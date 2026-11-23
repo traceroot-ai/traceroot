@@ -693,7 +693,7 @@ describe("sparkline", () => {
       turns: [
         turn({
           assistantText:
-            "TraceRoot has no sparkline display, so I built the Token Watch dashboard with a line chart instead.",
+            "traceroot has no sparkline display, so I built the Token Watch dashboard with a line chart instead.",
         }),
       ],
       created: {
