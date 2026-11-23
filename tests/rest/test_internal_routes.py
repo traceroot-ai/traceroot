@@ -58,6 +58,8 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/internal/signals/assignments"),
     ("POST", "/api/v1/internal/signals/reassign"),
     ("POST", "/api/v1/internal/signals/unsettled-runs"),
+    # When a project first received a trace, for the web app's first-trace time.
+    ("GET", "/api/v1/internal/projects/{project_id}/first-trace"),
 }
 
 

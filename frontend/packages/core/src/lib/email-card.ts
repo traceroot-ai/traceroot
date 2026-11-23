@@ -3,7 +3,7 @@
  *
  * Single source of truth for the branded email layout used by the workspace
  * invite (frontend/ui), the usage-quota emails, and the detector digest
- * (frontend/worker): TraceRoot wordmark, left-aligned title, caller-provided
+ * (frontend/worker): traceroot wordmark, left-aligned title, caller-provided
  * body rows, one ink CTA button, divider, and a muted footer note. Colors come
  * from the brandbook in Figma; see EMAIL_COLORS.
  *
@@ -89,7 +89,7 @@ export function renderEmailCard(params: {
       <!-- Logo section -->
       <tr>
         <td style="padding: 32px 40px 0 40px;">
-          <img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="127" height="24" style="display: block; border: 0; height: 24px; width: 127px;" />
+          <img src="${EMAIL_LOGO_URL}" alt="traceroot" width="127" height="24" style="display: block; border: 0; height: 24px; width: 127px;" />
         </td>
       </tr>
 
@@ -129,7 +129,7 @@ ${bodyHtml}
             ${footerText}
           </p>
           <p style="color: ${c.muted}; font-size: 12px; line-height: 1.6; margin: 8px 0 0 0;">
-            TraceRoot &middot; <a href="https://traceroot.ai" style="color: ${c.muted}; text-decoration: underline;">traceroot.ai</a>
+            traceroot &middot; <a href="https://traceroot.ai" style="color: ${c.muted}; text-decoration: underline;">traceroot.ai</a>
           </p>
         </td>
       </tr>

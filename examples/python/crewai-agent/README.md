@@ -1,6 +1,6 @@
 # CrewAI Agent
 
-Multi-agent crew using CrewAI, instrumented with [TraceRoot](https://traceroot.ai).
+Multi-agent crew using CrewAI, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 ```bash
