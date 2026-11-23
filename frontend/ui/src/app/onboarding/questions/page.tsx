@@ -52,7 +52,7 @@ function Questions() {
           <div>
             <h1 className="text-[15px] font-medium">A few questions</h1>
             <p className="text-[13px] text-muted-foreground">
-              So we can help you get more out of TraceRoot. Each one can be skipped.
+              So we can help you get more out of traceroot. Each one can be skipped.
             </p>
           </div>
         </div>

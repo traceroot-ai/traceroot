@@ -187,12 +187,12 @@ function Questions({
 
       {question === "uses" && (
         <Screen
-          title="What will you use TraceRoot for?"
+          title="What will you use traceroot for?"
           hint={`Pick up to ${MAX_USES}`}
           count={`${draft.uses.length} of ${MAX_USES}`}
         >
           <Options
-            name="What will you use TraceRoot for?"
+            name="What will you use traceroot for?"
             multiple
             options={USE_OPTIONS}
             picked={draft.uses}
