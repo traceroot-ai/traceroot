@@ -21,7 +21,7 @@ describe("prompt template catalog", () => {
     expect(ids.length).toBeGreaterThanOrEqual(5);
 
     const prompt = getSystemPrompt({ projectId: "proj-123" });
-    const sentence = prompt.match(/Detectors are built from TraceRoot's templates: ([^.]+)\./)?.[1];
+    const sentence = prompt.match(/Detectors are built from traceroot's templates: ([^.]+)\./)?.[1];
     expect(sentence).toBeTruthy();
 
     const listed = sentence!

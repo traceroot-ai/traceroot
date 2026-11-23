@@ -175,7 +175,7 @@ function UnresolvedHostWarning({ variable, value }: { variable: string; value: s
  * A step of its own because neither SDK loads a `.env` file: both read the
  * environment of the process they run in. The key in step 1 is shown as a
  * `.env`-style line, and pasted into `.env` it reached nothing unless the
- * application loaded the file itself. Both SDKs also default to TraceRoot Cloud
+ * application loaded the file itself. Both SDKs also default to traceroot Cloud
  * when `TRACEROOT_HOST_URL` is unset, so a self-hosted reader who followed
  * every other step sent their key and first traces there.
  *

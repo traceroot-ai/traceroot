@@ -12,7 +12,7 @@ export interface CaptureBudget {
 }
 export const DEFAULT_CAPTURE_BUDGET: CaptureBudget = { perStepBytes: 8_192, perRunBytes: 262_144 };
 
-/** Tools whose output is data the customer already owns inside TraceRoot. */
+/** Tools whose output is data the customer already owns inside traceroot. */
 const OUTPUT_ALLOWLIST: ReadonlySet<string> = new Set([
   "download_traces",
   "download_session",
@@ -242,7 +242,7 @@ export function applyCapturePolicy(
     result: unknown;
     /**
      * The caller vouches that this tool's output is the customer's own
-     * TraceRoot data, so it is kept like an allow-listed tool's. The agent
+     * traceroot data, so it is kept like an allow-listed tool's. The agent
      * sets it for the registry-bound API tools (`create_alert`, `get_alert`,
      * …): their results are the resources the API returned, and the session
      * rebuild and the chat cards read the outcome back from the stored row.

@@ -13,7 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Headers for public-API access with a TraceRoot API key. */
+/** Headers for public-API access with a traceroot API key. */
 export function bearerAuth(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${apiKey}` };
 }

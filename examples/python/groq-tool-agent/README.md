@@ -1,6 +1,6 @@
 # Groq Tool Agent
 
-ReAct-style agent with Groq tool calling, instrumented with [TraceRoot](https://traceroot.ai).
+ReAct-style agent with Groq tool calling, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

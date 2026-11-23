@@ -7726,7 +7726,7 @@
     }
   },
   "info": {
-    "title": "TraceRoot Public API",
+    "title": "traceroot Public API",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
@@ -8336,7 +8336,7 @@
         "x-mint": {
           "content": "Use a user credential with the `MEMBER` role or higher in the workspace.\n\nChanging an evaluated field resets evaluation, clears an open page, and re-arms a parked alert. Renaming the alert alone leaves its evaluation state unchanged.",
           "metadata": {
-            "description": "Update a threshold alert in a TraceRoot project. Changes to evaluated fields reset its state, while changing only the alert name preserves it."
+            "description": "Update a threshold alert in a traceroot project. Changes to evaluated fields reset its state, while changing only the alert name preserves it."
           }
         },
         "x-tool": {
@@ -11265,7 +11265,7 @@
           "Offline Eval"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
+          "content": "<Note>The traceroot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
           "metadata": {
             "description": "Register and start an evaluation run in traceroot. The call is idempotent on the client run id within an evaluation, so retries are safe."
           }
@@ -11519,7 +11519,7 @@
           "Offline Eval"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
+          "content": "<Note>The traceroot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
           "metadata": {
             "description": "Mark an evaluation run as completed or failed in traceroot and report its final completeness counts. The traceroot SDKs call this for you."
           }
@@ -11636,7 +11636,7 @@
           "Offline Eval"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
+          "content": "<Note>The traceroot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>",
           "metadata": {
             "description": "Create or update one test case result and its scores in an evaluation run. The call is idempotent for each run and test case pair."
           }
@@ -14037,7 +14037,7 @@
           "Traces"
         ],
         "x-mint": {
-          "content": "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, optionally gzip-compressed with `Content-Encoding: gzip`.\n\nThe default limits are 16 MiB as sent and 32 MiB after decompression. Larger requests return 413.",
+          "content": "<Note>The traceroot SDKs call this endpoint for you; call it directly only where no SDK fits. It accepts a project API key only.</Note>\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, optionally gzip-compressed with `Content-Encoding: gzip`.\n\nThe default limits are 16 MiB as sent and 32 MiB after decompression. Larger requests return 413.",
           "metadata": {
             "description": "Send OTLP trace data to traceroot as protobuf, optionally gzip-compressed. A 200 response means the batch was stored and queued for decoding."
           }
@@ -15778,7 +15778,7 @@
   },
   "servers": [
     {
-      "description": "TraceRoot Cloud",
+      "description": "traceroot Cloud",
       "url": "https://app.traceroot.ai"
     },
     {
@@ -15787,7 +15787,7 @@
       "variables": {
         "baseUrl": {
           "default": "http://localhost:8000",
-          "description": "Your TraceRoot backend URL"
+          "description": "Your traceroot backend URL"
         }
       }
     }
