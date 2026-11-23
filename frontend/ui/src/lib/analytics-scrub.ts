@@ -11,34 +11,52 @@ function hasSecret(url: URL): boolean {
   return SECRET_PARAMS.some((name) => url.searchParams.has(name));
 }
 
-/** The value with any secret query parameter removed, if it is a URL that has one. */
+// Resolves a relative URL (`/auth/reset-password?token=…`) so its query can be read.
+const RELATIVE_BASE = "http://relative.invalid";
+
+/**
+ * The value with any secret query parameter removed, if it is a URL that has
+ * one: absolute, or relative to this site (a path or a bare query). A relative
+ * URL stays relative.
+ */
 export function scrubUrl(value: unknown): unknown {
-  if (typeof value !== "string" || !value.includes("?")) return value;
+  if (typeof value !== "string" || !SECRET_PARAMS.some((name) => value.includes(`${name}=`))) {
+    return value;
+  }
+  const relative = value.startsWith("/") || value.startsWith("?");
   let url: URL;
   try {
-    url = new URL(value);
+    url = relative ? new URL(value, RELATIVE_BASE) : new URL(value);
   } catch {
     return value;
   }
   if (!hasSecret(url)) return value;
   for (const name of SECRET_PARAMS) url.searchParams.delete(name);
-  return url.toString();
+  if (value.startsWith("?")) return `${url.search}${url.hash}`;
+  return relative ? `${url.pathname}${url.search}${url.hash}` : url.toString();
 }
 
-function scrubProperties(properties: Record<string, unknown> | undefined): void {
-  if (!properties) return;
-  for (const [key, value] of Object.entries(properties)) {
-    const scrubbed = scrubUrl(value);
-    if (scrubbed !== value) properties[key] = scrubbed;
+// Deep enough for any event's properties; deeper values are left alone.
+const MAX_DEPTH = 20;
+
+/** Scrubs every string in `value`, however deeply nested in objects and arrays. */
+function scrubDeep(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return scrubUrl(value);
+  if (!value || typeof value !== "object" || depth > MAX_DEPTH) return value;
+  const container = value as Record<string, unknown>;
+  for (const key of Object.keys(container)) {
+    const scrubbed = scrubDeep(container[key], depth + 1);
+    if (scrubbed !== container[key]) container[key] = scrubbed;
   }
+  return value;
 }
 
 /**
  * PostHog's `before_send`: every event, the explicit page views and the
  * automatic ones (page leave, clicks) alike, carries the page's URL in its
  * properties, and the person's first URL and referrer in `$set_once`. Secret
- * query parameters are removed from all of them; the rest of each event is
- * sent as it is.
+ * query parameters are removed from every URL in them, at any depth and
+ * relative or absolute; the rest of each event is sent as it is.
  *
  * Session replay embeds the URL deep inside its snapshot data, so a replay
  * snapshot taken while the address bar holds a secret is not sent at all.
@@ -55,8 +73,8 @@ export function scrubCaptureResult(
       // Not a URL: nothing to judge by, so send as usual.
     }
   }
-  scrubProperties(result.properties);
-  scrubProperties(result.$set as Record<string, unknown> | undefined);
-  scrubProperties(result.$set_once as Record<string, unknown> | undefined);
+  scrubDeep(result.properties);
+  scrubDeep(result.$set);
+  scrubDeep(result.$set_once);
   return result;
 }

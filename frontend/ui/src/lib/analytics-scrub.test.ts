@@ -17,7 +17,12 @@ describe("scrubUrl", () => {
       "https://app.traceroot.ai/projects/p1/traces?traceId=t1",
       "https://app.traceroot.ai/projects/p1/traces?traceId=t1",
     ],
-    ["/auth/reset-password?token=x", "/auth/reset-password?token=x"],
+    ["/auth/reset-password?token=x", "/auth/reset-password"],
+    ["/invites/accept?token=x&ref=mail#top", "/invites/accept?ref=mail#top"],
+    ["?token=x", ""],
+    ["?token=x&step=2", "?step=2"],
+    ["/projects/p1/traces?traceId=t1", "/projects/p1/traces?traceId=t1"],
+    ["a sentence that mentions token=x", "a sentence that mentions token=x"],
     ["not a url", "not a url"],
     [42, 42],
   ])("%j → %j", (input, output) => {
@@ -55,6 +60,18 @@ describe("scrubCaptureResult", () => {
       );
       expect(JSON.stringify(result)).not.toContain("SECRET123");
     }
+  });
+
+  it("removes it however deeply a URL is nested, and in relative URLs", () => {
+    const result = scrubCaptureResult(
+      event("$autocapture", {
+        $elements: [{ attr__href: "/auth/reset-password?token=SECRET123", tag_name: "a" }],
+        nested: { deeper: [{ url: RESET }, { path: "/auth/reset-password?token=SECRET123" }] },
+      }),
+      "https://app.traceroot.ai/auth/sign-in",
+    );
+    expect(JSON.stringify(result)).not.toContain("SECRET123");
+    expect((result?.properties.$elements as { tag_name: string }[])[0].tag_name).toBe("a");
   });
 
   it("leaves an ordinary event as it was", () => {
