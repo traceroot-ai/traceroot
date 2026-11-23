@@ -363,6 +363,44 @@ describe("A comparison case in the trace panel", () => {
     expect(divergence()).toBe("#2's trace is still being ingested");
   });
 
+  it("says so when the baseline has no result for the case", () => {
+    // `export` has no result in #2; swapped, #2 is the baseline and #1's trace the candidate's.
+    withQueries(<Page initial={{ caseToken: "id:export", pair: [CAND.id, BASE.id] }} />);
+    expect(divergence()).toBe("#2 has no result for this case");
+  });
+
+  it("says the baseline's trace is loading while it is fetched", async () => {
+    traces.useTrace.mockImplementation((_p: string, traceId: string, enabled: boolean) => {
+      const data = enabled && traceId !== "trace-b1" ? traces.byId.get(traceId) : undefined;
+      return {
+        data,
+        isLoading: enabled && !data,
+        isFetching: enabled && !data,
+        isError: false,
+        refetch: traces.refetch,
+      };
+    });
+    open("sso");
+    await waitFor(() => expect(divergence()).toBe("Loading #1's trace…"));
+  });
+
+  it("drops the position and the stepping when the open case is filtered out", () => {
+    open("sso");
+    expect(screen.getByRole("dialog", { name: "Case 1 of 4" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: "Billing" },
+    });
+    expect(screen.getByRole("dialog", { name: "Case" })).toBeTruthy();
+    expect(
+      (within(inspector()).getByRole("button", { name: "Previous case" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (within(inspector()).getByRole("button", { name: "Next case" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
   it("stays in diff mode while stepping through cases", async () => {
     open("sso");
     await traceShown();
