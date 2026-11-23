@@ -1,3 +1,5 @@
+import * as React from "react";
+import { useTrace } from "@/features/traces/hooks";
 import type { TraceDetail } from "@/types/api";
 import { buildEvalTrace } from "../../eval-trace";
 import type { ResultRow, RunDetail } from "../../types";
@@ -24,4 +26,18 @@ export function caseTrace(
   if (!result.traceId) return { kind: "reconstructed", trace: buildEvalTrace(result, run) };
   if (fetched.isError && !fetched.data) return { kind: "pending", traceId: result.traceId };
   return { kind: "reported", traceId: result.traceId, trace: fetched.data };
+}
+
+/** One run's trace of the case, fetched under the trace viewer's own cache key so the panel
+ *  showing it doesn't fetch it again; only a result that names a trace fetches one. Returns
+ *  the fetch too, for its loading and retry state. */
+export function useCaseTrace(projectId: string, result: ResultRow | undefined, run: RunDetail) {
+  const fetch = useTrace(projectId, result?.traceId ?? "", !!result?.traceId);
+  const { data, isError } = fetch;
+  // Kept from render to render, so the panel's union of the two isn't rebuilt for nothing.
+  const trace = React.useMemo(
+    () => caseTrace(result, run, { data, isError }),
+    [result, run, data, isError],
+  );
+  return { fetch, trace };
 }

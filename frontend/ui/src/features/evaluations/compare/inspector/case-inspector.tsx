@@ -4,12 +4,12 @@ import * as React from "react";
 import { useLayout } from "@/components/layout/app-layout";
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 import { TraceViewerPanel, type TraceDiffBaseline } from "@/features/traces/components";
-import { useTrace } from "@/features/traces/hooks";
 import { normalizeForDiff } from "@/lib/eval/line-diff";
 import { cn } from "@/lib/utils";
 import { PendingTraceNotice } from "../../components/pending-trace-notice";
+import { ReconstructedTraceTag } from "../../components/reconstructed-trace-tag";
 import type { CaseRow, CompareModel } from "../model";
-import { caseTrace, type CaseTrace } from "./case-traces";
+import { useCaseTrace, type CaseTrace } from "./case-traces";
 import { PairPicker } from "./pair-picker";
 import type { CaseInspectorState } from "./use-case-inspector";
 
@@ -52,13 +52,6 @@ function diffTraceOf(
         : { trace: null, unavailable: `Loading ${tag}'s trace…` };
   }
 }
-
-// What a result with no telemetry shows its trace as, as on run detail.
-const RECONSTRUCTED_TAG = (
-  <span className="inline-flex items-center gap-1.5 rounded-md border border-warning-border bg-warning-soft px-2.5 py-1 text-xs text-warning">
-    Reconstructed — no telemetry was emitted for this result
-  </span>
-);
 
 /**
  * One case of the comparison in the trace panel: the candidate's trace, in diff mode
@@ -111,31 +104,12 @@ export function CaseInspector({
     [input],
   );
 
-  // Each side's trace, under the trace viewer's own cache key, so the panel showing the
-  // candidate's doesn't fetch it again. Only the open case's two traces are fetched.
-  const baselineFetch = useTrace(
+  // Only the open case's two traces are fetched.
+  const { trace: baselineTrace } = useCaseTrace(projectId, baselineResult, baselineRun);
+  const { fetch: candidateFetch, trace: candidateTrace } = useCaseTrace(
     projectId,
-    baselineResult?.traceId ?? "",
-    !!baselineResult?.traceId,
-  );
-  const candidateFetch = useTrace(
-    projectId,
-    candidateResult?.traceId ?? "",
-    !!candidateResult?.traceId,
-  );
-  // Kept from render to render, so the panel's union of the two isn't rebuilt for nothing.
-  const baselineData = baselineFetch.data;
-  const baselineFailed = baselineFetch.isError;
-  const baselineTrace = React.useMemo(
-    () => caseTrace(baselineResult, baselineRun, { data: baselineData, isError: baselineFailed }),
-    [baselineResult, baselineRun, baselineData, baselineFailed],
-  );
-  const candidateData = candidateFetch.data;
-  const candidateFailed = candidateFetch.isError;
-  const candidateTrace = React.useMemo(
-    () =>
-      caseTrace(candidateResult, candidateRun, { data: candidateData, isError: candidateFailed }),
-    [candidateResult, candidateRun, candidateData, candidateFailed],
+    candidateResult,
+    candidateRun,
   );
 
   const baselineTag = tagOf(baselineId);
@@ -237,7 +211,7 @@ export function CaseInspector({
               onChange={onChangePair}
             />
           }
-          spanExtraTags={() => (override ? RECONSTRUCTED_TAG : null)}
+          spanExtraTags={() => (override ? <ReconstructedTraceTag /> : null)}
         />
       </DrawerContent>
     </Drawer>

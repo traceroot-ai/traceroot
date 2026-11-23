@@ -16,6 +16,7 @@ import { useTrace } from "@/features/traces/hooks";
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { useEvaluationRun } from "../hooks";
 import { PendingTraceNotice } from "../components/pending-trace-notice";
+import { ReconstructedTraceTag } from "../components/reconstructed-trace-tag";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import { oldestFirst } from "../compare/run-order";
 import { RunPicker } from "../compare/run-picker";
@@ -217,15 +218,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 )
               : undefined
           }
-          spanExtraTags={() => (
-            <>
-              {!useRealTrace && (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-warning-border bg-warning-soft px-2.5 py-1 text-xs text-warning">
-                  Reconstructed — no telemetry was emitted for this result
-                </span>
-              )}
-            </>
-          )}
+          spanExtraTags={() => <>{!useRealTrace && <ReconstructedTraceTag />}</>}
         />
       )}
 
