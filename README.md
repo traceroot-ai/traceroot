@@ -37,7 +37,7 @@ traceroot: the open-source platform that continuously improves your ai agents.
 
 Open source Braintrust alternative. Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
 
-https://github.com/user-attachments/assets/11741515-2aa7-454d-aaef-fca582a34d9e
+https://github.com/user-attachments/assets/5e7122df-848f-4138-85ce-cbd0b1432909
 
 ## Core Features
 

@@ -37,7 +37,7 @@ traceroot：持续改进你的 AI Agent 的开源平台。
 
 开源 Braintrust 替代方案。找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
 
-https://github.com/user-attachments/assets/11741515-2aa7-454d-aaef-fca582a34d9e
+https://github.com/user-attachments/assets/5e7122df-848f-4138-85ce-cbd0b1432909
 
 ## 核心功能
 
