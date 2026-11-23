@@ -24,9 +24,9 @@ function page(body: string): string {
   return [
     "<!doctype html>",
     '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
-    "<title>Product emails from TraceRoot</title></head>",
+    "<title>Product emails from traceroot</title></head>",
     '<body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5;color:#222;max-width:36rem;margin:3rem auto;padding:0 1rem">',
-    '<h1 style="font-size:1.25rem">Product emails from TraceRoot</h1>',
+    '<h1 style="font-size:1.25rem">Product emails from traceroot</h1>',
     body,
     "</body></html>",
   ].join("\n");
@@ -53,7 +53,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const email = escapeHtml(check.email);
   return html(
-    `<p>Unsubscribe ${email} from product emails from TraceRoot?</p>${form(token, "opt_out", "Unsubscribe")}${NOTE}`,
+    `<p>Unsubscribe ${email} from product emails from traceroot?</p>${form(token, "opt_out", "Unsubscribe")}${NOTE}`,
   );
 }
 

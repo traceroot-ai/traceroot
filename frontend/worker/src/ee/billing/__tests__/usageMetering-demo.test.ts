@@ -75,7 +75,7 @@ beforeEach(() => {
   mocks.workspaceFindMany.mockResolvedValue([
     {
       id: "ws-demo",
-      name: "TraceRoot Demo",
+      name: "traceroot Demo",
       billingPlan: "enterprise",
       billingCustomerId: null,
       billingSubscriptionId: null,

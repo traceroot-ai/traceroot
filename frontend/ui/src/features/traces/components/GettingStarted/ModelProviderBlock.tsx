@@ -191,7 +191,7 @@ export function storedKeyCopy({
   // row came back disabled. What matters then is that the key is present and
   // inert, which this says either way, so this branch needs no notion of who
   // stored it. It does not say what runs instead: a detector set to one of
-  // these models fails rather than moving to TraceRoot's.
+  // these models fails rather than moving to traceroot's.
   if (!usingOwnKey) {
     return {
       state:
@@ -210,9 +210,9 @@ export function storedKeyCopy({
   // A save makes the key's models available; it does not move anything onto
   // them. A detector keeps the model it was saved with, and the "system"
   // source it starts on takes the server's own key first. The assistant's
-  // default is picked by provider priority across workspace and TraceRoot
+  // default is picked by provider priority across workspace and traceroot
   // models together, so where the deployment has an Anthropic key of its own,
-  // an OpenAI key leaves it on a TraceRoot Anthropic model.
+  // an OpenAI key leaves it on a traceroot Anthropic model.
   // So the line says where the models now appear, and that choosing one is the
   // step left.
   if (justSavedLabel !== undefined) {
@@ -250,16 +250,16 @@ const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
  * a stack, the key field vanished, and nothing says whether that is a bug.
  *
  * Two different situations, kept apart because the honest sentence differs.
- * `settingsOnlyReason` covers a provider TraceRoot does have an adapter for
+ * `settingsOnlyReason` covers a provider traceroot does have an adapter for
  * that this step cannot finish on its own — Azure needs a base URL, Bedrock an
  * access-key pair and a region, OpenRouter a model list. `none` covers a
  * provider there is no adapter for at all, Mistral today: nothing anywhere in
- * TraceRoot can store that key, so pointing at settings as if it could would
+ * traceroot can store that key, so pointing at settings as if it could would
  * send the user looking for a row that is not there.
  *
  * Neither line names the selected stack. It is on screen a few lines above,
  * checked, and for every entry that reaches here it is also the provider's own
- * name — so saying it produced "Mistral calls Mistral, and TraceRoot has no
+ * name — so saying it produced "Mistral calls Mistral, and traceroot has no
  * Mistral adapter".
  */
 export function unavailableKeyCopy(binding: ProviderKeyBinding): {
