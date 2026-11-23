@@ -157,7 +157,10 @@ function messageText(message: Record<string, JsonValue>): string {
       );
     }
   }
-  return pieces.join("\n");
+  const text = pieces.join("\n");
+  // No text under `content` or `tool_calls`: a record that happens to have a `role` field, or a
+  // message whose body is elsewhere (`parts`, `function_call`). Shown whole, not as empty text.
+  return text.trim() ? text : JSON.stringify(message);
 }
 
 /** Messages become one field each, so a pass shortens each message on its own. */

@@ -418,6 +418,80 @@ describe("buildJudgeInput", () => {
       expect(stats.collapsed_fields).toBe(1);
       expect(text).toContain(extra);
     });
+
+    it("keeps both when they differ in a message whose body is under parts", () => {
+      const other = "Cancel order O-5521 and refund the card it was paid with.";
+      const messages = (body: string) =>
+        JSON.stringify([
+          { role: "system", content: system },
+          { role: "user", parts: [{ type: "text", content: body }] },
+        ]);
+      const parent = agent({ input: messages(question) });
+      const child = llm({ input: messages(other) });
+
+      const { text, stats } = buildJudgeInput("t1", [parent, child].join("\n"));
+
+      expect(stats.collapsed_fields).toBe(0);
+      expect(text).toContain(question);
+      expect(text).toContain(other);
+      expect(text).not.toContain("same as");
+    });
+  });
+
+  it("shows a record that has a role field whole, not as an empty message", () => {
+    const user = { id: 42, name: "Ann Lee", role: "admin", plan: "enterprise" };
+    const jsonl = row({
+      span_id: "t1",
+      name: "get_user",
+      span_kind: "TOOL",
+      input: JSON.stringify({ user_id: 42 }),
+      output: JSON.stringify(user),
+    });
+
+    const { text } = buildJudgeInput("t1", jsonl);
+
+    expect(text).toContain(`output admin: ${JSON.stringify(user)}`);
+  });
+
+  it("shows a message whole when its body is under neither content nor tool_calls", () => {
+    // The OpenTelemetry GenAI shape keeps the body under `parts`.
+    const question = {
+      role: "user",
+      parts: [{ type: "text", content: "Who can approve refunds?" }],
+    };
+    const answer = { role: "assistant", parts: [{ type: "text", content: "Ann Lee can." }] };
+    const jsonl = row({
+      span_id: "l1",
+      name: "chat",
+      span_kind: "LLM",
+      input: JSON.stringify([question]),
+      output: JSON.stringify([answer]),
+    });
+
+    const { text } = buildJudgeInput("t1", jsonl);
+
+    expect(text).toContain(`input user: ${JSON.stringify(question)}`);
+    expect(text).toContain(`output assistant: ${JSON.stringify(answer)}`);
+  });
+
+  it.each(["", " \n"])("shows a message whole when its content is %j", (content) => {
+    // The body is under `function_call`, next to empty or blank text instead of null.
+    const call = {
+      role: "assistant",
+      content,
+      function_call: { name: "get_weather", arguments: '{"city":"Paris"}' },
+    };
+    const jsonl = row({
+      span_id: "l1",
+      name: "chat",
+      span_kind: "LLM",
+      input: '"What is the weather in Paris?"',
+      output: JSON.stringify(call),
+    });
+
+    const { text } = buildJudgeInput("t1", jsonl);
+
+    expect(text).toContain(`output assistant: ${JSON.stringify(call)}`);
   });
 
   it("skips lines that are not JSON objects", () => {
