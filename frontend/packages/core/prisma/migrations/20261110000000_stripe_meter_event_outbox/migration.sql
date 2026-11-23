@@ -59,9 +59,9 @@ ALTER TABLE "billing_meter_reports"
   FOREIGN KEY ("cursor_id") REFERENCES "billing_meter_cursors"("id")
   ON DELETE CASCADE ON UPDATE NO ACTION;
 
--- Preserve each legacy watermark only when its saved period matches the
--- effective cursor period. This also preserves the calendar-month fallback
--- for workspaces without a Stripe billing-period anchor.
+-- Preserve a legacy watermark only when its saved period matches the
+-- effective cursor period. For workspaces without a billing-period anchor,
+-- this is the same calendar-month fallback used by the legacy worker.
 INSERT INTO "billing_meter_cursors"
   ("id", "workspace_id", "meter", "period_start", "confirmed_units", "create_time", "update_time")
 SELECT
@@ -70,42 +70,7 @@ SELECT
   m."meter",
   p."period_start",
   CASE
-    WHEN m."raw_units" ~ '^[0-9]+
-    ELSE 0
-  END,
-  CURRENT_TIMESTAMP,
-  CURRENT_TIMESTAMP
-FROM "workspaces" w
-CROSS JOIN LATERAL (
-  VALUES
-    ('ai', COALESCE(w."current_usage" #>> '{ai,lastReportedUnits}', '0'), w."current_usage" #>> '{ai,lastReportedPeriodStart}'),
-    ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0'), w."current_usage" #>> '{rca,lastReportedPeriodStart}'),
-    ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
-) AS m("meter", "raw_units", "raw_period_start")
--- A malformed legacy ISO timestamp must not abort the whole deployment.
--- pg_input_is_valid guards the cast inside CASE; invalid values become NULL
--- and cause the legacy watermark to start from zero.
-CROSS JOIN LATERAL (
-  SELECT CASE
-    WHEN pg_input_is_valid(m."raw_period_start", 'timestamp with time zone')
-      THEN m."raw_period_start"::timestamptz
-    ELSE NULL
-  END AS "period_start"
-) AS parsed
-CROSS JOIN LATERAL (
-  SELECT COALESCE(
-    w."billing_period_start",
-    date_trunc('month', CURRENT_TIMESTAMP)::timestamp
-  ) AS "period_start"
-) AS p
-WHERE CASE
-  WHEN m."raw_units" ~ '^[0-9]+$' THEN m."raw_units"::numeric > 0
-  ELSE FALSE
-END
-ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
-
-COMMIT;
-
+    WHEN m."raw_units" ~ '^[0-9]+$'
       AND parsed."period_start" IS NOT NULL
       AND (parsed."period_start" AT TIME ZONE 'UTC') = p."period_start"
     THEN LEAST(m."raw_units"::numeric, 9007199254740991)::bigint
@@ -120,6 +85,16 @@ CROSS JOIN LATERAL (
     ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0'), w."current_usage" #>> '{rca,lastReportedPeriodStart}'),
     ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
 ) AS m("meter", "raw_units", "raw_period_start")
+-- PostgreSQL 17 is the repository's development database version.
+-- Validate untrusted legacy JSON text before casting; an invalid or missing
+-- period yields NULL, so the CASE above leaves the watermark at zero.
+CROSS JOIN LATERAL (
+  SELECT CASE
+    WHEN pg_input_is_valid(m."raw_period_start", 'timestamp with time zone')
+      THEN m."raw_period_start"::timestamptz
+    ELSE NULL
+  END AS "period_start"
+) AS parsed
 CROSS JOIN LATERAL (
   SELECT COALESCE(
     w."billing_period_start",
