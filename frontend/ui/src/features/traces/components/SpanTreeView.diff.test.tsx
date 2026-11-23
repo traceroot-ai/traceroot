@@ -2,20 +2,22 @@
 // SpanTreeView in diff mode: the union of a trace and a baseline trace of the same case,
 // in the tree's own row style. The virtualizer is mocked, as in the render test, since
 // jsdom has no layout to measure.
+import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import { traceUnion } from "@/lib/eval/union-tree";
 import type { Span, TraceDetail } from "@/types/api";
-import { SpanTreeView } from "./SpanTreeView";
+import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { DivergenceChip } from "./TraceDiffControls";
 
+const scrollToIndex = vi.hoisted(() => vi.fn());
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getTotalSize: () => count * 28,
     getVirtualItems: () =>
       Array.from({ length: count }, (_, index) => ({ index, start: index * 28, size: 28 })),
-    scrollToIndex: vi.fn(),
+    scrollToIndex,
   }),
 }));
 vi.mock("@tanstack/react-query", () => ({
@@ -179,6 +181,25 @@ describe("SpanTreeView in diff mode", () => {
     expect(figure("tokens")).toBe("600 → 950");
   });
 
+  it("reads the trace row's cost before → after to four places, as the plain trace row does", () => {
+    const baseline = traceOf("tb", [
+      ["b0", null, "agent", SpanKind.AGENT, 0, 1000],
+      ["b1", "b0", "plan", SpanKind.LLM, 10, 100, { cost: 0.012 }],
+    ]);
+    const candidate = traceOf("tc", [
+      ["c0", null, "agent", SpanKind.AGENT, 0, 1000],
+      ["c1", "c0", "plan", SpanKind.LLM, 10, 100, { cost: 0.03 }],
+    ]);
+    const { container } = renderTree(
+      { trace: candidate },
+      { baseline, nodes: traceUnion(baseline, candidate).nodes },
+    );
+    const traceRow = container.querySelector<HTMLElement>('[style*="translateY(0px)"]')!;
+    const cost = traceRow.querySelector<HTMLElement>('[data-metric="cost"]')!;
+    expect(cost.textContent).toBe("0.0120 → 0.0300");
+    expect(cost.className).toContain("text-danger");
+  });
+
   it("selects a removed span by the baseline's span and any other by the candidate's", () => {
     const { row, onSelect } = renderTree();
     fireEvent.click(row("web_search"));
@@ -188,6 +209,20 @@ describe("SpanTreeView in diff mode", () => {
       ["tb", "b2"],
       ["tc", "c2"],
       ["tc", "c1"],
+    ]);
+  });
+
+  it("scrolls to a span's row by the span either run has it as", () => {
+    const ref = createRef<SpanTreeViewHandle>();
+    renderTree({ ref });
+    scrollToIndex.mockClear();
+    // Rows: the trace, then agent, plan, web_search (the baseline's b2), answer (c2), ...
+    ref.current!.scrollToSpan("b2");
+    ref.current!.scrollToSpan("c2");
+    ref.current!.scrollToSpan("missing");
+    expect(scrollToIndex.mock.calls).toEqual([
+      [3, { align: "center" }],
+      [4, { align: "center" }],
     ]);
   });
 

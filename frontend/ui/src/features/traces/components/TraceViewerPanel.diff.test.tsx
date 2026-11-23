@@ -335,6 +335,36 @@ describe("TraceViewerPanel diff mode in the tree", () => {
     expect(tree().dataset.selected).toBe("trace");
   });
 
+  it("goes back to the root when another baseline doesn't have the span only the old one had", () => {
+    const panel = (baseline: TraceDetail | null) => (
+      <TraceViewerPanel
+        projectId="p1"
+        traceId="trace-c"
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        canNavigateUp
+        canNavigateDown
+        embedded
+        hideDetectors
+        diffBaseline={{ trace: baseline }}
+        defaultDiffOn
+      />
+    );
+    const { rerender } = render(panel(BASELINE));
+    fireEvent.click(screen.getByText("select-baseline-search"));
+    expect(tree().dataset.selected).toBe("b1");
+
+    // Another run's trace of the case, which never searched.
+    rerender(panel(traceOf("trace-e", [span("trace-e", "e0", null, "agent", SpanKind.AGENT)])));
+    expect(tree().dataset.selected).toBe("trace");
+    // Diff mode stays on; only the selection moved.
+    expect(screen.getByRole("button", { name: "Diff" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByText("select-baseline-search"));
+    rerender(panel(null));
+    expect(tree().dataset.selected).toBe("trace");
+  });
+
   it("hands the timeline the same union while diffing", () => {
     renderPanel({ diffBaseline: { trace: BASELINE } });
     fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
