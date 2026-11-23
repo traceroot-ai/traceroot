@@ -1,6 +1,6 @@
 # Mastra Weather Agent (TypeScript)
 
-Weather agent using [Mastra](https://mastra.ai) with Claude Haiku, instrumented with [TraceRoot](https://traceroot.ai).
+Weather agent using [Mastra](https://mastra.ai) with Claude Haiku, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 
@@ -31,5 +31,5 @@ Shows that you don't need `mastra.getAgent()` — you can define the agent at mo
 
 Both examples:
 - Run two weather queries (SF weather + NY vs London comparison)
-- Share a `threadId` so both calls appear grouped under the same session in TraceRoot
+- Share a `threadId` so both calls appear grouped under the same session in traceroot
 - Use the `get_weather` mock tool

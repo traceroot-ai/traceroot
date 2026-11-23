@@ -337,6 +337,17 @@ html[data-current-path$="/getting-started/introduction"] #content > :last-child 
     margin-left: -12px;
   }
 
+  /* Match Mintlify's utility layer to override the scroll area's absolute!. */
+  @layer utilities {
+    div:has(+ #footer.tr-docs-footer) > #sidebar > #sidebar-content {
+      position: fixed !important;
+      inset: auto;
+      top: inherit;
+      width: inherit;
+      height: inherit;
+    }
+  }
+
   html:is([data-page-mode="none"], [data-page-mode="default"]) #content-container {
     position: relative;
   }

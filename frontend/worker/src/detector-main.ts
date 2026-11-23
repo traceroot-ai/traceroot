@@ -1,10 +1,11 @@
 /**
- * TraceRoot Detector Worker
+ * traceroot Detector Worker
  *
  * Background job processor for:
  * - Detector runs: BullMQ worker for evaluating detectors against traces
  * - Detector RCA: BullMQ worker for root cause analysis of findings
  * - Signal assignment: BullMQ worker grouping detector hits into signals
+ * - Web tick: BullMQ scheduler that runs the web app's periodic work
  */
 
 import { prisma } from "@traceroot/core";
@@ -16,6 +17,7 @@ import { initSelfTraceEmitter, shutdownSelfTraceEmitter } from "./detection/self
 import { isAlertsSchedulerEnabled, startAlertScheduler } from "./alerts/scheduler.js";
 import { logInfo } from "./alerts/log.js";
 import { startAlertNotificationWorker } from "./notifications/alert-slack.js";
+import { closeWebTickWorker, startWebTickWorker } from "./web-tick/web-tick.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -25,6 +27,7 @@ let detectorDigestWorker: ReturnType<typeof startDetectorDigestWorker> | undefin
 let signalAssignWorker: ReturnType<typeof startSignalAssignWorker> | undefined;
 let alertNotificationWorker: ReturnType<typeof startAlertNotificationWorker> | undefined;
 let alertScheduler: ReturnType<typeof startAlertScheduler> | undefined;
+let webTickWorker: ReturnType<typeof startWebTickWorker> | undefined;
 
 // A tick can run tens of seconds but compose's stop grace is 10s: an unbounded drain is a SIGKILL.
 const ALERT_TICK_DRAIN_TIMEOUT_MS = 5_000;
@@ -44,6 +47,9 @@ async function shutdown(signal: string): Promise<void> {
           `[Detector Worker] alert tick still running after ${ALERT_TICK_DRAIN_TIMEOUT_MS}ms, continuing shutdown`,
         );
       }
+    }
+    if (webTickWorker) {
+      await closeWebTickWorker(webTickWorker);
     }
     if (alertNotificationWorker) {
       await alertNotificationWorker.close();
@@ -102,6 +108,10 @@ async function main(): Promise<void> {
   // Assigns detector hits to signals, one job per (project, detector).
   signalAssignWorker = startSignalAssignWorker();
   console.log("[Detector Worker] Signal assignment worker started");
+
+  // Every 15 minutes, asks the web app to run its periodic work.
+  webTickWorker = startWebTickWorker();
+  console.log("[Detector Worker] Web tick worker started");
 
   // Alert delivery consumer and the once-a-minute evaluation tick. Both live
   // here rather than in a process of their own (ruling B5), and the flag gates

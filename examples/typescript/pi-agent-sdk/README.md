@@ -1,6 +1,6 @@
 # Pi Coding Agent SDK
 
-Programmatically-embedded [Pi coding agent](https://pi.dev) session (`@earendil-works/pi-coding-agent`), instrumented with [TraceRoot](https://traceroot.ai).
+Programmatically-embedded [Pi coding agent](https://pi.dev) session (`@earendil-works/pi-coding-agent`), instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 
