@@ -11,6 +11,7 @@ import {
   verifyUnsubscribeToken,
   type TopicSubscription,
 } from "@traceroot/core/email";
+import { recordUnsubscribe } from "@/lib/lifecycle/pause";
 
 const HTML_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
@@ -95,7 +96,14 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  console.log(`[unsubscribe] ${action} recorded for ${check.email}`);
+  // Also on the account, which the follow-up emails read. Best effort: the
+  // provider has the choice already, and the follow-up job checks it too.
+  const userId = await recordUnsubscribe(check.email, action === "opt_in").catch((error) => {
+    console.error(`[unsubscribe] ${action} not recorded on the account: ${String(error)}`);
+    return null;
+  });
+  // The address stays out of the log.
+  console.log(`[unsubscribe] ${action} recorded${userId ? ` for user ${userId}` : ""}`);
   const email = escapeHtml(check.email);
   const message =
     action === "opt_out"
