@@ -43,6 +43,9 @@ vi.mock("@/env", () => ({
     TRACEROOT_CLOUD_ENV: "production",
     AUTH_GOOGLE_CLIENT_ID: "test-client",
     AUTH_GOOGLE_CLIENT_SECRET: "test-secret",
+    // Unset, as their defaults leave them: Google is the only social sign-in here.
+    AUTH_AGENTID_CLIENT_ID: "",
+    AUTH_AGENTID_CLIENT_SECRET: "",
     AUTH_TRUSTED_PROXY_CIDRS: "",
   },
 }));
