@@ -34,7 +34,7 @@ export function ResultUsageSummary({
    *  "Task execution", since a baseline isn't the candidate. */
   executionLabel?: string;
   /** How a known duration and cost read, so the summary can match the figures around it;
-   *  an unknown one is "Unknown" either way. */
+   *  an unknown one reads `unknownText`. */
   formatDuration?: (ms: number) => string;
   formatCost?: (cost: number) => string;
   /** How a missing figure reads, so a caller can match the wording around it. */

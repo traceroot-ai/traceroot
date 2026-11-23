@@ -134,7 +134,6 @@ export function CaseInspector({
 
   const baselineTag = tagOf(baselineId);
   const candidateTag = tagOf(candidateId);
-
   const usage: [UsageSide, UsageSide] = [
     {
       heading: `Baseline · ${baselineTag}`,
@@ -166,10 +165,22 @@ export function CaseInspector({
   );
 
   const caseTags = <PairMeasures baseline={usage[0]} candidate={usage[1]} />;
+  // The save acts on the candidate's result, not its trace, so it's offered whenever there
+  // is a result: on the trace's root, or beside the case while the trace is being ingested.
+  const saveMenu = candidateResult ? (
+    <SaveToDatasetMenu
+      ref={saveTrigger}
+      tag={candidateTag}
+      onPick={(action) => setSave({ action, result: candidateResult, run: candidateRun })}
+    />
+  ) : null;
   // With no trace of the candidate's to show, the panel says why, above the case.
   const caseWithoutTrace = (
     <div className="space-y-3 p-4 text-[12px]">
-      <div className="flex flex-wrap items-center gap-2">{caseTags}</div>
+      <div className="flex flex-wrap items-center gap-2">
+        {caseTags}
+        {saveMenu && <div className="ml-auto">{saveMenu}</div>}
+      </div>
       {caseDetail}
     </div>
   );
@@ -278,15 +289,7 @@ export function CaseInspector({
               onChange={onChangePair}
             />
           }
-          spanHeaderAction={(selection) =>
-            selection.type === "trace" && candidateResult ? (
-              <SaveToDatasetMenu
-                ref={saveTrigger}
-                tag={candidateTag}
-                onPick={(action) => setSave({ action, result: candidateResult, run: candidateRun })}
-              />
-            ) : null
-          }
+          spanHeaderAction={(selection) => (selection.type === "trace" ? saveMenu : null)}
           spanExtraTags={() => (override ? <ReconstructedTraceTag /> : null)}
         />
         {save && (

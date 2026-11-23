@@ -3,9 +3,11 @@
  * Keeping a finding from a comparison case: "Save to dataset", on the case's root in the
  * trace panel, acts on the candidate's result for the open case, through the evaluations'
  * own save drawer (update its source case, save it as a new case, or duplicate it as a
- * variant), starting from the candidate run's dataset. With no candidate result there is
- * nothing to save. An open save stays on the case it was opened for while the trace panel
- * moves on, and closing it puts focus back where the save started.
+ * variant), starting from the candidate run's dataset. It is offered beside the case while
+ * the candidate's trace is still being ingested too, since it acts on the result, not the
+ * trace. With no candidate result there is nothing to save. An open save stays on the case
+ * it was opened for while the trace panel moves on, and closing it puts focus back where
+ * the save started.
  */
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,12 +27,18 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 
 const hooks = vi.hoisted(() => ({ useEvaluationRunDetails: vi.fn(), useDatasets: vi.fn() }));
 vi.mock("./hooks", () => hooks);
+/** Trace ids still being ingested: their fetch fails until they land. */
+const ingesting = vi.hoisted(() => new Set<string>());
 vi.mock("@/features/traces/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/traces/hooks")>();
   const pending = { data: undefined, isLoading: true, isFetching: true, isError: false };
+  const failed = { data: undefined, isLoading: false, isFetching: false, isError: true };
   return {
     ...actual,
-    useTrace: () => ({ ...pending, refetch: vi.fn() }),
+    useTrace: (_p: string, traceId: string) => ({
+      ...(ingesting.has(traceId) ? failed : pending),
+      refetch: vi.fn(),
+    }),
     useSpanIO: () => ({ data: undefined, isLoading: false }),
   };
 });
@@ -94,7 +102,10 @@ beforeEach(() => {
   fetchMock = vi.fn(async () => ({ ok: true, status: 201, json: async () => ({}) }) as Response);
   global.fetch = fetchMock as unknown as typeof fetch;
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  ingesting.clear();
+});
 
 function mount(initial: InspectedCase) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -259,6 +270,37 @@ describe("CompareRunsView — save to dataset", () => {
       expect(screen.queryByRole("dialog", { name: /^Duplicate as a variant/ })).toBeNull(),
     );
     await waitFor(() => expect(document.activeElement).toBe(inspector()));
+  });
+
+  it("offers the three actions on the candidate's result while its trace is still being ingested", async () => {
+    ingesting.add("trace-c3");
+    serve(
+      PAIRED_FIXTURE.map((b) =>
+        b.run.id === CAND
+          ? {
+              ...b,
+              results: b.results.map((r) =>
+                r.testCaseId === "case-3" ? { ...r, traceId: "trace-c3" } : r,
+              ),
+            }
+          : b,
+      ),
+    );
+    mount({ caseToken: "id:case-3", pair: [BASE, CAND] });
+    expect(within(inspector()).getByText("Trace is still being ingested")).toBeTruthy();
+    fireEvent.pointerDown(saveButton(), { button: 0, ctrlKey: false });
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByText("Candidate · #2")).toBeTruthy();
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((i) => i.firstChild?.textContent),
+    ).toEqual(["Update source case", "Save as a new case", "Duplicate as a variant"]);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /^Duplicate as a variant/ }));
+    const drawer = within(await screen.findByRole("dialog", { name: /^Duplicate as a variant/ }));
+    fireEvent.click(drawer.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(posted().url).toBeDefined());
+    expect(posted().url).toBe(`/api/projects/p1/evaluations/results/${CAND}-case-3/dataset-case`);
   });
 
   it("offers nothing to save when the candidate has no result for the case", () => {
