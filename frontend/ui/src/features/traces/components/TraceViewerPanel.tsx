@@ -842,6 +842,7 @@ export function TraceViewerPanel({
                         onScroll={handleTimelineScroll}
                         hoveredSpanId={hoveredSpanId}
                         onHoverChange={setHoveredSpanId}
+                        diff={treeDiff}
                       />
                     )}
                   </ResizablePanel>

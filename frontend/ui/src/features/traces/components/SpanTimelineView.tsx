@@ -15,6 +15,9 @@ import {
 import { getSpanKindColor } from "./SpanKindIcon";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
+import { visibleUnionNodes, type UnionNode } from "@/lib/eval/union-tree";
+import { diffScaleMs, unionBars, type DiffBar } from "../utils/diff";
+import { GhostBar, SpanTimelineDiffRow } from "./SpanTimelineDiffRow";
 
 const ROW_HEIGHT = TREE_LAYOUT.ROW_HEIGHT;
 
@@ -51,7 +54,9 @@ function formatTickLabel(sec: number): string {
 
 type TimelineRow =
   | { type: "trace-root" }
-  | { type: "span"; data: ReturnType<typeof flattenTreeWithMetrics>[number] };
+  | { type: "span"; data: ReturnType<typeof flattenTreeWithMetrics>[number] }
+  // Diff mode: a node of the union of this trace and the baseline's, with its two bars.
+  | { type: "union"; node: UnionNode; bar: DiffBar | null; ghost: DiffBar | null };
 
 interface SpanTimelineViewProps {
   trace: TraceDetail;
@@ -62,6 +67,13 @@ interface SpanTimelineViewProps {
   onScroll?: () => void;
   hoveredSpanId: string | null;
   onHoverChange: (id: string | null) => void;
+  /**
+   * Diff mode (the evaluation comparison): the rows of the union of this trace and a
+   * baseline trace of the same case, as the tree draws them, with the baseline's span as a
+   * ghost behind each matched bar and alone for a span only the baseline has. The timeline
+   * spans the longer run. Unset in production.
+   */
+  diff?: { baseline: TraceDetail; nodes: UnionNode[] };
 }
 
 /**
@@ -83,6 +95,7 @@ export function SpanTimelineView({
   onScroll,
   hoveredSpanId,
   onHoverChange,
+  diff,
 }: SpanTimelineViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [timelineWidth, setTimelineWidth] = useState(800);
@@ -97,9 +110,14 @@ export function SpanTimelineView({
   }, []);
 
   const traceDurationMs = useMemo(() => Math.max(1, getTraceDuration(trace) ?? 1), [trace]);
+  // What the ruler and every bar measure against: this trace, or in diff mode both runs.
+  const scaleMs = useMemo(
+    () => (diff ? diffScaleMs(trace, diff.baseline) : traceDurationMs),
+    [diff, trace, traceDurationMs],
+  );
 
   const ticks = useMemo(() => {
-    const durationSec = traceDurationMs > 0 ? traceDurationMs / 1000 : 1;
+    const durationSec = scaleMs > 0 ? scaleMs / 1000 : 1;
     const maxTicks = Math.max(2, Math.floor(timelineWidth / 80));
     const stepSec = NICE_STEPS_SEC.find((s) => s >= durationSec / maxTicks) ?? 3600;
     const count = Math.ceil(durationSec / stepSec) + 1;
@@ -108,7 +126,7 @@ export function SpanTimelineView({
       if (sec > durationSec) return null;
       return { sec, leftPct: (sec / durationSec) * 100, label: formatTickLabel(sec) };
     }).filter((t): t is { sec: number; leftPct: number; label: string } => t !== null);
-  }, [traceDurationMs, timelineWidth]);
+  }, [scaleMs, timelineWidth]);
 
   const traceAggregates = useMemo(() => {
     // Only coerce input/output to a number when at least one span reports it, so
@@ -128,19 +146,28 @@ export function SpanTimelineView({
 
   const traceIsCollapsed = collapsedIds.has("trace");
   const flattenedItems = useMemo(() => {
-    if (traceIsCollapsed) return [];
+    // Diff mode draws the union's rows instead.
+    if (traceIsCollapsed || diff) return [];
     // Must enrich here too so row count matches SpanTreeView (pending placeholders add rows)
     const enrichedSpans = enrichSpansWithPending(trace.spans);
     return flattenTreeWithMetrics(enrichedSpans, collapsedIds, traceDurationMs, timelineWidth);
-  }, [trace.spans, collapsedIds, traceIsCollapsed, traceDurationMs, timelineWidth]);
+  }, [trace.spans, collapsedIds, traceIsCollapsed, traceDurationMs, timelineWidth, diff]);
 
-  const allRows: TimelineRow[] = useMemo(
-    () => [
+  const allRows: TimelineRow[] = useMemo(() => {
+    if (diff) {
+      // The tree's rows, by the same collapse rule, so the two panels stay aligned.
+      const bars = unionBars(diff.nodes);
+      const nodes = traceIsCollapsed ? [] : visibleUnionNodes(diff.nodes, collapsedIds);
+      return [
+        { type: "trace-root" },
+        ...nodes.map((node) => ({ type: "union" as const, node, ...bars.get(node.id)! })),
+      ];
+    }
+    return [
       { type: "trace-root" },
       ...flattenedItems.map((data) => ({ type: "span" as const, data })),
-    ],
-    [flattenedItems],
-  );
+    ];
+  }, [diff, traceIsCollapsed, collapsedIds, flattenedItems]);
 
   const rowVirtualizer = useVirtualizer({
     count: allRows.length,
@@ -261,14 +288,50 @@ export function SpanTimelineView({
                       )}
                     </span>
                   )}
+                  {diff && (
+                    <GhostBar
+                      left="0px"
+                      width={`${((getTraceDuration(diff.baseline) ?? 0) / scaleMs) * 100}%`}
+                      durationMs={getTraceDuration(diff.baseline) ?? 0}
+                    />
+                  )}
                   <div
                     className={cn(
                       "absolute z-10 overflow-hidden rounded-[2px] bg-foreground/[0.06] transition-colors group-hover:bg-foreground/15",
                       isSelected && "bg-foreground/15",
                     )}
-                    style={{ left: "0px", width: "100%", height: "24px" }}
+                    style={{
+                      left: "0px",
+                      width: diff ? `${(traceDurationMs / scaleMs) * 100}%` : "100%",
+                      height: "24px",
+                    }}
                   />
                 </div>
+              );
+            }
+
+            if (row.type === "union") {
+              const { node } = row;
+              const shown = node.candidate ?? node.baseline;
+              return (
+                <SpanTimelineDiffRow
+                  key={node.id}
+                  node={node}
+                  bar={row.bar}
+                  ghost={row.ghost}
+                  toPx={(ms) => (ms / scaleMs) * timelineWidth}
+                  style={rowStyle}
+                  // By trace as well as id: the two traces' span ids can coincide.
+                  selected={
+                    selection.type === "span" &&
+                    selection.span.span_id === shown.span_id &&
+                    selection.span.trace_id === shown.trace_id
+                  }
+                  hovered={hoveredSpanId === node.id}
+                  onSelect={() => onSelect({ type: "span", span: shown })}
+                  onMouseEnter={() => onHoverChange(node.id)}
+                  onMouseLeave={() => onHoverChange(null)}
+                />
               );
             }
 

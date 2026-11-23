@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
-import { buildUnionTree } from "@/lib/eval/union-tree";
-import type { Span } from "@/types/api";
-import { beforeAfter, findUnionNode, moveClass } from "./diff";
+import { buildUnionTree, traceUnion } from "@/lib/eval/union-tree";
+import type { Span, TraceDetail } from "@/types/api";
+import { beforeAfter, diffScaleMs, findUnionNode, moveClass, unionBars } from "./diff";
 
 const span = (traceId: string, id: string, parent: string | null, name: string): Span => ({
   span_id: id,
@@ -57,5 +57,70 @@ describe("beforeAfter and moveClass", () => {
     expect(moveClass("better")).toBe("text-success");
     expect(moveClass("worse")).toBe("text-danger");
     expect(moveClass(null)).toBe("text-muted-foreground");
+  });
+});
+
+describe("unionBars", () => {
+  const T0 = Date.UTC(2026, 10, 1, 10);
+  const timed = (s: Span, start: number, end: number | null): Span => ({
+    ...s,
+    span_start_time: new Date(T0 + start).toISOString(),
+    span_end_time: end === null ? null : new Date(T0 + end).toISOString(),
+  });
+  const traceOf = (traceId: string, spans: Span[]): TraceDetail => ({
+    trace_id: traceId,
+    project_id: "p1",
+    name: "agent",
+    trace_start_time: spans[0].span_start_time,
+    user_id: null,
+    session_id: null,
+    git_ref: null,
+    git_repo: null,
+    environment: "production",
+    release: null,
+    input: null,
+    output: null,
+    metadata: null,
+    spans,
+  });
+  // The baseline started an hour earlier; each run is measured from its own start.
+  const HOUR = 3_600_000;
+  const baseline = traceOf("tb", [
+    timed(span("tb", "b0", null, "agent"), -HOUR, -HOUR + 1000),
+    timed(span("tb", "b1", "b0", "search"), -HOUR + 110, -HOUR + 200),
+  ]);
+  const candidate = traceOf("tc", [
+    timed(span("tc", "c0", null, "agent"), 0, 1600),
+    timed(span("tc", "c1", "c0", "answer"), 110, 400),
+    timed(span("tc", "c2", "c0", "stream"), 500, null),
+  ]);
+  const { nodes } = traceUnion(baseline, candidate);
+
+  it("places this trace's span as the bar and the baseline's as the ghost behind it", () => {
+    const bars = unionBars(nodes);
+    const byName = (name: string) =>
+      bars.get(nodes.find((n) => (n.candidate ?? n.baseline)!.name === name)!.id);
+    expect(byName("agent")).toEqual({
+      bar: { offsetMs: 0, durationMs: 1600, inProgress: false },
+      ghost: { offsetMs: 0, durationMs: 1000, inProgress: false },
+    });
+    // Only the baseline searched: a ghost alone.
+    expect(byName("search")).toEqual({
+      bar: null,
+      ghost: { offsetMs: 110, durationMs: 90, inProgress: false },
+    });
+    expect(byName("answer")).toEqual({
+      bar: { offsetMs: 110, durationMs: 290, inProgress: false },
+      ghost: null,
+    });
+    expect(byName("stream")?.bar?.inProgress).toBe(true);
+  });
+
+  it("scales the timeline to the longer of the two runs", () => {
+    expect(diffScaleMs(candidate, baseline)).toBeGreaterThanOrEqual(1600);
+    const short = traceOf("ts", [timed(span("ts", "s0", null, "agent"), 0, 500)]);
+    expect(
+      diffScaleMs(short, traceOf("tb2", [timed(span("tb2", "x", null, "agent"), 0, 900)])),
+    ).toBe(900);
   });
 });

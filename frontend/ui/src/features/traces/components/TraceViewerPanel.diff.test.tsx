@@ -305,4 +305,12 @@ describe("TraceViewerPanel diff mode in the tree", () => {
     fireEvent.click(screen.getByRole("button", { name: "Diff" }));
     expect(tree().dataset.selected).toBe("trace");
   });
+
+  it("hands the timeline the same union while diffing", () => {
+    renderPanel({ diffBaseline: { trace: BASELINE } });
+    fireEvent.click(screen.getByRole("button", { name: /Timeline/ }));
+    expect(screen.getByTestId("timeline").dataset.diffNodes).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+    expect(screen.getByTestId("timeline").dataset.diffNodes).toBe("5");
+  });
 });

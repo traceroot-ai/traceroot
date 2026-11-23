@@ -1,5 +1,6 @@
 import type { MetricPair, UnionNode } from "@/lib/eval/union-tree";
-import type { Span } from "@/types/api";
+import type { Span, TraceDetail } from "@/types/api";
+import { getSpanDuration, getTraceDuration, parseTimestamp } from "./index";
 
 /**
  * The node of the union of two traces a selected span stands for. In diff mode the tree
@@ -36,4 +37,44 @@ export function moveClass(move: "better" | "worse" | null): string {
 export function beforeAfter(pair: MetricPair, format: (n: number) => string): string {
   const show = (n: number | null) => (n === null ? "—" : format(n));
   return `${show(pair.baseline)} → ${show(pair.candidate)}`;
+}
+
+/** Where a span's bar sits on the timeline, from the start of its own trace. */
+export interface DiffBar {
+  offsetMs: number;
+  durationMs: number;
+  inProgress: boolean;
+}
+
+/**
+ * Each node's bars on the diff timeline, by node id: this trace's span as the bar and the
+ * baseline's as the ghost behind it, either absent on a span only one run has. Each run is
+ * measured from its own earliest span, as the plain timeline measures a trace, so the two
+ * line up from their starts.
+ */
+export function unionBars(
+  nodes: readonly UnionNode[],
+): Map<string, { bar: DiffBar | null; ghost: DiffBar | null }> {
+  const startOf = (spans: (Span | null)[]) =>
+    Math.min(...spans.flatMap((s) => (s ? [parseTimestamp(s.span_start_time)] : [])));
+  const candidateStart = startOf(nodes.map((n) => n.candidate));
+  const baselineStart = startOf(nodes.map((n) => n.baseline));
+  const barOf = (span: Span | null, start: number): DiffBar | null =>
+    span && {
+      offsetMs: parseTimestamp(span.span_start_time) - start,
+      durationMs: getSpanDuration(span) ?? 0,
+      // A placeholder has no end because it never arrived, not because it is running.
+      inProgress: span.span_end_time === null && !span.pending,
+    };
+  return new Map(
+    nodes.map((n) => [
+      n.id,
+      { bar: barOf(n.candidate, candidateStart), ghost: barOf(n.baseline, baselineStart) },
+    ]),
+  );
+}
+
+/** The span the diff timeline covers: the longer of the two runs, so neither runs off it. */
+export function diffScaleMs(trace: TraceDetail, baseline: TraceDetail): number {
+  return Math.max(1, getTraceDuration(trace) ?? 1, getTraceDuration(baseline) ?? 1);
 }
