@@ -177,6 +177,56 @@ describe("buildComparisonExport — rows", () => {
     });
   });
 
+  it("names a reason that belongs to neither run alone, and keeps a mismatch's plain", () => {
+    const pair = (
+      baseline: Partial<Parameters<typeof fixtureResult>[4]>,
+      candidate: Partial<Parameters<typeof fixtureResult>[4]>,
+      scores: [ScoreRow[], ScoreRow[]],
+    ) => {
+      const bundles: RunBundle[] = [
+        {
+          run: fixtureRun("b1", 1, "v1", "2026-11-01T10:00:00.000Z"),
+          // A scored case alongside, so the scorer is a column even when c1 has none.
+          results: [
+            fixtureResult("b1", "c1", "Q1", scores[0], baseline),
+            fixtureResult("b1", "c2", "Q2", [fixtureScore(QUALITY, 1)]),
+          ],
+        },
+        {
+          run: fixtureRun("b2", 2, "v2", "2026-11-02T10:00:00.000Z"),
+          results: [
+            fixtureResult("b2", "c1", "Q1", scores[1], candidate),
+            fixtureResult("b2", "c2", "Q2", [fixtureScore(QUALITY, 1)]),
+          ],
+        },
+      ];
+      const m = buildCompareModel(bundles, null);
+      const exp = buildComparisonExport(m, {
+        projectId: "p1",
+        rows: m.cases,
+        analysis: NO_ANALYSIS,
+        generatedAt: GENERATED_AT,
+      });
+      return scoreOf(exp.rows[0], "b2", QUALITY).notCompared;
+    };
+    const num = (value: number, version = "1"): ScoreRow => ({
+      ...fixtureScore(QUALITY, value),
+      scorerVersion: version,
+    });
+    const text = (value: string): ScoreRow => fixtureScore(QUALITY, value);
+    const taskError = { status: "errored", taskError: "boom" } as const;
+    const scorerError = [fixtureScore(QUALITY, null, "judge timed out")];
+
+    // The same failure on both sides is one reason, said for both runs.
+    expect(pair(taskError, taskError, [[], []])).toBe("Task error in both runs");
+    expect(pair({}, {}, [scorerError, scorerError])).toBe("Scorer error in both runs");
+    // Both recorded a value the comparison can't use: neither run failed.
+    expect(pair({}, {}, [[num(Infinity)], [num(1)]])).toBe("Not scored in either run");
+    // A mismatch belongs to the pair, so it names no run.
+    expect(pair({}, {}, [[num(1)], [num(2, "2")]])).toBe("Version mismatch");
+    expect(pair({}, {}, [[num(1)], [text("high")]])).toBe("Type mismatch");
+  });
+
   it("keeps true/false values as recorded and counts them as 1/0 for the change", () => {
     const bool = (value: boolean, version = "1"): ScoreRow => ({
       ...fixtureScore("grounded", null),

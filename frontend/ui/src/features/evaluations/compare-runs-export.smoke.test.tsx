@@ -238,6 +238,31 @@ describe("CompareRunsView — export", () => {
     expect(meta.pairs[0].scorers.find((s) => s.name === "quality")?.pairedCount).toBe(3);
   });
 
+  it("pins the regressed case: case 2 alone, with #2's quality pair", async () => {
+    render(
+      view({
+        ...NO_ANALYSIS,
+        filters: [{ kind: "regressed", scorer: "quality", runId: CANDIDATE_RUN.id }],
+      }),
+    );
+    const file = await exportAs("JSON");
+    const { meta, rows } = JSON.parse(file.text) as ComparisonExport;
+    expect(rows.map((r) => r.case)).toEqual(["id:case-2"]);
+    expect(meta.filters).toMatchObject([{ kind: "regressed", label: "Regressed · quality · #2" }]);
+    expect(meta.counts).toEqual({ matching: 1, total: 12, inAllRuns: 10 });
+    expect(meta.pairs[0].scorers.find((s) => s.name === "quality")).toMatchObject({
+      pairedCount: 1,
+      baselineMean: 0.85,
+      candidateMean: 0.3,
+      delta: -0.55,
+    });
+    expect(
+      rows[0].runs
+        .find((r) => r.runId === CANDIDATE_RUN.id)
+        ?.scores.find((s) => s.scorer === "quality"),
+    ).toMatchObject({ value: 0.3, change: -0.55, classification: "regressed" });
+  });
+
   it("is off, saying why, when no case matches", async () => {
     render(view({ ...NO_ANALYSIS, q: "no such ticket" }));
     expect(exportButton().hasAttribute("disabled")).toBe(true);
@@ -267,6 +292,21 @@ describe("CompareRunsView — export", () => {
     );
     render(view());
     expect(screen.getByText("1 run couldn’t be loaded.")).toBeTruthy();
+    expect(await offReason()).toBe("No comparison to export");
+  });
+
+  it("is off with fewer than two runs, saying there is no comparison", async () => {
+    render(
+      <CompareRunsView
+        projectId="p1"
+        runIds={[BASELINE_RUN.id]}
+        baselineId={null}
+        onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
+        analysis={NO_ANALYSIS}
+      />,
+    );
+    expect(exportButton().hasAttribute("disabled")).toBe(true);
     expect(await offReason()).toBe("No comparison to export");
   });
 
