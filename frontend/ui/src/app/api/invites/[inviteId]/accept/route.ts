@@ -2,6 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
+import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
 
 type RouteParams = { params: Promise<{ inviteId: string }> };
 
@@ -87,6 +88,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       where: { id: inviteId },
     }),
   ]);
+  void notifyWorkspaceMember({ userId: user.id, workspaceId: invite.workspaceId, via: "invite" });
 
   return successResponse({
     message: "Invite accepted",

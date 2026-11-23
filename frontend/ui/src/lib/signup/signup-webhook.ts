@@ -4,7 +4,6 @@
 // X-TraceRoot-Timestamp value (delivery time, Unix seconds), a period, and the
 // exact body bytes.
 import { createHmac } from "node:crypto";
-import { env as realEnv } from "@/env";
 
 // The only campaign fields that leave the app.
 const UTM_FIELDS = ["utm_source", "utm_medium", "utm_campaign"] as const;
@@ -17,6 +16,19 @@ export interface SignupWebhookEvent {
   signup: { provider: string; via_invite: boolean; utm: Partial<Record<UtmField, string>> };
 }
 
+/**
+ * Someone became a member of a traceroot workspace: they created it, accepted an
+ * invite to it, or an admin added them. The receiver groups people by
+ * workspace with it; the demo workspace is never reported.
+ */
+export interface WorkspaceMemberEvent {
+  event: "workspace_member_joined";
+  occurred_at: string;
+  user: { id: string };
+  workspace: { id: string; created_by: string | null };
+  via: "created" | "invite" | "added";
+}
+
 export interface SignupWebhookInput {
   user: { id: string; email: string; name: string | null; createdAt: Date };
   provider: string;
@@ -24,9 +36,12 @@ export interface SignupWebhookInput {
   attribution?: Record<string, string>;
 }
 
-export type SignupWebhookEnv = Partial<
-  Pick<typeof realEnv, "TRACEROOT_SIGNUP_WEBHOOK_URL" | "TRACEROOT_SIGNUP_WEBHOOK_SECRET">
->;
+// Read from the process environment when sent, not through @/env, so code that
+// reports a sign-up or a membership can be loaded without the whole app's settings.
+export type SignupWebhookEnv = {
+  TRACEROOT_SIGNUP_WEBHOOK_URL?: string;
+  TRACEROOT_SIGNUP_WEBHOOK_SECRET?: string;
+};
 
 export interface SendSignupWebhookOptions {
   fetchImpl?: typeof fetch;
@@ -50,10 +65,10 @@ export function buildSignupWebhookEvent(input: SignupWebhookInput): SignupWebhoo
 }
 
 export async function sendSignupWebhook(
-  event: SignupWebhookEvent,
+  event: SignupWebhookEvent | WorkspaceMemberEvent,
   options: SendSignupWebhookOptions = {},
 ): Promise<boolean> {
-  const e = options.env ?? realEnv;
+  const e = options.env ?? process.env;
   const url = e.TRACEROOT_SIGNUP_WEBHOOK_URL?.trim();
   // Checked for blankness but signed exactly as set: the receiver holds the
   // same bytes, so trimming here alone would break every signature.

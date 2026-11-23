@@ -5,6 +5,7 @@ import { prisma, Role } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { isDemoWorkspace, sortDemoLast, userMembershipWhere } from "@/lib/demo-workspace";
+import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
 
 const createWorkspaceSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -104,6 +105,12 @@ async function handlePOST(request: NextRequest) {
     if (!isPrismaKnownError(e, "P2002")) throw e;
     return errorResponse("A workspace with this name already exists", 409);
   }
+  void notifyWorkspaceMember({
+    userId: user.id,
+    workspaceId: workspace.id,
+    createdBy: user.id,
+    via: "created",
+  });
 
   return NextResponse.json(
     {
