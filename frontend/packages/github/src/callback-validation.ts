@@ -49,7 +49,7 @@ export function validateCallbackParams(params: CallbackParams): ValidationResult
   // - No state cookie was set (because we didn't initiate the flow)
   // - state may be absent (GitHub doesn't send it for direct installs)
   // Also require !state: GitHub's direct install flow never sends a state param.
-  // Requiring its absence avoids mis-classifying a TraceRoot-initiated install
+  // Requiring its absence avoids mis-classifying a traceroot-initiated install
   // with a stale/mismatched cookie as a direct install.
   const isDirectGitHubInstall =
     setupAction === "install" && !!installationId && !storedState && !state;

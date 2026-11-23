@@ -1,4 +1,4 @@
-"""Travel concierge — a multi-agent Microsoft Agent Framework app traced with TraceRoot.
+"""Travel concierge — a multi-agent Microsoft Agent Framework app traced with traceroot.
 
 Agent Framework is Microsoft's successor to AutoGen + Semantic Kernel, and its
 defining feature is multi-agent orchestration. This example shows a `TravelConcierge`
@@ -8,7 +8,7 @@ agent that delegates to two specialist agents exposed as tools via `Agent.as_too
     ├─ LocalGuide     (tools: get_weather, find_attractions)
     └─ BudgetPlanner  (tools: convert_currency)
 
-TraceRoot auto-instruments the whole thing through Agent Framework's built-in
+traceroot auto-instruments the whole thing through Agent Framework's built-in
 OpenTelemetry support, so the trace nests exactly like the hierarchy above —
 every agent invocation, model call and tool execution is its own span at
 https://traceroot.ai.
@@ -35,7 +35,7 @@ if dotenv_path:
 else:
     print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
-# Initialize TraceRoot BEFORE importing Agent Framework so the OpenTelemetry
+# Initialize traceroot BEFORE importing Agent Framework so the OpenTelemetry
 # instrumentation is wired up before the framework emits its first span.
 import traceroot
 from traceroot import Integration, observe, using_attributes
