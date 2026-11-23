@@ -133,7 +133,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             collapsed ? "justify-center px-2" : "px-4",
           )}
         >
-          <Link href="/" className="flex items-center gap-2" aria-label="TraceRoot home">
+          <Link href="/" className="flex items-center gap-2" aria-label="traceroot home">
             {collapsed ? (
               <Logo variant="mark" className="h-[18px] w-[18px]" />
             ) : (

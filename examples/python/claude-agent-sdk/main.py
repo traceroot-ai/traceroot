@@ -1,5 +1,5 @@
 """
-Claude Agent SDK multi-agent research pipeline with TraceRoot observability.
+Claude Agent SDK multi-agent research pipeline with traceroot observability.
 
 Demonstrates a mini research system inspired by anthropics/claude-agent-sdk-demos:
 - Lead agent coordinates research on a topic

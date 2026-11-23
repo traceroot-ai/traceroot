@@ -1,5 +1,5 @@
 """
-DSPy chain-of-thought QA agent, instrumented with TraceRoot.
+DSPy chain-of-thought QA agent, instrumented with traceroot.
 
 Usage:
     cp .env.example .env

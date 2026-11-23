@@ -6,6 +6,10 @@ import {
   StackAndModelKey,
   useStackSelection,
 } from "@/features/traces/components/GettingStarted/StackAndModelKey";
+import {
+  useSetupRouteChosen,
+  useSetupSkipped,
+} from "@/features/traces/components/GettingStarted/use-setup-command-copied";
 
 interface ManualSetupStepProps {
   /** The project the key, the snippets and the integrations belong to. */
@@ -53,6 +57,8 @@ interface ManualSetupStepProps {
  */
 export function ManualSetupStep({ projectId, onBack, onDone }: ManualSetupStepProps) {
   const { selected, select } = useStackSelection();
+  const recordRoute = useSetupRouteChosen(projectId, "onboarding");
+  const recordSkip = useSetupSkipped(projectId, "onboarding");
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,13 +69,28 @@ export function ManualSetupStep({ projectId, onBack, onDone }: ManualSetupStepPr
 
       <StackAndModelKey projectId={projectId} selected={selected} onSelect={select} />
 
-      <ManualTab projectId={projectId} integration={selected} />
+      <ManualTab projectId={projectId} integration={selected} surface="onboarding" />
 
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button size="sm" className="h-7 px-4 text-[12px]" onClick={onDone}>
+        <Button
+          size="sm"
+          className="h-7 px-4 text-[12px]"
+          onClick={() => {
+            recordSkip("manual");
+            onDone();
+          }}
+        >
           Go to my project
         </Button>
-        <Button variant="ghost" size="sm" className="h-7 px-4 text-[12px]" onClick={onBack}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-4 text-[12px]"
+          onClick={() => {
+            recordRoute("command");
+            onBack();
+          }}
+        >
           Back to the terminal command
         </Button>
       </div>

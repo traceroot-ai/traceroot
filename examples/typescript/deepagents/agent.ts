@@ -1,9 +1,9 @@
 /**
- * DeepAgents Multi-Agent Research — TraceRoot Observability
+ * DeepAgents Multi-Agent Research — traceroot Observability
  *
  * A deepagents-powered supervisor that orchestrates a research sub-agent
  * and a critique sub-agent to produce a final report.
- * Instrumented with TraceRoot via the LangChain callback manager.
+ * Instrumented with traceroot via the LangChain callback manager.
  *
  * langchain: patches the LangChain callback manager to trace all chain/LLM spans,
  * capturing the full multi-agent hierarchy.
@@ -18,7 +18,7 @@ import 'dotenv/config';
 import * as lcCallbackManager from '@langchain/core/callbacks/manager';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 TraceRoot.initialize({ instrumentModules: { langchain: lcCallbackManager } });
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 import { readFileSync, existsSync } from 'fs';
 import { tool } from '@langchain/core/tools';
@@ -102,7 +102,7 @@ async function main() {
       () =>
         observe({ name: 'research_session', type: 'agent' }, async () => {
           console.log('='.repeat(60));
-          console.log('DeepAgents Multi-Agent Research — Demo (TraceRoot)');
+          console.log('DeepAgents Multi-Agent Research — Demo (traceroot)');
           console.log('='.repeat(60));
           console.log(`\nQuery: ${DEMO_QUERY}\n`);
 

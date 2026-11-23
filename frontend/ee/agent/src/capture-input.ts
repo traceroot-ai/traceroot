@@ -4,7 +4,7 @@ import { REGISTRY } from "@traceroot-ai/tools";
  * Tools whose output the capture policy keeps because the agent vouches for
  * it: the registry's write tools (`create_alert`, `create_dashboard`, … —
  * the entries whose approval policy gates them, not every non-GET route).
- * Their result is the resource the TraceRoot API returned — the customer's
+ * Their result is the resource the traceroot API returned — the customer's
  * own data, the same class as `download_traces` — and the session rebuild
  * (`restoreToolStep`) and the chat cards read the outcome back from the
  * stored row: the created resource's id and name, or a declined proposal.
