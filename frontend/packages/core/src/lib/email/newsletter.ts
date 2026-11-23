@@ -151,23 +151,47 @@ export async function inSegment(
 
 export type ProviderState = "subscribed" | "no_contact" | "unsubscribed" | "unknown";
 
-/** Where the person stands at the provider. Reads only. */
+/** Most pages of a contact's topics read; an account has a handful. */
+const MAX_TOPIC_PAGES = 20;
+
+/**
+ * Where the person stands at the provider. Reads only. Anything it cannot read
+ * for certain (an error, a body it does not understand, the product topic
+ * missing from every page of the contact's topics, a value other than opt_in
+ * or opt_out) is "unknown": nobody is added on a guess, and an unknown is tried
+ * again on a later run.
+ */
 export async function providerState(
   email: string,
   options: { apiKey: string; productTopicId?: string; fetchImpl: Fetch },
 ): Promise<ProviderState> {
+  if (!options.productTopicId) return "unknown";
   const path = `/contacts/${encodeURIComponent(normalizeEmail(email))}`;
   const contact = await call("GET", path, options.apiKey, options.fetchImpl);
   if (contact.status === 404) return "no_contact";
   if (contact.status !== 200) return "unknown";
-  if ((contact.body as { unsubscribed?: boolean } | null)?.unsubscribed) return "unsubscribed";
-  if (!options.productTopicId) return "subscribed";
-  const topics = await call("GET", `${path}/topics?limit=100`, options.apiKey, options.fetchImpl);
-  if (topics.status !== 200) return "unknown";
-  const product = (
-    topics.body as { data?: { id: string; subscription: string }[] } | null
-  )?.data?.find((topic) => topic.id === options.productTopicId);
-  return product?.subscription === "opt_out" ? "unsubscribed" : "subscribed";
+  const unsubscribed = (contact.body as { unsubscribed?: unknown } | null)?.unsubscribed;
+  if (typeof unsubscribed !== "boolean") return "unknown";
+  if (unsubscribed) return "unsubscribed";
+
+  let after: string | undefined;
+  for (let page = 0; page < MAX_TOPIC_PAGES; page += 1) {
+    const query = `limit=100${after ? `&after=${encodeURIComponent(after)}` : ""}`;
+    const topics = await call("GET", `${path}/topics?${query}`, options.apiKey, options.fetchImpl);
+    if (topics.status !== 200) return "unknown";
+    const body = topics.body as { data?: unknown; has_more?: unknown } | null;
+    if (!Array.isArray(body?.data)) return "unknown";
+    const data = body.data as { id?: unknown; subscription?: unknown }[];
+    const product = data.find((topic) => topic?.id === options.productTopicId);
+    if (product) {
+      if (product.subscription === "opt_out") return "unsubscribed";
+      return product.subscription === "opt_in" ? "subscribed" : "unknown";
+    }
+    const last = data[data.length - 1]?.id;
+    if (body.has_more !== true || typeof last !== "string") return "unknown";
+    after = last;
+  }
+  return "unknown";
 }
 
 export type AudienceMode =
@@ -191,7 +215,7 @@ export interface AudienceRun {
   /** Left for a later run by the batch limit or the time budget. */
   remaining: number;
   /** Set when nothing could run, and why. */
-  notRun?: "no_segment" | "no_api_key" | "no_start";
+  notRun?: "no_segment" | "no_api_key" | "no_topic" | "no_start";
 }
 
 export type AudienceClient = Pick<PrismaClient, "user" | "userOnboarding">;
@@ -229,6 +253,9 @@ export async function runNewsletterAudience(
   };
   if (!settings.segmentId) return { ...run, notRun: "no_segment" };
   if (!config.apiKey) return { ...run, notRun: "no_api_key" };
+  // The newsletter shares the product email's opt-out topic; without it no
+  // one's preference can be read.
+  if (!config.productTopicId) return { ...run, notRun: "no_topic" };
   if (!settings.startAt) return { ...run, notRun: "no_start" };
   const fetchImpl = pacedFetch(options.fetchImpl ?? fetch, options.minIntervalMs ?? 600);
 
@@ -268,7 +295,12 @@ export async function runNewsletterAudience(
       accounts: { select: { providerId: true } },
       onboarding: { select: { unsubscribedAt: true } },
     },
-    orderBy: { createdAt: "asc" },
+    // Not tried yet first, then the longest since a failed try: people who keep
+    // failing are retried without holding up everyone behind them.
+    orderBy: [
+      { onboarding: { newsletterTriedAt: { sort: "asc", nulls: "first" } } },
+      { createdAt: "asc" },
+    ],
     ...(options.limit ? { take: options.limit } : {}),
   });
   const total = options.limit ? await db.user.count({ where: candidates }) : people.length;
@@ -279,6 +311,13 @@ export async function runNewsletterAudience(
   };
   const segmentPath = (email: string) =>
     `/contacts/${encodeURIComponent(normalizeEmail(email))}/segments/${encodeURIComponent(settings.segmentId!)}`;
+
+  // Not added this time, to be tried again on a later run. Applied, the try is
+  // recorded, which puts the person behind those not tried yet.
+  const failed = async (userId: string) => {
+    run.failed += 1;
+    if (apply) await stampTried(db, userId);
+  };
 
   let processed = 0;
   for (const person of people) {
@@ -305,7 +344,7 @@ export async function runNewsletterAudience(
       fetchImpl,
     });
     if (state === "unknown") {
-      run.failed += 1;
+      await failed(person.id);
       continue;
     }
     if (state === "unsubscribed") {
@@ -321,7 +360,7 @@ export async function runNewsletterAudience(
     if (state === "no_contact") {
       const contact = await ensureContact({ email: person.email }, { env: options.env, fetchImpl });
       if (!contact.ok) {
-        run.failed += 1;
+        await failed(person.id);
         continue;
       }
     }
@@ -335,7 +374,7 @@ export async function runNewsletterAudience(
       (await inSegment(person.email, settings.segmentId, config.apiKey, fetchImpl)) === true;
     if (!confirmed) {
       log(`[newsletter] user ${person.id}: not added (${added.status ?? "network error"})`);
-      run.failed += 1;
+      await failed(person.id);
       continue;
     }
     await stampAdded(db, person.id);
@@ -378,6 +417,11 @@ async function stampAdded(db: AudienceClient, userId: string, now = new Date()) 
     where: { userId, newsletterAddedAt: null },
     data: { newsletterAddedAt: now },
   });
+}
+
+async function stampTried(db: AudienceClient, userId: string, now = new Date()) {
+  await db.userOnboarding.createMany({ data: [{ userId }], skipDuplicates: true });
+  await db.userOnboarding.updateMany({ where: { userId }, data: { newsletterTriedAt: now } });
 }
 
 async function recordProviderOptOut(db: AudienceClient, userId: string, now = new Date()) {

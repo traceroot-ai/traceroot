@@ -25,7 +25,11 @@ type User = {
   email: string;
   createdAt: Date;
   accounts: { providerId: string }[];
-  onboarding: { unsubscribedAt: Date | null; newsletterAddedAt: Date | null } | null;
+  onboarding: {
+    unsubscribedAt: Date | null;
+    newsletterAddedAt: Date | null;
+    newsletterTriedAt?: Date | null;
+  } | null;
 };
 let users: User[];
 
@@ -73,8 +77,18 @@ function where(user: User, w: Where): boolean {
     return matches(user[key as keyof User], cond);
   });
 }
-const pending = (w: Where) =>
-  users.filter((u) => where(u, w)).sort((a, b) => +a.createdAt - +b.createdAt);
+const pending = (w: Where) => users.filter((u) => where(u, w));
+// Sorts as the query's orderBy says: by the time of the last failed try (with
+// nulls first) when it asks for that, then by sign-up.
+type Order = Record<string, unknown>[] | Record<string, unknown> | undefined;
+function ordered(list: User[], orderBy: Order) {
+  const keys = Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : [];
+  const byTried = keys.some((k) => "onboarding" in k);
+  const tried = (u: User) => u.onboarding?.newsletterTriedAt?.getTime() ?? -Infinity;
+  return [...list].sort(
+    (a, b) => (byTried ? tried(a) - tried(b) : 0) || +a.createdAt - +b.createdAt,
+  );
+}
 const row = (userId: string) => {
   const user = users.find((u) => u.id === userId)!;
   user.onboarding ??= { unsubscribedAt: null, newsletterAddedAt: null };
@@ -82,8 +96,15 @@ const row = (userId: string) => {
 };
 const db = {
   user: {
-    findMany: async ({ where: w, take }: { where: Where; take?: number }) =>
-      pending(w).slice(0, take ?? Infinity),
+    findMany: async ({
+      where: w,
+      take,
+      orderBy,
+    }: {
+      where: Where;
+      take?: number;
+      orderBy?: Order;
+    }) => ordered(pending(w), orderBy).slice(0, take ?? Infinity),
     count: async ({ where: w }: { where: Where }) => pending(w).length,
   },
   userOnboarding: {
@@ -99,8 +120,8 @@ const db = {
       data: Record<string, Date>;
     }) => {
       const r = row(where.userId);
-      const field = Object.keys(where).find((k) => k !== "userId") as keyof typeof r;
-      if (r[field] !== null) return { count: 0 };
+      const field = Object.keys(where).find((k) => k !== "userId") as keyof typeof r | undefined;
+      if (field && r[field] !== null) return { count: 0 };
       Object.assign(r, data);
       return { count: 1 };
     },
@@ -428,7 +449,10 @@ describe("does nothing without its settings", () => {
 // does, so a lost response is a real dropped connection.
 describe("adding to the segment, against a local endpoint", () => {
   type Behavior = "ok" | "lost" | "fail" | "duplicate";
+  type Quirk = "garbled-contact" | "garbled-topics" | "topics-down";
   const members = new Map<string, string[]>();
+  const topicsOf = new Map<string, { id: string; subscription: string }[]>();
+  const quirks = new Map<string, Quirk>();
   const behavior = new Map<string, Behavior>();
   const requests: string[] = [];
   let server: Server;
@@ -444,9 +468,29 @@ describe("adding to the segment, against a local endpoint", () => {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(body));
       };
-      if (req.method === "GET" && parts.length === 3)
+      const quirk = quirks.get(email);
+      const garbled = () => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{not json");
+      };
+      if (req.method === "GET" && parts.length === 3) {
+        if (quirk === "garbled-contact") return garbled();
         return json(200, { email, unsubscribed: false });
-      if (req.method === "GET" && parts[3] === "topics") return json(200, { data: [] });
+      }
+      if (req.method === "GET" && parts[3] === "topics") {
+        if (quirk === "garbled-topics") return garbled();
+        if (quirk === "topics-down") return json(500, { name: "application_error" });
+        // Paged like the provider's lists: limit, then after the given id.
+        const all = topicsOf.get(email) ?? [{ id: "topic_product", subscription: "opt_in" }];
+        const after = url.searchParams.get("after");
+        const start = after ? all.findIndex((t) => t.id === after) + 1 : 0;
+        const limit = Number(url.searchParams.get("limit") ?? 20);
+        return json(200, {
+          object: "list",
+          data: all.slice(start, start + limit),
+          has_more: start + limit < all.length,
+        });
+      }
       if (req.method === "GET" && parts[3] === "segments") {
         // 100 to a page at most, after the given id, as the provider pages them.
         const all = members.get(email) ?? [];
@@ -475,11 +519,18 @@ describe("adding to the segment, against a local endpoint", () => {
 
   const local = ((url: string, init: RequestInit) =>
     fetch(url.replace("https://api.resend.com", base), init)) as typeof fetch;
-  const tick = (apply = true) =>
+  const tick = (
+    apply = true,
+    opts: { kind?: "scheduled" | "import"; limit?: number; env?: NodeJS.ProcessEnv } = {},
+  ) =>
     runNewsletterAudience(db, {
-      mode: { kind: "scheduled", now: new Date(START.getTime() + 20 * DAY) },
+      mode:
+        opts.kind === "import"
+          ? { kind: "import" }
+          : { kind: "scheduled", now: new Date(START.getTime() + 20 * DAY) },
       apply,
-      env: ENV,
+      limit: opts.limit,
+      env: opts.env ?? ENV,
       fetchImpl: local,
       minIntervalMs: 0,
       log: () => {},
@@ -490,6 +541,8 @@ describe("adding to the segment, against a local endpoint", () => {
   beforeEach(() => {
     members.clear();
     behavior.clear();
+    topicsOf.clear();
+    quirks.clear();
     requests.length = 0;
   });
 
@@ -548,5 +601,106 @@ describe("adding to the segment, against a local endpoint", () => {
     expect(await tick(false)).toMatchObject({ added: 1 });
     expect(requests.some((r) => r.startsWith("POST") || r.startsWith("GET segments"))).toBe(false);
     expect(stamped("dry")).toBe(false);
+  });
+
+  describe.each(["scheduled", "import"] as const)("the preference, in the %s run", (kind) => {
+    // A sign-up the run takes: from the start and 14 days ago for the
+    // scheduled run, before the start for the import.
+    const signUp = (id: string, at = 0) =>
+      person(id, new Date((kind === "import" ? START.getTime() - DAY : signedUp.getTime()) + at));
+    const run = (apply = true, opts: { limit?: number; env?: NodeJS.ProcessEnv } = {}) =>
+      tick(apply, { kind, ...opts });
+    const others = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `topic_${i}`, subscription: "opt_in" }));
+    const onboarding = (id: string) => users.find((u) => u.id === id)!.onboarding;
+
+    it("adds someone clearly opted in", async () => {
+      signUp("in");
+      expect(await run()).toMatchObject({ added: 1, failed: 0 });
+      expect(members.get("in@acme.test")).toEqual(["seg_news"]);
+    });
+
+    it("leaves out someone opted out on the second page of their topics, and records it", async () => {
+      signUp("out");
+      topicsOf.set("out@acme.test", [
+        ...others(150),
+        { id: "topic_product", subscription: "opt_out" },
+      ]);
+      expect(await run()).toMatchObject({ added: 0, excluded: { provider_unsubscribed: 1 } });
+      expect(members.has("out@acme.test")).toBe(false);
+      expect(onboarding("out")?.unsubscribedAt).toBeInstanceOf(Date);
+      expect(requests.filter((r) => r.startsWith("GET topics"))).toEqual([
+        "GET topics?limit=100",
+        "GET topics?limit=100&after=topic_99",
+      ]);
+    });
+
+    it("in a dry run, counts that opt-out and writes nothing", async () => {
+      signUp("out");
+      topicsOf.set("out@acme.test", [
+        ...others(150),
+        { id: "topic_product", subscription: "opt_out" },
+      ]);
+      expect(await run(false)).toMatchObject({ added: 0, excluded: { provider_unsubscribed: 1 } });
+      expect(onboarding("out")).toBeNull();
+      expect(requests.some((r) => r.startsWith("POST"))).toBe(false);
+    });
+
+    it.each<[string, () => void]>([
+      ["the product topic on no page", () => topicsOf.set("q@acme.test", others(120))],
+      [
+        "a preference that is neither opt-in nor opt-out",
+        () => topicsOf.set("q@acme.test", [{ id: "topic_product", subscription: "pending" }]),
+      ],
+      ["an unreadable contact", () => quirks.set("q@acme.test", "garbled-contact")],
+      ["unreadable topics", () => quirks.set("q@acme.test", "garbled-topics")],
+      ["topics that fail to load", () => quirks.set("q@acme.test", "topics-down")],
+    ])("adds nobody on %s, and adds them once it reads clearly", async (_case, arrange) => {
+      signUp("q");
+      arrange();
+      expect(await run()).toMatchObject({ added: 0, failed: 1 });
+      expect(members.has("q@acme.test")).toBe(false);
+      expect(onboarding("q")?.newsletterAddedAt ?? null).toBeNull();
+      expect(onboarding("q")?.newsletterTriedAt).toBeInstanceOf(Date);
+      topicsOf.clear();
+      quirks.clear();
+      expect(await run()).toMatchObject({ added: 1, failed: 0 });
+      expect(members.get("q@acme.test")).toEqual(["seg_news"]);
+    });
+
+    it("does nothing at all without the product topic configured", async () => {
+      signUp("in");
+      const result = await run(true, { env: { ...ENV, RESEND_PRODUCT_TOPIC_ID: "" } });
+      expect(result.notRun).toBe("no_topic");
+      expect(requests).toEqual([]);
+      expect(onboarding("in")).toBeNull();
+    });
+
+    it("lets later people through while the first ten keep failing, and retries those ten", async () => {
+      for (let i = 1; i <= 12; i += 1) signUp(`n${i}`, i * 1000);
+      for (let i = 1; i <= 10; i += 1) quirks.set(`n${i}@acme.test`, "topics-down");
+      const first = await run(true, { limit: 10 });
+      expect(first).toMatchObject({ added: 0, failed: 10, remaining: 2 });
+      const second = await run(true, { limit: 10 });
+      expect(second.added).toBe(2);
+      expect([...members.keys()].sort()).toEqual(["n11@acme.test", "n12@acme.test"]);
+      expect(second.failed).toBe(8);
+      // The failures are still tried, run after run, and get through once they read clearly.
+      quirks.clear();
+      const third = await run(true, { limit: 10 });
+      const fourth = await run(true, { limit: 10 });
+      expect(third.added + fourth.added).toBe(10);
+      expect(members.size).toBe(12);
+      expect(await run(true, { limit: 10 })).toMatchObject({ added: 0, failed: 0 });
+    });
+
+    it("works through twelve in sign-up order when every add succeeds", async () => {
+      for (let i = 1; i <= 12; i += 1) signUp(`n${i}`, i * 1000);
+      expect(await run(true, { limit: 10 })).toMatchObject({ added: 10, failed: 0, remaining: 2 });
+      expect(members.has("n11@acme.test")).toBe(false);
+      expect(await run(true, { limit: 10 })).toMatchObject({ added: 2, remaining: 0 });
+      expect(await run(true, { limit: 10 })).toMatchObject({ added: 0, considered: 0 });
+      expect(members.size).toBe(12);
+    });
   });
 });
