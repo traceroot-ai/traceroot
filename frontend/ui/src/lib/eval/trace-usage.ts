@@ -104,10 +104,21 @@ function hasUsage(s: UsageSpan): boolean {
   );
 }
 
+/** A span's token total: the reported total, else input + output; null when it reported
+ *  no tokens at all, never 0. A streamed span with no usage lacks the keys altogether, so
+ *  a missing key reads like a null one. */
+export function spanTotalTokens(
+  s: Pick<UsageSpan, "input_tokens" | "output_tokens" | "total_tokens">,
+): number | null {
+  if (s.total_tokens != null) return s.total_tokens;
+  if (s.input_tokens == null && s.output_tokens == null) return null;
+  return (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
+}
+
 function addUsage(bucket: UsageBucket, s: UsageSpan, models: Set<string>): void {
   bucket.inputTokens += s.input_tokens ?? 0;
   bucket.outputTokens += s.output_tokens ?? 0;
-  bucket.totalTokens += s.total_tokens ?? (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
+  bucket.totalTokens += spanTotalTokens(s) ?? 0;
   bucket.cost += s.cost ?? 0;
   if (s.cost !== null) bucket.costKnown = true;
   bucket.spanCount += 1;
@@ -122,7 +133,10 @@ function addUsage(bucket: UsageBucket, s: UsageSpan, models: Set<string>): void 
  * a span with no TASK wrapper in its ancestry still counts as task, on both surfaces.
  * Guards against cycles.
  */
-function attributionOf(span: UsageSpan, byId: Map<string, UsageSpan>): "task" | "scorer" {
+export function attributionOf(
+  span: UsageSpan,
+  byId: ReadonlyMap<string, UsageSpan>,
+): "task" | "scorer" {
   const seen = new Set<string>();
   let cur: UsageSpan | undefined = span;
   while (cur) {
