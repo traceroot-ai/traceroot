@@ -100,7 +100,7 @@ function renderTimeline(props: Partial<React.ComponentProps<typeof SpanTimelineV
       scrollRef={{ current: null }}
       hoveredSpanId={null}
       onHoverChange={vi.fn()}
-      diff={{ baseline: BASELINE, nodes: NODES }}
+      diff={{ baseline: BASELINE, nodes: NODES, measured: true }}
       {...props}
     />,
   );
@@ -149,6 +149,36 @@ describe("SpanTimelineView in diff mode", () => {
     const { container } = renderTimeline();
     const traceRow = container.querySelector<HTMLElement>('[style*="translateY(0px)"]')!;
     expect(traceRow.querySelector<HTMLElement>("[data-diff-ghost]")!.style.width).toBe("62.5%");
+  });
+
+  it("leaves the baseline's bars out when either trace is a reconstruction", () => {
+    const { container, rows, row, bar } = renderTimeline({
+      diff: { baseline: BASELINE, nodes: NODES, measured: false },
+    });
+    expect(container.querySelector("[data-diff-ghost]")).toBeNull();
+    expect(container.querySelector('[title^="Baseline:"]')).toBeNull();
+    // Each row keeps its place beside the tree's: a span only the baseline has draws nothing.
+    expect(rows()).toHaveLength(4);
+    expect(bar(row(2), "bar")).toBeNull();
+    expect(row(2).textContent).toBe("");
+    expect(bar(row(3), "bar")).not.toBeNull();
+  });
+
+  it("spans this trace alone when the baseline's figures aren't compared", () => {
+    // This trace is the shorter run here: compared, the timeline spans the other run's
+    // 1600ms; not compared, its own 1000ms.
+    const nodes = traceUnion(CANDIDATE, BASELINE).nodes;
+    const planWidth = (measured: boolean) => {
+      const { row, bar, unmount } = renderTimeline({
+        trace: BASELINE,
+        diff: { baseline: CANDIDATE, nodes, measured },
+      });
+      const width = bar(row(1), "bar")!.style.width;
+      unmount();
+      return width;
+    };
+    expect(planWidth(true)).toBe("100px");
+    expect(planWidth(false)).toBe("160px");
   });
 
   it("selects a span only the baseline has by the baseline's span", () => {

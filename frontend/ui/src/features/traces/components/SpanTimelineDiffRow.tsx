@@ -31,6 +31,8 @@ export function GhostBar({
 /**
  * One node of the union of two traces on the timeline: this trace's span as its usual bar,
  * with the baseline's span as a ghost behind it, either alone on a span only one run has.
+ * With neither (a span only the baseline has, when its figures aren't compared) the row is
+ * empty but keeps its place beside the tree's.
  */
 export function SpanTimelineDiffRow({
   node,
@@ -62,7 +64,7 @@ export function SpanTimelineDiffRow({
     MODEL_SPAN_KINDS.has(span.span_kind) ||
     span.span_kind === SpanKind.TOOL ||
     span.parent_span_id === null;
-  const shown = bar ?? ghost!;
+  const shown = bar ?? ghost;
   const width = bar ? toPx(bar.durationMs) : 0;
   const isInstant = !!bar && !bar.inProgress && width < 2;
   return (
@@ -84,7 +86,7 @@ export function SpanTimelineDiffRow({
       }}
       onClick={onSelect}
     >
-      {showDuration && (
+      {showDuration && shown && (
         <span className="absolute left-2 z-20 whitespace-nowrap text-[12px] text-muted-foreground">
           {formatDuration(shown.durationMs)}
         </span>

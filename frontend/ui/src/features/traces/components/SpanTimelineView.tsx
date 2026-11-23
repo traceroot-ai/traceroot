@@ -71,9 +71,11 @@ interface SpanTimelineViewProps {
    * Diff mode (the evaluation comparison): the rows of the union of this trace and a
    * baseline trace of the same case, as the tree draws them, with the baseline's span as a
    * ghost behind each matched bar and alone for a span only the baseline has. The timeline
-   * spans the longer run. Unset in production.
+   * spans the longer run. Unless both traces were `measured` (neither is a reconstruction),
+   * the baseline draws nothing and the timeline spans this trace alone, so no placeholder
+   * timing is compared. Unset in production.
    */
-  diff?: { baseline: TraceDetail; nodes: UnionNode[] };
+  diff?: { baseline: TraceDetail; nodes: UnionNode[]; measured: boolean };
 }
 
 /**
@@ -110,9 +112,10 @@ export function SpanTimelineView({
   }, []);
 
   const traceDurationMs = useMemo(() => Math.max(1, getTraceDuration(trace) ?? 1), [trace]);
-  // What the ruler and every bar measure against: this trace, or in diff mode both runs.
+  // What the ruler and every bar measure against: this trace, or both runs when diffing
+  // two measured traces.
   const scaleMs = useMemo(
-    () => (diff ? diffScaleMs(trace, diff.baseline) : traceDurationMs),
+    () => (diff?.measured ? diffScaleMs(trace, diff.baseline) : traceDurationMs),
     [diff, trace, traceDurationMs],
   );
 
@@ -160,7 +163,10 @@ export function SpanTimelineView({
       const nodes = traceIsCollapsed ? [] : visibleUnionNodes(diff.nodes, collapsedIds);
       return [
         { type: "trace-root" },
-        ...nodes.map((node) => ({ type: "union" as const, node, ...bars.get(node.id)! })),
+        ...nodes.map((node) => {
+          const { bar, ghost } = bars.get(node.id)!;
+          return { type: "union" as const, node, bar, ghost: diff.measured ? ghost : null };
+        }),
       ];
     }
     return [
@@ -288,7 +294,7 @@ export function SpanTimelineView({
                       )}
                     </span>
                   )}
-                  {diff && (
+                  {diff?.measured && (
                     <GhostBar
                       left="0px"
                       width={`${((getTraceDuration(diff.baseline) ?? 0) / scaleMs) * 100}%`}
