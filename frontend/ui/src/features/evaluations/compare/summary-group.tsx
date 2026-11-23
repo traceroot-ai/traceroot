@@ -4,7 +4,7 @@ import * as React from "react";
 import { TBody, Td } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { GROUP_EDGE, INPUT_COLUMN, lineClass, lineEdge, RUN_COLUMN, RunCell } from "./cells";
-import { isShown, metricColumn, type DisplayPrefs } from "./display";
+import { isShown, metricColumn, type ColumnId, type DisplayPrefs } from "./display";
 import type { CaseFilter } from "./filters";
 import { formatCost, formatMs, signedWith } from "./metric-format";
 import {
@@ -68,7 +68,7 @@ export function SummaryGroup({
     () => new Map([...pairs].map(([runId, pair]) => [runId, countCellsByScorer(pair)])),
     [pairs],
   );
-  const shows = (id: Parameters<typeof isShown>[1]) => isShown(display, id);
+  const shows = (id: ColumnId) => isShown(display, id);
   const metrics = model.scorers.filter((s) => shows(metricColumn(s.name)));
   const label = filtering ? "Matching cases" : "All cases";
   const span = model.runs.length;

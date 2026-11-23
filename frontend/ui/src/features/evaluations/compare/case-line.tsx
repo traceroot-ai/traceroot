@@ -24,7 +24,7 @@ import {
   type CellState,
   type LineFailure,
 } from "./cell-state";
-import { isShown, metricColumn, type DisplayPrefs } from "./display";
+import { isShown, metricColumn, type ColumnId, type DisplayPrefs } from "./display";
 import { formatCost, formatMetricDelta, formatMs, signedWith } from "./metric-format";
 import type { ScorerColumn } from "./model";
 import { changedWords } from "./output-highlight";
@@ -172,7 +172,7 @@ export function CaseLine({
   /** The output's own controls, while the group is in use. */
   outputActions?: React.ReactNode;
 }) {
-  const shows = (id: Parameters<typeof isShown>[1]) => isShown(display, id);
+  const shows = (id: ColumnId) => isShown(display, id);
   const wrap = display.text === "wrap";
   const edge = lineEdge(last);
   const metrics = scorers.filter((s) => shows(metricColumn(s.name)));
