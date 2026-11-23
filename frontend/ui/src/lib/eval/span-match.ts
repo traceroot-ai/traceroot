@@ -230,12 +230,7 @@ function pairByKey(
   baseKey: (s: Span) => string,
   candKey: (s: Span) => string,
 ): Array<[Span, Span]> {
-  const byKeyIndex = new Map<string, Span[]>();
-  for (const b of bases) {
-    const list = byKeyIndex.get(baseKey(b));
-    if (list) list.push(b);
-    else byKeyIndex.set(baseKey(b), [b]);
-  }
+  const byKeyIndex = byKey(bases, baseKey);
   const taken = new Map<string, number>();
   const pairs: Array<[Span, Span]> = [];
   for (const c of cands) {
