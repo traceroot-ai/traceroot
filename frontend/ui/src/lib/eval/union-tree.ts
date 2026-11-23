@@ -286,12 +286,17 @@ export function unionParentIds(nodes: readonly UnionNode[]): Set<string> {
   return ids;
 }
 
+/** The span a node shows: this trace's, or the baseline's when only the baseline has it. */
+export function unionNodeSpan(node: UnionNode): Span {
+  return node.candidate ?? node.baseline;
+}
+
 /** A node's name; a root paired across a rename reads "old → new". */
 export function unionNodeName(node: UnionNode): string {
   if (node.state === "matched" && node.baseline.name !== node.candidate.name) {
     return `${node.baseline.name} → ${node.candidate.name}`;
   }
-  return (node.candidate ?? node.baseline).name;
+  return unionNodeSpan(node).name;
 }
 
 /** Whether a matched span ran under another parent in the candidate than the one it is

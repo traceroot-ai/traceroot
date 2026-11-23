@@ -1,6 +1,18 @@
-import type { MetricPair, UnionNode } from "@/lib/eval/union-tree";
+import type {
+  MetricPair,
+  UnionNode,
+  UnionNodeMetrics,
+  UnionNodeState,
+} from "@/lib/eval/union-tree";
 import type { Span, TraceDetail } from "@/types/api";
-import { getSpanDuration, getTraceDuration, parseTimestamp } from "./index";
+import type { TraceSelection } from "../types";
+import {
+  getSpanDuration,
+  getTraceDuration,
+  getTraceTokenUsage,
+  getTraceTotalCost,
+  parseTimestamp,
+} from "./index";
 
 /**
  * The node of the union of two traces a selected span stands for. In diff mode the tree
@@ -13,24 +25,60 @@ export function findUnionNode(
   span: Pick<Span, "span_id" | "trace_id">,
   baselineTraceId: string | null,
 ): UnionNode | null {
-  const onBaseline = (n: UnionNode) => n.baseline?.span_id === span.span_id;
-  const onCandidate = (n: UnionNode) => n.candidate?.span_id === span.span_id;
-  const found =
-    baselineTraceId !== null && span.trace_id === baselineTraceId
-      ? nodes.find(onBaseline)
-      : nodes.find(onCandidate);
-  return found ?? null;
+  const side =
+    baselineTraceId !== null && span.trace_id === baselineTraceId ? "baseline" : "candidate";
+  return nodes.find((n) => n[side]?.span_id === span.span_id) ?? null;
 }
 
 /** The text colour of a figure that moved in diff mode: green when it got better (lower,
  *  for every figure the viewer compares), red when worse, muted when it didn't move enough
  *  to count or can't be compared. */
 export function moveClass(move: "better" | "worse" | null): string {
-  return move === "better"
-    ? "text-success"
-    : move === "worse"
-      ? "text-danger"
-      : "text-muted-foreground";
+  switch (move) {
+    case "better":
+      return "text-success";
+    case "worse":
+      return "text-danger";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
+/** The text colour of a node's name by state: green when only this trace has the span, red
+ *  when only the baseline does. */
+export const UNION_STATE_CLASS: Record<UnionNodeState, string> = {
+  matched: "",
+  added: "text-success",
+  removed: "text-destructive",
+};
+
+/** Whether the selection is this span of this trace. By trace as well as id: the two
+ *  traces' span ids can coincide. */
+export function isSpanSelected(selection: TraceSelection, span: Span): boolean {
+  return (
+    selection.type === "span" &&
+    selection.span.span_id === span.span_id &&
+    selection.span.trace_id === span.trace_id
+  );
+}
+
+/** A whole trace's figures on each side of the diff; the baseline's are null when there is
+ *  no baseline trace. */
+export function traceFigures(baseline: TraceDetail | null, trace: TraceDetail): UnionNodeMetrics {
+  return {
+    durationMs: {
+      baseline: baseline && getTraceDuration(baseline),
+      candidate: getTraceDuration(trace),
+    },
+    totalTokens: {
+      baseline: (baseline && getTraceTokenUsage(baseline)?.totalTokens) ?? null,
+      candidate: getTraceTokenUsage(trace)?.totalTokens ?? null,
+    },
+    cost: {
+      baseline: baseline && getTraceTotalCost(baseline),
+      candidate: getTraceTotalCost(trace),
+    },
+  };
 }
 
 /** "1.0s → 1.6s": a figure on the baseline, then on this trace; "—" for a side with none. */

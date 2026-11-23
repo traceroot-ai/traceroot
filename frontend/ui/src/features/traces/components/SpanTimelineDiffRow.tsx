@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { MODEL_SPAN_KINDS, SpanKind, SpanStatus } from "@traceroot/core";
-import type { UnionNode } from "@/lib/eval/union-tree";
+import { unionNodeSpan, type UnionNode } from "@/lib/eval/union-tree";
 import { cn, formatDuration } from "@/lib/utils";
 import type { DiffBar } from "../utils/diff";
 import { getSpanKindColor } from "./SpanKindIcon";
@@ -58,7 +58,7 @@ export function SpanTimelineDiffRow({
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
-  const span = node.candidate ?? node.baseline;
+  const span = unionNodeSpan(node);
   // The same spans name their duration as on a plain row.
   const showDuration =
     MODEL_SPAN_KINDS.has(span.span_kind) ||

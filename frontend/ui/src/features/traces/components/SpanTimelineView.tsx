@@ -15,8 +15,9 @@ import {
 import { getSpanKindColor } from "./SpanKindIcon";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
-import { visibleUnionNodes, type UnionNode } from "@/lib/eval/union-tree";
-import { diffScaleMs, unionBars, type DiffBar } from "../utils/diff";
+import { unionNodeSpan, visibleUnionNodes, type UnionNode } from "@/lib/eval/union-tree";
+import { diffScaleMs, isSpanSelected, unionBars, type DiffBar } from "../utils/diff";
+import type { SpanTreeDiff } from "./SpanTreeView";
 import { GhostBar, SpanTimelineDiffRow } from "./SpanTimelineDiffRow";
 
 const ROW_HEIGHT = TREE_LAYOUT.ROW_HEIGHT;
@@ -75,7 +76,7 @@ interface SpanTimelineViewProps {
    * the baseline draws nothing and the timeline spans this trace alone, so no placeholder
    * timing is compared. Unset in production.
    */
-  diff?: { baseline: TraceDetail; nodes: UnionNode[]; measured: boolean };
+  diff?: SpanTreeDiff;
 }
 
 /**
@@ -318,7 +319,7 @@ export function SpanTimelineView({
 
             if (row.type === "union") {
               const { node } = row;
-              const shown = node.candidate ?? node.baseline;
+              const shown = unionNodeSpan(node);
               return (
                 <SpanTimelineDiffRow
                   key={node.id}
@@ -327,12 +328,7 @@ export function SpanTimelineView({
                   ghost={row.ghost}
                   toPx={(ms) => (ms / scaleMs) * timelineWidth}
                   style={rowStyle}
-                  // By trace as well as id: the two traces' span ids can coincide.
-                  selected={
-                    selection.type === "span" &&
-                    selection.span.span_id === shown.span_id &&
-                    selection.span.trace_id === shown.trace_id
-                  }
+                  selected={isSpanSelected(selection, shown)}
                   hovered={hoveredSpanId === node.id}
                   onSelect={() => onSelect({ type: "span", span: shown })}
                   onMouseEnter={() => onHoverChange(node.id)}

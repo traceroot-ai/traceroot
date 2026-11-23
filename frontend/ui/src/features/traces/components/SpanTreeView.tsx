@@ -12,7 +12,12 @@ import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { MODEL_SPAN_KINDS, SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection, SpanTreeRow } from "../types";
-import { unionParentIds, visibleUnionNodes, type UnionNode } from "@/lib/eval/union-tree";
+import {
+  unionNodeSpan,
+  unionParentIds,
+  visibleUnionNodes,
+  type UnionNode,
+} from "@/lib/eval/union-tree";
 import {
   buildSpanTree,
   buildChildrenMap,
@@ -27,6 +32,7 @@ import {
 import { spanIOQueryKey, SPAN_IO_STALE_TIME_MS } from "../hooks";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { SpanTreeConnector } from "./SpanTreeConnector";
+import { isSpanSelected } from "../utils/diff";
 import { SpanTreeDiffRow, TraceRowDiffFigures } from "./SpanTreeDiffRow";
 
 const ROW_HEIGHT = TREE_LAYOUT.ROW_HEIGHT;
@@ -267,7 +273,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
         const index = allRows.findIndex(
           (r) =>
             (r.type === "span" && r.row.span.span_id === spanId) ||
-            (r.type === "union" && (r.node.candidate ?? r.node.baseline).span_id === spanId),
+            (r.type === "union" && unionNodeSpan(r.node).span_id === spanId),
         );
         if (index !== -1) rowVirtualizer.scrollToIndex(index, { align: "center" });
       },
@@ -367,19 +373,14 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
           if (rowData.type === "union") {
             const { node } = rowData;
-            const shown = node.candidate ?? node.baseline;
+            const shown = unionNodeSpan(node);
             const { candidate } = node;
             return (
               <SpanTreeDiffRow
                 key={node.id}
                 node={node}
                 style={rowStyle}
-                // By trace as well as id: the two traces' span ids can coincide.
-                selected={
-                  selection.type === "span" &&
-                  selection.span.span_id === shown.span_id &&
-                  selection.span.trace_id === shown.trace_id
-                }
+                selected={isSpanSelected(selection, shown)}
                 hovered={hoveredSpanId === node.id}
                 compact={compact}
                 measured={diff!.measured}

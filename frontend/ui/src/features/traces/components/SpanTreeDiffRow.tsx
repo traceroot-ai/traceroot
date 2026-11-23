@@ -9,6 +9,7 @@ import {
   isMovedNode,
   metricDirection,
   unionNodeName,
+  unionNodeSpan,
   type MetricPair,
   type UnionNode,
   type UnionNodeMetrics,
@@ -16,16 +17,9 @@ import {
 } from "@/lib/eval/union-tree";
 import { cn, formatDuration, formatTokens } from "@/lib/utils";
 import type { TraceDetail } from "@/types/api";
-import { getTraceDuration, getTraceTokenUsage, getTraceTotalCost } from "../utils";
-import { beforeAfter, moveClass } from "../utils/diff";
+import { beforeAfter, moveClass, traceFigures, UNION_STATE_CLASS } from "../utils/diff";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { SpanTreeConnector } from "./SpanTreeConnector";
-
-const NAME_CLASS: Record<UnionNodeState, string> = {
-  matched: "",
-  added: "text-success",
-  removed: "text-destructive",
-};
 
 // The same slots, sizes and container-query breakpoints as a plain row's figures, widened
 // for the longer "before → after" text.
@@ -34,6 +28,23 @@ const TOKENS_CLASS =
   "hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] font-medium @[200px]:inline-flex";
 const COST_CLASS =
   "hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] @[300px]:inline-flex";
+
+/** A figure's text: before → after on a span both runs have, the one run's figure on a span
+ *  only it has; null when there is none to show. */
+function figureText(
+  state: UnionNodeState,
+  pair: MetricPair,
+  format: (n: number) => string,
+): string | null {
+  switch (state) {
+    case "matched":
+      return pair.baseline === null && pair.candidate === null ? null : beforeAfter(pair, format);
+    case "added":
+      return pair.candidate === null ? null : format(pair.candidate);
+    case "removed":
+      return pair.baseline === null ? null : format(pair.baseline);
+  }
+}
 
 /** One of a node's figures: before → after on a span both runs have, coloured by which way
  *  it moved; the one run's figure on a span only it has. Nothing when it has none. */
@@ -47,16 +58,10 @@ function NodeFigure({
   format: (n: number) => string;
 }) {
   const pair = node.metrics[metric];
-  const only =
-    node.state === "added" ? pair.candidate : node.state === "removed" ? pair.baseline : null;
-  if (
-    node.state !== "matched" ? only === null : pair.baseline === null && pair.candidate === null
-  ) {
-    return null;
-  }
+  const text = figureText(node.state, pair, format);
+  if (text === null) return null;
   // An evaluation's usage follows the output it judged, so it is shown but never coloured.
   const tone = node.state === "matched" && !node.evaluator ? metricDirection(metric, pair) : null;
-  const text = node.state === "matched" ? beforeAfter(pair, format) : format(only!);
   return metric === "durationMs" ? (
     <span data-metric="duration" className={cn(DURATION_CLASS, moveClass(tone))}>
       {text}
@@ -103,7 +108,7 @@ export function SpanTreeDiffRow({
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
-  const span = node.candidate ?? node.baseline;
+  const span = unionNodeSpan(node);
   return (
     <div
       data-diff-state={node.state}
@@ -135,7 +140,7 @@ export function SpanTreeDiffRow({
           data-span-name
           className={cn(
             "min-w-0 shrink truncate text-xs",
-            node.evaluator ? "text-muted-foreground" : NAME_CLASS[node.state],
+            node.evaluator ? "text-muted-foreground" : UNION_STATE_CLASS[node.state],
             span.pending && "text-muted-foreground/60",
           )}
         >
@@ -190,29 +195,19 @@ export function TraceRowDiffFigures({
   trace: TraceDetail;
   baseline: TraceDetail;
 }) {
+  const pairs = traceFigures(baseline, trace);
   const figures: {
     metric: keyof UnionNodeMetrics;
     name: string;
     className: string;
-    pair: MetricPair;
     format: (n: number) => string;
     icon?: typeof DOMAIN_ICONS.tokens;
   }[] = [
-    {
-      metric: "durationMs",
-      name: "duration",
-      className: DURATION_CLASS,
-      pair: { baseline: getTraceDuration(baseline), candidate: getTraceDuration(trace) },
-      format: formatDuration,
-    },
+    { metric: "durationMs", name: "duration", className: DURATION_CLASS, format: formatDuration },
     {
       metric: "totalTokens",
       name: "tokens",
       className: TOKENS_CLASS,
-      pair: {
-        baseline: getTraceTokenUsage(baseline)?.totalTokens ?? null,
-        candidate: getTraceTokenUsage(trace)?.totalTokens ?? null,
-      },
       format: formatTokens,
       icon: DOMAIN_ICONS.tokens,
     },
@@ -220,7 +215,6 @@ export function TraceRowDiffFigures({
       metric: "cost",
       name: "cost",
       className: COST_CLASS,
-      pair: { baseline: getTraceTotalCost(baseline), candidate: getTraceTotalCost(trace) },
       // As the plain trace row shows it.
       format: (n) => n.toFixed(4),
       icon: DOMAIN_ICONS.cost,
@@ -229,15 +223,15 @@ export function TraceRowDiffFigures({
   return (
     <>
       {figures
-        .filter(({ pair }) => pair.baseline !== null || pair.candidate !== null)
-        .map(({ metric, name, className, pair, format, icon: Icon }) => (
+        .filter(({ metric }) => pairs[metric].baseline !== null || pairs[metric].candidate !== null)
+        .map(({ metric, name, className, format, icon: Icon }) => (
           <span
             key={name}
             data-metric={name}
-            className={cn(className, moveClass(metricDirection(metric, pair)))}
+            className={cn(className, moveClass(metricDirection(metric, pairs[metric])))}
           >
             {Icon && <Icon className="h-2.5 w-2.5" />}
-            {beforeAfter(pair, format)}
+            {beforeAfter(pairs[metric], format)}
           </span>
         ))}
     </>
