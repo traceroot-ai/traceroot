@@ -70,12 +70,11 @@ SELECT
   m."meter",
   p."period_start",
   CASE
+    WHEN parsed."period_start" IS NULL
+      OR (parsed."period_start" AT TIME ZONE 'UTC') <> p."period_start" THEN 0
     WHEN n."normalized_units" IS NULL THEN 0
     WHEN length(n."normalized_units") > 16 THEN 9007199254740991::bigint
-    WHEN parsed."period_start" IS NOT NULL
-      AND (parsed."period_start" AT TIME ZONE 'UTC') = p."period_start"
-    THEN LEAST(n."normalized_units"::numeric, 9007199254740991)::bigint
-    ELSE 0
+    ELSE LEAST(n."normalized_units"::numeric, 9007199254740991)::bigint
   END,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
