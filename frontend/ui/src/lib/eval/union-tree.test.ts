@@ -739,3 +739,83 @@ describe("metricDirection", () => {
     expect(metricDirection("durationMs", { baseline: 1000, candidate: null })).toBeNull();
   });
 });
+
+describe("traceUnion on a retried call", () => {
+  // A candidate whose `agent` span was never exported: its children name it as their
+  // parent and carry it in their recorded path, so it is drawn as a placeholder.
+  const under = (name: string) => ({
+    metadata: JSON.stringify({
+      "traceroot.span.ids_path": ["c-eval", "c-task", "c-agent"],
+      "traceroot.span.path": ["evaluation-item", "task", "agent", name],
+    }),
+  });
+
+  it("adds the failed first call, pairs the rest and leaves the judge out of the counts", () => {
+    const baseline = traceOf(
+      "tb",
+      trace([
+        ["b-eval", null, "evaluation-item", SpanKind.EVALUATION],
+        ["b-task", "b-eval", "task", SpanKind.TASK],
+        ["b-agent", "b-task", "agent", SpanKind.AGENT],
+        ["b-s1", "b-agent", "web_search", SpanKind.TOOL],
+        ["b-s2", "b-agent", "web_search", SpanKind.TOOL],
+        ["b-answer", "b-agent", "compose_answer", SpanKind.LLM, { total_tokens: 1200 }],
+        ["b-quality", "b-eval", "quality", SpanKind.SCORER],
+        ["b-judge", "b-quality", "judge", SpanKind.LLM, { total_tokens: 500 }],
+      ]),
+    );
+    const candidate = traceOf(
+      "tc",
+      trace([
+        ["c-eval", null, "evaluation-item", SpanKind.EVALUATION],
+        ["c-task", "c-eval", "task", SpanKind.TASK],
+        [
+          "c-s1",
+          "c-agent",
+          "web_search",
+          SpanKind.TOOL,
+          { ...under("web_search"), status: SpanStatus.ERROR },
+        ],
+        ["c-s2", "c-agent", "web_search", SpanKind.TOOL, under("web_search")],
+        ["c-s3", "c-agent", "web_search", SpanKind.TOOL, under("web_search")],
+        [
+          "c-answer",
+          "c-agent",
+          "compose_answer",
+          SpanKind.LLM,
+          { ...under("compose_answer"), total_tokens: 1900 },
+        ],
+        ["c-quality", "c-eval", "quality", SpanKind.SCORER],
+        ["c-judge", "c-quality", "judge", SpanKind.LLM, { total_tokens: 530 }],
+      ]),
+    );
+
+    const { nodes } = traceUnion(baseline, candidate);
+    const byCandidate = (id: string) => nodes.find((n) => n.candidate?.span_id === id)!;
+    const byBaseline = (id: string) => nodes.find((n) => n.baseline?.span_id === id)!;
+
+    // The failed first call is added; the second and third pair with the first and second.
+    expect(byCandidate("c-s1").state).toBe("added");
+    expect(byCandidate("c-s2").baseline?.span_id).toBe("b-s1");
+    expect(byCandidate("c-s3").baseline?.span_id).toBe("b-s2");
+
+    // The placeholder pairs with the baseline's agent and is not a change.
+    const agent = byBaseline("b-agent");
+    expect(agent.state).toBe("matched");
+    expect(agent.candidate?.span_id).toBe("c-agent");
+    expect(agent.candidate?.pending).toBe(true);
+    expect(agent.changed).toBe(false);
+
+    const third = byCandidate("c-s3");
+    expect(third.state === "matched" && describeMatchReason(third.reason)).toBe(
+      "Matched by path: evaluation-item \u203a task \u203a agent \u203a tool:web_search #2 \u2192 #3",
+    );
+
+    // The judge's extra tokens belong to the evaluation; the answer's are the run's.
+    expect(byBaseline("b-judge").evaluator).toBe(true);
+    expect(byBaseline("b-judge").changed).toBe(false);
+    expect(byBaseline("b-answer").changed).toBe(true);
+
+    expect(divergenceCounts(nodes)).toEqual({ matched: 6, added: 1, removed: 0 });
+  });
+});
