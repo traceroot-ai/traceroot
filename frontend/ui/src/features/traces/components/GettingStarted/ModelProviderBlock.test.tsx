@@ -714,14 +714,14 @@ describe("the line a stored key is reported with", () => {
     // A save only makes the key's models available. New detectors start on the
     // "system" source, which takes the server's own key first, and the
     // assistant's default is chosen by provider priority across workspace and
-    // TraceRoot models, so neither is moved onto the key by saving it. A key
+    // traceroot models, so neither is moved onto the key by saving it. A key
     // that is off is used by nothing, and a detector set to one of its models
-    // fails rather than running on TraceRoot's.
+    // fails rather than running on traceroot's.
     for (const usingOwnKey of [true, false]) {
       for (const justSavedLabel of ["OpenAI", null, undefined]) {
         for (const count of [1, 2]) {
           const { state } = storedKeyCopy({ usingOwnKey, justSavedLabel, count });
-          expect(state).not.toMatch(/now run on|still run on|TraceRoot's models/);
+          expect(state).not.toMatch(/now run on|still run on|traceroot's models/);
         }
       }
     }
@@ -952,7 +952,7 @@ describe("the key the selected stack asks for", () => {
 
   it("says there is no adapter at all rather than offering a field for one", async () => {
     // Mistral's integration is MISTRAL_API_KEY throughout and LLMAdapter has no
-    // Mistral entry. Nothing in TraceRoot can store that key, so there is no
+    // Mistral entry. Nothing in traceroot can store that key, so there is no
     // settings tab to send the reader to for it either.
     renderBlock("ws-1", { kind: "none", provider: "Mistral" });
     expect(

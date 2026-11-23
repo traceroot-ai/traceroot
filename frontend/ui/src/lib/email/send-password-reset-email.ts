@@ -45,16 +45,16 @@ export async function sendPasswordResetEmail({
   });
 
   await transporter.sendMail({
-    from: `TraceRoot <${mailFrom}>`,
+    from: `traceroot <${mailFrom}>`,
     to,
-    subject: "Reset your TraceRoot password",
+    subject: "Reset your traceroot password",
     html: renderEmailCard({
       title: "Reset your password",
       bodyHtml: `
       <tr>
         <td style="padding: 0 40px 32px 40px;">
           <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
-            We received a request to reset the password for your TraceRoot account. The link expires in 1 hour.
+            We received a request to reset the password for your traceroot account. The link expires in 1 hour.
           </p>
         </td>
       </tr>`,
@@ -62,9 +62,9 @@ export async function sendPasswordResetEmail({
       buttonUrl: resetUrl,
       footerText: "If you didn't ask to reset your password, you can ignore this email.",
     }),
-    text: `Reset your TraceRoot password
+    text: `Reset your traceroot password
 
-We received a request to reset the password for your TraceRoot account. The link expires in 1 hour.
+We received a request to reset the password for your traceroot account. The link expires in 1 hour.
 
 ${resetUrl}
 

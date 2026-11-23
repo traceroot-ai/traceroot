@@ -8,7 +8,9 @@ caller.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from clickhouse_connect.datatypes.registry import get_from_name
@@ -642,3 +644,30 @@ class TestCallerParameters:
         client = FakeClient(rows=[["s1"]])
         _service(client).run("SELECT span_id FROM spans", PID)
         assert client.last["parameters"] == {"scope_project_id": PID}
+
+
+# ---------------------------------------------------------------------------
+# The plan's retention floor reaches the rewriter
+# ---------------------------------------------------------------------------
+class TestRetentionFloor:
+    """The rewriter is patched, so these tests pin only the plumbing from run()."""
+
+    def test_the_floor_is_forwarded_to_the_rewriter(self) -> None:
+        floor = datetime(2026, 1, 1, 12, 0, 0)
+        client = FakeClient(rows=[["s1"]])
+        with patch(
+            "rest.services.sql.service.scope_and_render",
+            return_value=("SELECT 1", {"scope_project_id": "p"}),
+        ) as render:
+            _service(client).run("SELECT span_id FROM spans", PID, retention_floor=floor)
+        render.assert_called_once()
+        assert render.call_args.kwargs == {"retention_floor": floor}
+
+    def test_the_floor_defaults_to_none_meaning_no_limit(self) -> None:
+        client = FakeClient(rows=[["s1"]])
+        with patch(
+            "rest.services.sql.service.scope_and_render",
+            return_value=("SELECT 1", {"scope_project_id": "p"}),
+        ) as render:
+            _service(client).run("SELECT span_id FROM spans", PID)
+        assert render.call_args.kwargs == {"retention_floor": None}

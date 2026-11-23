@@ -98,11 +98,11 @@ describe("renderEmailCard", () => {
     expect(html).toContain("Do the thing");
     expect(html).toContain("Why you got this.");
     // branded logo header survives
-    expect(html).toContain('alt="TraceRoot"');
+    expect(html).toContain('alt="traceroot"');
   });
 
   it("sizes the logo by its height, so a wordmark keeps its proportions", () => {
-    const logo = renderEmailCard(params).match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+    const logo = renderEmailCard(params).match(/<img [^>]*alt="traceroot"[^>]*>/)?.[0] ?? "";
 
     // A fixed width as well would stretch any logo that is not exactly 143:36.
     expect(logo).toMatch(/style="[^"]*height: 36px; width: auto;/);
@@ -125,7 +125,7 @@ describe("renderEmailCard", () => {
   });
 
   describe("with the logo setting", () => {
-    const logoOf = (html: string) => html.match(/<img [^>]*alt="TraceRoot"[^>]*>/)?.[0] ?? "";
+    const logoOf = (html: string) => html.match(/<img [^>]*alt="traceroot"[^>]*>/)?.[0] ?? "";
 
     it("shows the released chart's square icon as the plated square mark", () => {
       vi.stubEnv("NEXT_PUBLIC_LOGO_URL", `${MAIN_IMAGES}/traceroot_icon.png`);

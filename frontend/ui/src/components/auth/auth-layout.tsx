@@ -50,7 +50,9 @@ export function AuthBrandPanel() {
     <section className="relative flex min-h-[264px] flex-col justify-between overflow-hidden border-b border-border px-5 py-5 lg:min-h-screen lg:justify-start lg:border-b-0 lg:border-r lg:px-10 lg:py-10">
       <PixelField />
 
-      <div className="relative flex items-center">
+      {/* The pixel wordmark below names the product to screen readers; this
+          small logo would only say it a second time. */}
+      <div className="relative flex items-center" aria-hidden="true">
         <Logo size="sm" />
       </div>
 

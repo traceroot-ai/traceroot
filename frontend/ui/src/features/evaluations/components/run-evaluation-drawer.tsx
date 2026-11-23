@@ -71,7 +71,7 @@ from my_app.support import handle_ticket
 # 2. Your scorers. A scorer takes a ScorerContext and returns a Score.
 from evals.scorers import routing_accuracy
 
-# Initialize with your TraceRoot API key so the run is reported and traced.
+# Initialize with your traceroot API key so the run is reported and traced.
 traceroot.initialize()
 
 # 3. Pull the dataset this run measures (its current published version).

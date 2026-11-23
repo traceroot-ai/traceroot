@@ -148,6 +148,10 @@ The gateway rejects:
 
 Queries are limited to 65,536 characters. A request can bind at most 100 parameters, whose serialized JSON is limited to 16,384 characters.
 
+## How far back a query reaches
+
+Queries only see traces and spans inside your plan's retention window: 15 days on Free, 30 days on Starter, 90 days on Pro, and no limit on Enterprise. Older rows are left out of the result silently, without an error. Data is not deleted, so upgrading your plan makes older rows readable again.
+
 ## Execution and rate limits
 
 Default execution limits are:

@@ -35,8 +35,8 @@ describe("sendPasswordResetEmail", () => {
     expect(sendMail).toHaveBeenCalledTimes(1);
     const mail = sendMail.mock.calls[0][0];
     expect(mail.to).toBe("a@example.com");
-    expect(mail.from).toBe("TraceRoot <noreply@traceroot.ai>");
-    expect(mail.subject).toBe("Reset your TraceRoot password");
+    expect(mail.from).toBe("traceroot <noreply@traceroot.ai>");
+    expect(mail.subject).toBe("Reset your traceroot password");
     expect(mail.html).toContain(`href="${RESET_URL}"`);
     expect(mail.text).toContain(RESET_URL);
   });

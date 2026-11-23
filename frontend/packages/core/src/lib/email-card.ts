@@ -3,7 +3,7 @@
  *
  * Single source of truth for the branded email layout used by the workspace
  * invite (frontend/ui), the usage-quota emails, and the detector digest
- * (frontend/worker): TraceRoot wordmark, left-aligned title, caller-provided
+ * (frontend/worker): traceroot wordmark, left-aligned title, caller-provided
  * body rows, one ink CTA button, divider, and a muted footer note. Colors come
  * from the brandbook in Figma; see EMAIL_COLORS.
  *
@@ -76,7 +76,7 @@ export function emailLogoImg(height: number, logo: EmailLogo = emailLogo()): str
   const size = logo.pixels
     ? `width="${Math.round((height * logo.pixels.width) / logo.pixels.height)}" height="${height}"`
     : `height="${height}"`;
-  return `<img src="${escapeHtml(logo.url)}" alt="TraceRoot" ${size} style="display: block; border: 0; height: ${height}px; width: auto; max-width: 100%;" />`;
+  return `<img src="${escapeHtml(logo.url)}" alt="traceroot" ${size} style="display: block; border: 0; height: ${height}px; width: auto; max-width: 100%;" />`;
 }
 
 /** Email-safe PNG of the green website footer wordmark, rendered at 2×. */
@@ -188,7 +188,7 @@ ${bodyHtml}
             ${footerText}
           </p>
           <p style="color: ${c.muted}; font-size: 12px; line-height: 1.6; margin: 8px 0 0 0;">
-            TraceRoot &middot; <a href="https://traceroot.ai" style="color: ${c.muted}; text-decoration: underline;">traceroot.ai</a>
+            traceroot &middot; <a href="https://traceroot.ai" style="color: ${c.muted}; text-decoration: underline;">traceroot.ai</a>
           </p>
         </td>
       </tr>
