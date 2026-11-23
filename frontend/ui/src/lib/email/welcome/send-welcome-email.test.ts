@@ -81,7 +81,7 @@ describe("on the cloud service", () => {
       headers: { "List-Unsubscribe": "<x>" },
     });
     expect(email.text).toContain("Hi new,");
-    expect(email.text).toContain("Best,\nXinwei\nFounder, traceroot\n");
+    expect(email.text).toContain("Best,\nXinwei He\nTraceRoot.AI | CEO\n");
     expect(email.text).not.toMatch(/devs/i);
     expect(email.text).toContain(
       `If you don't want to hear from us again, let us know: ${unsubscribeUrl}`,

@@ -17,8 +17,8 @@ import {
 } from "@traceroot/core";
 import { greeting, LINK_STYLE, optOutLine, optOutLineHtml } from "./welcome/copy";
 
-/** The approved sign-off, capitalized as approved. */
-export const FOUNDER_SIGNOFF = ["Best,", "Xinwei", "Founder, traceroot"];
+/** "Best," and Xinwei's signature, written as in his own email. */
+export const FOUNDER_SIGNOFF = ["Best,", "Xinwei He", "TraceRoot.AI | CEO"];
 
 export interface FounderEmailCopy {
   subject: string;

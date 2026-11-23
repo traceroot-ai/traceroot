@@ -16,7 +16,7 @@ const render = (overrides: Partial<FounderWelcomeInput> = {}, firstName: string 
     firstName,
     unsubscribeUrl: UNSUB,
   });
-const SIGNOFF = "Best,\nXinwei\nFounder, traceroot";
+const SIGNOFF = "Best,\nXinwei He\nTraceRoot.AI | CEO";
 
 describe("the cloud welcome email, as approved", () => {
   it("generic version, with both preview lines", () => {
@@ -80,7 +80,8 @@ describe("the cloud welcome email, as approved", () => {
     (variant) => {
       const { text, html } = render({ variant });
       expect(text).toContain(SIGNOFF);
-      expect(html).toContain("Best,<br>Xinwei<br>Founder, traceroot");
+      expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
+      expect(`${text}${html}`).not.toContain("Founder");
       expect(`${text}${html}`).not.toMatch(/devs/i);
       expect(html).toContain(`<a href="${UNSUB}"`);
     },

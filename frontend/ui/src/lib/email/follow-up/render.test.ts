@@ -13,7 +13,7 @@ const render = (
   firstName: string | null = "Kai",
 ) => renderFollowUp({ campaign, firstName, links: LINKS, unsubscribeUrl: UNSUB });
 
-const SIGNOFF = "Best,\nXinwei\nFounder, traceroot";
+const SIGNOFF = "Best,\nXinwei He\nTraceRoot.AI | CEO";
 const OPT_OUT = `If you don't want to hear from us again, let us know: ${UNSUB}`;
 
 describe("the follow-up emails, as approved", () => {
@@ -93,7 +93,8 @@ describe("every follow-up", () => {
       expect(text).toContain(SIGNOFF);
       expect(text.endsWith(OPT_OUT)).toBe(true);
       expect(html).toContain(`<a href="${UNSUB}"`);
-      expect(html).toContain("Xinwei<br>Founder, traceroot");
+      expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
+      expect(`${text}${html}`).not.toContain("Founder");
     },
   );
 
