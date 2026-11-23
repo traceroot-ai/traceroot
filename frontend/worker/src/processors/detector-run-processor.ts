@@ -563,7 +563,9 @@ export async function handleDetectorRunJob(
     await processTrace(traceId, projectId, detectorIds, (result) =>
       job.updateData(
         result.findingId === undefined
-          ? { ...job.data, runResult: result }
+          ? // A worker from before runResult ignores it; empty detectorIds make
+            // that worker skip the job instead of running inference again.
+            { ...job.data, detectorIds: [], runResult: result }
           : { ...job.data, result },
       ),
     );

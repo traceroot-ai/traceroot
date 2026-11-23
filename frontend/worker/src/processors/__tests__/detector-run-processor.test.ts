@@ -483,6 +483,7 @@ describe("handleDetectorRunJob — result persistence", () => {
     await handleDetectorRunJob(job);
 
     expect(job.data.result).toBeUndefined();
+    expect(job.data.detectorIds).toEqual([]);
     expect(job.data.runResult).toMatchObject({
       timestampMs: expect.any(Number),
       runs: [{ detectorId: "d1", status: "completed", usedInference: false, selfTraced: true }],
