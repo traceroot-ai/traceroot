@@ -25,8 +25,8 @@ import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
-import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
+import { SetupTabs } from "@/features/traces/components/GettingStarted/SetupTabs";
+import { useSetupSkipped } from "@/features/traces/components/GettingStarted/use-setup-command-copied";
 import { FirstTraceLine } from "@/components/first-trace-line";
 import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
 import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
@@ -385,6 +385,7 @@ function OnboardingContent() {
   );
 
   useOpenFoundTrace(traceWait);
+  const recordSetupSkipped = useSetupSkipped(createdProject?.id ?? "", "onboarding");
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
@@ -624,38 +625,57 @@ function OnboardingContent() {
         <Card>
           <CardContent className="p-4">
             {createdProject ? (
-              showManualStep ? (
-                <ManualSetupStep
-                  projectId={createdProject.id}
-                  onBack={() => setManualSetup(false)}
-                  // The project's own traces page, which is where the first trace
-                  // of the run they are about to instrument will land. It is also
-                  // the one page that keeps this same walkthrough on screen until
-                  // that trace arrives (see the traces page's getting-started
-                  // branch), so leaving half-way through loses nothing — and
-                  // unlike the workspace list, it has something to say to an
-                  // account whose only project is empty.
-                  onDone={() => router.push(`/projects/${createdProject.id}/traces`)}
-                />
-              ) : (
-                <CliHandbackStep
-                  projectId={createdProject.id}
-                  projectName={createdProject.name}
-                  // The instrumentation half of "manually", which is what exists
-                  // today: the getting-started panel's manual walkthrough, shown
-                  // as a step of this flow rather than navigated to. The provider
-                  // half goes in front of that step, so this stays the one line
-                  // that moves when it arrives.
-                  onSetUpManually={() => setManualSetup(true)}
-                  // Where an onboarded account with nobody waiting belongs, and
-                  // the same place the already-onboarded check above sends one.
-                  // Skipping leaves a workspace with a project in it, which is a
-                  // finished account by every check the app makes — so nothing
-                  // routes this user back here, and nothing shows them a project
-                  // they cannot open.
-                  onSkip={() => router.push("/workspaces")}
-                />
-              )
+              // The project page's own setup tabs, so both places show one
+              // version. This page keeps its frame and its wording for the
+              // command block; the GitHub and Slack connections stay hidden
+              // here, since they move into a sign-up step of their own.
+              <SetupTabs
+                projectId={createdProject.id}
+                surface="onboarding"
+                tab={showManualStep ? "manual" : "ai"}
+                onTabChange={(next) => setManualSetup(next === "manual")}
+                showExternalIntegrations={false}
+                commandCopy={{
+                  title: "Finish setting up in your terminal",
+                  label: "terminal",
+                  // Where to run it, because pasted in the wrong directory it
+                  // writes the key where the application never reads it.
+                  intro: `Run it where ${createdProject.name}'s code lives. It asks before editing your code. Needs Node.js 20.12 or later.`,
+                }}
+                commandActions={
+                  // Into the app with the application still uninstrumented: a
+                  // workspace with a project in it is a finished account, so
+                  // nothing routes this user back here.
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-4 text-[12px]"
+                    onClick={() => {
+                      recordSetupSkipped("command");
+                      router.push("/workspaces");
+                    }}
+                  >
+                    Skip for now
+                  </Button>
+                }
+                manualFooter={
+                  // The project's traces page, where the first trace of the run
+                  // they are instrumenting will land, and which keeps these same
+                  // tabs on screen until it does.
+                  <div className="flex justify-center">
+                    <Button
+                      size="sm"
+                      className="h-7 px-4 text-[12px]"
+                      onClick={() => {
+                        recordSetupSkipped("manual");
+                        router.push(`/projects/${createdProject.id}/traces`);
+                      }}
+                    >
+                      Go to my project
+                    </Button>
+                  </div>
+                }
+              />
             ) : (
               <>
                 {/* Each row is an icon beside a column that fills the card, so

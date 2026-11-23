@@ -1,6 +1,6 @@
 # DeepAgents Multi-Agent Research (TypeScript)
 
-Multi-agent research pipeline using [deepagents](https://www.npmjs.com/package/deepagents), instrumented with TraceRoot.
+Multi-agent research pipeline using [deepagents](https://www.npmjs.com/package/deepagents), instrumented with traceroot.
 
 ## Setup
 
@@ -18,4 +18,4 @@ A supervisor agent orchestrates two sub-agents in sequence:
 2. **critique-agent** — reviews the findings for accuracy, completeness, and gaps
 3. **supervisor** — synthesizes both outputs into a final report written to `final_report.md`
 
-TraceRoot intercepts all LangChain/LangGraph spans produced by deepagents internally, so the TraceRoot UI shows nested agent spans for the supervisor, each sub-agent invocation, and every LLM call.
+traceroot intercepts all LangChain/LangGraph spans produced by deepagents internally, so the traceroot UI shows nested agent spans for the supervisor, each sub-agent invocation, and every LLM call.

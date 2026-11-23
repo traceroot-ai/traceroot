@@ -1,8 +1,8 @@
 """
-Groq Tool Agent - TraceRoot Observability
+Groq Tool Agent - traceroot Observability
 
 A ReAct-style agent built with the Groq SDK, instrumented
-with TraceRoot via traceroot.initialize(integrations=[Integration.GROQ]).
+with traceroot via traceroot.initialize(integrations=[Integration.GROQ]).
 
 Env vars required: GROQ_API_KEY, TRACEROOT_API_KEY
 

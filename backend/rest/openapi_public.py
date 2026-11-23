@@ -21,7 +21,7 @@ from rest.services.filters.translate import (
 from rest.services.widget_registry import registry_schema
 
 PUBLIC_PREFIX = "/api/v1/public/"
-TITLE = "TraceRoot Public API"
+TITLE = "traceroot Public API"
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
@@ -1243,14 +1243,14 @@ def build_public_schema(app: Any) -> dict[str, Any]:
 #: under the same origin the SDKs default to; self-hosters point the variable at
 #: their own backend.
 DOCS_SERVERS: list[dict[str, Any]] = [
-    {"url": "https://app.traceroot.ai", "description": "TraceRoot Cloud"},
+    {"url": "https://app.traceroot.ai", "description": "traceroot Cloud"},
     {
         "url": "{baseUrl}",
         "description": "Self-hosted",
         "variables": {
             "baseUrl": {
                 "default": "http://localhost:8000",
-                "description": "Your TraceRoot backend URL",
+                "description": "Your traceroot backend URL",
             }
         },
     },
@@ -1403,7 +1403,7 @@ _DOCS_DESCRIPTIONS: dict[str, str] = {
         "over a time window and compared against a threshold you set."
     ),
     "update_alert": (
-        "Update a threshold alert in a TraceRoot project. Changes to evaluated fields reset its "
+        "Update a threshold alert in a traceroot project. Changes to evaluated fields reset its "
         "state, while changing only the alert name preserves it."
     ),
     "set_alert_status": (
@@ -1540,7 +1540,7 @@ _DOCS_USAGE_NOTES = {
 }
 
 _SDK_NOTE = (
-    "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only "
+    "<Note>The traceroot SDKs call this endpoint for you; call it directly only "
     "where no SDK fits. It accepts a project API key only.</Note>"
 )
 _INGEST_NOTE = (

@@ -1,5 +1,5 @@
 /**
- * OpenAI streaming pipeline — TraceRoot generator support
+ * OpenAI streaming pipeline — traceroot generator support
  *
  * Demonstrates two patterns where observe() wraps an async generator:
  *
@@ -35,7 +35,7 @@ import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
 const openai = new OpenAI();
-console.log('[Observability: TraceRoot — streaming pipeline]');
+console.log('[Observability: traceroot — streaming pipeline]');
 
 // ---------------------------------------------------------------------------
 // Pattern 1: direct streaming
@@ -61,7 +61,7 @@ async function* streamTokens(prompt: string) {
 // Pattern 2: pipeline streaming
 //
 // transformStream wraps streamTokens and applies a transformation to each
-// token. Both are observed generators, so TraceRoot creates two spans:
+// token. Both are observed generators, so traceroot creates two spans:
 // transform_stream as parent, stream_tokens as child. The parent span closes
 // only after all transformed tokens are consumed.
 // ---------------------------------------------------------------------------

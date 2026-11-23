@@ -32,6 +32,12 @@ export function alertStateReset() {
     lastEvaluatedAt: null,
     nextRunAt: new Date(),
     lastClaimedAt: null,
+    lastError: null,
+    lastErrorAt: null,
+    lastNotifyStatus: null,
+    lastNotifyError: null,
+    lastNotifyAt: null,
+    lastNotifySeverity: null,
   };
 }
 

@@ -32,7 +32,7 @@ describe("renderEmailCard", () => {
     expect(html).toContain("Do the thing");
     expect(html).toContain("Why you got this.");
     // branded logo header survives
-    expect(html).toContain('alt="TraceRoot"');
+    expect(html).toContain('alt="traceroot"');
   });
 
   it("places the body rows between the title and the button", () => {

@@ -1,8 +1,8 @@
 """
-Pydantic AI Tool Agent — TraceRoot Observability
+Pydantic AI Tool Agent — traceroot Observability
 
 A tool-using financial research agent built with pydantic-ai, automatically
-instrumented with TraceRoot via traceroot.initialize(integrations=[Integration.PYDANTIC_AI]).
+instrumented with traceroot via traceroot.initialize(integrations=[Integration.PYDANTIC_AI]).
 
 No @observe decorators are needed for agent runs, LLM calls, or tool invocations —
 pydantic-ai's native OTel instrumentation captures those automatically. The @observe
@@ -126,7 +126,7 @@ DEMO_QUERIES = [
 @observe(name="demo_session", type="agent")
 def run_demo() -> None:
     print("=" * 60)
-    print("Pydantic AI Tool Agent — Demo (TraceRoot)")
+    print("Pydantic AI Tool Agent — Demo (traceroot)")
     print("=" * 60)
 
     for i, query in enumerate(DEMO_QUERIES, 1):

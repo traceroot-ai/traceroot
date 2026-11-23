@@ -377,7 +377,7 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     widgetCreateMock.mockResolvedValue(fakeWidget);
 
     const res = (await widgetPOST(
-      makeRequest({ title: "My Widget", type: "query", spec: { sql: "SELECT 1" } }),
+      makeRequest({ title: "My Widget", type: "query", spec: fakeWidget.spec }),
       makeParams(),
     )) as MockResponse;
     expect(res.status).toBe(201);
@@ -578,7 +578,7 @@ describe("default dashboard is editable", () => {
     dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
     widgetCreateMock.mockResolvedValue(fakeWidget);
     const res = (await widgetPOST(
-      makeRequest({ title: "My Widget", type: "query", spec: { sql: "SELECT 1" } }),
+      makeRequest({ title: "My Widget", type: "query", spec: fakeWidget.spec }),
       makeParams(),
     )) as MockResponse;
     expect(res.status).toBe(201);
