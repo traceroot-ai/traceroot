@@ -74,7 +74,9 @@ SELECT
       OR (parsed."period_start" AT TIME ZONE 'UTC') <> p."period_start" THEN 0
     WHEN n."normalized_units" IS NULL THEN 0
     WHEN length(n."normalized_units") > 16 THEN 9007199254740991::bigint
-    ELSE LEAST(n."normalized_units"::numeric, 9007199254740991)::bigint
+    WHEN length(n."normalized_units") = 16
+      AND n."normalized_units" > '9007199254740991' THEN 9007199254740991::bigint
+    ELSE n."normalized_units"::bigint
   END,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
@@ -85,39 +87,18 @@ CROSS JOIN LATERAL (
     ('rca', COALESCE(w."current_usage" #>> '{rca,lastReportedUnits}', '0'), w."current_usage" #>> '{rca,lastReportedPeriodStart}'),
     ('detector', COALESCE(w."current_usage" #>> '{detector,lastReportedUnits}', '0'), w."current_usage" #>> '{detector,lastReportedPeriodStart}')
 ) AS m("meter", "raw_units", "raw_period_start")
--- Normalize decimal strings before casting. This handles leading zeroes and
--- avoids casting unbounded legacy JSON text to NUMERIC: values above the
--- JavaScript safe-integer limit are capped without parsing the full string.
+-- Normalize decimal strings as text before casting. Leading zeroes are
+-- removed, and arbitrary-length values never reach a NUMERIC or BIGINT cast.
 CROSS JOIN LATERAL (
   SELECT CASE
-    WHEN m."raw_units" ~ '^[0-9]+
--- Validate untrusted legacy JSON text before casting; an invalid or missing
--- period yields NULL, so the CASE above leaves the watermark at zero.
-CROSS JOIN LATERAL (
-  SELECT CASE
-    WHEN pg_input_is_valid(m."raw_period_start", 'timestamp with time zone')
-      THEN m."raw_period_start"::timestamptz
-    ELSE NULL
-  END AS "period_start"
-) AS parsed
-CROSS JOIN LATERAL (
-  SELECT COALESCE(
-    w."billing_period_start",
-    date_trunc('month', CURRENT_TIMESTAMP)::timestamp
-  ) AS "period_start"
-) AS p
-WHERE n."normalized_units" IS NOT NULL
-ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
-
-COMMIT;
-
-      THEN NULLIF(ltrim(m."raw_units", '0'), '')
+    WHEN m."raw_units" ~ '^[0-9]' AND m."raw_units" !~ '[^0-9]'
+      THEN COALESCE(NULLIF(ltrim(m."raw_units", '0'), ''), '0')
     ELSE NULL
   END AS "normalized_units"
 ) AS n
 -- PostgreSQL 17 is the repository's development database version.
--- Validate untrusted legacy JSON text before casting; an invalid or missing
--- period yields NULL, so the CASE above leaves the watermark at zero.
+-- Validate untrusted legacy JSON text before casting; invalid/missing periods
+-- yield NULL and therefore leave the restored watermark at zero.
 CROSS JOIN LATERAL (
   SELECT CASE
     WHEN pg_input_is_valid(m."raw_period_start", 'timestamp with time zone')
@@ -132,6 +113,7 @@ CROSS JOIN LATERAL (
   ) AS "period_start"
 ) AS p
 WHERE n."normalized_units" IS NOT NULL
+  AND n."normalized_units" <> '0'
 ON CONFLICT ("workspace_id", "meter", "period_start") DO NOTHING;
 
 COMMIT;
