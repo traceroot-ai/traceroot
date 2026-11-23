@@ -25,11 +25,6 @@ const LINK = /\[([^\]]+)\]\(([^\s]+)\)/g;
 const toText = (paragraph: string) => paragraph.replace(LINK, "$1 ($2)");
 
 // First token, exactly as the user typed it, when it looks like a Latin-script given name; otherwise null and the greeting is "Hi,".
-/** The small wordmark under the sign-off, shared by every product email's layout. */
-export function signatureLogoHtml(): string {
-  return `<p style="margin:20px 0 0"><img src="${EMAIL_LOGO_URL}" alt="traceroot" width="106" height="20" style="display:block;border:0;width:106px;height:20px"></p>`;
-}
-
 export function displayFirstName(name: string | null | undefined): string | null {
   const token = name?.trim().split(/\s+/)[0] ?? "";
   if (!token || !FIRST_NAME.test(token)) return null;
@@ -78,7 +73,7 @@ export function renderWelcome(input: RenderWelcomeInput): {
     `<p>${escapeHtml(greeting(input.firstName))}</p>`,
     ...body.map(toHtml),
     `<p>${WELCOME_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
-    signatureLogoHtml(),
+    `<p style="margin:20px 0 0"><img src="${EMAIL_LOGO_URL}" alt="traceroot" width="106" height="20" style="display:block;border:0;width:106px;height:20px"></p>`,
     `<p style="margin-top:32px;font-size:12px;color:${EMAIL_COLORS.muted}">${optOutLineHtml(escapeHtml(input.unsubscribeUrl))}</p>`,
   ];
 
