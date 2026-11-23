@@ -23,7 +23,7 @@ export interface FounderWelcomeInput {
 export const WELCOME_SETUP_COMMAND = "npx -y traceroot-cli@latest setup";
 
 export function founderWelcomeCopy(input: FounderWelcomeInput): FounderEmailCopy {
-  const stuck = `Stuck on anything? Reply to this email and a person on the team will answer, or [pick a time](${input.bookingUrl}) and we will set it up together.`;
+  const stuck = `Stuck on anything? Reply to this email and a person on the team will answer. If you’d like a hand with setup, [pick a time on my calendar](${input.bookingUrl}).`;
   const closing = [
     input.followUpLine
       ? `Over the next few weeks we will send a few short emails on what to do after your first trace. ${stuck}`

@@ -36,7 +36,7 @@ describe("the cloud welcome email, as approved", () => {
         "",
         `Want to look around first? The demo project (${BASE.demoUrl}) has real traces to click through.`,
         "",
-        `Over the next few weeks we will send a few short emails on what to do after your first trace. Stuck on anything? Reply to this email and a person on the team will answer, or pick a time (${BASE.bookingUrl}) and we will set it up together.`,
+        `Over the next few weeks we will send a few short emails on what to do after your first trace. Stuck on anything? Reply to this email and a person on the team will answer. If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`,
         "",
         "You will also get an invite from Slack to a private channel with our team. You can ask us anything there.",
         "",
@@ -68,10 +68,26 @@ describe("the cloud welcome email, as approved", () => {
     (variant) => {
       const { text } = render({ variant, followUpLine: false, slackInviteLine: false });
       expect(text).toContain(
-        `Stuck on anything? Reply to this email and a person on the team will answer, or pick a time (${BASE.bookingUrl}) and we will set it up together.`,
+        `Stuck on anything? Reply to this email and a person on the team will answer. If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`,
       );
       expect(text).not.toContain("Over the next few weeks");
       expect(text).not.toContain("invite from Slack");
+    },
+  );
+
+  it.each(["generic", "exploring"] as const)(
+    "%s offers a call on the booking page, linked in HTML and written out in text",
+    (variant) => {
+      const { text, html } = render({ variant });
+      expect(text).toContain(
+        `If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`,
+      );
+      expect(html).toContain(
+        `If you’d like a hand with setup, <a href="${BASE.bookingUrl}" style="color:#0B1015;text-decoration:underline">pick a time on my calendar</a>.`,
+      );
+      // The old clause is gone, so the offer is made once.
+      expect(`${text}${html}`).not.toContain("and we will set it up together");
+      expect(html.match(new RegExp(BASE.bookingUrl.replace(/[.]/g, "\\."), "g"))).toHaveLength(1);
     },
   );
 
