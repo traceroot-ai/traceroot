@@ -474,6 +474,31 @@ describe("buildJudgeInput", () => {
     expect(text).toContain(`output assistant: ${JSON.stringify(answer)}`);
   });
 
+  it("leaves the bytes of an inline file out of a message shown whole", () => {
+    // The OpenTelemetry GenAI shape holds an inline file as base64, in a `blob` part's `content`.
+    const message = (bytes: string | null) => ({
+      role: "user",
+      parts: [
+        { type: "text", content: "What is on this receipt?" },
+        { type: "blob", modality: "image", mime_type: "image/png", content: bytes },
+      ],
+    });
+    const jsonl = row({
+      span_id: "l1",
+      name: "chat",
+      span_kind: "LLM",
+      input: JSON.stringify([message("iVBORw0KGgo".repeat(40_000)), message(null)]),
+      output: '"A coffee and a bagel."',
+    });
+
+    const { text, stats } = buildJudgeInput("t1", jsonl);
+
+    expect(stats.pass).toBe(1);
+    expect(text).toContain(`input user: ${JSON.stringify(message("[blob]"))}`);
+    // A part recorded without its bytes is left as it is.
+    expect(text).toContain(`input user: ${JSON.stringify(message(null))}`);
+  });
+
   it.each(["", " \n"])("shows a message whole when its content is %j", (content) => {
     // The body is under `function_call`, next to empty or blank text instead of null.
     const call = {
