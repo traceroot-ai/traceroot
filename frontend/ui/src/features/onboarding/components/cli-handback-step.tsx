@@ -58,7 +58,7 @@ interface CliHandbackStepProps {
  *
  * On a deployment whose own origin cannot be resolved there is no command to
  * run, and nothing runnable is drawn: `setupCommand` has no flags to put on the
- * line there, and the line without them is the TraceRoot Cloud one — so a
+ * line there, and the line without them is the traceroot Cloud one — so a
  * self-hosted operator who pasted it would sign this machine in against someone
  * else's deployment and send their first traces there, on the last page of
  * signing up. What is drawn instead names the variable and the value it holds,

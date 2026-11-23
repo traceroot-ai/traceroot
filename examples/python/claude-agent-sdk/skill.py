@@ -1,4 +1,4 @@
-"""Agent Skill demo with TraceRoot observability.
+"""Agent Skill demo with traceroot observability.
 
 Exercises the claude-agent-sdk **Skill** path — the one production agents hit
 when they load an agent Skill (a `SKILL.md` of instructions the model pulls into
@@ -106,7 +106,7 @@ async def run_session(workdir: str) -> str:
 @observe(name="demo_session", type="agent")
 async def run_demo():
     print("=" * 60)
-    print("ClaudeSDKClient + Agent Skill — Demo (TraceRoot)")
+    print("ClaudeSDKClient + Agent Skill — Demo (traceroot)")
     print("=" * 60)
     with tempfile.TemporaryDirectory(prefix="traceroot-skill-") as workdir:
         _scaffold_skill(Path(workdir))

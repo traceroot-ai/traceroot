@@ -172,7 +172,7 @@ describe("AITab", () => {
   it("shows no runnable command when the deployment's API URL is not an origin", async () => {
     // `NEXT_PUBLIC_API_URL` is `z.string()` with no URL validation, so a value
     // like this reaches the panel. The command rendered for it used to be the
-    // unflagged one, which targets TraceRoot Cloud — so a self-hosted reader
+    // unflagged one, which targets traceroot Cloud — so a self-hosted reader
     // was handed a confident line that signs in against the wrong deployment.
     const { container } = await renderTabWith("http://:8000");
     const text = container.textContent ?? "";
