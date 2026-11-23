@@ -12,6 +12,7 @@ import { useEvaluationRunDetails } from "../hooks";
 import { COMPARISON_TABLE, Dot } from "../compare/cells";
 import { hasPairedCases, noResultsText } from "../compare/coverage";
 import { buildCompareModel, comparePairs, type RunBundle } from "../compare/model";
+import { useRunDots } from "../compare/run-colors";
 import { runLabeler, runTagger } from "../compare/run-tags";
 import { ScopeLine } from "../compare/scope-line";
 import { ComparisonBody } from "../compare/table-body";
@@ -23,19 +24,6 @@ import { ComparisonHead } from "../compare/table-head";
 // the baseline's first; against it every other run's line also shows a green/red
 // improvement/regression change. The "All cases" group leads the body and compares each
 // other run with the baseline on the cases both of them scored.
-
-// Stable per-run colours, keyed by selection order so a baseline change never
-// recolours the table. The baseline picker is the legend.
-const RUN_DOTS = [
-  "bg-sky-500",
-  "bg-violet-500",
-  "bg-amber-500",
-  "bg-emerald-500",
-  "bg-rose-500",
-  "bg-teal-500",
-  "bg-indigo-500",
-  "bg-orange-500",
-];
 
 export function CompareRunsView({
   projectId,
@@ -54,11 +42,8 @@ export function CompareRunsView({
   const isLoading = queries.some((q) => q.isLoading);
   const isError = queries.some((q) => q.isError);
 
-  // Stable per-run colour, keyed by selection order (not display order).
-  const dotFor = React.useCallback(
-    (runId: string) => RUN_DOTS[Math.max(0, runIds.indexOf(runId)) % RUN_DOTS.length],
-    [runIds],
-  );
+  // Per-run colour by selection order (not display order), kept while the run is selected.
+  const dotFor = useRunDots(runIds);
 
   const loaded = React.useMemo<RunBundle[]>(
     () => queries.map((q) => q.data).filter((d): d is NonNullable<typeof d> => !!d),
