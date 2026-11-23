@@ -1,11 +1,13 @@
 /**
  * The four follow-up emails, word for word as approved, apart from the one
  * sentence still open (see `connect_slack_github`). Each is the greeting, a few
- * paragraphs, at most one button, the founder's sign-off and the opt-out line.
+ * paragraphs, at most one button, the founder's sign-off and the opt-out line
+ * (../founder-email.ts).
  *
  * In a paragraph, `[label](url)` is a link and an indented line is a command.
  */
 import type { FollowUp } from "@/lib/lifecycle/follow-up";
+import type { FounderEmailCopy } from "../founder-email";
 
 export interface FollowUpLinks {
   /** The person's setup page: their earliest project's traces, or onboarding. */
@@ -18,14 +20,7 @@ export interface FollowUpLinks {
   bookingUrl: string;
 }
 
-export interface FollowUpCopy {
-  subject: string;
-  paragraphs: string[];
-  /** At most one; drawn as a black button, written out in the plain-text part. */
-  button?: { label: string; url: string };
-  /** Paragraphs after the button. */
-  after?: string[];
-}
+export type FollowUpCopy = FounderEmailCopy;
 
 export const SETUP_COMMAND = "npx -y traceroot-cli@latest setup";
 export const EVALS_DOCS_URL = "https://traceroot.ai/docs/evals/get-started";
@@ -78,5 +73,3 @@ export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUp
       };
   }
 }
-
-export const FOLLOW_UP_SIGNOFF = ["Best,", "Xinwei", "Founder, traceroot"];

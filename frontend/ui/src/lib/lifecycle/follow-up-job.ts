@@ -30,6 +30,7 @@ import { clientEnv } from "@/env.client";
 import { demoWorkspaceId, userMembershipWhere } from "@/lib/demo-workspace";
 import { isCloud } from "@/lib/server/cloud";
 import { displayFirstName } from "@/lib/email/welcome/render";
+import { demoProjectUrl } from "@/lib/email/demo-link";
 import { renderFollowUp } from "@/lib/email/follow-up/render";
 import type { FollowUpLinks } from "@/lib/email/follow-up/copy";
 import {
@@ -142,7 +143,7 @@ export async function followUpFacts(
 /** Where one person's email links go. */
 async function linksFor(userId: string, appUrl: string): Promise<FollowUpLinks> {
   const demoId = demoWorkspaceId();
-  const [ownProject, ownWorkspace, demoProject] = await Promise.all([
+  const [ownProject, ownWorkspace, demoUrl] = await Promise.all([
     prisma.project.findFirst({
       where: {
         deleteTime: null,
@@ -156,18 +157,12 @@ async function linksFor(userId: string, appUrl: string): Promise<FollowUpLinks> 
       orderBy: { createTime: "asc" },
       select: { id: true },
     }),
-    demoId
-      ? prisma.project.findFirst({
-          where: { workspaceId: demoId, deleteTime: null },
-          orderBy: { createTime: "asc" },
-          select: { id: true },
-        })
-      : null,
+    demoProjectUrl(appUrl),
   ]);
   return {
     // A project with no trace shows the setup instructions on its traces page.
     setupUrl: ownProject ? `${appUrl}/projects/${ownProject.id}/traces` : `${appUrl}/onboarding`,
-    demoUrl: demoProject ? `${appUrl}/projects/${demoProject.id}/traces` : appUrl,
+    demoUrl,
     integrationsUrl: ownWorkspace
       ? `${appUrl}/workspaces/${ownWorkspace.id}/settings/integrations`
       : `${appUrl}/workspaces`,
