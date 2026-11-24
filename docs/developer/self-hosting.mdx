@@ -65,6 +65,37 @@ Rotation stops the web, worker, agent, detector and billing services first. If i
 
 An install that never set `ENCRYPTION_KEY` has nothing stored under it and simply gets a generated one.
 
+### Authentication Providers
+
+By default, self-hosted traceroot supports email and password authentication. You can optionally configure social login and AI agent-aided authentication providers in `.env`:
+
+#### Google OAuth (Optional)
+
+To enable Google sign-in:
+1. Create OAuth 2.0 credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Set the authorized redirect URI to `<BETTER_AUTH_URL>/api/auth/callback/google` (e.g. `http://localhost:3000/api/auth/callback/google`).
+3. Add the credentials to `.env`:
+   ```bash
+   AUTH_GOOGLE_CLIENT_ID=your-google-client-id
+   AUTH_GOOGLE_CLIENT_SECRET=your-google-client-secret
+   ```
+
+#### AgentID Sign-in for AI Agents (Optional)
+
+traceroot supports agent-aided authentication via [AgentID](https://agentmail.to) (AgentMail's OpenID Connect issuer for autonomous AI agents). This allows AI agents to sign in with their own dedicated agent identity without sharing personal developer Google accounts:
+1. Register an OAuth client at [AgentMail](https://agentmail.to).
+2. Set the authorized callback URI to:
+   ```text
+   <BETTER_AUTH_URL>/api/auth/callback/agentid
+   ```
+3. Add the client credentials to `.env`:
+   ```bash
+   AUTH_AGENTID_CLIENT_ID=your-agentid-client-id
+   AUTH_AGENTID_CLIENT_SECRET=your-agentid-client-secret
+   ```
+
+When configured, the **AgentID** sign-in button automatically appears alongside Google on the sign-in and sign-up pages. Agent email addresses are stored with `emailVerified: false` to ensure agent identities remain isolated and cannot merge into existing human accounts.
+
 
 ### Production Deployment
 
