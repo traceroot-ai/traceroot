@@ -130,6 +130,7 @@ jobs:
     needs: [lint]
     strategy:
       fail-fast: false
+      # coverage-gate expects one lcov per entry; update its count with this list.
       matrix:
         include:
           - name: ui 1/3
@@ -368,7 +369,8 @@ jobs:
   # Enforces coverage on *changed lines only* (not whole-project), so the gate
   # ratchets quality forward on new code without requiring a backfill. Reuses
   # the coverage-backend.xml (Cobertura) already produced by backend-tests and
-  # the coverage-frontend.lcov (lcov) produced by frontend-tests -- diff-cover
+  # the per-runner frontend lcov files from frontend-tests (concatenated below
+  # into coverage-frontend.lcov) -- diff-cover
   # reads both formats natively.
   # Pattern adapted from the OpenHuman project's CI (tinyhumansai/openhuman).
   coverage-gate:
@@ -411,12 +413,12 @@ jobs:
           pattern: coverage-frontend-*
           merge-multiple: true
 
-      # One lcov per frontend-tests runner. A missing one would leave its
-      # files unmeasured, which diff-cover skips instead of failing.
+      # One lcov per frontend-tests runner. A runner that never uploaded would
+      # leave its files unmeasured, which diff-cover skips instead of failing.
       - name: Merge frontend coverage
         run: |
           set -euo pipefail
-          count=$(ls coverage-frontend-*.lcov | wc -l)
+          count=$(find . -maxdepth 1 -name 'coverage-frontend-*.lcov' | wc -l)
           if [ "$count" -ne 4 ]; then
             echo "::error::Expected 4 frontend lcov files (one per frontend-tests runner), found $count."
             exit 1
