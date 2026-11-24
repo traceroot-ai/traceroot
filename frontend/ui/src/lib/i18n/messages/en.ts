@@ -1,3 +1,4 @@
+import { componentsEn } from "./areas/components";
 import { shellEn } from "./areas/shell";
 import { tracesEn } from "./areas/traces";
 import { detectEn } from "./areas/detect";
@@ -149,7 +150,7 @@ const core = {
 };
 
 // Larger areas keep their groups in ./areas so they can be worked on independently.
-export const en = { ...core, ...shellEn, ...tracesEn, ...detectEn, ...verifyEn };
+export const en = { ...core, ...componentsEn, ...shellEn, ...tracesEn, ...detectEn, ...verifyEn };
 
 export type Messages = typeof en;
 export type PartialMessages = PartialGroups<Messages>;

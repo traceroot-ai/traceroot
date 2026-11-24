@@ -1,3 +1,4 @@
+import { componentsZh } from "./areas/components";
 import { shellZh } from "./areas/shell";
 import { tracesZh } from "./areas/traces";
 import { detectZh } from "./areas/detect";
@@ -140,4 +141,11 @@ const core: PartialMessages = {
   },
 };
 
-export const zh: PartialMessages = { ...core, ...shellZh, ...tracesZh, ...detectZh, ...verifyZh };
+export const zh: PartialMessages = {
+  ...core,
+  ...componentsZh,
+  ...shellZh,
+  ...tracesZh,
+  ...detectZh,
+  ...verifyZh,
+};
