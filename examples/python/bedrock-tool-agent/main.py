@@ -9,8 +9,8 @@ Usage:
 
 import json
 import logging
+from datetime import UTC
 from datetime import datetime
-from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import find_dotenv, load_dotenv
@@ -101,7 +101,7 @@ def get_current_time(timezone: str = "UTC") -> dict:
     try:
         zone = ZoneInfo(timezone)
     except ZoneInfoNotFoundError:
-        zone = dt_timezone.utc
+        zone = UTC
         timezone = "UTC"
     return {"timezone": timezone, "time": datetime.now(zone).strftime("%Y-%m-%d %H:%M:%S")}
 
