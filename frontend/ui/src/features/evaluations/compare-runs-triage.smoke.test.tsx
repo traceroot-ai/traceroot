@@ -814,6 +814,7 @@ describe("CompareRunsView — the toolbar's controls", () => {
       filtersButton(),
       screen.getByRole("combobox", { name: /^Sort cases/ }),
       screen.getByRole("button", { name: /^Runs \(/ }),
+      screen.getByRole("button", { name: "Export" }),
     ];
     for (const control of controls) {
       expect(control.className).toMatch(/\bh-8\b/);
