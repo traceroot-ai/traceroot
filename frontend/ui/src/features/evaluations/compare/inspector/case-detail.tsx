@@ -193,7 +193,8 @@ export function CaseDetail({
     return <p className="text-muted-foreground">Neither run has a result for this case.</p>;
   }
 
-  // The candidate is held to its own expected output, else the baseline's.
+  // The candidate is held to the expected output its own result recorded, even when that is
+  // none; the baseline's stands in only when the candidate has no result for the case.
   const expectedSide: DiffSide = {
     label: "Expected",
     text: (candidate.shown ?? baseline.shown)?.expected ?? null,

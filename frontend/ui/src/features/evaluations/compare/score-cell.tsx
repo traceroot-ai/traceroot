@@ -11,15 +11,11 @@ import { MISMATCH } from "./cell-state";
 import { formatMetricValue } from "./metric-format";
 import type { ScorerColumn } from "./model";
 
-/** A recorded score as the column shows it. */
+/** A recorded score as the column shows it. A categorical column's values are labels, so
+ *  they show as recorded, never rounded. */
 export function formatScore(value: number | boolean | string, column: ScorerColumn): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "boolean") {
-    return column.valueType === "categorical"
-      ? String(value)
-      : formatMetricValue(value ? 1 : 0, column.format);
-  }
-  return formatMetricValue(value, column.format);
+  if (typeof value === "string" || column.valueType === "categorical") return String(value);
+  return formatMetricValue(typeof value === "boolean" ? (value ? 1 : 0) : value, column.format);
 }
 
 export function MismatchMarker({ reason }: { reason: keyof typeof MISMATCH }) {

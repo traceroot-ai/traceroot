@@ -417,6 +417,7 @@ export function TraceViewerPanel({
     const common = {
       baseline: baselineTrace,
       measured,
+      reconstructed: { baseline: !!diffBaseline.reconstructed, candidate: !!traceOverride },
       root: diffBaseline.root,
       sides: diffBaseline.sides,
       layout: diffLayout,
@@ -428,7 +429,7 @@ export function TraceViewerPanel({
     const node =
       union && findUnionNode(union.nodes, selection.span, baselineTrace?.trace_id ?? null);
     return node ? { ...common, node } : undefined;
-  }, [diffing, diffBaseline, baselineTrace, measured, diffLayout, selection, union]);
+  }, [diffing, diffBaseline, baselineTrace, measured, traceOverride, diffLayout, selection, union]);
 
   // A span only the baseline has, picked in diff mode, isn't in this trace: once the union
   // no longer has it (diff mode off, another baseline), the selection goes back to the root.
@@ -495,7 +496,7 @@ export function TraceViewerPanel({
       if (sel.type === "span") {
         // Defer a frame so the tree has its up-to-date (non-compact) row model
         // before the virtualizer scrolls.
-        requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span.span_id));
+        requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span));
       }
     },
     [selectManually],

@@ -291,6 +291,62 @@ describe("SpanInfoPanel in diff mode, at the trace root", () => {
     // The span kind still leads the chips, as on any root.
     expect(screen.getByText("Span kind:")).toBeTruthy();
   });
+
+  it("reads this trace's own figures when there is no baseline trace and no host chips", () => {
+    renderPanel({ type: "trace" }, { baseline: null, root: { body: <div>Case outputs</div> } });
+
+    expect(chip("latency")!.textContent).toBe("Latency:1.6s");
+    expect(screen.getByText("Case outputs")).toBeTruthy();
+  });
+});
+
+describe("SpanInfoPanel in diff mode with image references", () => {
+  const HASH = "1".repeat(64);
+  const REF = `traceroot-attachment://v1/sha256/${HASH}?bytes=68&mime=image/png`;
+  const image = () => box("Input").querySelector("img");
+
+  beforeEach(() => {
+    io.byKey.set("tb/b2", { input: REF });
+    io.byKey.set("tc/c2", { input: REF });
+  });
+
+  it("loads a span only one run has through that run's span", () => {
+    renderPanel({ type: "span", span: shown(node("web_search")) });
+    expect(image()!.getAttribute("src")).toBe(
+      `/api/projects/p1/traces/tb/spans/b2/attachments/${HASH}`,
+    );
+    cleanup();
+
+    renderPanel({ type: "span", span: shown(node("answer")) });
+    expect(image()!.getAttribute("src")).toBe(
+      `/api/projects/p1/traces/tc/spans/c2/attachments/${HASH}`,
+    );
+  });
+
+  it("keeps references as text on a side that is a reconstruction", () => {
+    // A reconstruction has no stored spans to load an image through.
+    renderPanel(
+      { type: "span", span: shown(node("web_search")) },
+      { measured: false, reconstructed: { baseline: true, candidate: false } },
+    );
+    expect(image()).toBeNull();
+    expect(box("Input").textContent).toContain(REF);
+    cleanup();
+
+    renderPanel(
+      { type: "span", span: shown(node("answer")) },
+      { measured: false, reconstructed: { baseline: false, candidate: true } },
+    );
+    expect(image()).toBeNull();
+    cleanup();
+
+    // The other side's images still load when only one side is a reconstruction.
+    renderPanel(
+      { type: "span", span: shown(node("answer")) },
+      { measured: false, reconstructed: { baseline: true, candidate: false } },
+    );
+    expect(image()).not.toBeNull();
+  });
 });
 
 /** The panel on `spanId` of `candidate`, diffed against `baseline`. */

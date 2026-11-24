@@ -5,6 +5,7 @@ import { MODEL_SPAN_KINDS, SpanKind, SpanStatus } from "@traceroot/core";
 import { unionNodeSpan, type UnionNode } from "@/lib/eval/union-tree";
 import { cn, formatDuration } from "@/lib/utils";
 import type { DiffBar } from "../utils/diff";
+import { isInstantBar } from "../utils/timeline";
 import { getSpanKindColor } from "./SpanKindIcon";
 
 /** The baseline's bar behind this trace's: an outline, so the bar in front stays legible.
@@ -38,7 +39,8 @@ export function SpanTimelineDiffRow({
   node,
   bar,
   ghost,
-  toPx,
+  scaleMs,
+  timelineWidth,
   style,
   selected,
   hovered,
@@ -49,8 +51,9 @@ export function SpanTimelineDiffRow({
   node: UnionNode;
   bar: DiffBar | null;
   ghost: DiffBar | null;
-  /** Milliseconds from the start of the run to pixels on this timeline. */
-  toPx: (ms: number) => number;
+  /** The time the timeline covers, in milliseconds, over its width in pixels. */
+  scaleMs: number;
+  timelineWidth: number;
   style: CSSProperties;
   selected: boolean;
   hovered: boolean;
@@ -65,8 +68,9 @@ export function SpanTimelineDiffRow({
     span.span_kind === SpanKind.TOOL ||
     span.parent_span_id === null;
   const shown = bar ?? ghost;
+  const toPx = (ms: number) => (ms / scaleMs) * timelineWidth;
   const width = bar ? toPx(bar.durationMs) : 0;
-  const isInstant = !!bar && !bar.inProgress && width < 2;
+  const isInstant = !!bar && !bar.inProgress && isInstantBar(width, bar.durationMs, scaleMs);
   return (
     <div
       data-diff-state={node.state}

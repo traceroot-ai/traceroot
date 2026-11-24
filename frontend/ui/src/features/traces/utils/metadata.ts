@@ -94,6 +94,10 @@ export function splitInternalMetadata(raw: string | null | undefined): {
   if (!raw) return { metadata: raw ?? null, redacted: false };
   try {
     const parsed = JSON.parse(raw);
+    // Only an object has keys to drop; any other JSON value is shown as stored.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { metadata: raw, redacted: false };
+    }
     const filtered = Object.fromEntries(
       Object.entries(parsed).filter(
         ([k]) => !k.startsWith("traceroot.span.") && k !== REDACTED_ATTRIBUTE,

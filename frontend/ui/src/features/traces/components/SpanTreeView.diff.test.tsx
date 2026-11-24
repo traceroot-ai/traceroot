@@ -217,12 +217,37 @@ describe("SpanTreeView in diff mode", () => {
     renderTree({ ref });
     scrollToIndex.mockClear();
     // Rows: the trace, then agent, plan, web_search (the baseline's b2), answer (c2), ...
-    ref.current!.scrollToSpan("b2");
-    ref.current!.scrollToSpan("c2");
-    ref.current!.scrollToSpan("missing");
+    ref.current!.scrollToSpan(BASELINE.spans[2]);
+    ref.current!.scrollToSpan(CANDIDATE.spans[2]);
+    ref.current!.scrollToSpan({ ...CANDIDATE.spans[2], span_id: "missing" });
     expect(scrollToIndex.mock.calls).toEqual([
       [3, { align: "center" }],
       [4, { align: "center" }],
+    ]);
+  });
+
+  it("scrolls to the row of the span's own trace when both traces use its id", () => {
+    // The baseline's web_search and the candidate's answer share the id "s2".
+    const baseline = traceOf("tb", [
+      ["root", null, "agent", SpanKind.AGENT, 0, 1000],
+      ["s2", "root", "web_search", SpanKind.TOOL, 110, 200],
+    ]);
+    const candidate = traceOf("tc", [
+      ["root", null, "agent", SpanKind.AGENT, 0, 1000],
+      ["s2", "root", "answer", SpanKind.LLM, 110, 400],
+    ]);
+    const ref = createRef<SpanTreeViewHandle>();
+    renderTree(
+      { ref, trace: candidate },
+      { baseline, nodes: traceUnion(baseline, candidate).nodes },
+    );
+    scrollToIndex.mockClear();
+    // Rows: the trace, agent, web_search (the baseline's s2), answer (the candidate's s2).
+    ref.current!.scrollToSpan(candidate.spans[1]);
+    ref.current!.scrollToSpan(baseline.spans[1]);
+    expect(scrollToIndex.mock.calls).toEqual([
+      [3, { align: "center" }],
+      [2, { align: "center" }],
     ]);
   });
 
@@ -371,8 +396,9 @@ describe("SpanTreeView in diff mode on a retried call", () => {
 
 describe("SpanTreeView in diff mode, pairing across a move or a rename", () => {
   it("flags a span that ran under another parent as moved, with how it was paired", () => {
-    // The candidate's first `step` failed and was retried; its `fetch` is drawn under the
-    // retry, which pairs with the baseline's `step`.
+    // The candidate's first `step` failed and was retried, and its `fetch` ran under that
+    // failed attempt. The retry pairs with the baseline's `step`, so the tree draws `fetch`
+    // under it, as the baseline has it, and flags it as moved.
     const baseline = traceOf("tb", [
       ["b-root", null, "agent", SpanKind.AGENT, 0, 1000],
       ["b-step", "b-root", "step", SpanKind.SPAN, 10, 500],
