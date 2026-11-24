@@ -29,9 +29,10 @@ type FindingTraceStart = {
  * The backend resolves the customer root span's start, falling back to the
  * earliest customer span when the root has not arrived, and returns the
  * finding's oldest stored `timestamp` for when the trace has no customer span
- * at all. Fails closed: any lookup/parse error returns 502 instead of
- * serving the RCA, a 404 hides the RCA as `{ rca: null }`, and an expired
- * timestamp returns 403.
+ * at all. Fails closed: a failed or unreadable backend answer returns 502
+ * instead of the RCA, a 404 hides it as `{ rca: null }`, and a trace that
+ * started before the cutoff returns 403. A database error throws, as the RCA
+ * lookup in the handler does, so it ends in a 500 without the RCA.
  */
 async function checkRcaRetention(
   projectId: string,

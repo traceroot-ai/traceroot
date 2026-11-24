@@ -903,7 +903,7 @@ def list_trace_counts(
 def _utc_iso(value: datetime) -> str:
     """Render ``value`` as ISO-8601 with an explicit ``+00:00``.
 
-    A naive value is read as UTC, the way ClickHouse returns it. The offset matters
+    A naive value is read as UTC, and an aware one is converted. The offset matters
     because JavaScript's ``new Date()`` reads an ISO string without one as local time.
     """
     return to_utc_naive(value).replace(tzinfo=UTC).isoformat()

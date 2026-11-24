@@ -383,6 +383,14 @@ describe("GET /findings/:id/rca — retention gate", () => {
     });
   });
 
+  it("never serves the RCA when the plan lookup fails", async () => {
+    findFirst.mockResolvedValue(sampleRow());
+    workspaceFindUnique.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(call()).rejects.toThrow("database unavailable");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("holds a workspace with no plan to the free window", async () => {
     findFirst.mockResolvedValue(sampleRow());
     workspaceFindUnique.mockResolvedValue(null);
