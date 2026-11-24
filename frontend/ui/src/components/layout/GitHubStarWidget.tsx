@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { X, Github } from "lucide-react";
 import { clientEnv } from "@/env.client";
+import { PixelStrip } from "@/components/layout/PixelStrip";
 
 const DISMISSED_KEY = "github-star-widget-dismissed";
 const STAR_CACHE_KEY = "github-star-count-cache";
@@ -51,39 +52,46 @@ export function GitHubStarWidget() {
   if (dismissed) return null;
 
   return (
-    <div className="border-b px-4 py-3">
-      <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium">Star traceroot</span>
-        <button
-          className="-mr-1 flex h-5 w-5 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          onClick={() => {
-            localStorage.setItem(DISMISSED_KEY, "true");
-            setDismissed(true);
-          }}
-          aria-label="Dismiss"
-        >
-          <X className="h-3 w-3" />
-        </button>
+    // Sits over the section's top rule: the pixel band is the card's upper edge,
+    // so no line is drawn above it.
+    <div className="relative -mt-px border-b bg-background p-3">
+      <div className="border border-t-0">
+        <PixelStrip className="border-b" />
+        <div className="px-3 pb-3 pt-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] font-medium">Star traceroot</span>
+            <button
+              className="-mr-1 flex h-5 w-5 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={() => {
+                localStorage.setItem(DISMISSED_KEY, "true");
+                setDismissed(true);
+              }}
+              aria-label="Dismiss"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          <p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">
+            Open source and shipping fast.
+            <br />
+            Made with ❤️ by contributors.
+          </p>
+          <a
+            href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-group mt-2.5 flex w-full text-[12px] font-medium"
+          >
+            <span className="flex h-7 flex-1 items-center justify-center gap-1.5 bg-background px-2 transition-colors hover:bg-muted">
+              <Github className="h-3.5 w-3.5 shrink-0" />
+              traceroot
+            </span>
+            <span className="flex h-7 shrink-0 items-center gap-1 bg-background px-3 text-muted-foreground">
+              ★ {starCount !== null ? formatStarCount(starCount) : "—"}
+            </span>
+          </a>
+        </div>
       </div>
-      <p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">
-        Open source and shipping fast.
-        <br />
-        Made with ❤️ by contributors.
-      </p>
-      <a
-        href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="btn-group mt-2.5 flex w-full text-[12px] font-medium"
-      >
-        <span className="flex h-7 flex-1 items-center justify-center gap-1.5 bg-background px-2 transition-colors hover:bg-muted">
-          <Github className="h-3.5 w-3.5 shrink-0" />
-          traceroot
-        </span>
-        <span className="flex h-7 shrink-0 items-center gap-1 bg-background px-3 text-muted-foreground">
-          ★ {starCount !== null ? formatStarCount(starCount) : "—"}
-        </span>
-      </a>
     </div>
   );
 }
