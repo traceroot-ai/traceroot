@@ -90,6 +90,9 @@ export interface CompareModel {
   /** Cases present in every run. */
   sharedByAllCount: number;
   scorers: ScorerColumn[];
+  /** What the runs declared for each scorer. It holds for every pair; whatever is left
+   *  undeclared, each pair reads from its own two runs' values. */
+  declared: ReadonlyMap<string, DeclaredScorer>;
 }
 
 // Canonicalizing an input parses and re-serializes it; results are immutable query data,
@@ -129,13 +132,13 @@ function keepFirst(rows: ResultRow[], keyOf: (r: ResultRow) => string): Map<stri
   return map;
 }
 
-/** One column per scorer any run reported. Declared policy wins, each field from the
- *  newest run that declares it: an older SDK recorded scorers as bare `{ name, version }`,
- *  which must not hide a direction a newer run declares. Otherwise the type comes from the
- *  values (any text value makes it categorical) and the direction defaults. The format
- *  comes from every number any run recorded for it, true/false counting as 1/0. */
-function scorerColumns(runsOldestFirst: RunBundle[]): ScorerColumn[] {
-  const declared = new Map<string, Pick<ComparisonScorerMeta, "valueType" | "direction">>();
+export type DeclaredScorer = Pick<ComparisonScorerMeta, "valueType" | "direction">;
+
+/** Each scorer's declared policy, each field from the newest run that declares it: an
+ *  older SDK recorded scorers as bare `{ name, version }`, which must not hide a direction
+ *  a newer run declares. */
+function declaredScorers(runsOldestFirst: RunBundle[]): Map<string, DeclaredScorer> {
+  const declared = new Map<string, DeclaredScorer>();
   for (const b of runsOldestFirst) {
     // A declaration that conflicts within one run falls back to an older run's field.
     for (const meta of parseScorers(b.run.scorers)) {
@@ -146,8 +149,13 @@ function scorerColumns(runsOldestFirst: RunBundle[]): ScorerColumn[] {
       });
     }
   }
+  return declared;
+}
+
+/** Per scorer, the kinds of value the runs recorded and every number among them. */
+function observedScores(runs: RunBundle[]) {
   const observed = new Map<string, { kinds: Set<ScorerValueType>; numbers: number[] }>();
-  for (const b of runsOldestFirst) {
+  for (const b of runs) {
     for (const r of b.results) {
       // One score per scorer per result (the latest version), as the aggregates use, so a
       // superseded row can't change a column's format.
@@ -164,20 +172,35 @@ function scorerColumns(runsOldestFirst: RunBundle[]): ScorerColumn[] {
       }
     }
   }
+  return observed;
+}
+
+/** Declared policy wins. Otherwise the type comes from the values (any text value makes it
+ *  categorical) and the direction defaults. */
+function scorerPolicy(
+  meta: DeclaredScorer | undefined,
+  kinds: ReadonlySet<ScorerValueType>,
+): Pick<ScorerColumn, "valueType" | "direction"> {
+  const onlyBooleans = kinds.size === 1 && kinds.has("boolean");
+  const inferred: ScorerValueType = onlyBooleans ? "boolean" : "numeric";
+  const valueType: ScorerValueType = kinds.has("categorical")
+    ? "categorical"
+    : (meta?.valueType ?? inferred);
+  return { valueType, direction: meta?.direction ?? defaultDirection(valueType) };
+}
+
+/** One column per scorer any run reported, read from every run's values (`scorerPolicy`).
+ *  The format comes from every number any run recorded for it, true/false counting as
+ *  1/0. */
+function scorerColumns(
+  runsOldestFirst: RunBundle[],
+  declared: ReadonlyMap<string, DeclaredScorer>,
+): ScorerColumn[] {
+  const observed = observedScores(runsOldestFirst);
   return [...observed.keys()].sort().map((name) => {
     const { kinds, numbers } = observed.get(name)!;
-    const meta = declared.get(name);
-    const onlyBooleans = kinds.size === 1 && kinds.has("boolean");
-    const inferred: ScorerValueType = onlyBooleans ? "boolean" : "numeric";
-    const valueType: ScorerValueType = kinds.has("categorical")
-      ? "categorical"
-      : (meta?.valueType ?? inferred);
-    return {
-      name,
-      valueType,
-      direction: meta?.direction ?? defaultDirection(valueType),
-      format: inferMetricFormat(valueType, numbers),
-    };
+    const policy = scorerPolicy(declared.get(name), kinds);
+    return { name, ...policy, format: inferMetricFormat(policy.valueType, numbers) };
   });
 }
 
@@ -195,6 +218,7 @@ export function buildCompareModel(
       cases: [],
       sharedByAllCount: 0,
       scorers: [],
+      declared: new Map(),
     };
   }
   const runs = [baseline, ...byAge.filter((b) => b !== baseline)];
@@ -235,13 +259,15 @@ export function buildCompareModel(
   }
 
   const cases: CaseRow[] = [...rows.values()];
+  const declared = declaredScorers(byAge);
   return {
     runs,
     baselineRunId: baseline.run.id,
     alignment: runs.every(onBaselineDataset) ? "case_id" : "canonical_input",
     cases,
     sharedByAllCount: cases.filter((c) => c.byRun.size === runs.length).length,
-    scorers: scorerColumns(byAge),
+    scorers: scorerColumns(byAge, declared),
+    declared,
   };
 }
 
@@ -280,22 +306,23 @@ export function comparePairs(model: CompareModel): Map<string, PairComparison> {
         return r ? [{ ...r, testCaseId: c.key }] : [];
       }),
     );
-  // One policy per column for both sides, so a direction declared on only one run can't
-  // make the same column read differently from pair to pair.
-  const policy: ComparisonScorerMeta[] = model.scorers.map(({ name, valueType, direction }) => ({
-    name,
-    version: "",
-    valueType,
-    direction,
-  }));
-  const baselineRun = { ...toComparisonRun(baseline.run), scorers: policy };
+  const baselineRun = toComparisonRun(baseline.run);
   const baselineResults = resultsOf(baseline.run.id);
   for (const candidate of model.runs) {
     if (candidate === baseline) continue;
+    // One policy for both sides. What the runs declared holds for every pair, so a
+    // direction declared on only one run can't make the same column read differently from
+    // pair to pair; the rest comes from this pair's values, never another run's.
+    const observed = observedScores([baseline, candidate]);
+    const policy: ComparisonScorerMeta[] = model.scorers.map(({ name }) => ({
+      name,
+      version: "",
+      ...scorerPolicy(model.declared.get(name), observed.get(name)?.kinds ?? new Set()),
+    }));
     const { comparison, results } = compareRuns({
       candidate: { ...toComparisonRun(candidate.run), scorers: policy },
       candidateResults: resultsOf(candidate.run.id),
-      baseline: baselineRun,
+      baseline: { ...baselineRun, scorers: policy },
       baselineResults,
     });
     pairs.set(candidate.run.id, {

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { compareRuns } from "@/lib/eval/comparison";
+import { compareRuns, type ScorerCellComparison } from "@/lib/eval/comparison";
 import { toComparisonResults, toComparisonRun } from "@/lib/eval/comparison-db";
 import {
   CELL_STATE_LABEL,
+  cellPolicy,
   lineFailure,
   scoreRowsOf,
   scorerCellState,
@@ -169,5 +170,35 @@ describe("lineFailure", () => {
       taskError: "Upstream timeout",
     });
     expect(lineFailure(scoredAnyway, scorers)).toBeNull();
+  });
+});
+
+describe("cellPolicy", () => {
+  const labels = { valueType: "categorical", direction: "none" } as const;
+  const cell = (over: Partial<ScorerCellComparison>): ScorerCellComparison => ({
+    scorerName: QUALITY,
+    scorerVersion: "1",
+    valueType: "numeric",
+    direction: "higher_is_better",
+    candidateValue: 0.8,
+    baselineValue: 0.4,
+    delta: 0.4,
+    classification: "improved",
+    ...over,
+  });
+
+  it("reads a cell as its pair compared it, not as its column", () => {
+    expect(cellPolicy(cell({}), labels)).toEqual({
+      categorical: false,
+      direction: "higher_is_better",
+    });
+  });
+
+  it("falls back to the column for what the cell leaves open, or with no cell", () => {
+    expect(cellPolicy(cell({ valueType: null, direction: null }), labels)).toEqual({
+      categorical: true,
+      direction: "none",
+    });
+    expect(cellPolicy(undefined, labels)).toEqual({ categorical: true, direction: "none" });
   });
 });
