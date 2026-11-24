@@ -82,6 +82,7 @@ vi.mock("./SpanInfoPanel", () => ({
       onLayoutChange: (layout: string) => void;
       root?: { body?: React.ReactNode };
       sides?: { candidate: { label: string } };
+      reconstructed?: { baseline: boolean; candidate: boolean };
     };
   }) => (
     <div
@@ -89,6 +90,10 @@ vi.mock("./SpanInfoPanel", () => ({
       data-diff-node={props.diff ? (props.diff.node?.id ?? "root") : "none"}
       data-layout={props.diff?.layout}
       data-candidate={props.diff?.sides?.candidate.label}
+      data-reconstructed={
+        props.diff?.reconstructed &&
+        (["baseline", "candidate"] as const).filter((s) => props.diff!.reconstructed![s]).join(",")
+      }
     >
       {props.diff?.root?.body}
       <button type="button" onClick={() => props.diff?.onLayoutChange("inline")}>
@@ -437,6 +442,21 @@ describe("TraceViewerPanel diff mode in the details", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Diff" }));
     expect(info().dataset.diffNode).toBe("none");
+  });
+
+  it("tells the details which side is a reconstruction", () => {
+    renderPanel({ diffBaseline: { trace: BASELINE }, defaultDiffOn: true });
+    expect(info().dataset.reconstructed).toBe("");
+    cleanup();
+    renderPanel({ diffBaseline: { trace: BASELINE, reconstructed: true }, defaultDiffOn: true });
+    expect(info().dataset.reconstructed).toBe("baseline");
+    cleanup();
+    renderPanel({
+      diffBaseline: { trace: BASELINE },
+      defaultDiffOn: true,
+      traceOverride: CANDIDATE,
+    });
+    expect(info().dataset.reconstructed).toBe("candidate");
   });
 
   it("keeps the diff layout as the selection moves", () => {
