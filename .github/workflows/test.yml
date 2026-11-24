@@ -59,9 +59,9 @@ jobs:
 
       - name: Run backend tests with coverage
         timeout-minutes: 15
+        # One worker per core; pytest-cov combines the workers' coverage.
         run: |
-          uv run coverage run -m pytest tests/ --durations=10
-          uv run coverage xml -o coverage-backend.xml
+          uv run pytest tests/ -n auto --cov --cov-report=xml:coverage-backend.xml --durations=10
           uv run coverage report
 
       - name: Upload coverage artifact
