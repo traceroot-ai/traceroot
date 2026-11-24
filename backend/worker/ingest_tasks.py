@@ -146,7 +146,8 @@ def _get_pg_pool():
     return _PG_POOL
 
 
-# The workspace tables refresh every 30s, so a newer time within that window shows nothing new.
+# Write at most once per 30s of receive time, so a busy project doesn't rewrite its row on every batch.
+# The stored time can trail the latest batch by up to 30s, the same as the workspace tables' refresh.
 _INGESTION_WRITE_INTERVAL = timedelta(seconds=30)
 
 
