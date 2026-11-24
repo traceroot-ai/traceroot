@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
@@ -19,6 +20,8 @@ export default function ProjectsPage() {
   const workspaceId = params.workspaceId as string;
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user;
+
+  const t = useT();
 
   useEffect(() => {
     if (!user) {
@@ -41,12 +44,15 @@ export default function ProjectsPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       <WorkspaceBreadcrumb workspaceId={workspaceId} />
-      <PageHeader title="Projects" actions={<CreateProjectDialog workspaceId={workspaceId} />} />
+      <PageHeader
+        title={t("projects.title")}
+        actions={<CreateProjectDialog workspaceId={workspaceId} />}
+      />
 
       <div className="min-w-0 flex-1 overflow-auto">
         {isLoading && (
           <div className="flex items-center justify-center py-12">
-            <p className="text-[13px] text-muted-foreground">Loading projects...</p>
+            <p className="text-[13px] text-muted-foreground">{t("projects.loading")}</p>
           </div>
         )}
 
@@ -54,9 +60,9 @@ export default function ProjectsPage() {
           <div className="flex items-center justify-center py-16">
             <div className="flex flex-col items-center justify-center">
               <DOMAIN_ICONS.project className="mb-3 h-5 w-5 text-muted-foreground" />
-              <h3 className="mb-1 text-[13px] font-medium">No projects yet</h3>
+              <h3 className="mb-1 text-[13px] font-medium">{t("projects.emptyTitle")}</h3>
               <p className="text-center text-[12px] text-muted-foreground">
-                Create your first project to start tracking traces
+                {t("projects.emptyText")}
               </p>
             </div>
           </div>
@@ -66,10 +72,14 @@ export default function ProjectsPage() {
           <table className="data-table w-full min-w-[32rem]">
             <thead>
               <tr>
-                <th className="whitespace-nowrap px-3 text-left">Name</th>
-                <th className="w-[10rem] whitespace-nowrap px-3 text-left">Created</th>
-                <th className="w-[10rem] whitespace-nowrap px-3 text-left">Updated</th>
-                <th className="w-[56px] px-2" aria-label="Settings" />
+                <th className="whitespace-nowrap px-3 text-left">{t("common.name")}</th>
+                <th className="w-[10rem] whitespace-nowrap px-3 text-left">
+                  {t("common.created")}
+                </th>
+                <th className="w-[10rem] whitespace-nowrap px-3 text-left">
+                  {t("common.updated")}
+                </th>
+                <th className="w-[56px] px-2" aria-label={t("common.settings")} />
               </tr>
             </thead>
             <tbody>
@@ -92,7 +102,7 @@ export default function ProjectsPage() {
                     <Link
                       href={`/projects/${project.id}/settings`}
                       onClick={(e) => e.stopPropagation()}
-                      aria-label={`Settings for ${project.name}`}
+                      aria-label={t("common.settingsFor", { name: project.name })}
                       className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] transition-colors hover:bg-muted"
                     >
                       <Settings className="h-3.5 w-3.5 text-muted-foreground" />

@@ -16,6 +16,9 @@ import { Logo } from "@/components/Logo";
 import { signupEmailError } from "@/lib/signup/email-policy";
 import type { SocialProvider } from "@/lib/social-providers";
 import { SocialSignInButtons } from "../social-sign-in-buttons";
+import { useT } from "@/lib/i18n/provider";
+import { translateFormError } from "@/lib/i18n/form-errors";
+import { LanguageToggle } from "@/components/language-toggle";
 
 const signUpSchema = z
   .object({
@@ -77,6 +80,7 @@ function postSignUpDestination(callbackUrl: string): string {
 
 function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClientProps) {
   const router = useRouter();
+  const t = useT();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
   const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
@@ -123,30 +127,34 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
   }
 
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
+    <div className="flex h-full min-h-screen flex-col items-center justify-center gap-4 bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-[15px] font-medium">Create your account</CardTitle>
+          <CardTitle className="text-[15px] font-medium">{t("auth.signUpTitle")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
             <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-              {error}
+              {translateFormError(t, error)}
             </div>
           )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
-              <label className="mb-1 block text-[13px] font-medium">Name</label>
+              <label className="mb-1 block text-[13px] font-medium">{t("auth.name")}</label>
               <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
-              {errors.name && <p className="mt-1 text-[12px] text-danger">{errors.name.message}</p>}
+              {errors.name && (
+                <p className="mt-1 text-[12px] text-danger">
+                  {translateFormError(t, errors.name.message)}
+                </p>
+              )}
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium">Email</label>
+              <label className="mb-1 block text-[13px] font-medium">{t("auth.email")}</label>
               <Input
                 type="email"
                 placeholder="you@example.com"
@@ -154,12 +162,14 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
+                <p className="mt-1 text-[12px] text-danger">
+                  {translateFormError(t, errors.email.message)}
+                </p>
               )}
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium">Password</label>
+              <label className="mb-1 block text-[13px] font-medium">{t("auth.password")}</label>
               <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}
@@ -176,12 +186,16 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
+                <p className="mt-1 text-[12px] text-danger">
+                  {translateFormError(t, errors.password.message)}
+                </p>
               )}
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium">Confirm Password</label>
+              <label className="mb-1 block text-[13px] font-medium">
+                {t("auth.confirmPassword")}
+              </label>
               <div className="relative">
                 <Input
                   type={showConfirmPassword ? "text" : "password"}
@@ -198,12 +212,14 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="mt-1 text-[12px] text-danger">{errors.confirmPassword.message}</p>
+                <p className="mt-1 text-[12px] text-danger">
+                  {translateFormError(t, errors.confirmPassword.message)}
+                </p>
               )}
             </div>
 
             <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Sign up"}
+              {isLoading ? t("auth.creatingAccount") : t("auth.signUp")}
             </Button>
           </form>
 
@@ -214,13 +230,15 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
           />
 
           <p className="text-center text-[12px] text-muted-foreground">
-            Already have an account?{" "}
+            {t("auth.haveAccount")}{" "}
             <Link href={signInHref} className="font-medium text-brand hover:underline">
-              Sign in
+              {t("auth.signIn")}
             </Link>
           </p>
         </CardContent>
       </Card>
+      {/* Signed-out screens have no account menu, so the language choice sits under the card. */}
+      <LanguageToggle />
     </div>
   );
 }

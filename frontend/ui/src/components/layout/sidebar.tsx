@@ -29,6 +29,8 @@ import { clientEnv } from "@/env.client";
 import { exitImpersonation } from "@/features/support/exit";
 import { ImpersonationBanner } from "@/features/support/impersonation-banner";
 import { isStaff } from "@/lib/support/policy";
+import { useT } from "@/lib/i18n/provider";
+import { LanguageToggle } from "@/components/language-toggle";
 
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
@@ -60,6 +62,7 @@ function NavLink({
   collapsed: boolean;
 }) {
   const Icon = item.icon;
+  const label = useT()(item.labelKey);
   return (
     <Tooltip key={String(collapsed)}>
       <TooltipTrigger asChild>
@@ -75,12 +78,12 @@ function NavLink({
           )}
         >
           <Icon className={cn("h-3.5 w-3.5 shrink-0")} />
-          {!collapsed && item.label}
+          {!collapsed && label}
         </Link>
       </TooltipTrigger>
       {collapsed && (
         <TooltipContent side="right" sideOffset={16}>
-          {item.label}
+          {label}
         </TooltipContent>
       )}
     </Tooltip>
@@ -93,6 +96,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const { data: sessionData } = authClient.useSession();
   const isImpersonating = !!sessionData?.session?.impersonatedBy;
   const { theme, setTheme } = useTheme();
+  const t = useT();
   const params = useParams<{ projectId?: string; workspaceId?: string }>();
 
   // Don't show sidebar on auth pages
@@ -102,7 +106,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
   const user = sessionData?.user;
   const initials = getInitials(user?.name, user?.email);
-  const displayName = user?.name || user?.email?.split("@")[0] || "User";
+  const displayName = user?.name || user?.email?.split("@")[0] || t("account.fallbackName");
 
   // Project/workspace context from the matched dynamic route params
   const projectId = params?.projectId ?? null;
@@ -133,7 +137,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             collapsed ? "justify-center px-2" : "px-4",
           )}
         >
-          <Link href="/" className="flex items-center gap-2" aria-label="traceroot home">
+          <Link href="/" className="flex items-center gap-2" aria-label={t("nav.homeLabel")}>
             {collapsed ? (
               <Logo variant="mark" className="h-[18px] w-[18px]" />
             ) : (
@@ -159,12 +163,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 collapsed={collapsed}
               />
               {NAV_GROUPS.map((group) => (
-                <div key={group.label} role="group" aria-label={group.label}>
+                <div key={group.label} role="group" aria-label={t(group.labelKey)}>
                   {collapsed ? (
                     <div className="mx-3 mt-2 border-t border-border" aria-hidden />
                   ) : (
                     <div className="px-4 pb-1 pt-4 text-[12px] font-medium text-muted-foreground">
-                      {group.label}
+                      {t(group.labelKey)}
                     </div>
                   )}
                   {group.items.map((item) => (
@@ -195,12 +199,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   )}
                 >
                   <DOMAIN_ICONS.workspace className="h-3.5 w-3.5 shrink-0" />
-                  {!collapsed && "Workspaces"}
+                  {!collapsed && t("nav.workspaces")}
                 </Link>
               </TooltipTrigger>
               {collapsed && (
                 <TooltipContent side="right" sideOffset={16}>
-                  Workspaces
+                  {t("nav.workspaces")}
                 </TooltipContent>
               )}
             </Tooltip>
@@ -257,12 +261,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   )}
                 >
                   <Settings className="h-3.5 w-3.5 shrink-0" />
-                  {!collapsed && "Settings"}
+                  {!collapsed && t("common.settings")}
                 </Link>
               </TooltipTrigger>
               {collapsed && (
                 <TooltipContent side="right" sideOffset={16}>
-                  Settings
+                  {t("common.settings")}
                 </TooltipContent>
               )}
             </Tooltip>
@@ -280,12 +284,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 )}
               >
                 <LifeBuoy className="h-3.5 w-3.5 shrink-0" />
-                {!collapsed && "Support"}
+                {!collapsed && t("nav.support")}
               </Link>
             </TooltipTrigger>
             {collapsed && (
               <TooltipContent side="right" sideOffset={16}>
-                Support
+                {t("nav.support")}
               </TooltipContent>
             )}
           </Tooltip>
@@ -294,7 +298,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           <Popover open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
             <PopoverTrigger asChild>
               <button
-                aria-label="Account menu"
+                aria-label={t("account.menu")}
                 className={cn(
                   "flex w-full items-center gap-2 py-1.5 text-[13px] transition-colors hover:bg-muted",
                   collapsed ? "justify-center px-2" : "px-4",
@@ -335,13 +339,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               {/* Theme: three icon choices inline, no submenu to chase */}
               <div>
                 <div className="flex h-9 items-center justify-between gap-2 px-4">
-                  <span className="text-[13px]">Theme</span>
-                  <div className="btn-group" role="radiogroup" aria-label="Theme">
+                  <span className="text-[13px]">{t("account.theme")}</span>
+                  <div className="btn-group" role="radiogroup" aria-label={t("account.theme")}>
                     {(
                       [
-                        ["light", Sun, "Light"],
-                        ["dark", Moon, "Dark"],
-                        ["system", Monitor, "System"],
+                        ["light", Sun, t("account.themeLight")],
+                        ["dark", Moon, t("account.themeDark")],
+                        ["system", Monitor, t("account.themeSystem")],
                       ] as const
                     ).map(([value, Icon, label]) => {
                       const active =
@@ -368,6 +372,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   </div>
                 </div>
 
+                {/* Language: the cookie is the choice; refreshing re-renders the app in it. */}
+                <div className="flex h-9 items-center justify-between gap-2 px-4">
+                  <span className="text-[13px]">{t("account.language")}</span>
+                  <LanguageToggle />
+                </div>
+
                 {!isImpersonating && isStaff(user?.role) && (
                   <Link
                     href="/admin"
@@ -375,7 +385,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-left text-[13px] transition-colors hover:bg-muted"
                   >
                     <UserRoundSearch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span>Support console</span>
+                    <span>{t("account.supportConsole")}</span>
                   </Link>
                 )}
 
@@ -386,7 +396,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-left text-[13px] transition-colors hover:bg-muted"
                 >
                   <MonitorSmartphone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span>Active sessions</span>
+                  <span>{t("account.activeSessions")}</span>
                 </Link>
 
                 <div className="h-px bg-border" />
@@ -404,7 +414,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   }}
                 >
                   <LogOut className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  {isImpersonating ? "Exit impersonation" : "Log out"}
+                  {isImpersonating ? t("account.exitImpersonation") : t("account.logOut")}
                 </button>
               </div>
             </PopoverContent>
