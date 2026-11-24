@@ -20,15 +20,30 @@ export interface AppConfig extends ServerConfig {
   credentialTtlMs?: number;
   /** Served at /.well-known/openai-apps-challenge to prove domain ownership; unset serves 404. */
   openaiAppsChallenge?: string;
+  /**
+   * Served as {"verification_tokens": [...]} at /.well-known/google-connected-apps
+   * to prove domain ownership; unset serves 404.
+   */
+  googleConnectedAppsTokens?: string[];
+}
+
+/** Split a comma-separated list, dropping blanks; an empty result means unset. */
+function parseList(raw: string | undefined): string[] | undefined {
+  const items = (raw ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+  return items.length > 0 ? items : undefined;
 }
 
 /** Split a comma-separated host list, dropping blanks; an empty result means unset (any host). */
 export function parseAllowedHosts(raw: string | undefined): string[] | undefined {
-  const hosts = (raw ?? "")
-    .split(",")
-    .map((host) => host.trim())
-    .filter((host) => host !== "");
-  return hosts.length > 0 ? hosts : undefined;
+  return parseList(raw);
+}
+
+/** Split the comma-separated domain-verification tokens; an empty result means unset. */
+export function parseVerificationTokens(raw: string | undefined): string[] | undefined {
+  return parseList(raw);
 }
 
 /** Bearer token of an `Authorization` header, if it carries one. */
@@ -68,11 +83,18 @@ export function createApp(config: AppConfig): Hono {
   const app = new Hono();
   app.get("/health", (c) => c.json({ status: "ok" }));
 
-  // Domain verification for an app directory: the token exactly, as plain text.
-  const { openaiAppsChallenge } = config;
+  // Domain verification for app directories, each in the form its directory
+  // reads: a token as plain text, or a JSON list of tokens. Both are answered
+  // directly (200, no redirect) and without a credential.
+  const { openaiAppsChallenge, googleConnectedAppsTokens } = config;
   if (openaiAppsChallenge) {
     app.get("/.well-known/openai-apps-challenge", (c) =>
       c.body(openaiAppsChallenge, 200, { "Content-Type": "text/plain; charset=utf-8" }),
+    );
+  }
+  if (googleConnectedAppsTokens?.length) {
+    app.get("/.well-known/google-connected-apps", (c) =>
+      c.json({ verification_tokens: googleConnectedAppsTokens }),
     );
   }
 

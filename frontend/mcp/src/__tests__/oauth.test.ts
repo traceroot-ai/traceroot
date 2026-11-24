@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "../app.js";
+import { createApp, parseVerificationTokens } from "../app.js";
 import {
   challenge,
   isExpiredJwt,
@@ -229,5 +229,30 @@ describe("the OpenAI apps domain challenge", () => {
       new Request("https://mcp.example.com/.well-known/openai-apps-challenge"),
     );
     expect(response.status).toBe(404);
+  });
+});
+
+describe("the Google connected apps domain proof", () => {
+  const make = (googleConnectedAppsTokens?: string[]) =>
+    createApp({ backendUrl: "http://rest:8000", googleConnectedAppsTokens, oauth: OAUTH });
+  const get = (app: ReturnType<typeof make>) =>
+    app.fetch(new Request("https://mcp.example.com/.well-known/google-connected-apps"));
+
+  it("serves the configured tokens as JSON, directly and without a credential", async () => {
+    const response = await get(make(["tok-a", "tok-b"]));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^application\/json/);
+    expect(await response.json()).toEqual({ verification_tokens: ["tok-a", "tok-b"] });
+  });
+
+  it("is not found when unset", async () => {
+    expect((await get(make())).status).toBe(404);
+    expect((await get(make([]))).status).toBe(404);
+  });
+
+  it("reads the tokens from a comma-separated value", () => {
+    expect(parseVerificationTokens(" tok-a , ,tok-b ")).toEqual(["tok-a", "tok-b"]);
+    expect(parseVerificationTokens("  ")).toBeUndefined();
+    expect(parseVerificationTokens(undefined)).toBeUndefined();
   });
 });
