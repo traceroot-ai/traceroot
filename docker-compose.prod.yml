@@ -652,6 +652,10 @@ services:
       # the endpoint key-only. Tokens are still verified by rest, not here.
       MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
       MCP_OAUTH_ISSUER: ${TRACEROOT_OAUTH_ISSUER:-}
+      # Where the web app answers inside this network. With OAuth on, the server
+      # checks at startup that the web app's issuer is MCP_OAUTH_ISSUER exactly,
+      # and exits if not.
+      TRACEROOT_UI_URL: http://web:3000
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
       interval: 10s
