@@ -162,12 +162,13 @@ def test_task_persists_receive_time_for_existing_trace_snapshots(pg, monkeypatch
     monkeypatch.setattr("worker.detector_tasks.enqueue_detector_runs", MagicMock())
     monkeypatch.setattr("worker.ingest_tasks._publish_live_spans", MagicMock())
 
-    for parent, timestamp in [(None, T0), ("bb" * 8, T0 + timedelta(seconds=5)), ("bb" * 8, T0)]:
+    # The child-only batch arrives more than 30s later, outside the write window.
+    for parent, timestamp in [(None, T0), ("bb" * 8, T0 + timedelta(seconds=35)), ("bb" * 8, T0)]:
         s3.download_json.return_value = make_otel_payload(
             [make_span("aa" * 16, "cc" * 8, parent_span_id_hex=parent)]
         )
         process_s3_traces(s3_key="batch.json", project_id="p1", received_at=timestamp.isoformat())
-    assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 5)
+    assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 35)
     assert pg()["p2"] is None
     assert ch.insert_spans_batch.call_count == 3
     assert ch.insert_traces_batch.call_count == 1
