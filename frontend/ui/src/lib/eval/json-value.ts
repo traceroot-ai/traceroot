@@ -29,13 +29,38 @@
  *  strings for exactly those inputs — which is harmless while each stays on its own side,
  *  and is why an id must never be derived from this one. */
 export function canonicalJson(v: unknown): string {
-  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
-  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
-  const o = v as Record<string, unknown>;
-  return `{${Object.keys(o)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
-    .join(",")}}`;
+  // A loop over an explicit stack, not recursion: stored values are capped in length but
+  // not in depth, so one can nest deeper than the call stack allows. A string on the stack
+  // is text to write as is; a `{ value }` is a value still to serialize.
+  const out: string[] = [];
+  const stack: (string | { value: unknown })[] = [{ value: v }];
+  while (stack.length > 0) {
+    const next = stack.pop()!;
+    if (typeof next === "string") {
+      out.push(next);
+      continue;
+    }
+    const x = next.value;
+    if (x === null || typeof x !== "object") {
+      out.push(JSON.stringify(x) ?? "null");
+      continue;
+    }
+    const isArray = Array.isArray(x);
+    const o = x as Record<string, unknown>;
+    // Each member's prefix (separator, then the key for an object) and value.
+    const members: [string, unknown][] = isArray
+      ? Array.from(x, (item, i): [string, unknown] => [i > 0 ? "," : "", item])
+      : Object.keys(o)
+          .sort()
+          .map((k, i): [string, unknown] => [`${i > 0 ? "," : ""}${JSON.stringify(k)}:`, o[k]]);
+    out.push(isArray ? "[" : "{");
+    // Pushed last-first, so they come off the stack in order.
+    stack.push(isArray ? "]" : "}");
+    for (let i = members.length - 1; i >= 0; i--) {
+      stack.push({ value: members[i][1] }, members[i][0]);
+    }
+  }
+  return out.join("");
 }
 
 /**

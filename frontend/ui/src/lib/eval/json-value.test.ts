@@ -107,8 +107,9 @@ describe("encodeEditedText (UI edit → stored encoding)", () => {
   });
 });
 
-// Deterministic serialization used both to content-sign a dataset version and to align
-// run-comparison rows: two STRUCTURALLY equal values must serialize identically.
+// Deterministic serialization for lining up run-comparison rows in memory (case ids use the
+// stricter canonicalizer in `canonical.ts`): two STRUCTURALLY equal values must serialize
+// identically.
 describe("canonicalJson (key-order-independent serialization)", () => {
   it("serializes object keys in a stable (sorted) order", () => {
     expect(canonicalJson({ b: 1, a: 2 })).toBe(canonicalJson({ a: 2, b: 1 }));
@@ -131,6 +132,20 @@ describe("canonicalJson (key-order-independent serialization)", () => {
     expect(canonicalJson("x")).toBe('"x"');
     expect(canonicalJson(null)).toBe("null");
     expect(canonicalJson(true)).toBe("true");
+  });
+
+  it("writes empty and nested objects and arrays as JSON does", () => {
+    expect(canonicalJson({ c: [1, { e: null, d: "x" }], b: {}, a: [] })).toBe(
+      '{"a":[],"b":{},"c":[1,{"d":"x","e":null}]}',
+    );
+  });
+
+  it("serializes a value nested deeper than the call stack allows", () => {
+    const depth = 100_000;
+    const nested = JSON.parse('{"b":1,"a":'.repeat(depth) + "0" + "}".repeat(depth));
+    expect(canonicalJson(nested)).toBe('{"a":'.repeat(depth) + "0" + ',"b":1}'.repeat(depth));
+    const arrays = "[".repeat(depth) + "]".repeat(depth);
+    expect(canonicalJson(JSON.parse(arrays))).toBe(arrays);
   });
 });
 
@@ -183,5 +198,14 @@ describe("canonicalInputKey (cross-dataset input alignment)", () => {
     expect(canonicalInputKey(encodeJsonValue('{"a":1}'))).not.toBe(
       canonicalInputKey(encodeJsonValue({ a: 1 })),
     );
+  });
+
+  it("keys an input nested deeper than the call stack allows", () => {
+    // Stored inputs are capped in length, not in depth, and the comparison page keys every
+    // result's input, so a deeply nested one must still line up rather than break the page.
+    const depth = 100_000;
+    const stored = '{"b":1,"a":'.repeat(depth) + "0" + "}".repeat(depth);
+    const reordered = '{"a":'.repeat(depth) + "0" + ',"b":1}'.repeat(depth);
+    expect(canonicalInputKey(stored)).toBe(canonicalInputKey(reordered));
   });
 });
