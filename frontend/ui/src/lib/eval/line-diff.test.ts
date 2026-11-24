@@ -126,6 +126,18 @@ describe("normalizeForDiff", () => {
     expect(normalizeForDiff("42")).toBe("42");
     expect(normalizeForDiff("null")).toBe("null");
   });
+
+  it("lists integer-like keys first, in numeric order, whatever order they were stored in", () => {
+    const shown = '{\n  "2": 3,\n  "10": 2,\n  "b": 1\n}';
+    expect(normalizeForDiff('{"b":1,"10":2,"2":3}')).toBe(shown);
+    expect(normalizeForDiff('{"2":3,"b":1,"10":2}')).toBe(shown);
+  });
+
+  it("shows a value nested too deep to indent as it was stored", () => {
+    const depth = 100_000;
+    const stored = '{"a":'.repeat(depth) + "1" + "}".repeat(depth);
+    expect(normalizeForDiff(stored)).toBe(stored);
+  });
 });
 
 describe("sideBySide", () => {
