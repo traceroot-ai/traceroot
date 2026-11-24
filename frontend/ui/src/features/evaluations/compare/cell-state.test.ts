@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { compareRuns } from "@/lib/eval/comparison";
+import { compareRuns, type ScorerCellComparison } from "@/lib/eval/comparison";
 import { toComparisonResults, toComparisonRun } from "@/lib/eval/comparison-db";
-import { scoreRowsOf, scorerCellState, taskErrorOf } from "./cell-state";
+import {
+  CELL_STATE_LABEL,
+  cellPolicy,
+  lineFailure,
+  scoreRowsOf,
+  scorerCellState,
+  taskErrorOf,
+} from "./cell-state";
 import { QUALITY, fixtureResult, fixtureRun, fixtureScore } from "./__tests__/paired-fixture";
 import type { ResultRow, ScoreRow } from "../types";
 
@@ -131,5 +138,79 @@ describe("scoreRowsOf", () => {
     const cell = results[0].scorerCells.find((c) => c.scorerName === QUALITY);
     expect(cell?.candidateValue).toBe(scoreRowsOf(cand).get(QUALITY)?.numericValue);
     expect(cell?.baselineValue).toBe(scoreRowsOf(base).get(QUALITY)?.numericValue);
+  });
+});
+
+describe("CELL_STATE_LABEL", () => {
+  it("names each state a cell can be in instead of a value", () => {
+    expect(CELL_STATE_LABEL).toEqual({
+      no_result: "No result",
+      task_error: "Task error",
+      scorer_error: "Scorer error",
+      not_scored: "Not scored",
+    });
+  });
+});
+
+describe("lineFailure", () => {
+  const scorers = [QUALITY, "route"];
+
+  it("says a run with no result for the case has none, once for its whole line", () => {
+    expect(lineFailure(undefined, scorers)).toEqual({ kind: "no_result" });
+  });
+
+  it("says a failed task once when no scorer recorded a value", () => {
+    const failed = result([], { status: "errored", taskError: "Upstream timeout" });
+    expect(lineFailure(failed, scorers)).toEqual({
+      kind: "task_error",
+      message: "Upstream timeout",
+    });
+    const silent = result([], { status: "errored", candidateOutput: null });
+    expect(lineFailure(silent, scorers)).toEqual({ kind: "task_error", message: "" });
+  });
+
+  it("leaves a line with values to its columns", () => {
+    expect(lineFailure(result([fixtureScore(QUALITY, 0.9)]), scorers)).toBeNull();
+    // A scorer error or an unscored scorer is that scorer's alone.
+    expect(
+      lineFailure(result([fixtureScore(QUALITY, null, "judge timed out")]), scorers),
+    ).toBeNull();
+    expect(lineFailure(result([]), scorers)).toBeNull();
+    // A scorer that recorded a value despite the failed task keeps it in its column.
+    const scoredAnyway = result([fixtureScore("route", "billing")], {
+      status: "errored",
+      taskError: "Upstream timeout",
+    });
+    expect(lineFailure(scoredAnyway, scorers)).toBeNull();
+  });
+});
+
+describe("cellPolicy", () => {
+  const labels = { valueType: "categorical", direction: "none" } as const;
+  const cell = (over: Partial<ScorerCellComparison>): ScorerCellComparison => ({
+    scorerName: QUALITY,
+    scorerVersion: "1",
+    valueType: "numeric",
+    direction: "higher_is_better",
+    candidateValue: 0.8,
+    baselineValue: 0.4,
+    delta: 0.4,
+    classification: "improved",
+    ...over,
+  });
+
+  it("reads a cell as its pair compared it, not as its column", () => {
+    expect(cellPolicy(cell({}), labels)).toEqual({
+      categorical: false,
+      direction: "higher_is_better",
+    });
+  });
+
+  it("falls back to the column for what the cell leaves open, or with no cell", () => {
+    expect(cellPolicy(cell({ valueType: null, direction: null }), labels)).toEqual({
+      categorical: true,
+      direction: "none",
+    });
+    expect(cellPolicy(undefined, labels)).toEqual({ categorical: true, direction: "none" });
   });
 });

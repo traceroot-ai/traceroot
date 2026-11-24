@@ -3,6 +3,7 @@ import {
   buildCompareModel,
   comparePairs,
   countCellsByScorer,
+  expectedKeyOf,
   pairExclusions,
   type CompareModel,
   type RunBundle,
@@ -649,5 +650,21 @@ describe("countCellsByScorer", () => {
       unpaired: 2,
       not_comparable: 2,
     });
+  });
+});
+
+describe("expectedKeyOf", () => {
+  const expecting = (expectedOutput: string | null) =>
+    fixtureResult(BASELINE_RUN.id, "case-1", "Ticket 1", [], { expectedOutput });
+
+  it("reads one expected output the same in any form it was recorded in", () => {
+    const key = expectedKeyOf(expecting('{"route": "billing", "priority": 1}'));
+    expect(expectedKeyOf(expecting('{"priority":1,"route":"billing"}'))).toBe(key);
+    expect(expectedKeyOf(expecting('"Reset SSO"'))).toBe(expectedKeyOf(expecting("Reset SSO")));
+  });
+
+  it("tells a different expected output, an empty one and none apart", () => {
+    const keys = [expecting("Reset SSO"), expecting("Reset MFA"), expecting(""), expecting(null)];
+    expect(new Set(keys.map(expectedKeyOf)).size).toBe(4);
   });
 });

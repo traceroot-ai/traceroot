@@ -132,6 +132,32 @@
   background-color: hsl(var(--background));
 }
 
+/* Table start column (what names the row) stays in view while a wide table scrolls
+   sideways, with a rule between it and the columns passing under it. */
+.col-sticky-start {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: hsl(var(--background));
+}
+.data-table th.col-sticky-start,
+.data-table td.col-sticky-start {
+  border-right: 1px solid hsl(var(--border));
+}
+
+/* One header row that stays on top while the table scrolls, where a sticky thead would
+   hold every row of the head. It passes over the pinned start column, and its own start
+   cell over both. */
+.row-sticky-top > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: hsl(var(--background));
+}
+.row-sticky-top > th.col-sticky-start {
+  z-index: 3;
+}
+
 /* One table language: hairline row rules, no column rules, muted caption headers. */
 .data-table th,
 .data-table td {
@@ -223,6 +249,21 @@ body {
 }
 .data-table tbody tr[data-selected="true"] .col-sticky-end {
   background-color: hsl(var(--accent));
+}
+/* So does the pinned start cell. */
+.data-table tbody tr:hover .col-sticky-start {
+  background-color: hsl(var(--muted));
+}
+.data-table tbody tr[data-selected="true"] .col-sticky-start {
+  background-color: hsl(var(--accent));
+}
+/* Its fill covers the row's inset focus ring, so it draws that ring's left, top and bottom
+   edges itself. */
+.data-table tbody tr:focus-visible .col-sticky-start {
+  box-shadow:
+    inset 1px 0 0 hsl(var(--ring)),
+    inset 0 1px 0 hsl(var(--ring)),
+    inset 0 -1px 0 hsl(var(--ring));
 }
 .data-table tbody td input[type="checkbox"] {
   display: block;
