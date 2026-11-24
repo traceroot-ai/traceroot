@@ -102,7 +102,9 @@ def _padded_window(time_column: str, start_param: str | None, end_param: str | N
     return bounds
 
 
-def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str:
+def _evaluation_trace_ids(
+    start_param: str | None, end_param: str | None, *, target_trace: bool = False
+) -> str:
     """Sub-select of every offline-evaluation ``trace_id`` in a project, around a window.
 
     The one definition of "which traces are evaluations", shared by every read-path
@@ -160,6 +162,8 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     Args:
         start_param (str | None): Name of the window-start parameter, or ``None``.
         end_param (str | None): Name of the window-end parameter, or ``None``.
+        target_trace (bool): Restrict both tables to the bound ``trace_id``.
+            This also makes the span check possible without a time window.
 
     Returns:
         str: A parenthesised ``SELECT trace_id ...`` sub-select, with the ``spans`` half
@@ -169,14 +173,17 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     # Table names spelled out, never templated: test_source_consumers finds a scan by its
     # literal table name and judges it under the innermost `def` above it, so a templated
     # or nested-helper scan would slip past that audit.
+    target = " AND trace_id = {trace_id:String}" if target_trace else ""
     sub_selects = [
         "SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1"
+        + target
         + _padded_window("trace_start_time", start_param, end_param)
     ]
-    if start_param is not None:
+    if start_param is not None or target_trace:
         sub_selects.append(
             "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
             f" AND span_kind IN ({kinds})"
+            + target
             + _padded_window("span_start_time", start_param, end_param)
         )
     return "(" + " UNION DISTINCT ".join(sub_selects) + ")"
@@ -621,6 +628,37 @@ class TraceReaderService:
             parameters={"project_id": project_id, "trace_id": trace_id},
         )
         rows = result.result_rows
+        return rows[0][0] if rows else None
+
+    def get_label_target_start_time(
+        self, project_id: str, trace_id: str, span_id: str | None = None
+    ) -> datetime | None:
+        """Get the start of a customer trace that can be labeled, without reading its I/O."""
+        params = {"project_id": project_id, "trace_id": trace_id}
+        span_match = ""
+        if span_id is not None:
+            params["span_id"] = span_id
+            span_match = f"""
+                AND trace_id IN (
+                    SELECT trace_id FROM spans
+                    WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+                      AND span_id = {{span_id:String}} AND {customer_traffic_only()}
+                )
+            """
+
+        rows = self._client.query(
+            f"""
+            SELECT trace_start_time FROM traces
+            WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+              AND {customer_traffic_only()}
+              AND trace_id NOT IN {_evaluation_trace_ids(None, None, target_trace=True)}
+              {span_match}
+            ORDER BY ch_update_time DESC
+            LIMIT 1
+            """,
+            parameters=params,
+            settings=READ_QUERY_SETTINGS,
+        ).result_rows
         return rows[0][0] if rows else None
 
     def list_traces(

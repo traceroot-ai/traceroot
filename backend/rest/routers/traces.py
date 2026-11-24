@@ -27,6 +27,7 @@ from rest.rate_limit import (
 )
 from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.deps import RateLimitedProjectAccess
+from rest.routers.labels_common import MAX_LABEL_LENGTH, find_labeled_trace_ids
 from rest.schemas.traces import (
     FilterFieldsResponse,
     FilterValuesResponse,
@@ -125,9 +126,42 @@ async def list_traces(
     # 422 rather than being swallowed by the broad 500 handler below.
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
-        parsed_filters = parse_filters_param(filters)
+        parsed_filters = parse_filters_param(filters, allow_label=True)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+
+    label_field = filter_columns.LABEL_FILTER_COLUMN.name
+    label_filters = [predicate for predicate in parsed_filters if predicate.field == label_field]
+    if label_filters:
+        values = label_filters[0].value
+        if (
+            len(label_filters) != 1
+            or len(values) != 1
+            or not 1 <= len(values[0].strip()) <= MAX_LABEL_LENGTH
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Select one project label",
+            )
+
+        matches = await find_labeled_trace_ids(project_id, values[0])
+        if matches.overflow or len(matches.trace_ids) > MAX_TRACE_IDS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"This label matches more than {MAX_TRACE_IDS} traces",
+            )
+
+        matched_ids = set(matches.trace_ids)
+        if trace_ids is not None:
+            matched_ids.intersection_update(trace_ids)
+        if not matched_ids:
+            return {"data": [], "meta": {"page": page, "limit": limit, "total": 0}}
+        trace_ids = sorted(matched_ids)
+        parsed_filters = [
+            predicate for predicate in parsed_filters if predicate.field != label_field
+        ]
+        include_evaluations = False
+
     try:
         service = get_trace_reader_service()
         # Off the event loop: clickhouse-connect is synchronous, and this is the widest
@@ -194,7 +228,11 @@ async def get_filter_fields(
                 "integer": c.is_integer,
                 "requires_key": c.requires_key,
             }
-            for c in filter_columns.FILTER_COLUMNS
+            for c in (
+                *filter_columns.FILTER_COLUMNS[:1],
+                filter_columns.LABEL_FILTER_COLUMN,
+                *filter_columns.FILTER_COLUMNS[1:],
+            )
         ]
     }
 

@@ -517,6 +517,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/sessions": {"get": "list_sessions"},
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
+    "/api/v1/public/labels": {"post": "write_label"},
     "/api/v1/public/traces/filter-values/{field}": {"get": "list_trace_filter_values"},
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
@@ -581,6 +582,7 @@ def test_x_tool_enabled_set_and_shape():
                 disabled.add(op["operationId"])
     assert disabled == {
         "ingest_traces",
+        "write_label",
         "register_run",
         "upsert_result",
         "complete_run",
@@ -1387,6 +1389,7 @@ def test_each_resource_has_one_tag():
         "Alerts",
         "Dashboards",
         "Detectors",
+        "Labels",
         "Offline Eval",
         "Sessions",
         "Signals",

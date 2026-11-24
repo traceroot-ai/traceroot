@@ -1,0 +1,141 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  createLabel: vi.fn(),
+  createReceipt: vi.fn(),
+  findUniqueReceipt: vi.fn(),
+  groupBy: vi.fn(),
+  transaction: vi.fn(),
+  verifyInternalSecret: vi.fn(),
+}));
+
+vi.mock("@traceroot/core", () => ({
+  prisma: {
+    label: { groupBy: mocks.groupBy },
+    sdkLabelReceipt: { findUnique: mocks.findUniqueReceipt },
+    $transaction: mocks.transaction,
+  },
+}));
+vi.mock("@/lib/auth-helpers", () => ({
+  verifyInternalSecret: mocks.verifyInternalSecret,
+  errorResponse: (error: string, status: number) => Response.json({ error }, { status }),
+  successResponse: (data: unknown) => Response.json(data),
+}));
+
+import { GET, POST } from "./route";
+
+const assignment = {
+  projectId: "project-a",
+  traceId: "trace-a",
+  spanId: "span-a",
+  value: "Needs review",
+  idempotencyKey: "sdk-event-a",
+};
+
+function write(body: object) {
+  return POST(
+    new Request("http://localhost/api/internal/labels", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  mocks.verifyInternalSecret.mockReturnValue(true);
+  mocks.transaction.mockImplementation((callback) =>
+    callback({
+      label: { create: mocks.createLabel },
+      sdkLabelReceipt: { create: mocks.createReceipt },
+    }),
+  );
+});
+
+describe("internal label writes", () => {
+  it("returns the winning ID when a concurrent identical call conflicts", async () => {
+    mocks.createReceipt
+      .mockResolvedValueOnce({ labelId: "winning-label" })
+      .mockRejectedValue({ code: "P2002" });
+    mocks.findUniqueReceipt.mockResolvedValue({ ...assignment, labelId: "winning-label" });
+
+    const responses = await Promise.all([write(assignment), write(assignment)]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(await Promise.all(responses.map((response) => response.json()))).toEqual([
+      { id: "winning-label" },
+      { id: "winning-label" },
+    ]);
+    expect(mocks.findUniqueReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          projectId_idempotencyKey: { projectId: "project-a", idempotencyKey: "sdk-event-a" },
+        },
+      }),
+    );
+    expect(mocks.createLabel).toHaveBeenCalledExactlyOnceWith({
+      data: {
+        id: "winning-label",
+        projectId: "project-a",
+        traceId: "trace-a",
+        spanId: "span-a",
+        value: "Needs review",
+        source: "SDK",
+      },
+      select: { id: true },
+    });
+  });
+
+  it.each([{ traceId: "trace-b" }, { spanId: "span-b" }, { value: "Other" }])(
+    "rejects an idempotency key reused with a changed target or value (%o)",
+    async (change) => {
+      mocks.createReceipt.mockRejectedValue({ code: "P2002" });
+      mocks.findUniqueReceipt.mockResolvedValue({ ...assignment, labelId: "winning-label" });
+
+      expect((await write({ ...assignment, ...change })).status).toBe(409);
+      expect(mocks.createLabel).not.toHaveBeenCalled();
+    },
+  );
+
+  it("replays a deleted assignment even if the catalog name is reused", async () => {
+    mocks.createReceipt.mockRejectedValue({ code: "P2002" });
+    mocks.findUniqueReceipt.mockResolvedValue({ ...assignment, labelId: "deleted-assignment" });
+    mocks.createLabel.mockResolvedValue({ id: "replacement-assignment" });
+
+    const response = await write(assignment);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: "deleted-assignment" });
+    expect(mocks.createLabel).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for a new key when the catalog label is missing", async () => {
+    mocks.createReceipt.mockResolvedValue({ labelId: "unused-assignment" });
+    mocks.createLabel.mockRejectedValue({ code: "P2003" });
+
+    const response = await write(assignment);
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Project label not found" });
+  });
+});
+
+it("looks up a bounded set of distinct trace IDs by project and label", async () => {
+  const groups = Array.from({ length: 101 }, (_, index) => ({ traceId: `trace-${index}` }));
+  mocks.groupBy.mockResolvedValue(groups);
+
+  const response = await GET(
+    new Request("http://localhost/api/internal/labels?projectId=project-a&value=Needs+review"),
+  );
+
+  expect(mocks.groupBy).toHaveBeenCalledWith({
+    by: ["traceId"],
+    where: { projectId: "project-a", value: "Needs review" },
+    orderBy: { traceId: "asc" },
+    take: 101,
+  });
+  expect(await response.json()).toEqual({
+    traceIds: groups.slice(0, 100).map(({ traceId }) => traceId),
+    overflow: true,
+  });
+});

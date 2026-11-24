@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
+import { ApiError } from "@/lib/api/errors";
 
 const prefetch = vi.fn();
 let searchParamsValue = "";
 let autoRefresh = false;
+let traceListError: ApiError | null = null;
 vi.mock("@/features/traces/hooks", () => ({
   useTraces: () => ({
     data: {
@@ -14,7 +16,7 @@ vi.mock("@/features/traces/hooks", () => ({
       meta: { page: 3, limit: 50, total: 500 },
     },
     isLoading: false,
-    error: null,
+    error: traceListError,
   }),
   usePrefetchTraces: () => prefetch,
   useTracesExist: () => ({ data: { exists: true }, isPending: false }),
@@ -61,8 +63,21 @@ vi.mock("@/components/layout/app-layout", () => ({
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/features/traces/components", () => ({
-  TraceViewerPanel: ({ traceId, source }: { traceId: string; source?: string }) => (
-    <div data-testid="trace-panel" data-trace-id={traceId} data-source={String(source)} />
+  TraceViewerPanel: ({
+    traceId,
+    source,
+    initialSpanId,
+  }: {
+    traceId: string;
+    source?: string;
+    initialSpanId?: string;
+  }) => (
+    <div
+      data-testid="trace-panel"
+      data-trace-id={traceId}
+      data-source={String(source)}
+      data-span-id={initialSpanId}
+    />
   ),
   GettingStarted: () => null,
 }));
@@ -87,6 +102,7 @@ afterEach(() => {
   cleanup();
   prefetch.mockReset();
   autoRefresh = false;
+  traceListError = null;
   searchParamsValue = "";
 });
 
@@ -127,6 +143,14 @@ describe("TracesPage by-id scoping", () => {
     expect(panel.getAttribute("data-trace-id")).toBe("aaaaaaaabbbbccccddddeeeeeeeeeeee");
     expect(panel.getAttribute("data-source")).toBe("user");
   });
+
+  it("seeds the selected span from a Dataset source link", () => {
+    searchParamsValue = "traceId=trace-from-dataset&spanId=saved-span";
+    render(<TracesPage />, { wrapper: Wrapper });
+    const panel = screen.getByTestId("trace-panel");
+    expect(panel.getAttribute("data-trace-id")).toBe("trace-from-dataset");
+    expect(panel.getAttribute("data-span-id")).toBe("saved-span");
+  });
 });
 
 describe("TracesPage user_id filter badge", () => {
@@ -142,4 +166,11 @@ describe("TracesPage user_id filter badge", () => {
     fireEvent.click(clearButton!);
     expect(pushMock).toHaveBeenCalledWith("/projects/p1/traces?date_filter=all");
   });
+});
+
+it("shows the label filter error instead of stale rows or API-key guidance", () => {
+  traceListError = new ApiError(422, "This label matches more than 100 traces");
+  render(<TracesPage />, { wrapper: Wrapper });
+  expect(screen.getByText("This label matches more than 100 traces")).toBeTruthy();
+  expect(screen.queryByText(/make sure the api server/i)).toBeNull();
 });

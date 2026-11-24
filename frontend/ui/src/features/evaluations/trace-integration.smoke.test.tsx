@@ -217,7 +217,7 @@ describe("SaveTestCaseDrawer — save round trip", () => {
     // still no recorded output, review, or capture-reason.
     expect(savePayload()).toMatchObject({
       input: "I was charged twice for my July invoice",
-      // Untouched, the Output field is still the expected outcome.
+      // The expected output defaults to the captured span output.
       expected: "billing",
       metadata: null,
       source_trace_id: "t1",
@@ -231,10 +231,10 @@ describe("SaveTestCaseDrawer — save round trip", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false), { timeout: 2000 });
   });
 
-  it("an edited Output is what future runs are graded against", async () => {
+  it("an edited expected output is what future runs are graded against", async () => {
     mountDrawer();
     await screen.findByDisplayValue("I was charged twice for my July invoice");
-    fireEvent.change(screen.getByLabelText("Output"), { target: { value: "refunds" } });
+    fireEvent.change(screen.getByLabelText("Expected output"), { target: { value: "refunds" } });
     await pickDataset("Billing routing");
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
     await waitFor(() => expect(savePayload()).toBeDefined());
