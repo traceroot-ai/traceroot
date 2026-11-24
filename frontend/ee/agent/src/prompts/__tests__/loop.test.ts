@@ -75,7 +75,11 @@ describe("getLoopSystemPrompt", () => {
     expect(prompt).toContain("confirmed by traces you read");
     expect(prompt).toContain("concrete next step");
     expect(prompt).toContain("at most 2 new keys per run");
-    expect(prompt).toMatch(/even when a detector's signal already covers the same problem/);
+    expect(prompt).toContain(
+      "When a detector's signal already covers the same problem, record no finding for it: " +
+        "name that signal (its id and title) in the summary instead.",
+    );
+    expect(prompt).not.toContain("Record it even when");
     expect(prompt).toContain("loop_submit_summary is required, and it is the last call");
     expect(prompt.indexOf("loop_record_finding")).toBeLessThan(prompt.indexOf("8. Finish"));
     const run = prompt.slice(prompt.indexOf("## This run"));
