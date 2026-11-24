@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 import { Readable } from "node:stream";
 import { isPublicRoutableHost } from "@better-auth/core/utils/host";
 
@@ -50,6 +50,11 @@ export function pinnedMetadataFetch(deps: Deps = { lookup: dnsLookup, request: h
       }
     }
     const pinned = addresses[0];
+    // Only the validated address, in whichever form Node asks for.
+    const pinnedLookup: LookupFunction = (_hostname, options, callback) => {
+      if (options.all) callback(null, [pinned]);
+      else callback(null, pinned.address, pinned.family);
+    };
     const headers: Record<string, string> = Object.fromEntries(webRequest.headers.entries());
     headers.host = url.host;
     const signal = init?.signal ?? webRequest.signal;
@@ -64,11 +69,7 @@ export function pinnedMetadataFetch(deps: Deps = { lookup: dnsLookup, request: h
           maxHeaderSize: METADATA_MAX_HEADER_BYTES,
           servername: isIP(url.hostname.replace(/^\[|\]$/g, "")) === 0 ? url.hostname : undefined,
           signal: signal ?? undefined,
-          // Only the validated address, in whichever form Node asks for.
-          lookup: ((_hostname: string, options: { all?: boolean }, callback: Function) => {
-            if (options.all) callback(null, [pinned]);
-            else callback(null, pinned.address, pinned.family);
-          }) as never,
+          lookup: pinnedLookup,
         },
         (response) => {
           const status = response.statusCode ?? 500;
