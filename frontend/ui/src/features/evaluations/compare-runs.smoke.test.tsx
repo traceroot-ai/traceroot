@@ -154,7 +154,7 @@ describe("CompareRunsView — N-run diff table", () => {
   it("names the selected baseline in the picker", () => {
     mount("opus");
     // The baseline picker's trigger names the chosen baseline run.
-    expect(screen.getAllByText(/#41 · opus/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/#41 opus/).length).toBeGreaterThan(0);
   });
 
   it("falls back to the oldest run as the baseline when the URL names none", () => {
@@ -185,7 +185,7 @@ describe("CompareRunsView — N-run diff table", () => {
         onChangeBaseline={vi.fn()}
       />,
     );
-    expect(screen.getByTitle("Baseline run").textContent).toContain("#41 · opus");
+    expect(screen.getByTitle("Baseline run").textContent).toContain("#41 opus");
   });
 
   it("shows a regression delta against the baseline in the cells", () => {
@@ -193,8 +193,8 @@ describe("CompareRunsView — N-run diff table", () => {
     const row = screen
       .getByText(/double-charged and I want a refund/)
       .closest("tr") as HTMLTableRowElement;
-    // sonnet routes ticket-05 wrong: routing_accuracy 0% vs baseline 100% → −100.0%.
-    expect(within(row).getByText("−100.0%")).toBeTruthy();
+    // sonnet routes ticket-05 wrong: routing_accuracy 0% vs baseline 100% → −100.0 pp.
+    expect(within(row).getByText("−100.0 pp")).toBeTruthy();
   });
 
   it("shows a rubric score's change in points, not as a percentage", () => {
@@ -214,7 +214,7 @@ describe("CompareRunsView — N-run diff table", () => {
     mount();
     const row = screen.getByText(/double-charged and I want a refund/).closest("tr") as HTMLElement;
     expect(within(row).getByText("+1")).toBeTruthy();
-    expect(within(row).queryByText("+100.0%")).toBeNull();
+    expect(within(row).queryByText("+100.0 pp")).toBeNull();
   });
 
   it("shows a whole-point rubric change as a whole number despite float noise", () => {
@@ -295,7 +295,7 @@ describe("CompareRunsView — N-run diff table", () => {
       .getByText(/double-charged and I want a refund/)
       .closest("tr") as HTMLTableRowElement;
     // Aligned pair still produces the regression delta against the baseline.
-    expect(within(row).getByText("−100.0%")).toBeTruthy();
+    expect(within(row).getByText("−100.0 pp")).toBeTruthy();
   });
 
   it("shows the shared-input empty state when cross-dataset runs share no inputs", () => {
@@ -346,7 +346,7 @@ describe("CompareRunsView — N-run diff table", () => {
     mount();
     // Both ids intersect → ticket-05 aligns and its regression delta is computed,
     // even though the two runs now carry different input text for that id.
-    expect(screen.getByText("−100.0%")).toBeTruthy();
+    expect(screen.getByText("−100.0 pp")).toBeTruthy();
     // Both runs' (now-differing) inputs are shown for the edited case.
     expect(screen.getByText("EDITED input text five")).toBeTruthy();
   });
@@ -399,7 +399,7 @@ describe("CompareRunsView — N-run diff table", () => {
     // regression delta is computed and BOTH candidates' edited inputs are shown.
     const row = screen.getByText("EDITED five (sonnet)").closest("tr") as HTMLTableRowElement;
     expect(within(row).getByText("EDITED five (haiku)")).toBeTruthy();
-    expect(within(row).getAllByText("−100.0%").length).toBeGreaterThan(0);
+    expect(within(row).getAllByText("−100.0 pp").length).toBeGreaterThan(0);
   });
 
   it("keeps a same-dataset pair on testCaseId when a cross-dataset run joins the selection", () => {
@@ -455,7 +455,7 @@ describe("CompareRunsView — N-run diff table", () => {
     // The edited-input case survived: B's edited text is shown (aligned to A by row id,
     // not dropped for differing from A's input), and its regression delta is present.
     const row = screen.getByText("EDITED-B double-charged").closest("tr") as HTMLTableRowElement;
-    expect(within(row).getAllByText("−100.0%").length).toBeGreaterThan(0);
+    expect(within(row).getAllByText("−100.0 pp").length).toBeGreaterThan(0);
   });
 
   it("keeps a baseline's duplicate-input rows distinct in cross-dataset mode, filling both with the shared cross case", () => {
@@ -475,7 +475,7 @@ describe("CompareRunsView — N-run diff table", () => {
     const CROSS = {
       run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
       // A distinctive 3300ms duration lets us see the value land in both rows (3.3s per row)
-      // and sum across them in the aggregate (6.6s).
+      // and count twice in the pair's mean latency (n=2).
       results: [
         {
           ...result("x1", DUP, "billing", { routing_accuracy: 1, is_known_category: 1 }),
@@ -495,9 +495,10 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.getAllByText("0.0%").length).toBeGreaterThan(0);
     expect(screen.getAllByText("100.0%").length).toBeGreaterThan(0);
     // The single cross case fills BOTH duplicate rows (plain input lookup): its 3.3s per-row
-    // duration shows in each row, and the aggregate sums them to 6.6s.
+    // duration shows in each row, and the pair's mean latency covers both rows.
     expect(screen.getAllByText("3.3s").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("6.6s").length).toBeGreaterThan(0);
+    const latency = screen.getByText("2.1s → 3.3s").closest("td") as HTMLElement;
+    expect(within(latency).getByText("n=2")).toBeTruthy();
   });
 
   it("keeps same-dataset duplicate-input cases distinct when a cross-dataset run joins", () => {
@@ -557,14 +558,16 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row2).getByText("B-case2-out")).toBeTruthy();
     // B's case-2 regresses against A's case-2 (0% vs 100%) → the delta proves exact
     // by-testCaseId alignment survived the cross-dataset run joining.
-    expect(within(row2).getAllByText("−100.0%").length).toBeGreaterThan(0);
+    expect(within(row2).getAllByText("−100.0 pp").length).toBeGreaterThan(0);
     // (c): C's lone case fills BOTH "Hello" rows (plain input lookup) — its value shows in each.
     expect(screen.getAllByText("C-out")).toHaveLength(2);
     expect(within(row1).getByText("C-out")).toBeTruthy();
     expect(within(row2).getByText("C-out")).toBeTruthy();
-    // (d): C's per-row duration (4.4s) shows in both rows and the aggregate sums them to 8.8s.
+    // (d): C's per-row duration (4.4s) shows in both rows, and both count in its mean latency.
     expect(screen.getAllByText("4.4s").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("8.8s").length).toBeGreaterThan(0);
+    // C's own summary line (the td also stacks B's), so the n is the one beside its mean.
+    const line = screen.getByText("2.1s → 4.4s").closest(".inline-flex") as HTMLElement;
+    expect(within(line).getByText("n=2")).toBeTruthy();
   });
 
   it("takes only a cross-dataset run's FIRST case for an input it measured more than once", () => {
@@ -584,7 +587,7 @@ describe("CompareRunsView — N-run diff table", () => {
     const CROSS = {
       run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
       // Two cases for the SAME input, with durations that tell the three candidate
-      // behaviours apart: keep-first → 3.3s, keep-last → 7.7s, counting both → 11.0s.
+      // behaviours apart: keep-first → 3.3s, keep-last → 7.7s, counting both → 5.5s mean.
       results: [
         {
           ...result("x1", DUP, "cross-first", { routing_accuracy: 1, is_known_category: 1 }),
@@ -606,10 +609,11 @@ describe("CompareRunsView — N-run diff table", () => {
     // The FIRST cross case fills it; the second never appears.
     expect(screen.getByText("cross-first")).toBeTruthy();
     expect(screen.queryByText("cross-second")).toBeNull();
-    // ...and only the first contributes to the cross run's duration total (row + aggregate),
-    // so the dropped duplicate can't inflate it.
-    expect(screen.getAllByText("3.3s").length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText("7.7s")).toBeNull();
-    expect(screen.queryByText("11.0s")).toBeNull();
+    // ...and only the first contributes to the cross run's mean latency, so the dropped
+    // duplicate can't move it.
+    expect(screen.getByText("3.3s")).toBeTruthy();
+    expect(screen.getByText("2.1s → 3.3s")).toBeTruthy();
+    expect(screen.queryByText(/7\.7s/)).toBeNull();
+    expect(screen.queryByText(/5\.5s/)).toBeNull();
   });
 });

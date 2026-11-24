@@ -3,7 +3,13 @@
  * detectors hooks: queryKey arrays, fetch() against the committed Route Handlers,
  * throw on !res.ok, enabled on projectId, mutations invalidate the caches.
  */
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import type {
   DatasetRow,
   DatasetDetailResponse,
@@ -281,6 +287,12 @@ export function useEvaluationRun(projectId: string, runId: string) {
   });
 }
 
+// Without `combine`, `useQueries` returns a new array on every render; with a stable one it
+// keeps returning the same value until a query's data or status changes, so the comparison
+// page doesn't recompute every pair on each unrelated render (e.g. a search keystroke).
+const pickRunDetails = (results: UseQueryResult<RunDetailResponse>[]) =>
+  results.map(({ data, isLoading, isError }) => ({ data, isLoading, isError }));
+
 /**
  * Fetch the full detail (run + per-case results) for several runs at once — the
  * data behind the N-run comparison page. Shares the exact per-run queryKey with
@@ -294,6 +306,7 @@ export function useEvaluationRunDetails(projectId: string, runIds: string[]) {
         getJson<RunDetailResponse>(`/api/projects/${projectId}/evaluations/runs/${runId}`),
       enabled: !!projectId && !!runId,
     })),
+    combine: pickRunDetails,
   });
 }
 
