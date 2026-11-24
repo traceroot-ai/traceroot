@@ -356,6 +356,47 @@ describe("matchSpans", () => {
     expect(m.byCandidateId.get("c-task")?.reason.basis).toBe("path");
   });
 
+  it("pairs renamed roots when a span whose parent never arrived sits beside one", () => {
+    // `b-search`'s parent never arrived, so it sits at the top level beside the root.
+    const baseline = trace([
+      ["b-root", null, "run-a", SpanKind.EVALUATION],
+      ["b-task", "b-root", "task", SpanKind.TASK],
+      ["b-search", "b-missing", "web_search", SpanKind.TOOL],
+    ]);
+    const candidate = trace([
+      ["c-root", null, "run-b", SpanKind.EVALUATION],
+      ["c-task", "c-root", "task", SpanKind.TASK],
+      ["c-search", "c-missing", "web_search", SpanKind.TOOL],
+    ]);
+
+    const m = matchSpans(baseline, candidate);
+
+    expect(partner(m, "c-root")).toBe("b-root");
+    expect(m.byCandidateId.get("c-root")?.reason.basis).toBe("root");
+    expect(partner(m, "c-task")).toBe("b-task");
+    expect(partner(m, "c-search")).toBe("b-search");
+    expect(m.added).toEqual([]);
+    expect(m.removed).toEqual([]);
+  });
+
+  it("pairs the roots when only one side has a span whose parent never arrived", () => {
+    const baseline = trace([
+      ["b-root", null, "run-a", SpanKind.EVALUATION],
+      ["b-task", "b-root", "task", SpanKind.TASK],
+    ]);
+    const candidate = trace([
+      ["c-root", null, "run-b", SpanKind.EVALUATION],
+      ["c-task", "c-root", "task", SpanKind.TASK],
+      ["c-search", "c-missing", "web_search", SpanKind.TOOL],
+    ]);
+
+    const m = matchSpans(baseline, candidate);
+
+    expect(partner(m, "c-root")).toBe("b-root");
+    expect(partner(m, "c-task")).toBe("b-task");
+    expect(ids(m.added)).toEqual(["c-search"]);
+  });
+
   it("matches a stranded subtree by path under a renamed root", () => {
     // Same retry shape as above, but the root name differs between the runs: the
     // stranded `fetch` still pairs, since paths compare below the paired roots.
