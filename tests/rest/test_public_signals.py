@@ -42,6 +42,7 @@ SIGNAL_UPSTREAM = {
     "id": "sig-1",
     "detectorId": "det-1",
     "detectorName": "Tool failures",
+    "source": {"kind": "detector", "id": "det-1", "name": "Tool failures"},
     "title": "Invokes a tool with an invalid date input",
     "status": "open",
     "hitCount": 4,
@@ -55,6 +56,7 @@ SIGNAL_PUBLIC = {
     "signal_id": "sig-1",
     "detector_id": "det-1",
     "detector_name": "Tool failures",
+    "source": {"kind": "detector", "id": "det-1", "name": "Tool failures"},
     "title": "Invokes a tool with an invalid date input",
     "status": "open",
     "hit_count": 4,
@@ -251,6 +253,92 @@ def test_get_signal_fails_closed_on_malformed_recent_hits():
     ]:
         resp, _ = _get_signal({**DETAIL_UPSTREAM, "recentHits": recent_hits})
         assert resp.status_code == 503, recent_hits
+        assert resp.json() == {"detail": "Signal service error"}
+
+
+LOOP_UPSTREAM = {
+    **SIGNAL_UPSTREAM,
+    "detectorId": "loop-det-1",
+    "detectorName": None,
+    "source": {
+        "kind": "loop",
+        "id": "loop-1",
+        "name": "Nightly triage",
+        "detectorId": "loop-det-1",
+    },
+}
+
+
+@respx.mock
+def test_list_signals_names_the_loop_that_raised_a_signal():
+    _mock_key_auth()
+    deleted = {
+        **LOOP_UPSTREAM,
+        "id": "sig-2",
+        "detectorId": "loop-det-2",
+        "source": {"kind": "deletedLoop", "detectorId": "loop-det-2"},
+    }
+    respx.post(READ_URL).mock(
+        return_value=Response(
+            200,
+            json={
+                "signals": [LOOP_UPSTREAM, deleted],
+                "meta": {"page": 0, "limit": 50, "total": 2},
+            },
+        )
+    )
+
+    resp = _client().get("/api/v1/public/signals", headers=KEY_HEADER)
+
+    assert resp.status_code == 200
+    loop, gone = resp.json()["data"]
+    assert loop["detector_id"] == "loop-det-1"
+    assert loop["detector_name"] is None
+    assert loop["source"] == {
+        "kind": "loop",
+        "id": "loop-1",
+        "name": "Nightly triage",
+        "detector_id": "loop-det-1",
+    }
+    assert gone["source"] == {"kind": "deletedLoop", "detector_id": "loop-det-2"}
+
+
+@respx.mock
+def test_get_signal_names_the_loop_that_raised_it():
+    resp, _ = _get_signal({**DETAIL_UPSTREAM, **LOOP_UPSTREAM})
+
+    assert resp.status_code == 200
+    assert resp.json()["source"] == {
+        "kind": "loop",
+        "id": "loop-1",
+        "name": "Nightly triage",
+        "detector_id": "loop-det-1",
+    }
+
+
+@respx.mock
+def test_get_signal_reads_a_service_without_a_source_as_its_detectors():
+    """A web app deployed before Loops leaves the source out; every signal there is a detector's."""
+    upstream = {k: v for k, v in DETAIL_UPSTREAM.items() if k != "source"}
+
+    resp, _ = _get_signal(upstream)
+
+    assert resp.status_code == 200
+    assert resp.json()["source"] == {"kind": "detector", "id": "det-1", "name": "Tool failures"}
+
+
+@respx.mock
+def test_get_signal_fails_closed_on_a_malformed_source():
+    for source in [
+        "loop-1",
+        {},
+        {"kind": "agent", "detectorId": "det-1"},
+        {"kind": "loop", "id": "loop-1", "detectorId": "loop-det-1"},
+        {"kind": "loop", "id": "loop-1", "name": None, "detectorId": "loop-det-1"},
+        {"kind": "detector", "name": "Tool failures"},
+    ]:
+        resp, _ = _get_signal({**DETAIL_UPSTREAM, "source": source})
+        assert resp.status_code == 503, source
         assert resp.json() == {"detail": "Signal service error"}
 
 
