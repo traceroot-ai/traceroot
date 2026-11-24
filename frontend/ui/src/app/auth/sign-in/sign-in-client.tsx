@@ -78,11 +78,7 @@ function SignInContent({ socialProviders }: SignInContentProps) {
   }
 
   return (
-    <div className="relative flex h-full min-h-screen items-center justify-center bg-background p-4">
-      {/* Signed-out screens have no account menu, so the language choice sits here. */}
-      <div className="absolute right-4 top-4">
-        <LanguageToggle />
-      </div>
+    <div className="flex h-full min-h-screen flex-col items-center justify-center gap-4 bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mb-2 flex justify-center">
@@ -156,6 +152,8 @@ function SignInContent({ socialProviders }: SignInContentProps) {
           </p>
         </CardContent>
       </Card>
+      {/* Signed-out screens have no account menu, so the language choice sits under the card. */}
+      <LanguageToggle />
     </div>
   );
 }

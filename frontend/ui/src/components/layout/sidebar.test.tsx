@@ -213,16 +213,29 @@ describe("Sidebar", () => {
     act(() =>
       (container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click(),
     );
-    const group = document.querySelector('[role="radiogroup"][aria-label="Language"]');
-    const choices = [...(group?.querySelectorAll('[role="radio"]') ?? [])] as HTMLButtonElement[];
-    // Japanese is listed for later but not enabled, so it is not offered.
-    expect(choices.map((choice) => choice.textContent)).toEqual(["EN", "中文"]);
-    expect(choices.map((choice) => choice.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+    const trigger = document.querySelector('[aria-label="Language: English"]') as HTMLButtonElement;
+    expect(trigger.textContent).toBe("English");
+    const open = () =>
+      act(() => {
+        trigger.focus();
+        trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+    const items = () => [...document.querySelectorAll('[role="menuitem"]')] as HTMLElement[];
+    const choose = (item: HTMLElement) =>
+      act(() => {
+        item.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
 
-    act(() => choices[0].click());
+    open();
+    // Japanese is listed for later but not enabled, so it is not offered.
+    expect(items().map((item) => item.textContent)).toEqual(["English", "简体中文"]);
+    expect(items().map((item) => item.getAttribute("aria-current"))).toEqual(["true", null]);
+
+    choose(items()[0]);
     expect(refresh).not.toHaveBeenCalled();
 
-    act(() => choices[1].click());
+    open();
+    choose(items()[1]);
     expect(document.cookie).toContain(`${LOCALE_COOKIE}=zh`);
     expect(refresh).toHaveBeenCalledTimes(1);
   });
