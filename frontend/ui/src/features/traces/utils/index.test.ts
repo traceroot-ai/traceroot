@@ -103,6 +103,19 @@ describe("spanMetadataPaths", () => {
       namePath: undefined,
     });
   });
+
+  it("reads nothing from a path key that isn't a list of strings", () => {
+    for (const value of [5, "root", { 0: "root" }, ["root", 7], null]) {
+      const metadata = JSON.stringify({
+        "traceroot.span.ids_path": value,
+        "traceroot.span.path": value,
+      });
+      expect(spanMetadataPaths(makeSpan({ span_id: "s", metadata }))).toEqual({
+        idsPath: undefined,
+        namePath: undefined,
+      });
+    }
+  });
 });
 
 describe("enrichSpansWithPending", () => {
@@ -602,6 +615,24 @@ describe("mergeSpans (live-SSE compat)", () => {
     const skeletons = [makeSkeletonSpan({ span_id: "root" })];
     const live = [
       makeSpan({ span_id: "child", parent_span_id: "root", metadata: "null" }),
+      makeSpan({
+        span_id: "sibling",
+        parent_span_id: "root",
+        metadata: metadataWith(["root"], ["root", "sibling"]),
+      }),
+    ];
+    const enriched = enrichSpansWithPending(mergeSpans(skeletons, live));
+    expect(enriched.map((s) => s.span_id).sort()).toEqual(["child", "root", "sibling"]);
+  });
+
+  it("keeps every span of a live update whose recorded path isn't a list", () => {
+    const skeletons = [makeSkeletonSpan({ span_id: "root" })];
+    const live = [
+      makeSpan({
+        span_id: "child",
+        parent_span_id: "root",
+        metadata: JSON.stringify({ "traceroot.span.ids_path": ["root"], "traceroot.span.path": 5 }),
+      }),
       makeSpan({
         span_id: "sibling",
         parent_span_id: "root",

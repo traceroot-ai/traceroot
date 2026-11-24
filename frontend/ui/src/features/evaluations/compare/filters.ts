@@ -86,23 +86,42 @@ export const toggleFilter = (filters: CaseFilter[], filter: CaseFilter): CaseFil
 
 const isAny = (runId: string) => runId === "any";
 
+/** The comparison a change of runs or baseline leaves: its scorers, and each candidate's
+ *  comparison with the new baseline. */
+export interface NextComparison {
+  scorers: readonly ScorerColumn[];
+  pairs: ReadonlyMap<string, PairComparison>;
+}
+
 /** `analysis` without the filters and sort that pick nothing once `runIds` are compared
  *  against `baselineId`: a change against the baseline needs a candidate, and errors and
- *  unmatched need a run that is still compared. The same object when nothing drops. */
+ *  unmatched need a run that is still compared. With `next`, a filter or sort on a scorer
+ *  it doesn't have goes too, and so does improved, regressed or a regression sort where
+ *  its pairs have no direction. The same object when nothing drops. */
 export function pruneForRuns(
   analysis: CaseAnalysis,
   runIds: readonly string[],
   baselineId: string,
+  next?: NextComparison | null,
 ): CaseAnalysis {
   const compared = new Set(runIds);
   const isCandidate = (runId: string) => compared.has(runId) && runId !== baselineId;
-  const filters = analysis.filters.filter(
-    ({ kind, runId }) =>
-      isAny(runId) ||
-      (kind === "errors" || kind === "unmatched" ? compared.has(runId) : isCandidate(runId)),
-  );
+  const hasScorer = (scorer: string | null) =>
+    !next || scorer === null || next.scorers.some((s) => s.name === scorer);
+  const moves = (scorer: string | null, runId: string) =>
+    !next || hasDirectionOn(next.scorers, next.pairs, scorer, runId);
+  const filters = analysis.filters.filter(({ kind, scorer, runId }) => {
+    if (kind === "errors" || kind === "unmatched") {
+      return (isAny(runId) || compared.has(runId)) && hasScorer(scorer);
+    }
+    if (!isAny(runId) && !isCandidate(runId)) return false;
+    return kind === "changed" ? hasScorer(scorer) : moves(scorer, runId);
+  });
   const { sort } = analysis;
-  const keptSort = sort.kind === "regression" && !isCandidate(sort.runId) ? DATASET_ORDER : sort;
+  const keptSort =
+    sort.kind === "regression" && !(isCandidate(sort.runId) && moves(sort.scorer, sort.runId))
+      ? DATASET_ORDER
+      : sort;
   return filters.length === analysis.filters.length && keptSort === sort
     ? analysis
     : { ...analysis, filters, sort: keptSort };
@@ -212,7 +231,31 @@ export function hasDirection(
   const compared = read.flatMap(
     (pair) => pair?.comparison.scorers.filter((s) => s.name === column.name) ?? [],
   );
-  return compared.length > 0 ? compared.some(directed) : directed(column);
+  if (compared.length === 0) return directed(column);
+  // A pair's totals take their kind of value from the first case it compared, so a scorer
+  // that recorded labels there can still have later cases that moved with a direction: the
+  // ones the comparison gave a change.
+  return (
+    compared.some(directed) ||
+    read.some((pair) =>
+      [...(pair?.byCase.values() ?? [])].some((c) =>
+        c.scorerCells.some((cell) => cell.scorerName === column.name && cell.delta !== null),
+      ),
+    )
+  );
+}
+
+/** Whether improved or regressed can pick a case on `scorer` (on any of `columns` for
+ *  null) in `runId`'s pair with the baseline, or in some pair for any run. */
+export function hasDirectionOn(
+  columns: readonly ScorerColumn[],
+  pairs: ReadonlyMap<string, PairComparison>,
+  scorer: string | null,
+  runId: string | "any",
+): boolean {
+  return columns.some(
+    (column) => (scorer === null || column.name === scorer) && hasDirection(column, pairs, runId),
+  );
 }
 
 /** How far the candidate fell behind the baseline on the case: the pair's change for the

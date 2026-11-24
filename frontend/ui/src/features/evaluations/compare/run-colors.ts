@@ -1,7 +1,9 @@
 /**
- * Each compared run's colour. A run keeps its colour for as long as it stays in the
- * comparison: picking another baseline, adding a run, or removing another run never
- * recolours it, so a dot always means the same run in the legend and in every cell.
+ * Each compared run's colour. While the page is open, a run keeps its colour for as long
+ * as it stays in the comparison: picking another baseline, adding a run, or removing
+ * another run never recolours it, so a dot always means the same run in the legend and in
+ * every cell. The colours live in the page's state, so a page opened again (a reload, or
+ * Back from a run) colours the runs afresh in the URL's order.
  */
 import * as React from "react";
 
