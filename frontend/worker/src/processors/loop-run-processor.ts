@@ -21,6 +21,7 @@ import { resolveProjectModel, type ResolvedModel } from "../agent/resolve-model.
 import { finishLoopRun, type LoopRunFinish } from "../loops/finish.js";
 import { recordLoopFindings } from "../loops/findings.js";
 import { startLoopRun } from "../loops/start.js";
+import { windowHasTraces } from "../loops/window-traces.js";
 import {
   LOOP_AGENT_ABORT_SLACK_MS,
   loopRunConcurrency,
@@ -37,6 +38,23 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:810
 export const LOOP_NO_SUMMARY = "The run ended without a summary.";
 export const LOOP_FINDINGS_FAILED =
   "The run's findings could not be recorded. Try running it again.";
+
+export function noTracesSkip(lookbackHours: number): string {
+  return `Skipped: no traces in the last ${lookbackHours} ${lookbackHours === 1 ? "hour" : "hours"}.`;
+}
+
+/**
+ * Whether the run's window holds a trace. A failed check says yes: it only
+ * spares the agent an empty window, and must never skip a run that had traces.
+ */
+async function hasTracesToRead(runId: string, projectId: string, lookbackHours: number) {
+  try {
+    return await windowHasTraces(projectId, lookbackHours);
+  } catch (error) {
+    console.error(`[Loops] run=${runId} could not check its window for traces:`, error);
+    return true;
+  }
+}
 
 function timeoutMessage(timeoutMs: number): string {
   return `The run did not finish within ${Math.round(timeoutMs / 60_000)} minutes.`;
@@ -126,6 +144,10 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
       // Failed where the user sees it, and on the failure streak, but the agent
       // was never called: no session, so it counts against neither cap.
       finish = { status: "failed", error: model.error };
+    } else if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
+      // Nothing for the agent to read: no session, so it counts against
+      // neither cap, and it leaves the failure streak alone.
+      finish = { status: "skipped_no_traces", error: noTracesSkip(loop.lookbackHours) };
     } else {
       resolved = model;
       const result = await callAgent({

@@ -5,8 +5,14 @@
 import { prisma, type Prisma } from "@traceroot/core";
 import { LOOP_LIMITS, type LoopRunStatus } from "@traceroot/core/loops";
 
-/** A run's end state. Skips are written by startLoopRun, not here. */
-export type LoopRunOutcome = Extract<LoopRunStatus, "succeeded" | "quiet" | "failed" | "timed_out">;
+/**
+ * A run's end state. The gates' skips are written by startLoopRun; an empty
+ * window's skip is written here, after the run started.
+ */
+export type LoopRunOutcome = Extract<
+  LoopRunStatus,
+  "succeeded" | "quiet" | "failed" | "timed_out" | "skipped_no_traces"
+>;
 
 export interface LoopRunFinish {
   status: LoopRunOutcome;
@@ -62,7 +68,8 @@ export async function finishLoopRun(
     });
     if (written.count === 0) return false;
 
-    await settleLoop(tx, run, finish.status, now);
+    // A skipped run did not run: the Loop's lastRunAt and streak stay as they were.
+    if (finish.status !== "skipped_no_traces") await settleLoop(tx, run, finish.status, now);
     return true;
   });
 }
