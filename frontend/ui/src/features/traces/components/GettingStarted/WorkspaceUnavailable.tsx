@@ -3,16 +3,14 @@
  * to.
  *
  * An errored project fetch is not a loading state: react-query drops
- * `isLoading` with no data behind it, so rendering either of these steps on
- * `!isLoading` alone hands it an empty workspace id. That is worse than
- * nothing. `ModelProviderBlock` disables its own queries on an empty id, reads
- * the resulting absence of a role as "not an admin", and tells the user — who
- * may well be the admin — to go and ask one, via a link to
- * `/workspaces//settings/model-providers` that 404s.
+ * `isLoading` with no data behind it, so rendering a step on `!isLoading` alone
+ * hands it an empty workspace id. That is worse than nothing: the GitHub and
+ * Slack buttons disable their own queries on an empty id, read the resulting
+ * absence of a role as "not an admin", and tell the user — who may well be the
+ * admin — to go and ask one.
  *
  * Shared rather than duplicated because the steps that need it live in
- * different files: the external integrations on each of the traces page's two
- * tabs, and the model key field wherever that is asked for.
+ * different files: the external integrations on each of the setup tabs.
  */
 export function WorkspaceUnavailable() {
   return (

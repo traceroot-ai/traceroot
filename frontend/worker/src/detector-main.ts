@@ -1,5 +1,5 @@
 /**
- * TraceRoot Detector Worker
+ * traceroot Detector Worker
  *
  * Background job processor for:
  * - Detector runs: BullMQ worker for evaluating detectors against traces

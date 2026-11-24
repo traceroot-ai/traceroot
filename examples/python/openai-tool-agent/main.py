@@ -1,5 +1,5 @@
 """
-OpenAI ReAct agent with tool use, streaming, and TraceRoot observability.
+OpenAI ReAct agent with tool use, streaming, and traceroot observability.
 
 Usage:
     cp .env.example .env

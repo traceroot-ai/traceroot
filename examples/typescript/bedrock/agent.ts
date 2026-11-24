@@ -1,8 +1,8 @@
 /**
- * AWS Bedrock Tool Agent — TraceRoot Observability
+ * AWS Bedrock Tool Agent — traceroot Observability
  *
  * A ReAct-style agent that uses Bedrock's Converse API (with toolConfig) to
- * answer queries. Instrumented with TraceRoot via TraceRoot.initialize().
+ * answer queries. Instrumented with traceroot via TraceRoot.initialize().
  *
  * bedrock: patches @aws-sdk/client-bedrock-runtime to trace all LLM call spans.
  *
@@ -25,9 +25,9 @@ import {
 import * as bedrockRuntime from '@aws-sdk/client-bedrock-runtime';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({ instrumentModules: { bedrock: bedrockRuntime } });
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -265,7 +265,7 @@ async function main(): Promise<void> {
       () =>
         observe({ name: 'demo_session', type: 'agent' }, async () => {
           console.log('='.repeat(60));
-          console.log('Bedrock Tool Agent — Demo (TraceRoot)');
+          console.log('Bedrock Tool Agent — Demo (traceroot)');
           console.log('='.repeat(60));
 
           for (let i = 0; i < DEMO_QUERIES.length; i++) {
