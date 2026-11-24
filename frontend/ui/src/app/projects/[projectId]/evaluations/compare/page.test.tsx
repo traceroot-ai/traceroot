@@ -81,7 +81,7 @@ describe("CompareRunsPage — run selection in the URL", () => {
     mount("runs=a,b,c&baseline=a&q=old&f=regressed:quality:b");
     props().onChangeBaseline("b", {
       q: "refund",
-      filters: [{ kind: "errors", scorer: "any", runId: "any" }],
+      filters: [{ kind: "errors", scorer: null, runId: "any" }],
       sort: { kind: "regression", scorer: "quality", runId: "c" },
     });
     expect(pushState).toHaveBeenCalledTimes(1);
@@ -101,7 +101,7 @@ describe("CompareRunsPage — run selection in the URL", () => {
 describe("CompareRunsPage — the table's search, filters and sort in the URL", () => {
   const FULL = "runs=a,b&baseline=a&q=refund&f=regressed:quality:b&sort=regression:quality:b";
   const REGRESSED = { kind: "regressed", scorer: "quality", runId: "b" } as const;
-  const ERRORS = { kind: "errors", scorer: "any", runId: "any" } as const;
+  const ERRORS = { kind: "errors", scorer: null, runId: "any" } as const;
   const DATASET = { kind: "dataset" } as const;
 
   it("hands the view the search, filters and sort the URL names", () => {

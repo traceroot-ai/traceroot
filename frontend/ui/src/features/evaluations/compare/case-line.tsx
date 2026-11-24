@@ -18,6 +18,7 @@ import {
 import {
   CELL_STATE_LABEL,
   cellDelta,
+  cellPolicy,
   lineFailure,
   scorerCellState,
   taskErrorOf,
@@ -42,8 +43,9 @@ function ScorerValue({
 }) {
   if (state.kind !== "value") return <CellStateLabel state={state} />;
   // A categorical scorer's values are labels, even when they are numbers: no change, only
-  // whether it differs from the baseline's, which has no better or worse.
-  const categorical = column.valueType === "categorical";
+  // whether it differs from the baseline's, which has no better or worse. Read as the pair
+  // compared them, as its summary does.
+  const { categorical, direction } = cellPolicy(cell, column);
   const delta = categorical ? null : cellDelta(cell);
   return (
     <span className="whitespace-nowrap">
@@ -55,11 +57,7 @@ function ScorerValue({
         <span className="ml-1 text-muted-foreground">changed</span>
       )}
       {delta !== null && (
-        <Delta
-          value={delta}
-          text={formatMetricDelta(delta, column.format)}
-          direction={column.direction}
-        />
+        <Delta value={delta} text={formatMetricDelta(delta, column.format)} direction={direction} />
       )}
     </span>
   );
