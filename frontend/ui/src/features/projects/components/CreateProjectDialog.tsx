@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,8 @@ export function CreateProjectDialog({
     },
   });
 
+  const t = useT();
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim()) {
@@ -64,20 +67,20 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {!isControlled && (
-        <DialogTrigger asChild>{trigger || <AddButton>New project</AddButton>}</DialogTrigger>
+        <DialogTrigger asChild>
+          {trigger || <AddButton>{t("projects.newProject")}</AddButton>}
+        </DialogTrigger>
       )}
       <DialogContent>
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>Create Project</DialogTitle>
-            <DialogDescription>
-              Create a new project to start tracking your AI agent traces.
-            </DialogDescription>
+            <DialogTitle>{t("projects.createTitle")}</DialogTitle>
+            <DialogDescription>{t("projects.createDescription")}</DialogDescription>
           </DialogHeader>
           <div>
             <Input
               autoFocus
-              placeholder="Project name"
+              placeholder={t("projects.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={createMutation.isPending}
@@ -93,10 +96,10 @@ export function CreateProjectDialog({
               onClick={() => setOpen(false)}
               disabled={createMutation.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!name.trim() || createMutation.isPending}>
-              {createMutation.isPending ? "Creating..." : "Create"}
+              {createMutation.isPending ? t("common.creating") : t("common.create")}
             </Button>
           </DialogFooter>
         </form>

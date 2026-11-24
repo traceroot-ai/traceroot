@@ -1,0 +1,55 @@
+import type { PartialMessages } from "./en";
+
+// Product terms stay in English: trace, span, session, detector, signal, eval, dataset,
+// dashboard, alert, workspace, project. The brand is always "traceroot", lowercase.
+export const zh: PartialMessages = {
+  common: {
+    cancel: "取消",
+    create: "创建",
+    creating: "创建中...",
+    name: "名称",
+    created: "创建时间",
+    updated: "更新时间",
+    settings: "设置",
+    settingsFor: "{name} 的设置",
+    viewOnly: "只读",
+  },
+  nav: {
+    home: "首页",
+    observe: "观察",
+    detect: "检测",
+    verify: "验证",
+    support: "支持",
+    homeLabel: "traceroot 首页",
+  },
+  account: {
+    menu: "账号菜单",
+    fallbackName: "用户",
+    theme: "主题",
+    themeLight: "浅色",
+    themeDark: "深色",
+    themeSystem: "跟随系统",
+    language: "语言",
+    supportConsole: "支持控制台",
+    activeSessions: "活跃会话",
+    logOut: "退出登录",
+    exitImpersonation: "退出模拟登录",
+  },
+  workspaces: {
+    loading: "正在加载 workspace...",
+    emptyTitle: "还没有 workspace",
+    emptyText: "创建你的第一个 workspace 来开始使用",
+    newWorkspace: "新建 workspace",
+    newDescription: "创建一个新的 workspace，用来管理你的 project 和团队成员。",
+    namePlaceholder: "Workspace 名称",
+  },
+  projects: {
+    loading: "正在加载 project...",
+    emptyTitle: "还没有 project",
+    emptyText: "创建你的第一个 project，开始记录 trace",
+    newProject: "新建 project",
+    createTitle: "创建 project",
+    createDescription: "创建一个新的 project，开始记录你的 AI agent 的 trace。",
+    namePlaceholder: "Project 名称",
+  },
+};

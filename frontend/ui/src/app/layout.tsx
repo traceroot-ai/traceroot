@@ -8,6 +8,9 @@ import { PHProvider } from "@/providers/posthog-provider";
 import { PostHogPageView } from "@/providers/posthog-pageview";
 import { PostHogIdentifier } from "@/providers/posthog-identifier";
 import { Suspense } from "react";
+import { I18nProvider } from "@/lib/i18n/provider";
+import { getRequestLocale } from "@/lib/i18n/server";
+import { localeInfo } from "@/lib/i18n/locales";
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans", display: "swap" });
 const geistMono = Geist_Mono({
@@ -26,8 +29,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // also renders every page per request, which the policy needs: a prerendered
   // page has no nonce.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const locale = await getRequestLocale();
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={localeInfo(locale).htmlLang} suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
         <PHProvider>
           <Suspense fallback={null}>
@@ -35,7 +39,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Suspense>
           <PostHogIdentifier />
           <Providers nonce={nonce}>
-            <AppLayout>{children}</AppLayout>
+            <I18nProvider locale={locale}>
+              <AppLayout>{children}</AppLayout>
+            </I18nProvider>
           </Providers>
         </PHProvider>
       </body>

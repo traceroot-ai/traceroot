@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const navigation = { pathname: "/workspaces", params: {} as Record<string, string> };
+const refresh = vi.fn();
 let sessionData: {
   user: { role: string | null; name: string; email: string };
   session: { impersonatedBy?: string };
@@ -14,6 +15,8 @@ let sessionData: {
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
   useParams: () => navigation.params,
+  // The language picker refreshes the route after storing the choice.
+  useRouter: () => ({ refresh }),
 }));
 
 vi.mock("@/lib/auth-client", () => ({
@@ -36,6 +39,8 @@ vi.mock("@/components/layout/SidebarUpgradeButton", () => ({
 }));
 
 import { Sidebar } from "@/components/layout/sidebar";
+import { I18nProvider } from "@/lib/i18n/provider";
+import { LOCALE_COOKIE } from "@/lib/i18n/locales";
 
 describe("Sidebar", () => {
   let container: HTMLDivElement;
@@ -180,4 +185,45 @@ describe("Sidebar", () => {
       }
     },
   );
+  it("shows the navigation in Chinese and keeps product terms in English", () => {
+    navigation.pathname = "/projects/p1/traces";
+    navigation.params = { projectId: "p1" };
+    act(() => {
+      root.render(
+        <I18nProvider locale="zh">
+          <Sidebar />
+        </I18nProvider>,
+      );
+    });
+    const text = container.querySelector("nav")?.textContent ?? "";
+    for (const label of ["首页", "观察", "检测", "验证", "Tracing", "Detectors", "Signals"]) {
+      expect(text).toContain(label);
+    }
+    expect(text).not.toContain("Home");
+    expect(container.querySelector('[aria-label="账号菜单"]')).not.toBeNull();
+  });
+
+  it("stores the chosen language in a cookie and refreshes the route", () => {
+    sessionData = {
+      user: { role: null, name: "Jared", email: "jared@local.dev" },
+      session: {},
+    };
+    refresh.mockClear();
+    render();
+    act(() =>
+      (container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click(),
+    );
+    const group = document.querySelector('[role="radiogroup"][aria-label="Language"]');
+    const choices = [...(group?.querySelectorAll('[role="radio"]') ?? [])] as HTMLButtonElement[];
+    // Japanese is listed for later but not enabled, so it is not offered.
+    expect(choices.map((choice) => choice.textContent)).toEqual(["EN", "中文"]);
+    expect(choices.map((choice) => choice.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+
+    act(() => choices[0].click());
+    expect(refresh).not.toHaveBeenCalled();
+
+    act(() => choices[1].click());
+    expect(document.cookie).toContain(`${LOCALE_COOKIE}=zh`);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
 });
