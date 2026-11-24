@@ -18,6 +18,6 @@ const FORM_ERROR_KEYS: Record<string, MessageKey> = {
 
 export function translateFormError(t: Translate, message: string | null | undefined) {
   if (!message) return message ?? null;
-  const key = FORM_ERROR_KEYS[message];
-  return key ? t(key) : message;
+  // An own-property check: a message such as "constructor" must not find Object.prototype.
+  return Object.hasOwn(FORM_ERROR_KEYS, message) ? t(FORM_ERROR_KEYS[message]) : message;
 }

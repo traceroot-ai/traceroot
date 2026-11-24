@@ -2,7 +2,8 @@ import type { PartialMessages } from "./en";
 
 // Wording follows Dify's Simplified Chinese where it has the same term: workspace 工作空间,
 // dataset 数据集, log out 登出, account 账户. Project is 项目.
-// Terms specific to traceroot stay in English: trace, span, session, detector, signal, eval.
+// Terms specific to traceroot stay in English: trace, span, detector, signal, eval, and session
+// when it means a group of traces. A signed-in browser or CLI session is 会话.
 // Generic product words are Chinese: alert 告警, dashboard 仪表盘, widget 组件, evaluation 评测,
 // tracing 追踪.
 // The brand is always "traceroot", lowercase.

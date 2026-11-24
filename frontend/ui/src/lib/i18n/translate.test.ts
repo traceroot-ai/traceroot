@@ -63,3 +63,16 @@ describe("message files", () => {
     }
   });
 });
+
+describe("translateFormError", () => {
+  it("translates known schema messages and passes everything else through", async () => {
+    const { translateFormError } = await import("./form-errors");
+    const t = createTranslator("zh");
+    expect(translateFormError(t, "Invalid email")).toBe("邮箱格式不正确");
+    expect(translateFormError(t, "Email already registered")).toBe("Email already registered");
+    // Names that exist on Object.prototype are ordinary messages, not keys.
+    expect(translateFormError(t, "constructor")).toBe("constructor");
+    expect(translateFormError(t, "toString")).toBe("toString");
+    expect(translateFormError(t, null)).toBeNull();
+  });
+});
