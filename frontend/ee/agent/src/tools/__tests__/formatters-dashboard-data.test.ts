@@ -250,6 +250,27 @@ describe("formatRows", () => {
       "gpt-5  |  184.2",
     );
   });
+
+  it("keeps values below 1 legible instead of rounding them to 0", () => {
+    // A per-trace cost is routinely a fraction of a cent, and cost arrives as a
+    // Decimal string. Two fixed decimals printed every one of these as "0", so the
+    // model read a measured cost as no cost at all.
+    expect(formatRows(["value"], [["0.000412000"]])).toBe("value: 0.000412");
+    expect(formatRows(["value"], [[0.0049]])).toBe("value: 0.0049");
+    expect(formatRows(["model_name", "value"], [["gpt-5", "0.004125"]])).toContain(
+      "gpt-5  |  0.00413",
+    );
+    expect(formatRows(["value"], [[-0.000412]])).toBe("value: -0.000412");
+    // At or above 1, two decimals stay the rule.
+    expect(formatRows(["value"], [[1234.5678]])).toBe("value: 1,234.57");
+  });
+
+  it("keeps sub-unit buckets of a series legible in its stats and its lines", () => {
+    const rows = [0.0012, 0.0008, 0.0031].map((v, i) => [`2026-09-0${i + 1}T00:00:00`, v]);
+    const out = formatRows(["bucket", "value"], rows, { granularity: "day" });
+    expect(out).toContain("min 0.0008 | max 0.0031 (2026-09-03T00:00:00) | latest 0.0031");
+    expect(out).toContain("  2026-09-01T00:00:00  0.0012");
+  });
 });
 
 describe("formatWidgetQueryResult", () => {
