@@ -243,7 +243,7 @@ describe("CompareRunsPage — writes that follow each other before a render", ()
     const { onChangeAnalysis, onInspect } = props();
     onChangeAnalysis?.({
       q: "",
-      filters: [{ kind: "errors", scorer: "any", runId: "any" }],
+      filters: [{ kind: "errors", scorer: null, runId: "any" }],
       sort: { kind: "dataset" },
     });
     onInspect({ caseToken: "id:tc_1", pair: ["a", "b"] });
@@ -262,7 +262,7 @@ describe("CompareRunsPage — writes that follow each other before a render", ()
     onInspect({ caseToken: "id:tc_1", pair: ["a", "b"] });
     onChangeAnalysis?.({
       q: "",
-      filters: [{ kind: "errors", scorer: "any", runId: "any" }],
+      filters: [{ kind: "errors", scorer: null, runId: "any" }],
       sort: { kind: "dataset" },
     });
     expect(now()).toMatchObject({ case: "id:tc_1", pair: "a,b", f: "errors:any:any" });

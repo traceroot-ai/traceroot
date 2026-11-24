@@ -46,6 +46,8 @@ vi.mock("@/features/traces/hooks", async (importOriginal) => {
   const pending = { data: undefined, isLoading: true, isFetching: true, isError: false };
   return { ...actual, useTrace: () => ({ ...pending, refetch: vi.fn() }) };
 });
+// The open case keeps its baseline's trace live, which needs a server.
+vi.mock("@/features/traces/hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 
 import { CompareRunsView } from "./views/compare-runs-view";
 
