@@ -3,6 +3,7 @@
 // The settings frame for a workspace or a project page: breadcrumb, tab menu,
 // and the demo-viewer access for the tab (see demo-access.tsx). A page only
 // names its id and tab.
+import { useT } from "@/lib/i18n/provider";
 import { type ReactNode } from "react";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useProject } from "@/features/projects/hooks";
@@ -61,6 +62,7 @@ export function ProjectSettingsLayout({
   const { data: workspace, isError } = useWorkspace(workspaceId ?? "");
   const access =
     projectError || isError ? { mode: "full" as const } : projectSettingsAccess(tab, workspace);
+  const t = useT();
 
   return (
     <div className="flex h-full">
@@ -72,7 +74,10 @@ export function ProjectSettingsLayout({
         basePath={`/projects/${projectId}/settings`}
         crossLink={
           workspaceId
-            ? { label: "Workspace", href: `/workspaces/${workspaceId}/settings/general` }
+            ? {
+                label: t("settings.workspaceLink"),
+                href: `/workspaces/${workspaceId}/settings/general`,
+              }
             : undefined
         }
       >

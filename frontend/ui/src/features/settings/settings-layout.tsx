@@ -11,11 +11,14 @@ import {
   ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
 interface SettingsTab<Id extends string = string> {
   id: Id;
   label: string;
+  labelKey: MessageKey;
   icon: LucideIcon;
   href: string;
 }
@@ -29,29 +32,78 @@ export type WorkspaceSettingsTab =
 export type ProjectSettingsTab = "general" | "accessKeys" | "detectors";
 
 export const WORKSPACE_SETTINGS_TABS: SettingsTab<WorkspaceSettingsTab>[] = [
-  { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
-  { id: "members", label: "Members", icon: DOMAIN_ICONS.user, href: "members" },
+  {
+    id: "general",
+    label: "General",
+    labelKey: "settings.general",
+    icon: SlidersHorizontal,
+    href: "general",
+  },
+  {
+    id: "members",
+    label: "Members",
+    labelKey: "settings.members",
+    icon: DOMAIN_ICONS.user,
+    href: "members",
+  },
   {
     id: "model-providers",
     label: "Model providers",
+    labelKey: "settings.modelProviders",
     // The model concept, not the agent one — DOMAIN_ICONS.agent is the Bot glyph.
     icon: DOMAIN_ICONS.model,
     href: "model-providers",
   },
-  { id: "integrations", label: "Integrations", icon: Puzzle, href: "integrations" },
-  { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
+  {
+    id: "integrations",
+    label: "Integrations",
+    labelKey: "settings.integrations",
+    icon: Puzzle,
+    href: "integrations",
+  },
+  {
+    id: "billing",
+    label: "Billing",
+    labelKey: "settings.billing",
+    icon: CreditCard,
+    href: "billing",
+  },
 ];
 
 export const PROJECT_SETTINGS_TABS: SettingsTab<ProjectSettingsTab>[] = [
-  { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
-  { id: "accessKeys", label: "API keys", icon: Key, href: "accessKeys" },
-  { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },
+  {
+    id: "general",
+    label: "General",
+    labelKey: "settings.general",
+    icon: SlidersHorizontal,
+    href: "general",
+  },
+  {
+    id: "accessKeys",
+    label: "API keys",
+    labelKey: "settings.apiKeys",
+    icon: Key,
+    href: "accessKeys",
+  },
+  {
+    id: "detectors",
+    label: "Detectors",
+    labelKey: "settings.detectors",
+    icon: DOMAIN_ICONS.detector,
+    href: "detectors",
+  },
 ];
 
 // User-level (not workspace/project scoped) settings — sessions are a
 // per-account concept, so this tab set lives outside both of the above.
 export const ACCOUNT_SETTINGS_TABS: SettingsTab[] = [
-  { id: "sessions", label: "Active sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
+  {
+    id: "sessions",
+    label: "Active sessions",
+    labelKey: "settings.activeSessions",
+    icon: DOMAIN_ICONS.session,
+    href: "sessions",
+  },
 ];
 
 interface CrossLink {
@@ -75,6 +127,7 @@ export function SettingsLayout({
   children,
   crossLink,
 }: SettingsLayoutProps) {
+  const t = useT();
   return (
     <>
       <nav className="flex w-56 shrink-0 flex-col border-r">
@@ -91,7 +144,7 @@ export function SettingsLayout({
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
+                  {t(tab.labelKey)}
                 </Link>
               </li>
             );
