@@ -134,6 +134,7 @@ export function CompareRunsView({
         {/* Search, filters and sort, then the runs, whose menu also picks the baseline. */}
         <CaseToolbar
           model={model}
+          pairs={pairs}
           searchRef={searchRef}
           analysis={analysis}
           onChange={setAnalysis}

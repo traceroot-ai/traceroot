@@ -14,7 +14,7 @@ import {
   sameFilter,
   type CaseAnalysis,
 } from "./filters";
-import type { CompareModel } from "./model";
+import type { CompareModel, PairComparison } from "./model";
 import { SortSelect } from "./sort-select";
 
 /**
@@ -24,6 +24,7 @@ import { SortSelect } from "./sort-select";
  */
 export function CaseToolbar({
   model,
+  pairs,
   searchRef,
   analysis,
   onChange,
@@ -33,6 +34,8 @@ export function CaseToolbar({
   runs,
 }: {
   model: CompareModel;
+  /** Each candidate's comparison with the baseline, over every case. */
+  pairs: ReadonlyMap<string, PairComparison>;
   /** The search box: the page sends focus here when the control that had it goes away. */
   searchRef: React.RefObject<HTMLInputElement | null>;
   analysis: CaseAnalysis;
@@ -70,12 +73,14 @@ export function CaseToolbar({
         <FilterMenu
           triggerRef={filtersRef}
           model={model}
+          pairs={pairs}
           tagOf={tagOf}
           disabled={disabled}
           onAdd={(filter) => onChange({ ...analysis, filters: addFilter(filters, filter) })}
         />
         <SortSelect
           model={model}
+          pairs={pairs}
           sort={analysis.sort}
           tagOf={tagOf}
           disabled={disabled}
