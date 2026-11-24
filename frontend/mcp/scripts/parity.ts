@@ -100,8 +100,19 @@ function drop(value: unknown, names: string[]): unknown {
   return Object.fromEntries(Object.entries(value).filter(([name]) => !names.includes(name)));
 }
 
+/** `drop` applied to each row of a list result's `data`. */
+function dropFromRows(value: unknown, names: string[]): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const { data } = value as { data?: unknown };
+  if (!Array.isArray(data)) return value;
+  return { ...value, data: data.map((row) => drop(row, names)) };
+}
+
 function normalise(value: unknown, entries: (keyof typeof NORMALISE)[] = []): unknown {
-  return entries.reduce((acc, name) => drop(acc, [...NORMALISE[name].drop]), value);
+  return entries.reduce((acc, name) => {
+    const entry: { drop: readonly string[]; dropFromRows?: readonly string[] } = NORMALISE[name];
+    return dropFromRows(drop(acc, [...entry.drop]), [...(entry.dropFromRows ?? [])]);
+  }, value);
 }
 
 /** Canonical JSON: keys sorted at every depth. */

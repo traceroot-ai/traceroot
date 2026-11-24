@@ -99,6 +99,13 @@ export interface ToMcpToolOptions {
    */
   paramDescriptions?: Readonly<Record<string, string>>;
   /**
+   * Schema keywords this surface sets on a param, by param name, over the
+   * registry's (e.g. a lower `maximum` and a `default` that `defaults` applies).
+   * Arguments are checked against the result, so a value outside it is refused
+   * with the usual argument error.
+   */
+  paramOverrides?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /**
    * Longest result text returned. A longer result is shrunk structurally (long
    * strings cut, then list tails dropped) so it stays valid JSON, and says what
    * went and how to ask for less, so the model narrows the request instead of
@@ -151,6 +158,7 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
     defaults,
     transformResult,
     paramDescriptions = {},
+    paramOverrides = {},
     maxResultChars = DEFAULT_MAX_RESULT_CHARS,
   } = options;
 
@@ -160,10 +168,12 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
     if (!hidden.has(name)) {
       const described = stripOversizedNumericBounds(schema);
       const fallback = paramDescriptions[name];
-      properties[name] =
-        fallback && !("description" in described)
+      properties[name] = {
+        ...(fallback && !("description" in described)
           ? { ...described, description: fallback }
-          : described;
+          : described),
+        ...paramOverrides[name],
+      };
     }
   }
   const inputSchema: InputSchema = {

@@ -5,7 +5,8 @@ import { createApp, parseAllowedHosts } from "../app.js";
 import { PROBE_PATH } from "../credential-check.js";
 import { EXPOSED_TOOLS } from "../exposure.js";
 import { SERVER_INSTRUCTIONS } from "../instructions.js";
-import { parseMaxResultChars } from "../server.js";
+import { SQL_DEFAULT_ROWS, SQL_MAX_ROWS, parseMaxResultChars } from "../server.js";
+import { LIST_TRACES_DEFAULT_LIMIT } from "../trace-content.js";
 
 type Backend = (url: URL, init: RequestInit) => { status: number; body: unknown };
 
@@ -176,7 +177,62 @@ describe("MCP app", () => {
     const [url, init] = toolCalls(fetchImpl)[0];
     expect(new URL(url).pathname).toBe("/api/v1/public/sql");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({ query: "SELECT 1" });
+    expect(JSON.parse(String(init.body))).toEqual({
+      query: "SELECT 1",
+      max_rows: SQL_DEFAULT_ROWS,
+    });
+  });
+
+  it("caps run_sql rows on this surface and refuses more than the cap", async () => {
+    const { app, fetchImpl } = appWith(() => ({ status: 200, body: { rows: [] } }));
+    const client = await connect(app);
+    const { tools } = await client.listTools();
+    const maxRows = tools.find((tool) => tool.name === "run_sql")!.inputSchema.properties!
+      .max_rows as Record<string, unknown>;
+    expect(maxRows).toMatchObject({ maximum: SQL_MAX_ROWS, default: SQL_DEFAULT_ROWS });
+
+    const ok = await client.callTool({
+      name: "run_sql",
+      arguments: { query: "SELECT 1", max_rows: SQL_MAX_ROWS },
+    });
+    expect(ok.isError).toBeFalsy();
+    expect(JSON.parse(String(toolCalls(fetchImpl)[0][1].body)).max_rows).toBe(SQL_MAX_ROWS);
+
+    const refused = await client.callTool({
+      name: "run_sql",
+      arguments: { query: "SELECT 1", max_rows: SQL_MAX_ROWS + 1 },
+    });
+    expect(refused.isError).toBe(true);
+    expect((refused.content as { text: string }[])[0].text).toContain("max_rows");
+    expect(toolCalls(fetchImpl)).toHaveLength(1);
+  });
+
+  it("lists traces compactly, with a smaller default limit", async () => {
+    const row = {
+      trace_id: "t1",
+      name: "checkout",
+      duration_ms: 1200,
+      input: "user prompt",
+      output: "model answer",
+      metadata_map: { tenant: "acme" },
+      trace_url: "https://app/t1",
+    };
+    const { app, fetchImpl } = appWith(() => ({
+      status: 200,
+      body: { data: [row], meta: { page: 0, limit: LIST_TRACES_DEFAULT_LIMIT, total: 1 } },
+    }));
+    const client = await connect(app);
+    const result = await client.callTool({ name: "list_traces", arguments: {} });
+
+    const payload = JSON.parse((result.content as { text: string }[])[0].text);
+    expect(payload.data).toEqual([
+      { trace_id: "t1", name: "checkout", duration_ms: 1200, trace_url: "https://app/t1" },
+    ]);
+    const url = new URL(toolCalls(fetchImpl)[0][0]);
+    expect(url.searchParams.get("limit")).toBe(String(LIST_TRACES_DEFAULT_LIMIT));
+
+    await client.callTool({ name: "list_traces", arguments: { limit: 150 } });
+    expect(new URL(toolCalls(fetchImpl)[1][0]).searchParams.get("limit")).toBe("150");
   });
 
   it("serves a 2025-era client on the same endpoint", async () => {
@@ -397,6 +453,19 @@ describe("tool result size", () => {
     expect(parsed._hint).toContain("over the 900-character limit");
     expect(parsed._hint).toContain("a smaller limit");
     expect(result.structuredContent).toEqual(parsed);
+  });
+
+  it("declares the result limit to clients on every listed tool", async () => {
+    for (const [maxResultChars, expected] of [
+      [undefined, 80_000],
+      [12_345, 12_345],
+    ] as const) {
+      const { app } = appWith(() => ({ status: 200, body: {} }), { maxResultChars });
+      const { tools } = await (await connect(app)).listTools();
+      for (const tool of tools) {
+        expect(tool._meta).toEqual({ "anthropic/maxResultSizeChars": expected });
+      }
+    }
   });
 
   it("reads MCP_MAX_RESULT_CHARS as a positive integer, unset keeping the default", () => {

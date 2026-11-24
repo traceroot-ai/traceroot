@@ -23,6 +23,7 @@ export {
 } from "./pi.js";
 export { INTERNAL_BINDINGS, INTERNAL_WRITE_BINDINGS } from "./internal.js";
 export {
+  DEFAULT_MAX_RESULT_CHARS,
   toMcpTool,
   type McpCallReport,
   type McpErrorKind,

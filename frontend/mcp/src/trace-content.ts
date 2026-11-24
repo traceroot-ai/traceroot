@@ -41,3 +41,36 @@ export function withholdTraceContent(
   }
   return kept;
 }
+
+/** Trace list fields that carry user content; get_trace returns them for one trace. */
+const LIST_CONTENT_FIELDS = ["input", "output", "metadata_map"] as const;
+
+/** Most traces a list_traces call returns when it names no limit. */
+export const LIST_TRACES_DEFAULT_LIMIT = 20;
+
+/** Default `limit` for a trace list: fewer rows than the API's own default. */
+export function traceListDefaults(): Record<string, unknown> {
+  return { limit: LIST_TRACES_DEFAULT_LIMIT };
+}
+
+/**
+ * Keep each listed trace's summary (ids, name, times, counts, cost, link) and
+ * drop its content, so a list stays small enough to scan; the content of one
+ * trace comes from get_trace.
+ */
+export function compactTraceList(result: unknown): unknown {
+  if (!isObject(result) || !Array.isArray(result.data)) {
+    return result;
+  }
+  const data = result.data.map((row) => {
+    if (!isObject(row)) return row;
+    const kept = { ...row };
+    for (const field of LIST_CONTENT_FIELDS) delete kept[field];
+    return kept;
+  });
+  return { ...result, data };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

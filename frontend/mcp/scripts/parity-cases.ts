@@ -67,6 +67,12 @@ export const NORMALISE = {
     drop: ["input", "output", "metadata"],
   },
   "elapsed-ms": { reason: "a query reports how long it took", drop: ["elapsed_ms"] },
+  // MCP lists traces as summaries; get_trace returns one trace's content.
+  "mcp-compact-list": {
+    reason: "list_traces leaves each row's input, output and metadata out",
+    drop: [],
+    dropFromRows: ["input", "output", "metadata_map"],
+  },
 } as const;
 
 const window = (s: Seeds) => ({ start_time: s.start, end_time: s.end });
@@ -78,7 +84,7 @@ export const CASES: ParityCase[] = [
     tool: "list_traces",
     args: () => ({ limit: 5 }),
     cli: () => ["traces", "list", "--limit", "5"],
-    normaliseCli: ["cli-list-envelope"],
+    normaliseCli: ["cli-list-envelope", "mcp-compact-list"],
   },
   {
     label: "get_trace",

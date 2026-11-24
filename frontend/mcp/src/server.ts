@@ -1,5 +1,6 @@
 import {
   ApiClient,
+  DEFAULT_MAX_RESULT_CHARS,
   REGISTRY,
   toMcpTool,
   type McpTool,
@@ -18,10 +19,35 @@ import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { PARAM_DESCRIPTIONS } from "./param-docs.js";
 import { redactCredentials } from "./redaction.js";
 import type { CallRecorder } from "./telemetry.js";
-import { traceReadDefaults, withholdTraceContent } from "./trace-content.js";
+import {
+  LIST_TRACES_DEFAULT_LIMIT,
+  compactTraceList,
+  traceListDefaults,
+  traceReadDefaults,
+  withholdTraceContent,
+} from "./trace-content.js";
 
 const GET_TRACE_NOTE =
   " On this surface the default is fields=skeleton, and the trace-level input, output and metadata are left out unless fields asks for io, metadata or full.";
+const LIST_TRACES_NOTE =
+  " Each row is a summary without the trace's input, output or metadata; read those for one trace with get_trace.";
+
+/**
+ * run_sql rows on this surface: a small default and a hard cap, so one query
+ * cannot push a large result through the shared server process. The CLI and
+ * the API keep their own limits.
+ */
+export const SQL_DEFAULT_ROWS = 100;
+export const SQL_MAX_ROWS = 1_000;
+
+/**
+ * Client-specific _meta on every listed tool. Claude Code saves a tool result
+ * over its own default length to a file instead of showing it to the model;
+ * declaring this server's limit keeps results up to that length inline.
+ */
+export function toolMeta(maxResultChars: number): Record<string, unknown> {
+  return { "anthropic/maxResultSizeChars": maxResultChars };
+}
 
 export interface ServerConfig {
   /** Origin of the Python public API (`rest`). */
@@ -64,6 +90,27 @@ const registryDescription = (name: string) =>
 
 /** Per-tool shaping that is specific to this surface. */
 const TOOL_OPTIONS: Readonly<Record<string, Partial<ToMcpToolOptions>>> = {
+  list_traces: {
+    defaults: traceListDefaults,
+    paramOverrides: {
+      limit: {
+        default: LIST_TRACES_DEFAULT_LIMIT,
+        description: `Most traces to return, newest first (${LIST_TRACES_DEFAULT_LIMIT} when left out)`,
+      },
+    },
+    transformResult: compactTraceList,
+    description: registryDescription("list_traces") + LIST_TRACES_NOTE,
+  },
+  run_sql: {
+    defaults: () => ({ max_rows: SQL_DEFAULT_ROWS }),
+    paramOverrides: {
+      max_rows: {
+        maximum: SQL_MAX_ROWS,
+        default: SQL_DEFAULT_ROWS,
+        description: `Rows to return: ${SQL_DEFAULT_ROWS} when left out, at most ${SQL_MAX_ROWS.toLocaleString("en-US")}. Aggregate in the query rather than reading many rows.`,
+      },
+    },
+  },
   get_trace: {
     defaults: traceReadDefaults,
     transformResult: withholdTraceContent,
@@ -139,7 +186,9 @@ export function createServer(
     { instructions: SERVER_INSTRUCTIONS },
   );
 
-  for (const tool of buildTools(client, config.maxResultChars)) {
+  const maxResultChars = config.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
+  const _meta = toolMeta(maxResultChars);
+  for (const tool of buildTools(client, maxResultChars)) {
     server.registerTool(
       tool.name,
       {
@@ -150,6 +199,7 @@ export function createServer(
           VALIDATED_BY_TOOL,
         ),
         annotations: tool.annotations,
+        _meta,
       },
       async (args, ctx) => {
         const started = Date.now();
