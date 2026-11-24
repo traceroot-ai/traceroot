@@ -17,8 +17,9 @@ export type RunsMenuView = "runs" | "add";
 /**
  * The toolbar's Runs menu. "Runs (N)" opens the runs compared, baseline first, each with
  * its own menu (`RunLegend`), then Add runs, which turns the same panel into the run
- * picker. The page can open it on the picker straight away (`open="add"`). While the runs
- * load there is nothing to list, so the button stays in place, disabled.
+ * picker. The page can open it on the picker straight away (`open="add"`), as the empty
+ * state of runs with nothing in common does. While the runs load there is nothing to
+ * list, so the button stays in place, disabled.
  */
 export function RunsMenu({
   count,

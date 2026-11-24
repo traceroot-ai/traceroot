@@ -19,6 +19,7 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 const hooks = vi.hoisted(() => ({ useEvaluationRunDetails: vi.fn() }));
 vi.mock("./hooks", () => hooks);
 
+import { NO_ANALYSIS } from "./compare/filters";
 import { runsLegendNow } from "./compare/__tests__/runs-menu";
 import { CompareRunsView } from "./views/compare-runs-view";
 
@@ -67,8 +68,10 @@ describe("CompareRunsView — run legend", () => {
       "#3 fast-v3",
       "Add runs",
     ]);
-    // The legend replaces the standalone baseline picker.
-    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
+    // The legend replaces the standalone baseline picker; the only picker left sorts cases.
+    expect(screen.getAllByRole("combobox").map((c) => c.getAttribute("aria-label"))).toEqual([
+      "Sort cases: Dataset order",
+    ]);
   });
 
   it("says a run's status when it did not complete", () => {
@@ -109,7 +112,8 @@ describe("CompareRunsView — run legend", () => {
     render(view({ onChangeBaseline }));
     openMenu(/#2 candidate-v2/);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Set as baseline" }));
-    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id);
+    // With the table's search, filters and sort, which this comparison doesn't have.
+    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, NO_ANALYSIS);
   });
 
   it("keeps every run's colour when the baseline changes", () => {
@@ -127,7 +131,11 @@ describe("CompareRunsView — run legend", () => {
     openMenu(/#2 candidate-v2/);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from comparison" }));
     // No baseline in the URL: #1 is the baseline as the oldest run, and stays it.
-    expect(onChangeRuns).toHaveBeenCalledWith([BASELINE_RUN.id, FAST_RUN.id], BASELINE_RUN.id);
+    expect(onChangeRuns).toHaveBeenCalledWith(
+      [BASELINE_RUN.id, FAST_RUN.id],
+      BASELINE_RUN.id,
+      NO_ANALYSIS,
+    );
     rerender(view({ onChangeRuns, runIds: [BASELINE_RUN.id, FAST_RUN.id] }));
     expect(dotOf(/#3 fast-v3/)).toBe(fastDot);
   });
@@ -137,7 +145,7 @@ describe("CompareRunsView — run legend", () => {
     render(view({ onChangeRuns }));
     openMenu(/#1 baseline-v1/);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from comparison" }));
-    expect(onChangeRuns).toHaveBeenCalledWith([CANDIDATE_RUN.id, FAST_RUN.id], null);
+    expect(onChangeRuns).toHaveBeenCalledWith([CANDIDATE_RUN.id, FAST_RUN.id], null, NO_ANALYSIS);
   });
 
   it("sets the baseline from a run's menu only on a run that isn't the baseline", async () => {

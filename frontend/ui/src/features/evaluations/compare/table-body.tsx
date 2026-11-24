@@ -2,13 +2,14 @@
 
 import * as React from "react";
 import { TBody } from "@/components/ui/table";
-import { EmptyState } from "@/features/offline-eval/components";
 import { CaseGroup } from "./case-group";
+import { NoMatchingCases } from "./empty-states";
 import type { CaseRow, CompareModel, PairComparison, RunBundle } from "./model";
 
 /**
- * The comparison table's body: one group of lines per case the search picks, in their
- * order; or, when it picks none, one row across the columns that says so.
+ * The comparison table's body: one group of lines per case the search and filters pick, in
+ * their order; or, when they pick none, one row across the columns that says so and clears
+ * them.
  */
 export function ComparisonBody({
   model,
@@ -18,6 +19,8 @@ export function ComparisonBody({
   dotFor,
   labelOf,
   tagOf,
+  clearLabel,
+  onClear,
 }: {
   model: CompareModel;
   baseline: RunBundle;
@@ -28,6 +31,9 @@ export function ComparisonBody({
   dotFor: (runId: string) => string;
   labelOf: (runId: string) => string;
   tagOf: (runId: string) => string;
+  /** What the empty row's button takes off (`clearLabel`). */
+  clearLabel: string;
+  onClear: () => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -35,7 +41,7 @@ export function ComparisonBody({
         <tr>
           {/* Input, Run, Output and Expected, each scorer, then latency and cost. */}
           <td colSpan={model.scorers.length + 6}>
-            <EmptyState>No rows match your search.</EmptyState>
+            <NoMatchingCases label={clearLabel} onClear={onClear} />
           </td>
         </tr>
       </TBody>

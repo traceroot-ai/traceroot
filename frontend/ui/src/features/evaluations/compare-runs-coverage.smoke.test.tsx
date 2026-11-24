@@ -19,6 +19,7 @@ import {
   fixtureScore,
   scorerManifest,
 } from "./compare/__tests__/paired-fixture";
+import { NO_ANALYSIS } from "./compare/filters";
 import type { RunBundle } from "./compare/model";
 import {
   caseGroup,
@@ -367,6 +368,60 @@ describe("CompareRunsView — a run that shares no case with the others", () => 
     expect(screen.getByText("#2 has no results.")).toBeTruthy();
     expect(screen.queryByText(/share no/)).toBeNull();
     expect(bodyRows()).toHaveLength(0);
+  });
+});
+
+describe("CompareRunsView — runs that couldn’t be loaded", () => {
+  it("says how many runs couldn’t be loaded, and offers to drop them or try again", () => {
+    const retry = vi.fn();
+    const refetchLoaded = vi.fn();
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) =>
+        id === FAST_RUN.id
+          ? { data: undefined, isLoading: false, isError: true, refetch: retry }
+          : {
+              data: bundleOf(id),
+              isLoading: false,
+              isError: false,
+              refetch: refetchLoaded,
+            },
+      ),
+    );
+    const onChangeRuns = vi.fn();
+    render(
+      <CompareRunsView
+        projectId="p1"
+        runIds={RUN_IDS}
+        baselineId={CANDIDATE_RUN.id}
+        onChangeBaseline={vi.fn()}
+        onChangeRuns={onChangeRuns}
+      />,
+    );
+    expect(screen.getByText("1 run couldn’t be loaded.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(document.activeElement).toBe(screen.getByPlaceholderText("Search..."));
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(refetchLoaded).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Remove missing runs" }));
+    expect(document.activeElement).toBe(screen.getByPlaceholderText("Search..."));
+    expect(onChangeRuns).toHaveBeenCalledWith(
+      [BASELINE_RUN.id, CANDIDATE_RUN.id],
+      CANDIDATE_RUN.id,
+      NO_ANALYSIS,
+    );
+  });
+
+  it("counts every run that couldn’t be loaded, and offers only Retry when none loaded", () => {
+    const retry = vi.fn();
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map(() => ({ data: undefined, isLoading: false, isError: true, refetch: retry })),
+    );
+    mount();
+    expect(screen.getByText("3 runs couldn’t be loaded.")).toBeTruthy();
+    // With no run left to compare, there is nothing to go on with.
+    expect(screen.queryByRole("button", { name: "Remove missing runs" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledTimes(3);
   });
 });
 

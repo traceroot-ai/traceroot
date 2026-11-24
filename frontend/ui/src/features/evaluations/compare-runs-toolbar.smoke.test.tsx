@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
- * Above the comparison table, one row: the search and the Runs menu. Runs (N) opens the runs compared, each with its menu to
- * make it the baseline, remove it or open it, and Add runs, which turns the same panel into
- * the run picker. Under the toolbar, one muted line says how many cases there are and how
- * many every run has, with the runs that fall short of their cases noted on hover.
+ * Above the comparison table, one row: the search, Filters, Sort and the Runs menu.
+ * Runs (N) opens the runs compared, each with its menu to make it the baseline, remove it
+ * or open it, and Add runs, which turns the same panel into the run picker. Under the
+ * toolbar, one muted line says how many cases there are and how many every run has, with
+ * the runs that fall short of their cases noted on hover.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -14,6 +15,7 @@ import {
   PAIRED_FIXTURE,
 } from "./compare/__tests__/paired-fixture";
 import { openRuns, runsLegend } from "./compare/__tests__/runs-menu";
+import { NO_ANALYSIS } from "./compare/filters";
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
@@ -63,12 +65,14 @@ const runMenu = async (name: RegExp, item: string) => {
 };
 
 describe("CompareRunsView — one-row toolbar", () => {
-  it("puts search and runs on one row", () => {
+  it("puts search, filters, sort and runs on one row", () => {
     mount();
     expect(document.querySelectorAll("[data-toolbar]")).toHaveLength(1);
     const row = within(document.querySelector('[data-toolbar="cases"]') as HTMLElement);
     const controls = [
       row.getByRole("textbox", { name: "Search cases" }),
+      row.getByRole("button", { name: "Filters" }),
+      row.getByRole("combobox", { name: /^Sort cases/ }),
       row.getByRole("button", { name: "Runs (3)" }),
     ];
     for (const [a, b] of controls.slice(1).map((c, i) => [controls[i], c])) {
@@ -105,9 +109,13 @@ describe("CompareRunsView — the Runs menu", () => {
     const onChangeRuns = vi.fn();
     mount({ onChangeBaseline, onChangeRuns });
     await runMenu(/#2 candidate-v2/, "Set as baseline");
-    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id);
+    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, NO_ANALYSIS);
     await runMenu(/#3 fast-v3/, "Remove from comparison");
-    expect(onChangeRuns).toHaveBeenCalledWith([BASELINE_RUN.id, CANDIDATE_RUN.id], BASELINE_RUN.id);
+    expect(onChangeRuns).toHaveBeenCalledWith(
+      [BASELINE_RUN.id, CANDIDATE_RUN.id],
+      BASELINE_RUN.id,
+      NO_ANALYSIS,
+    );
     fireEvent.pointerDown(within(await runsLegend()).getByRole("button", { name: /#3 fast-v3/ }), {
       button: 0,
       ctrlKey: false,

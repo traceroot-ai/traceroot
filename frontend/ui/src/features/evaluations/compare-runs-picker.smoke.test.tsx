@@ -24,6 +24,7 @@ const hooks = vi.hoisted(() => ({
 }));
 vi.mock("./hooks", () => hooks);
 
+import { NO_ANALYSIS } from "./compare/filters";
 import { openRuns } from "./compare/__tests__/runs-menu";
 import { CompareRunsView } from "./views/compare-runs-view";
 
@@ -127,14 +128,22 @@ describe("CompareRunsView — add runs", () => {
     const picker = await openPicker();
     fireEvent.click(picker.getByRole("button", { name: /extra-v4/ }));
     // No baseline in the URL: #2 is the baseline as the oldest run, and stays it.
-    expect(onChangeRuns).toHaveBeenCalledWith([...SELECTED, NEWER_RUN.id], CANDIDATE_RUN.id);
+    expect(onChangeRuns).toHaveBeenCalledWith(
+      [...SELECTED, NEWER_RUN.id],
+      CANDIDATE_RUN.id,
+      NO_ANALYSIS,
+    );
   });
 
   it("keeps the baseline when the added run is older than it", async () => {
     const onChangeRuns = mount();
     const picker = await openPicker();
     fireEvent.click(picker.getByRole("button", { name: /legacy-v0/ }));
-    expect(onChangeRuns).toHaveBeenCalledWith([...SELECTED, OLDEST_RUN.id], CANDIDATE_RUN.id);
+    expect(onChangeRuns).toHaveBeenCalledWith(
+      [...SELECTED, OLDEST_RUN.id],
+      CANDIDATE_RUN.id,
+      NO_ANALYSIS,
+    );
   });
 
   it("keeps a run's name whole, so its status and evaluation name shorten first", async () => {

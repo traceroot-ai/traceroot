@@ -290,8 +290,9 @@ export function useEvaluationRun(projectId: string, runId: string) {
 // Without `combine`, `useQueries` returns a new array on every render; with a stable one it
 // keeps returning the same value until a query's data or status changes, so the comparison
 // page doesn't recompute every pair on each unrelated render (e.g. a search keystroke).
+// `refetch` is bound once per query, so passing it on keeps that.
 const pickRunDetails = (results: UseQueryResult<RunDetailResponse>[]) =>
-  results.map(({ data, isLoading, isError }) => ({ data, isLoading, isError }));
+  results.map(({ data, isLoading, isError, refetch }) => ({ data, isLoading, isError, refetch }));
 
 /**
  * Fetch the full detail (run + per-case results) for several runs at once — the

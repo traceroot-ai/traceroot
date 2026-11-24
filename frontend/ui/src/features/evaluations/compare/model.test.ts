@@ -404,6 +404,16 @@ describe("comparePairs", () => {
     );
   });
 
+  it("restricts every pair to the given cases", () => {
+    const only = comparePairs(model, new Set(["id:case-1", "id:case-2"])).get(CANDIDATE_RUN.id)!;
+    expect([...only.byCase.keys()]).toEqual(["id:case-1", "id:case-2"]);
+    const quality = only.comparison.scorers.find((s) => s.name === QUALITY)!;
+    expect(quality.pairedCount).toBe(2);
+    expect(quality.baselineMean).toBeCloseTo((0.4 + 0.85) / 2, 10);
+    expect(quality.candidateMean).toBeCloseTo((0.95 + 0.3) / 2, 10);
+    expect(only.cost.pairedCount).toBe(2);
+  });
+
   it("pairs a cross-dataset run against every baseline row its input fills", () => {
     const a = fixtureRun("a", 1, "a", "2026-11-01T00:00:00Z");
     const x = fixtureRun("x", 2, "x", "2026-11-02T00:00:00Z", otherDataset);
