@@ -667,6 +667,10 @@ services:
       MCP_TELEMETRY_OTLP_ENDPOINT: ${MCP_TELEMETRY_OTLP_ENDPOINT:-}
       MCP_TELEMETRY_OTLP_HEADERS: ${MCP_TELEMETRY_OTLP_HEADERS:-}
       MCP_TELEMETRY_SERVICE_NAME: ${MCP_TELEMETRY_SERVICE_NAME:-}
+      # Where the web app answers inside this network. With OAuth on, the server
+      # checks at startup that the web app's issuer is MCP_OAUTH_ISSUER exactly,
+      # and exits if not.
+      TRACEROOT_UI_URL: http://web:3000
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
       interval: 10s
