@@ -87,7 +87,7 @@ const openDisplay = async () => {
 const choose = async (setting: string, option: string) => {
   const menu = await openDisplay();
   fireEvent.click(
-    within(menu.getByRole("radiogroup", { name: setting })).getByRole("radio", { name: option }),
+    within(menu.getByRole("group", { name: setting })).getByRole("button", { name: option }),
   );
 };
 const stored = () => JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
@@ -104,12 +104,46 @@ describe("CompareRunsView — display menu", () => {
 
     const menu = await openDisplay();
     const checked = (setting: string) =>
-      within(menu.getByRole("radiogroup", { name: setting }))
-        .getAllByRole("radio")
-        .filter((r) => r.getAttribute("aria-checked") === "true")
-        .map((r) => r.textContent);
+      within(menu.getByRole("group", { name: setting }))
+        .getAllByRole("button")
+        .filter((b) => b.getAttribute("aria-pressed") === "true")
+        .map((b) => b.textContent);
     expect(checked("Density")).toEqual(["Compact"]);
     expect(checked("Text")).toEqual(["Clip"]);
+  });
+
+  it("offers each setting as toggle buttons, the one in use pressed, not as radios", async () => {
+    render(view());
+    const menu = await openDisplay();
+    expect(menu.queryAllByRole("radiogroup")).toEqual([]);
+    expect(menu.queryAllByRole("radio")).toEqual([]);
+    const pressed = (setting: string) =>
+      within(menu.getByRole("group", { name: setting }))
+        .getAllByRole("button")
+        .map((b) => [b.textContent, b.getAttribute("aria-pressed")]);
+    expect(pressed("Density")).toEqual([
+      ["Compact", "true"],
+      ["Comfortable", "false"],
+    ]);
+    expect(pressed("Text")).toEqual([
+      ["Clip", "true"],
+      ["Wrap", "false"],
+    ]);
+    expect(pressed("Diff against")).toEqual([
+      ["Baseline", "true"],
+      ["Expected", "false"],
+      ["Off", "false"],
+    ]);
+
+    fireEvent.click(
+      within(menu.getByRole("group", { name: "Density" })).getByRole("button", {
+        name: "Comfortable",
+      }),
+    );
+    expect(pressed("Density")).toEqual([
+      ["Compact", "false"],
+      ["Comfortable", "true"],
+    ]);
   });
 
   it("spaces every line out when comfortable, and leaves the headers as they are", async () => {

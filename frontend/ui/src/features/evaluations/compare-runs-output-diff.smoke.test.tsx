@@ -76,7 +76,7 @@ const diffAgainst = async (option: string) => {
   }
   const menu = within(await screen.findByRole("dialog", { name: "Display" }));
   fireEvent.click(
-    within(menu.getByRole("radiogroup", { name: "Diff against" })).getByRole("radio", {
+    within(menu.getByRole("group", { name: "Diff against" })).getByRole("button", {
       name: option,
     }),
   );

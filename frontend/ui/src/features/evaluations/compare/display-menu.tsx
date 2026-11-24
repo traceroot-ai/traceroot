@@ -30,7 +30,9 @@ const DIFF_REFERENCES: readonly [DiffReference, string][] = [
   ["off", "Off"],
 ];
 
-/** One setting's choices, side by side; the one in use is checked. */
+/** One setting's choices, side by side; the one in use is pressed. Toggle buttons, as in
+ *  the trace viewer's diff boxes, not radios: each is its own tab stop, so no arrow keys
+ *  are promised. */
 function Choice<T extends string>({
   label,
   options,
@@ -48,13 +50,12 @@ function Choice<T extends string>({
       <span id={id} className="text-muted-foreground">
         {label}
       </span>
-      <div role="radiogroup" aria-labelledby={id} className="btn-group justify-self-start">
+      <div role="group" aria-labelledby={id} className="btn-group justify-self-start">
         {options.map(([option, text]) => (
           <button
             key={option}
             type="button"
-            role="radio"
-            aria-checked={value === option}
+            aria-pressed={value === option}
             onClick={() => onChange(option)}
             className={cn(
               "h-6 px-2 text-[12px] transition-colors",
