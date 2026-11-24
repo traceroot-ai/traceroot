@@ -211,6 +211,24 @@ export const loopRunModelSchema = z.object({
 });
 export type LoopRunModel = z.infer<typeof loopRunModelSchema>;
 
+/**
+ * One of a Loop's signals as its next run sees it: the problem behind a finding
+ * key and what people decided about it.
+ */
+export interface ExistingLoopSignal {
+  key: string;
+  signalId: string;
+  title: string;
+  /** SIGNAL_STATUSES: "open" | "resolved" | "dismissed". */
+  status: string;
+  /** RESOLVE_REASONS / DISMISS_REASONS code behind the current resolved or dismissed status. */
+  reason: string | null;
+  /** The note given with that reason; written by a person, so untrusted. */
+  note: string | null;
+  /** Set when people merged this signal into another: its hits land there. */
+  mergedIntoId: string | null;
+}
+
 /** The agent service's answer to one Loop run; the worker validates it. */
 export const loopAgentResultSchema = z.object({
   status: z.enum(LOOP_AGENT_OUTCOMES),

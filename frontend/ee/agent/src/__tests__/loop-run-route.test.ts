@@ -123,9 +123,30 @@ beforeEach(() => {
   config = undefined;
   mocks.findRun.mockResolvedValue(RUN);
   mocks.findSignals.mockResolvedValue([
-    { groupKey: "loop:known-timeouts" },
-    { groupKey: "loop:known-timeouts" },
-    { groupKey: "loop:" },
+    {
+      id: "sig-1",
+      groupKey: "loop:known-timeouts",
+      title: "Known timeouts",
+      status: "open",
+      mergedIntoId: null,
+      statusEvents: [],
+    },
+    {
+      id: "sig-2",
+      groupKey: "loop:known-timeouts",
+      title: "Older copy",
+      status: "open",
+      mergedIntoId: null,
+      statusEvents: [],
+    },
+    {
+      id: "sig-3",
+      groupKey: "loop:",
+      title: "No key",
+      status: "open",
+      mergedIntoId: null,
+      statusEvents: [],
+    },
   ]);
   mocks.getSession.mockResolvedValue({
     id: "sess-1",
@@ -327,7 +348,65 @@ describe("POST loop-runs/:runId — the turn", () => {
         where: { projectId: "p1", detectorId: "det-1", groupKey: { startsWith: "loop:" } },
       }),
     );
-    expect(config!.systemPrompt).toContain("Existing finding keys of this loop: known-timeouts.");
+    expect(config!.systemPrompt).toContain("This loop's signals (1)");
+    expect(config!.systemPrompt).toContain('- known-timeouts · "Known timeouts" · open\n');
+  });
+
+  it("gives the run each signal's title, status and the reason people gave for it", async () => {
+    mocks.findSignals.mockResolvedValue([
+      {
+        id: "sig-1",
+        groupKey: "loop:empty-answers",
+        title: "Empty answers",
+        status: "dismissed",
+        mergedIntoId: null,
+        statusEvents: [{ toStatus: "dismissed", reason: "expected_behavior", note: "On purpose." }],
+      },
+      {
+        id: "sig-2",
+        groupKey: "loop:slow-search",
+        title: "Slow search",
+        status: "open",
+        mergedIntoId: null,
+        // Resolved, then reopened by a new hit: the old reason no longer applies.
+        statusEvents: [{ toStatus: "resolved", reason: "fixed_by_pr", note: null }],
+      },
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              signals: [{ id: "sig-2", status: "open", title: "Slow search", hitCount: 3 }],
+            }),
+          ),
+      ),
+    );
+    let listed = "";
+    runs(async () => {
+      listed = textOf(await call("list_signals"));
+    });
+    await post(BODY);
+    vi.unstubAllGlobals();
+    expect(mocks.findSignals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          statusEvents: expect.objectContaining({
+            where: { toStatus: { in: ["resolved", "dismissed"] } },
+            take: 1,
+          }),
+        }),
+      }),
+    );
+    expect(config!.systemPrompt).toContain(
+      '- empty-answers · "Empty answers" · dismissed · reason: expected_behavior · ' +
+        'note: "On purpose."',
+    );
+    expect(config!.systemPrompt).toContain('- slow-search · "Slow search" · open\n');
+    expect(listed).toContain(
+      "sig-2 | open | Slow search | detector | this loop's key slow-search |",
+    );
   });
 
   it("holds new keys to the plan cap in the prompt, the tool and the record cap", async () => {

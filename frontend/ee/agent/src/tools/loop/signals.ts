@@ -47,26 +47,32 @@ function source(s: SignalRow): string {
   return s.detectorName ? `detector ${s.detectorName}` : "detector";
 }
 
-function signalLine(s: SignalRow): string {
+/** The running Loop's own signals' finding keys, by signal id. */
+export type FindingKeysBySignal = ReadonlyMap<string, string>;
+
+function signalLine(s: SignalRow, keys: FindingKeysBySignal): string {
+  const key = s.id ? keys.get(s.id) : undefined;
   return (
     `- ${s.id} | ${s.status} | ${s.title ?? "(untitled)"} | ${source(s)} | ` +
+    (key ? `this loop's key ${key} | ` : "") +
     `${s.hitCount ?? 0} hits, reopened ${s.reopenCount ?? 0}x | ` +
     `first ${s.firstSeenAt ?? "?"}, last ${s.lastSeenAt ?? "?"} | RCA: ${s.rcaState ?? "none"}`
   );
 }
 
-export function formatSignalList(data: unknown): string {
+export function formatSignalList(data: unknown, keys: FindingKeysBySignal): string {
   const body = (data ?? {}) as { signals?: SignalRow[]; meta?: { total?: number } };
   const signals = Array.isArray(body.signals) ? body.signals : [];
   if (signals.length === 0) return "No signals found.";
   const total = body.meta?.total ? ` (${body.meta.total} total)` : "";
-  return `Found ${signals.length} signals${total}:\n${signals.map(signalLine).join("\n")}`;
+  const lines = signals.map((s) => signalLine(s, keys));
+  return `Found ${signals.length} signals${total}:\n${lines.join("\n")}`;
 }
 
-export function formatSignalDetail(data: unknown): string {
+export function formatSignalDetail(data: unknown, keys: FindingKeysBySignal): string {
   const s = ((data ?? {}) as { signal?: SignalRow }).signal;
   if (!s) return "Signal not found.";
-  const lines = [signalLine(s)];
+  const lines = [signalLine(s, keys)];
   if (s.resolvedAt) lines.push(`Resolved at: ${s.resolvedAt}`);
   if (s.mergedIntoId) lines.push(`Merged into: ${s.mergedIntoId}`);
   return lines.join("\n");
@@ -106,8 +112,12 @@ function signalRead(
   };
 }
 
-/** list_signals and get_signal, bound to the run's project. */
-export function createSignalReadTools(projectId: string, client?: ApiClient): AgentTool<any>[] {
+/** list_signals and get_signal, bound to the run's project; the Loop's own signals show their key. */
+export function createSignalReadTools(
+  projectId: string,
+  findingKeys: FindingKeysBySignal,
+  client?: ApiClient,
+): AgentTool<any>[] {
   const http =
     client ??
     new ApiClient({
@@ -115,7 +125,7 @@ export function createSignalReadTools(projectId: string, client?: ApiClient): Ag
       headers: { [INTERNAL_SECRET_HEADER]: agentInternalSecret() },
     });
   return [
-    signalRead("list_signals", projectId, http, formatSignalList),
-    signalRead("get_signal", projectId, http, formatSignalDetail),
+    signalRead("list_signals", projectId, http, (data) => formatSignalList(data, findingKeys)),
+    signalRead("get_signal", projectId, http, (data) => formatSignalDetail(data, findingKeys)),
   ];
 }
