@@ -35,9 +35,41 @@ export function parseOAuthConfig(env: {
   const authorizationServer = (env.MCP_OAUTH_ISSUER ?? "").trim();
   if (!resourceUrl || !authorizationServer) return undefined;
   // Fail at startup on a malformed value rather than serving broken metadata.
-  new URL(resourceUrl);
+  const problem = resourceUrlProblem(resourceUrl);
+  if (problem) throw new Error(`MCP_RESOURCE_URL ${JSON.stringify(resourceUrl)} ${problem}`);
   new URL(authorizationServer);
   return { resourceUrl, authorizationServer };
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * What is wrong with a resource URL, or null. Assistants send it back as the
+ * token's `resource` and compare it with the metadata's `resource` byte for
+ * byte, so it must be the canonical form: https (plain http only on a loopback
+ * host, for local runs), the /mcp path with no trailing slash, and no
+ * credentials, query or fragment.
+ */
+export function resourceUrlProblem(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return "is not a URL";
+  }
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname))
+  ) {
+    return "must use https";
+  }
+  if (url.username || url.password) return "must not carry credentials";
+  if (url.search || url.hash || value.includes("?") || value.includes("#")) {
+    return "must not have a query or fragment";
+  }
+  if (!url.pathname.endsWith("/mcp")) return "must end in /mcp, with no trailing slash";
+  if (url.toString() !== value) return `is not in canonical form; use ${url.toString()}`;
+  return null;
 }
 
 /** Where the metadata lives: the well-known prefix goes between host and path (RFC 9728 §3). */
