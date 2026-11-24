@@ -137,6 +137,7 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
 const mail = vi.hoisted(() => ({ sendOnce: vi.fn(), configured: true }));
 vi.mock("@traceroot/core/email", () => ({
   isProductMailConfigured: () => mail.configured,
+  PRODUCT_FOOTER_SLOT: "<!--traceroot:postal-address-->",
   resendConfig: () => ({ replyTo: "team@example.test" }),
   sendOnce: mail.sendOnce,
   signUnsubscribeToken: () => "tok",

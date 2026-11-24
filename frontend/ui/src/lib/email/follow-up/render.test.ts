@@ -79,7 +79,7 @@ describe("the follow-up emails, as approved", () => {
       ),
     );
     expect(one.html).toContain(
-      `<p><a href="${signals}" style="color:#0B1015;text-decoration:underline">1 open signal</a> is waiting in your project.</p>`,
+      `<p style="margin:16px 0 0;font-size:16px;line-height:25px"><a href="${signals}" style="color:#0B1015;text-decoration:underline">1 open signal</a> is waiting in your project.</p>`,
     );
     expect(one.html.indexOf(">Open integrations</a>")).toBeLessThan(
       one.html.indexOf("1 open signal"),
@@ -130,9 +130,15 @@ describe("every follow-up", () => {
       expect(text).toContain(SIGNOFF);
       expect(text.endsWith(OPT_OUT)).toBe(true);
       expect(html).toContain(
-        `<a href="${UNSUB}" style="color:#0B1015;text-decoration:underline">Unsubscribe from product emails</a>`,
+        `<a href="${UNSUB}" style="color:#5F646B;text-decoration:underline">Unsubscribe from product emails</a>`,
       );
       expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
+      // One wordmark, at the top; no second logo by the signature.
+      expect(html.match(/<img /g) ?? []).toHaveLength(1);
+      // The provider fills the postal address in, under the opt-out line.
+      expect(html.indexOf("<!--traceroot:postal-address-->")).toBeGreaterThan(
+        html.indexOf("Unsubscribe from product emails"),
+      );
       expect(`${text}${html}`).not.toContain("Founder");
     },
   );
