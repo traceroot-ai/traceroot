@@ -112,7 +112,7 @@ traceroot 的 span 里可能包含应用数据。如果你要追踪的工作负�
 如果这个函数抛出异常，或者返回的不是 dict（Python）或 object（TypeScript），metadata 会被丢弃，除数字和布尔值之外的所有值都会以 `[redaction failed]` 发送。TypeScript 里的 promise 如果被 reject，或者 5 秒内没有完成，也按同样的方式处理。SDK 会输出一条警告日志。在 TypeScript 里，给 `initialize()` 传入 `logLevel: 'warn'` 才能看到它。
 </Warning>
 
-eval 的结果也会被脱敏。dataset 和 scorer 的定义不会，所以不要在里面放个人数据。
+eval 的结果也会被脱敏。数据集和 scorer 的定义不会，所以不要在里面放个人数据。
 
 正则表达式识别不了姓名和地址。要处理这些内容，请调用你自己运行的检测服务，例如在 [Presidio](https://microsoft.github.io/presidio/) 前面加一个轻量的服务。下面的示例把每个字符串发给一个接收并返回 `{ text }` 的服务：
 
@@ -211,5 +211,5 @@ TRACEROOT_ENABLED=false
 - 在尽量靠近处理敏感数据的函数或集成的位置关闭采集。
 - 对于必须保留在采集内容里的部分，用 `redact` 去掉其中的个人数据。
 - 不要把密钥放进 metadata 或手动的 span 更新里。
-- 上线之前，先在非生产 project 里检查一条有代表性的已导出 trace。
+- 上线之前，先在非生产项目里检查一条有代表性的已导出 trace。
 - 对你使用的 traceroot 部署，落实你所在组织的数据保留、访问控制和数据处理要求。

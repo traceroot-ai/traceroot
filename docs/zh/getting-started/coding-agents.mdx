@@ -1,13 +1,13 @@
 ---
 title: Coding agent
-description: 让 coding agent 帮你设置 traceroot、检索这份文档并操作你的 project
+description: 让 coding agent 帮你设置 traceroot、检索这份文档并操作你的项目
 ---
 
-你的 coding agent 可以设置 traceroot、查阅这份文档、通过 CLI 操作你的 project，还可以把它自己的 session 发送到 traceroot。
+你的 coding agent 可以设置 traceroot、查阅这份文档、通过 CLI 操作你的项目，还可以把它自己的 session 发送到 traceroot。
 
 ## 设置 tracing
 
-你需要 Node.js 20.12 或更高版本，以及一个 Python 或 TypeScript/JavaScript 应用。还没有 traceroot 账号也没关系，登录时可以直接创建。在仓库根目录下，把下面这段内容粘贴到 Claude Code、Codex 或其他 coding agent 里：
+你需要 Node.js 20.12 或更高版本，以及一个 Python 或 TypeScript/JavaScript 应用。还没有 traceroot 账户也没关系，登录时可以直接创建。在仓库根目录下，把下面这段内容粘贴到 Claude Code、Codex 或其他 coding agent 里：
 
 ```text Setup prompt wrap
 Set up traceroot tracing in this repo with the traceroot setup wizard.
@@ -37,7 +37,7 @@ Skill 让你的 agent 学会如何使用 traceroot。setup 会安装它自带的
 
 | Skill | 用途 |
 | :- | :- |
-| `traceroot-cli` | 在终端里读取 trace、eval、dataset 和 detector 的 finding |
+| `traceroot-cli` | 在终端里读取 trace、eval、数据集和 detector 的 finding |
 | `traceroot-eval` | 编写并运行离线 eval |
 | `traceroot-quickstart` | 没有现成的 LLM 应用时，也能发送第一条测试 trace |
 
@@ -89,7 +89,7 @@ npx skills add traceroot-ai/traceroot-skills --skill traceroot-cli
 
 ## CLI
 
-你的 agent 通过 traceroot CLI 操作你的 project：trace、detector 的 finding、alert、dashboard、eval 和 SQL。请在运行过 setup 的目录里执行这些命令。在其他目录下，需要先用 `traceroot login` 登录，并[限定到某个 project](/cli/get-started#scope-to-a-project)。如果没有全局安装，把 `traceroot` 换成 `npx -y traceroot-cli@latest`。
+你的 agent 通过 traceroot CLI 操作你的项目：trace、detector 的 finding、alert、dashboard、eval 和 SQL。请在运行过 setup 的目录里执行这些命令。在其他目录下，需要先用 `traceroot login` 登录，并[限定到某个项目](/cli/get-started#scope-to-a-project)。如果没有全局安装，把 `traceroot` 换成 `npx -y traceroot-cli@latest`。
 
 ```bash
 # 最近的 trace

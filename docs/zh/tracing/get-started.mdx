@@ -14,9 +14,9 @@ setup 需要 Node.js 20.12 或更高版本，以及一个 Python 或 TypeScript/
 
 ## setup 做了什么
 
-setup 会检查是否有未提交的改动，通过浏览器让你登录，选择或创建一个 project，并为你的应用设置 `TRACEROOT_API_KEY`，通常写在 `.env.local` 或 `.env` 里。接着它会运行你的 coding agent 并等待 trace 到达，或者给你一个任务或手动步骤，由你自己完成。
+setup 会检查是否有未提交的改动，通过浏览器让你登录，选择或创建一个项目，并为你的应用设置 `TRACEROOT_API_KEY`，通常写在 `.env.local` 或 `.env` 里。接着它会运行你的 coding agent 并等待 trace 到达，或者给你一个任务或手动步骤，由你自己完成。
 
-setup 不会回滚 coding agent 做的修改，请用 `git diff` 检查这些改动。它把进度和 CLI 用的 project key 保存在 `.traceroot/` 里，并让 git 忽略这个目录。
+setup 不会回滚 coding agent 做的修改，请用 `git diff` 检查这些改动。它把进度和 CLI 用的项目 key 保存在 `.traceroot/` 里，并让 git 忽略这个目录。
 
 在 monorepo 里，请在服务所在的目录下运行 setup，或者传入 `--service <path>`。运行 `npx -y traceroot-cli@latest setup --help` 可以查看所有选项。你部署的应用也需要在环境变量里设置 `TRACEROOT_API_KEY`；如果是自托管，还需要 `TRACEROOT_HOST_URL`。
 
@@ -115,7 +115,7 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # 自托管：填你的 AP
 
 ### 5. 查看第一条 trace
 
-运行你的应用，并触发已经插桩的代码。打开 [traceroot Cloud](https://app.traceroot.ai)（或你自托管的 dashboard），进入你的 project，就能看到完整的 span 层级、token 用量、成本和耗时。
+运行你的应用，并触发已经插桩的代码。打开 [traceroot Cloud](https://app.traceroot.ai)（或你自托管的 dashboard），进入你的项目，就能看到完整的 span 层级、token 用量、成本和耗时。
 
 更习惯用终端？[traceroot CLI](/cli/get-started) 可以在 shell 里处理同样的 trace，还能查看 detector 的 finding 和 eval。
 

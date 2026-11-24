@@ -20,13 +20,13 @@ description: 描述你想让模型查找的问题，然后查看被它标记出�
 
 **第 2 步：agent。** traceroot Agent 读取 signal 里的一条 trace，写出根因分析，其中包含代码位置和修复建议。它在什么时候运行，请看 [Signals](/signals/introduction)。
 
-两个步骤各用各的模型。judge 模型在每个 detector 上单独选择。agent 模型每个 project 只选一次，位置在 **Settings → Detectors → Agent Model**。两者都可以用 traceroot 提供的模型，也可以用你自己的提供商 key 对应的模型（[自带 key](/ai-agent/byok)）。
+两个步骤各用各的模型。judge 模型在每个 detector 上单独选择。agent 模型每个项目只选一次，位置在 **Settings → Detectors → Agent Model**。两者都可以用 traceroot 提供的模型，也可以用你自己的提供商 key 对应的模型（[自带 key](/ai-agent/byok)）。
 
 ## 如何创建 detector
 
-你需要一个已经在接收 trace 的 project。如何设置请看 [Tracing](/zh/tracing/get-started)。
+你需要一个已经在接收 trace 的项目。如何设置请看 [Tracing](/zh/tracing/get-started)。
 
-在 [traceroot Cloud](https://app.traceroot.ai) 里打开你的 project，在左侧导航里选择 **Detectors**，然后点击 **New Detector**。
+在 [traceroot Cloud](https://app.traceroot.ai) 里打开你的项目，在左侧导航里选择 **Detectors**，然后点击 **New Detector**。
 
 <Frame caption="Detectors 页面：New Detector 按钮">
   <img src="/images/detector_new_button_v1.png" alt="Detectors 页面顶部，New Detector 按钮被高亮" />
@@ -42,7 +42,7 @@ description: 描述你想让模型查找的问题，然后查看被它标记出�
 
 ## 用 AI 创建 detector
 
-在左侧导航里选择 **Home** 打开 traceroot Agent，然后描述你想要的 detector，或者让它根据你的 project 推荐一个。例如：
+在左侧导航里选择 **Home** 打开 traceroot Agent，然后描述你想要的 detector，或者让它根据你的项目推荐一个。例如：
 
 - "Create a detector that flags traces where a tool call fails"
 - "Suggest a new detector based on my current detectors"
@@ -50,10 +50,10 @@ description: 描述你想让模型查找的问题，然后查看被它标记出�
 agent 会起草这个 detector。在你点击对话下方的 **Create detector** 之前，不会保存任何内容。如果想修改草稿，直接回复即可。
 
 <Frame caption="traceroot Agent：一条创建 detector 的请求、它读取的 detector，以及它给出的总结">
-  <img src="/images/detector_agent_v1.png" alt="traceroot Agent 列出并读取 project 里的 detector，然后总结它们的配置" />
+  <img src="/images/detector_agent_v1.png" alt="traceroot Agent 列出并读取项目里的 detector，然后总结它们的配置" />
 </Frame>
 
-AI coding agent 也可以用 [traceroot CLI](/cli/get-started)（`traceroot detectors create`）或 `/api/v1/public/detectors` 下的公开 API 创建 detector。写操作需要已登录的用户，project API key 只能读取。
+AI coding agent 也可以用 [traceroot CLI](/cli/get-started)（`traceroot detectors create`）或 `/api/v1/public/detectors` 下的公开 API 创建 detector。写操作需要已登录的用户，项目 API key 只能读取。
 
 ## 根因分析
 
@@ -83,11 +83,11 @@ agent 以 signal 为单位做分析，不会逐条分析 finding。它在什么�
 
 signal 被创建或重新打开时，traceroot 会通知你。它会在每个 alert window 内收集这些 signal，然后合并成一条消息发送，这条消息叫 digest。如果一个 signal 已经通知过，它上面新增的 finding 不会再触发通知。
 
-在你的 project 里打开 **Settings → Detectors**，找到 **Notifications**：
+在你的项目里打开 **Settings → Detectors**，找到 **Notifications**：
 
 - **Email**：点击 **Add recipient**，输入邮箱地址，然后点击 **Save**。
 - **Alert window**：选择 traceroot 在发送 digest 之前收集 signal 的时长（1、5、10 或 30 分钟，1 小时或 2 小时），然后点击 **Save**。默认是 10 分钟。
-- **Slack**：显示已连接的 workspace 和频道。点击 **Connect** 或 **Manage** 可以修改。
+- **Slack**：显示已连接的 Slack 工作区和频道。点击 **Connect** 或 **Manage** 可以修改。
 
 如果既没有邮件收件人，也没有 Slack 频道，traceroot 不会发送任何通知。之后再添加收件人或频道，也不会补发之前的 signal。
 
@@ -105,14 +105,14 @@ signal 被创建或重新打开时，traceroot 会通知你。它会在每个 al
 
 ### 连接 Slack
 
-每个 traceroot workspace 只需要连接一次 Slack。traceroot 会把消息发到一个 Slack 频道。
+每个 traceroot 工作空间只需要连接一次 Slack。traceroot 会把消息发到一个 Slack 频道。
 
-1. 以 workspace 管理员的身份打开 workspace 设置，进入 **Integrations**。在 project 里，也可以点击 **Settings → Detectors → Slack** 下的 **Connect**。
+1. 以工作空间管理员的身份打开工作空间设置，进入 **Integrations**。在项目里，也可以点击 **Settings → Detectors → Slack** 下的 **Connect**。
 2. 点击 **Connect**，并在 Slack 里批准 traceroot。
 3. 点击 **Manage → Configure** 并选择频道。点击 **Test Connection** 检查是否连通。
 
 <Note>
-  在自托管部署里，signal、根因分析和通知需要服务器上配置 `OPENAI_API_KEY`。没有它，detector 仍然会记录 finding。这时没有选择模型的 detector 会用 `claude-haiku-5-5` 做判断，不再使用 `gpt-6-luna`，除非 workspace 配置了自己的 OpenAI key。邮件通知还需要 `TRACEROOT_SMTP_URL`。
+  在自托管部署里，signal、根因分析和通知需要服务器上配置 `OPENAI_API_KEY`。没有它，detector 仍然会记录 finding。这时没有选择模型的 detector 会用 `claude-haiku-5-5` 做判断，不再使用 `gpt-6-luna`，除非工作空间配置了自己的 OpenAI key。邮件通知还需要 `TRACEROOT_SMTP_URL`。
 </Note>
 
 ## 下一步
