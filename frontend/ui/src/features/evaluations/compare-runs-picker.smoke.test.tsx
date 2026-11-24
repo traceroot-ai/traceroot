@@ -204,6 +204,26 @@ describe("CompareRunsView — add runs", () => {
     );
   });
 
+  it("lists twenty runs not compared yet, even when compared runs are among the newest", async () => {
+    // Twenty more runs on the dataset, older than all the others; #2 and #3 are among the
+    // newest.
+    const older = Array.from({ length: 20 }, (_, i) =>
+      fixtureRun(`old-${i}`, 100 + i, `old-v${i}`, `2026-10-${String(i + 1).padStart(2, "0")}`),
+    );
+    hooks.useEvaluationRuns.mockImplementation((p: string, q: Parameters<typeof listRuns>[1]) => {
+      const data = [...listRuns(p, { ...q, limit: undefined }).data.data, ...older].slice(
+        0,
+        q.limit,
+      );
+      return { data: { data, meta: { page: 0, limit: q.limit, total: data.length } } };
+    });
+    mount();
+    const picker = await openPicker();
+    // The suggestion, then nineteen more.
+    expect(options(picker)).toHaveLength(20);
+    expect(options(picker)[0]).toBe("#1 baseline-v1support-routing");
+  });
+
   it("finds runs by version or evaluation name", async () => {
     mount();
     const picker = await openPicker();
