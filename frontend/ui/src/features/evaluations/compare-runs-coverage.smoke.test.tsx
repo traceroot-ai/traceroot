@@ -403,6 +403,35 @@ describe("CompareRunsView — runs with fewer results than cases", () => {
     expect(tip.getByText("#2 reported 11 of 12 cases.")).toBeTruthy();
   });
 
+  it("lists two runs' notes on hover when their evaluations share a name", async () => {
+    // An evaluation named "support-routing (2)" and a second one named "support-routing":
+    // each run keeps its own tag, so each gets its own note, and no two notes share a key.
+    const empty = (id: string, evaluationId: string, evaluationName: string, day: string) => ({
+      run: fixtureRun(id, 1, `${id}-v1`, `2026-11-${day}T10:00:00.000Z`, {
+        evaluationId,
+        evaluationName,
+        caseCount: 12,
+      }),
+      results: [],
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mountRuns([
+        bundleOf(BASELINE_RUN.id),
+        bundleOf(CANDIDATE_RUN.id),
+        empty("run-b", "ev2", "support-routing", "05"),
+        empty("run-c", "ev3", "support-routing (2)", "06"),
+      ]);
+      fireEvent.focus(screen.getByText("2 runs are missing cases"));
+      const tip = within(await screen.findByRole("tooltip"));
+      expect(tip.getByText("support-routing (2) #1 has no results.")).toBeTruthy();
+      expect(tip.getByText("support-routing (3) #1 has no results.")).toBeTruthy();
+      expect(error.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("says nothing more when every run reported every case it declared", () => {
     mountDeclaring((b) => ({ caseCount: b.results.length, resultsTruncated: false }));
     expect(screen.queryByText(/reported|loaded the first/)).toBeNull();

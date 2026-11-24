@@ -38,8 +38,9 @@ export function ScopeLine({
               </TooltipTrigger>
               <TooltipContent side="bottom" align="start" className="max-w-[360px] text-left">
                 <ul>
-                  {partialNotes.map((note) => (
-                    <li key={note}>{note}</li>
+                  {/* By position: two runs' notes can read the same when their tags do. */}
+                  {partialNotes.map((note, i) => (
+                    <li key={i}>{note}</li>
                   ))}
                 </ul>
               </TooltipContent>
