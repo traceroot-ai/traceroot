@@ -2,7 +2,8 @@
 
 import { SelectItem } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { MEASURE_TYPE_LABEL, type AlertMeasureDoc } from "../measure-docs";
+import { useT } from "@/lib/i18n/provider";
+import { MEASURE_LABEL_KEY, MEASURE_TYPE_LABEL_KEY, type AlertMeasureDoc } from "../measure-docs";
 import type { AlertMeasure } from "../rule-model";
 
 function MetaChip({ children }: { children: React.ReactNode }) {
@@ -24,7 +25,10 @@ interface MeasureOptionProps {
  * scroll containers cannot clip it.
  */
 export function MeasureOption({ measure, doc }: MeasureOptionProps) {
-  const item = <SelectItem value={measure.id}>{measure.label}</SelectItem>;
+  const t = useT();
+  const labelKey = MEASURE_LABEL_KEY[measure.id];
+  const label = labelKey ? t(labelKey) : measure.label;
+  const item = <SelectItem value={measure.id}>{label}</SelectItem>;
   if (!doc) return item;
 
   return (
@@ -37,12 +41,18 @@ export function MeasureOption({ measure, doc }: MeasureOptionProps) {
         collisionPadding={8}
         className="w-64 border bg-popover p-3 text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
-        <p className="text-[13px] font-medium">{measure.label}</p>
+        <p className="text-[13px] font-medium">{label}</p>
         <div className="mt-1.5 flex flex-wrap gap-1">
-          <MetaChip>Unit: {doc.unit}</MetaChip>
-          <MetaChip>Type: {MEASURE_TYPE_LABEL[measure.type]}</MetaChip>
+          <MetaChip>
+            {t("alertsMeasures.unit", { unit: doc.unitKey ? t(doc.unitKey) : doc.unit })}
+          </MetaChip>
+          <MetaChip>
+            {t("alertsMeasures.type", { type: t(MEASURE_TYPE_LABEL_KEY[measure.type]) })}
+          </MetaChip>
         </div>
-        <p className="mt-2 text-[12px] leading-snug text-muted-foreground">{doc.description}</p>
+        <p className="mt-2 text-[12px] leading-snug text-muted-foreground">
+          {doc.descriptionKey ? t(doc.descriptionKey) : doc.description}
+        </p>
         {doc.unavailable && (
           <p className="mt-2 border-t border-border pt-2 text-[12px] leading-snug text-muted-foreground">
             {doc.unavailable}

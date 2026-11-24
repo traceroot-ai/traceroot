@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/lib/i18n/provider";
 
 interface DeleteDetectorDialogProps {
   detectorName: string;
@@ -20,6 +21,7 @@ export function DeleteDetectorDialog({
   onConfirm,
   isDeleting,
 }: DeleteDetectorDialogProps) {
+  const t = useT();
   const [typed, setTyped] = useState("");
 
   const handleOpenChange = (open: boolean) => {
@@ -33,13 +35,14 @@ export function DeleteDetectorDialog({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
-          <DialogTitle>Delete detector</DialogTitle>
+          <DialogTitle>{t("detectorsDelete.title")}</DialogTitle>
         </DialogHeader>
 
         <div className="mt-1 space-y-4">
           <p className="text-[12px] text-muted-foreground">
-            This action cannot be undone. Type{" "}
-            <span className="font-medium text-foreground">{detectorName}</span> to confirm.
+            {t("detectorsDelete.confirmBefore")}{" "}
+            <span className="font-medium text-foreground">{detectorName}</span>{" "}
+            {t("detectorsDelete.confirmAfter")}
           </p>
 
           <Input
@@ -58,7 +61,7 @@ export function DeleteDetectorDialog({
               className="h-7 text-[12px]"
               onClick={onClose}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -68,7 +71,7 @@ export function DeleteDetectorDialog({
               disabled={typed !== detectorName || isDeleting}
               onClick={onConfirm}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? t("detectorsDelete.deleting") : t("common.delete")}
             </Button>
           </div>
         </div>

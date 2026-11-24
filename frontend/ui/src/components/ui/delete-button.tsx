@@ -1,7 +1,10 @@
+"use client";
+
 import * as React from "react";
 import { Trash2 } from "lucide-react";
 import { Button, type ButtonProps } from "./button";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 export interface DeleteButtonProps extends Omit<ButtonProps, "variant"> {
   iconClassName?: string;
@@ -33,6 +36,7 @@ DeleteButton.displayName = "DeleteButton";
  */
 const DeleteIconButton = React.forwardRef<HTMLButtonElement, Omit<ButtonProps, "variant" | "size">>(
   ({ className, ...props }, ref) => {
+    const t = useT();
     return (
       <Button
         ref={ref}
@@ -40,8 +44,8 @@ const DeleteIconButton = React.forwardRef<HTMLButtonElement, Omit<ButtonProps, "
         size="sm"
         className={cn("h-7 w-7 p-0", className)}
         {...props}
-        aria-label={props["aria-label"] ?? props.title ?? "Delete"}
-        title={props.title ?? props["aria-label"] ?? "Delete"}
+        aria-label={props["aria-label"] ?? props.title ?? t("common.delete")}
+        title={props.title ?? props["aria-label"] ?? t("common.delete")}
       >
         <Trash2 className="h-4 w-4 text-destructive" />
       </Button>

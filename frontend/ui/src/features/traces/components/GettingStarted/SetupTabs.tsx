@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { AITab, type CommandCopy } from "./AITab";
 import { ManualTab } from "./ManualTab";
 import { useSetupRouteChosen, type SetupCommandSurface } from "./use-setup-command-copied";
+import { useT } from "@/lib/i18n/provider";
 
 export type SetupTab = "ai" | "manual";
 
@@ -46,6 +47,7 @@ export function SetupTabs({
   manualFooter,
 }: SetupTabsProps) {
   const recordRoute = useSetupRouteChosen(projectId, surface);
+  const t = useT();
 
   // Records only an actual change of tab.
   const switchTo = (next: SetupTab) => {
@@ -56,14 +58,18 @@ export function SetupTabs({
 
   return (
     <div>
-      <div role="tablist" aria-label="Setup" className="flex items-center gap-1">
+      <div
+        role="tablist"
+        aria-label={t("tracesSetup.tablistLabel")}
+        className="flex items-center gap-1"
+      >
         <TabButton active={tab === "ai"} onClick={() => switchTo("ai")}>
           <Sparkle className="h-3.5 w-3.5" />
-          Using AI
+          {t("tracesSetup.tabAi")}
         </TabButton>
         <TabButton active={tab === "manual"} onClick={() => switchTo("manual")}>
           <Code2 className="h-3.5 w-3.5" />
-          Manual
+          {t("tracesSetup.tabManual")}
         </TabButton>
       </div>
 

@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatRelativeTime } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import {
   getAccessKeys,
   createAccessKey,
@@ -44,6 +45,7 @@ function formatKeyHint(keyHint: string): string {
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
   const formId = useId();
+  const t = useT();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -119,7 +121,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     <div className="space-y-4">
       <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex items-center gap-1.5">
-          <h2 className="text-[15px] font-medium">Project API Keys</h2>
+          <h2 className="text-[15px] font-medium">{t("accessKeys.title")}</h2>
           <Info className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
         <AddButton
@@ -128,7 +130,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             setShowCreateDialog(true);
           }}
         >
-          Create new API key
+          {t("accessKeys.createNew")}
         </AddButton>
       </div>
 
@@ -136,7 +138,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         <div className="flex h-9 items-center justify-between border-b px-4">
           <span className="text-[13px] font-medium">.env</span>
           <CopyButton
-            aria-label="Copy environment configuration"
+            aria-label={t("accessKeys.copyEnv")}
             value={envBlockContent}
             className="h-7 w-7"
           />
@@ -149,17 +151,19 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       {newKeyData && (
         <div className="border border-success-border bg-success-soft">
           <div className="px-4 py-3">
-            <p className="mb-2 text-xs font-medium text-success">
-              New API key created! Copy it now - you won&apos;t see it again.
-            </p>
+            <p className="mb-2 text-xs font-medium text-success">{t("accessKeys.createdNotice")}</p>
             <div className="mb-2 flex items-center gap-2">
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
                 {newKeyData.key}
               </code>
-              <CopyButton aria-label="Copy API key" value={newKeyData.key} variant="outline" />
+              <CopyButton
+                aria-label={t("accessKeys.copyKey")}
+                value={newKeyData.key}
+                variant="outline"
+              />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
-              I&apos;ve copied the key
+              {t("accessKeys.copiedKey")}
             </Button>
           </div>
         </div>
@@ -168,17 +172,15 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create API Key</DialogTitle>
-            <DialogDescription>
-              Create a new API key to authenticate with the traceroot SDK.
-            </DialogDescription>
+            <DialogTitle>{t("accessKeys.createTitle")}</DialogTitle>
+            <DialogDescription>{t("accessKeys.createDescription")}</DialogDescription>
           </DialogHeader>
           <div>
             <label htmlFor={`${formId}-key-name`} className="mb-2 block text-sm font-medium">
-              Name (optional)
+              {t("accessKeys.nameOptional")}
             </label>
             <Input
-              placeholder="e.g., Production, Development"
+              placeholder={t("accessKeys.namePlaceholder")}
               id={`${formId}-key-name`}
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
@@ -192,10 +194,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleCreate} disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Creating..." : "Create"}
+              {createMutation.isPending ? t("common.creating") : t("common.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -204,13 +206,13 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       <Dialog open={!!editingKey} onOpenChange={(open) => !open && setEditingKey(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Note</DialogTitle>
-            <DialogDescription>Update the note for this API key.</DialogDescription>
+            <DialogTitle>{t("accessKeys.editNoteTitle")}</DialogTitle>
+            <DialogDescription>{t("accessKeys.editNoteDescription")}</DialogDescription>
           </DialogHeader>
           <div>
             <Input
-              placeholder="e.g., Production, Development"
-              aria-label="Note"
+              placeholder={t("accessKeys.namePlaceholder")}
+              aria-label={t("accessKeys.note")}
               value={editingKey?.name || ""}
               onChange={(e) =>
                 setEditingKey(editingKey ? { ...editingKey, name: e.target.value } : null)
@@ -225,10 +227,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingKey(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleSaveNote} disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? "Saving..." : "Save"}
+              {updateMutation.isPending ? t("common.saving") : t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -245,27 +247,29 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete API Key</DialogTitle>
+            <DialogTitle>{t("accessKeys.deleteTitle")}</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. This will permanently delete the API key &quot;
+              {t("accessKeys.deleteBefore")}
               <span className="font-semibold">
                 {keyToDelete?.name || formatKeyHint(keyToDelete?.key_hint || "")}
               </span>
-              &quot;.
+              {t("accessKeys.deleteAfter")}
             </DialogDescription>
           </DialogHeader>
           <div>
             <p className="mb-2 text-sm text-muted-foreground">
-              Type{" "}
+              {t("workspaceSettings.typeBefore")}{" "}
               <span className="font-mono font-semibold text-foreground">
                 {keyToDelete?.name || "delete"}
               </span>{" "}
-              to confirm:
+              {t("workspaceSettings.typeAfter")}
             </p>
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder={keyToDelete?.name ? "API key name" : "Type 'delete'"}
+              placeholder={
+                keyToDelete?.name ? t("accessKeys.keyNamePlaceholder") : t("shellCommon.typeDelete")
+              }
               className="h-8 text-[13px]"
             />
           </div>
@@ -276,7 +280,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setKeyToDelete(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -289,7 +293,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                 deleteConfirmText !== (keyToDelete?.name || "delete") || deleteMutation.isPending
               }
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete API Key"}
+              {deleteMutation.isPending
+                ? t("workspaceSettings.deleting")
+                : t("accessKeys.deleteTitle")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -297,20 +303,26 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
       <div className="border">
         {isLoading ? (
-          <div className="px-3 py-3 text-[13px] text-muted-foreground">Loading API keys...</div>
-        ) : accessKeys.length === 0 ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">
-            No API keys yet. Create one to start using the SDK.
+            {t("accessKeys.loading")}
           </div>
+        ) : accessKeys.length === 0 ? (
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">{t("accessKeys.empty")}</div>
         ) : (
           <table className="data-table w-full">
             <thead>
               <tr className="border-b text-left">
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Name</th>
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Key</th>
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Created</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
-                  Last Used
+                  {t("common.name")}
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  {t("shellCommon.key")}
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  {t("common.created")}
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  {t("accessKeys.lastUsed")}
                 </th>
                 <th className="w-10 px-3 py-2 text-[12px] font-medium text-muted-foreground"></th>
               </tr>
@@ -338,11 +350,15 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                     {formatRelativeTime(key.create_time)}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {key.last_use_time ? formatRelativeTime(key.last_use_time) : "Never"}
+                    {key.last_use_time
+                      ? formatRelativeTime(key.last_use_time)
+                      : t("accessKeys.never")}
                   </td>
                   <td className="px-3 py-2">
                     <DeleteIconButton
-                      aria-label={`Delete API key ${key.name || formatKeyHint(key.key_hint)}`}
+                      aria-label={t("accessKeys.deleteKey", {
+                        name: key.name || formatKeyHint(key.key_hint),
+                      })}
                       className="h-6 w-6"
                       onClick={() => {
                         deleteMutation.reset();

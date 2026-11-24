@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { useT } from "@/lib/i18n/provider";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, BreadcrumbItem } from "@/components/layout/breadcrumb";
 import { useWorkspace, useWorkspaces } from "../hooks";
@@ -27,6 +28,7 @@ interface WorkspaceBreadcrumbProps {
  * ```
  */
 export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrumbProps) {
+  const t = useT();
   const { setHeaderContent } = useLayout();
   const pathname = usePathname();
   const { data: workspace } = useWorkspace(workspaceId);
@@ -45,8 +47,11 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
           isCurrent: ws.id === workspaceId,
           settingsHref: `/workspaces/${ws.id}/settings`,
         })),
-        menuHeader: { label: "Workspaces", href: "/workspaces" },
-        createNew: { label: "New workspace", onSelect: () => setCreateWorkspaceOpen(true) },
+        menuHeader: { label: t("workspaces.title"), href: "/workspaces" },
+        createNew: {
+          label: t("workspaces.newWorkspace"),
+          onSelect: () => setCreateWorkspaceOpen(true),
+        },
       },
     ];
 
@@ -56,7 +61,7 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
 
     setHeaderContent(<Breadcrumb items={breadcrumbItems} />);
     return () => setHeaderContent(null);
-  }, [setHeaderContent, workspace, workspaces, workspaceId, current, pathname]);
+  }, [setHeaderContent, workspace, workspaces, workspaceId, current, pathname, t]);
 
   return <CreateWorkspaceDialog open={createWorkspaceOpen} onOpenChange={setCreateWorkspaceOpen} />;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
+import { useT } from "@/lib/i18n/provider";
 
 export type Media = { src: string; kind: "image" | "audio" };
 
@@ -76,13 +77,14 @@ export function mediaSrc(value: string): Media | null {
 }
 
 export function InlineMedia({ src, kind }: Media) {
+  const t = useT();
   if (kind === "audio") {
     return <audio controls src={src} className="my-1 max-w-full" />;
   }
   return (
     <img
       src={src}
-      alt="Inline image"
+      alt={t("tracesSpan.inlineImage")}
       className="my-1 max-h-64 max-w-full rounded border border-border"
     />
   );
@@ -119,6 +121,7 @@ export const AttachmentSourceContext = createContext<AttachmentSource | null>(nu
 
 export function AttachmentImage({ hash, fallback }: { hash: string; fallback: ReactNode }) {
   const source = useContext(AttachmentSourceContext);
+  const t = useT();
   // Keyed by URL so a different image in the same place gets its own attempt.
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   if (!source) return <>{fallback}</>;
@@ -127,14 +130,14 @@ export function AttachmentImage({ hash, fallback }: { hash: string; fallback: Re
   if (failedSrc === src) {
     return (
       <span className="my-1 inline-block rounded border border-dashed border-border px-2 py-1 text-muted-foreground">
-        Image unavailable
+        {t("tracesSpan.imageUnavailable")}
       </span>
     );
   }
   return (
     <img
       src={src}
-      alt="Span image"
+      alt={t("tracesSpan.spanImage")}
       loading="lazy"
       decoding="async"
       onError={() => setFailedSrc(src)}

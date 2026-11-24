@@ -31,6 +31,8 @@ import { FirstTraceLine } from "@/components/first-trace-line";
 import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
 import { useOpenFoundTrace } from "@/lib/hooks/use-open-found-trace";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 const onboardingSchema = z.object({
   workspaceName: z.string().min(1, "Workspace name is required"),
@@ -38,6 +40,16 @@ const onboardingSchema = z.object({
 });
 
 type OnboardingForm = z.infer<typeof onboardingSchema>;
+
+// The messages this page sets itself, mapped to keys when they are shown. Anything else (a server
+// error) is shown as it arrived.
+const ERROR_KEYS: Record<string, MessageKey> = {
+  "Workspace name is required": "onboarding.errorWorkspaceRequired",
+  "Project name is required": "onboarding.errorProjectRequired",
+  "Workspace not found": "onboarding.errorWorkspaceNotFound",
+  "Something went wrong": "onboarding.errorGeneric",
+  "Could not sign out. Please try again.": "onboarding.errorSignOut",
+};
 
 function getDefaultWorkspaceName(email: string | null | undefined): string {
   if (!email) return "My Workspace";
@@ -234,6 +246,9 @@ async function createOrAdoptProject(
 
 function OnboardingContent() {
   const router = useRouter();
+  const t = useT();
+  const showError = (message: string | null | undefined) =>
+    message && ERROR_KEYS[message] ? t(ERROR_KEYS[message]) : message;
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { data: session, isPending } = authClient.useSession();
@@ -523,7 +538,7 @@ function OnboardingContent() {
   if (isPending || workspacesLoading || setupComplete || addProjectUrl) {
     return (
       <StandaloneFrame>
-        <p className="text-[13px] text-muted-foreground">Loading...</p>
+        <p className="text-[13px] text-muted-foreground">{t("shellCommon.loading")}</p>
       </StandaloneFrame>
     );
   }
@@ -537,14 +552,19 @@ function OnboardingContent() {
     router.push(onboardingSignInUrl(returnTo));
     return (
       <StandaloneFrame>
-        <p className="text-[13px] text-muted-foreground">Redirecting to sign in...</p>
+        <p className="text-[13px] text-muted-foreground">{t("onboarding.redirecting")}</p>
       </StandaloneFrame>
     );
   }
 
   // What this run has already done, said once and reused by both of the steps
   // that follow the form.
-  const createdWhat = isProjectOnlyMode ? "Project" : "Workspace and project";
+  const createdManual = isProjectOnlyMode
+    ? t("onboarding.projectCreatedManual")
+    : t("onboarding.workspaceCreatedManual");
+  const createdTerminal = isProjectOnlyMode
+    ? t("onboarding.projectCreatedTerminal")
+    : t("onboarding.workspaceCreatedTerminal");
   // One answer for the frame, the heading and the body, so a width can never
   // describe a step that is not the one rendered.
   const showManualStep = !!createdProject && manualSetup;
@@ -575,15 +595,15 @@ function OnboardingContent() {
                 under it is what says which of the two routes you are on, and
                 it carries more now that the step below says what the command
                 does. */}
-            <h1 className="text-[15px] font-medium">Let&apos;s get started</h1>
+            <h1 className="text-[15px] font-medium">{t("onboarding.title")}</h1>
             <p className="text-[13px] text-muted-foreground">
               {/* "The rest happens in your terminal" stops being true the
                   moment the user says they would rather it did not. */}
               {showManualStep
-                ? `${createdWhat} created — add tracing to your application`
+                ? createdManual
                 : createdProject
-                  ? `${createdWhat} created — the rest happens in your terminal`
-                  : "Set up your workspace and first project"}
+                  ? createdTerminal
+                  : t("onboarding.subtitleForm")}
             </p>
           </div>
           {/* The watch for this run's first trace, said once for the whole flow.
@@ -617,7 +637,7 @@ function OnboardingContent() {
         {/* Error message */}
         {error && (
           <div className="mb-4 border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-            {error}
+            {showError(error)}
           </div>
         )}
 
@@ -636,11 +656,11 @@ function OnboardingContent() {
                 onTabChange={(next) => setManualSetup(next === "manual")}
                 showExternalIntegrations={false}
                 commandCopy={{
-                  title: "Finish setting up in your terminal",
-                  label: "terminal",
+                  title: t("onboarding.commandTitle"),
+                  label: t("onboarding.commandLabel"),
                   // Where to run it, because pasted in the wrong directory it
                   // writes the key where the application never reads it.
-                  intro: `Run it where ${createdProject.name}'s code lives. It asks before editing your code. Needs Node.js 20.12 or later.`,
+                  intro: t("onboarding.commandIntro", { name: createdProject.name }),
                 }}
                 commandActions={
                   // Into the app with the application still uninstrumented: a
@@ -655,7 +675,7 @@ function OnboardingContent() {
                       router.push("/workspaces");
                     }}
                   >
-                    Skip for now
+                    {t("onboarding.skip")}
                   </Button>
                 }
                 manualFooter={
@@ -671,7 +691,7 @@ function OnboardingContent() {
                         router.push(`/projects/${createdProject.id}/traces`);
                       }}
                     >
-                      Go to my project
+                      {t("onboarding.goToProject")}
                     </Button>
                   </div>
                 }
@@ -701,13 +721,13 @@ function OnboardingContent() {
                       <div className="my-1.5 h-12 w-px bg-border" />
                     </div>
                     <div className="flex-1 pb-2 pt-0.5">
-                      <label className="text-[13px] font-medium">Workspace</label>
+                      <label className="text-[13px] font-medium">{t("onboarding.workspace")}</label>
                       <p className="mb-2 text-[12px] text-muted-foreground">
-                        Your team's home for billing and members
+                        {t("onboarding.workspaceHint")}
                       </p>
                       {isProjectOnlyMode ? (
                         <div className="flex items-center gap-2 border bg-muted px-2.5 py-1.5 text-[13px]">
-                          <span>{existingWorkspaceName || "Selected workspace"}</span>
+                          <span>{existingWorkspaceName || t("onboarding.selectedWorkspace")}</span>
                           <Check className="ml-auto h-3.5 w-3.5 text-success" />
                         </div>
                       ) : (
@@ -719,7 +739,7 @@ function OnboardingContent() {
                       )}
                       {errors.workspaceName && (
                         <p className="mt-1 text-[12px] text-danger">
-                          {errors.workspaceName.message}
+                          {showError(errors.workspaceName.message)}
                         </p>
                       )}
                     </div>
@@ -733,9 +753,9 @@ function OnboardingContent() {
                       </div>
                     </div>
                     <div className="flex-1 pb-2 pt-0.5">
-                      <label className="text-[13px] font-medium">Project</label>
+                      <label className="text-[13px] font-medium">{t("onboarding.project")}</label>
                       <p className="mb-2 text-[12px] text-muted-foreground">
-                        Where your traces and experiments live
+                        {t("onboarding.projectHint")}
                       </p>
                       <Input
                         placeholder="my-llm-project"
@@ -743,7 +763,9 @@ function OnboardingContent() {
                         className="h-8 text-[13px]"
                       />
                       {errors.projectName && (
-                        <p className="mt-1 text-[12px] text-danger">{errors.projectName.message}</p>
+                        <p className="mt-1 text-[12px] text-danger">
+                          {showError(errors.projectName.message)}
+                        </p>
                       )}
                     </div>
                   </div>
@@ -757,7 +779,7 @@ function OnboardingContent() {
                     onClick={handleSubmit}
                     disabled={isLoading}
                   >
-                    {isLoading ? "Creating..." : "Create"}
+                    {isLoading ? t("common.creating") : t("common.create")}
                   </Button>
                   {/* Back to whatever is waiting, when something is. The
                       workspace list drops `returnTo` exactly as the rail did,
@@ -769,7 +791,7 @@ function OnboardingContent() {
                     className="h-7 px-4 text-[12px]"
                     onClick={() => router.push(returnTo ?? "/workspaces")}
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </Button>
                 </div>
 

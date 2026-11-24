@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
@@ -70,6 +71,7 @@ export function useLayout() {
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const t = useT();
   // Three navigation stages follow the window: a permanent sidebar, an icon rail below
   // COMPACT_NAV_QUERY, and an off-canvas drawer below md (768px). An explicit toggle by the
   // user wins over the rail until the page is reloaded.
@@ -188,7 +190,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               aria-describedby={undefined}
               className="border-r-0 md:hidden"
             >
-              <DrawerTitle className="sr-only">Navigation</DrawerTitle>
+              <DrawerTitle className="sr-only">{t("componentsLayout.navigation")}</DrawerTitle>
               <Sidebar collapsed={false} />
             </DrawerContent>
 
@@ -208,7 +210,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 shrink-0 md:hidden"
-                      aria-label="Open navigation"
+                      aria-label={t("componentsLayout.openNavigation")}
                     >
                       <Menu className="h-4 w-4" />
                     </Button>
@@ -217,7 +219,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     variant="ghost"
                     size="icon"
                     className="mr-1 hidden h-7 w-7 shrink-0 md:inline-flex"
-                    aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    aria-label={
+                      sidebarCollapsed
+                        ? t("componentsLayout.expandSidebar")
+                        : t("componentsLayout.collapseSidebar")
+                    }
                     onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                   >
                     <PanelLeft className="h-4 w-4" />
@@ -236,7 +242,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                           setAiInitialSessionId(undefined);
                           setAiPanelOpen(!aiPanelOpen);
                         }}
-                        title="AI Assistant"
+                        title={t("componentsLayout.aiAssistant")}
                       >
                         <DOMAIN_ICONS.assistant className="h-4 w-4" />
                       </Button>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -23,6 +24,7 @@ import {
   generateWidgetTitle,
   isSpecComplete,
   parseSpec,
+  type DisplayType,
   type DraftSpec,
   type WidgetFilterValue,
   type WidgetSchemaField,
@@ -34,6 +36,7 @@ import { PageBackHeader } from "./PageBackHeader";
 import { PreviewRangeSelect } from "./PreviewRangeSelect";
 import { QueryWidgetRenderer } from "./renderers";
 import { FieldLabel, SectionBox } from "./SectionBox";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 const ModelIcon = fieldIcon("model_name");
 
@@ -47,6 +50,27 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 const NONE_SENTINEL = "__none__";
+
+// Chart types and aggregations are stored as these lowercase ids; the picker shows their names.
+const DISPLAY_LABEL_KEY: Record<DisplayType, MessageKey> = {
+  line: "dashboardsBuilder.displayLine",
+  area: "dashboardsBuilder.displayArea",
+  bar: "dashboardsBuilder.displayBar",
+  pie: "dashboardsBuilder.displayPie",
+  number: "dashboardsBuilder.displayNumber",
+  table: "dashboardsBuilder.displayTable",
+  histogram: "dashboardsBuilder.displayHistogram",
+};
+
+// Percentiles (p50, p95, ...) read the same in every language and have no entry.
+const AGG_LABEL_KEY: Record<string, MessageKey> = {
+  count: "dashboardsBuilder.aggCount",
+  sum: "dashboardsBuilder.aggSum",
+  avg: "dashboardsBuilder.aggAvg",
+  min: "dashboardsBuilder.aggMin",
+  max: "dashboardsBuilder.aggMax",
+  uniq: "dashboardsBuilder.aggUniq",
+};
 
 type View = "spans" | "traces";
 
@@ -76,6 +100,7 @@ export function WidgetBuilderPage({
   widgetId?: string;
 }) {
   const router = useRouter();
+  const t = useT();
   const isEdit = widgetId !== undefined;
   const dashboardUrl = `/projects/${projectId}/dashboard/${dashboardId}`;
 
@@ -284,7 +309,7 @@ export function WidgetBuilderPage({
       <PageBackHeader
         backHref={dashboardUrl}
         backLabel={dashboard?.name ?? "Dashboard"}
-        title={isEdit ? "Edit widget" : "New widget"}
+        title={isEdit ? t("dashboardsBuilder.editTitle") : t("dashboardsDetail.newWidget")}
       />
 
       {/* body: config card left, preview right */}
@@ -292,12 +317,12 @@ export function WidgetBuilderPage({
         {/* left: configuration column, sectioned like the detector form */}
         <div className="flex w-1/3 min-w-[340px] max-w-[420px] flex-col">
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-            <SectionBox label="Data selection">
+            <SectionBox label={t("dashboardsBuilder.dataSelection")}>
               <div className="p-4">
-                <FieldLabel>View</FieldLabel>
+                <FieldLabel>{t("dashboardsBuilder.view")}</FieldLabel>
                 <Select value={view ?? ""} onValueChange={handleViewChange}>
                   <SelectTrigger className="h-8 text-[13px]">
-                    <SelectValue placeholder="Select view" />
+                    <SelectValue placeholder={t("dashboardsBuilder.selectView")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="traces">Traces</SelectItem>
@@ -307,7 +332,7 @@ export function WidgetBuilderPage({
               </div>
 
               <div className="p-4">
-                <FieldLabel>Filters</FieldLabel>
+                <FieldLabel>{t("dashboardsBuilder.filters")}</FieldLabel>
                 <div className="flex flex-col gap-1.5">
                   {filters.map((f, i) => (
                     <FilterRow
@@ -333,17 +358,17 @@ export function WidgetBuilderPage({
                     onClick={handleAddFilter}
                     className="mt-0.5 self-start text-[11.5px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    ＋ Add filter
+                    {t("dashboardsBuilder.addFilter")}
                   </button>
                 </div>
               </div>
 
               <div className="p-4">
-                <FieldLabel>Metric</FieldLabel>
+                <FieldLabel>{t("dashboardsBuilder.metric")}</FieldLabel>
                 <div className="flex flex-col gap-1.5">
                   <Select value={measure} onValueChange={handleMeasureChange} disabled={!view}>
                     <SelectTrigger className="h-8 text-[13px]">
-                      <SelectValue placeholder="Measure" />
+                      <SelectValue placeholder={t("dashboardsBuilder.measure")} />
                     </SelectTrigger>
                     <SelectContent>
                       {measurableFields.map(([key, meta]) => {
@@ -363,12 +388,12 @@ export function WidgetBuilderPage({
                   </Select>
                   <Select value={agg} onValueChange={handleAggChange} disabled={!measure}>
                     <SelectTrigger className="h-8 text-[13px]">
-                      <SelectValue placeholder="Aggregation" />
+                      <SelectValue placeholder={t("dashboardsBuilder.aggregation")} />
                     </SelectTrigger>
                     <SelectContent>
                       {allowedAggs.map((a) => (
                         <SelectItem key={a} value={a}>
-                          {a}
+                          {AGG_LABEL_KEY[a] ? t(AGG_LABEL_KEY[a]) : a}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -377,7 +402,7 @@ export function WidgetBuilderPage({
               </div>
 
               <div className="p-4">
-                <FieldLabel>Breakdown</FieldLabel>
+                <FieldLabel>{t("dashboardsBuilder.breakdown")}</FieldLabel>
                 <Select
                   value={draft.breakdown ?? NONE_SENTINEL}
                   onValueChange={handleBreakdownChange}
@@ -388,10 +413,10 @@ export function WidgetBuilderPage({
                   }
                 >
                   <SelectTrigger className="h-8 text-[13px]">
-                    <SelectValue placeholder="None" />
+                    <SelectValue placeholder={t("dashboardsBuilder.none")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NONE_SENTINEL}>None</SelectItem>
+                    <SelectItem value={NONE_SENTINEL}>{t("dashboardsBuilder.none")}</SelectItem>
                     {groupableFields.map(([key, meta]) => {
                       const Icon = fieldIcon(key);
                       return (
@@ -411,7 +436,7 @@ export function WidgetBuilderPage({
                         className="text-[12px]"
                         icon={<ModelIcon className="h-3.5 w-3.5 text-muted-foreground" />}
                       >
-                        Model
+                        {t("dashboardsBuilder.model")}
                         <span className="ml-1 text-[12px] text-muted-foreground">· Spans</span>
                       </SelectItem>
                     )}
@@ -419,52 +444,57 @@ export function WidgetBuilderPage({
                 </Select>
                 {draft.display?.type && BREAKDOWN_UNSUPPORTED_DISPLAYS.has(draft.display.type) && (
                   <p className="mt-1 text-[12px] text-muted-foreground">
-                    Not available for this display type
+                    {t("dashboardsBuilder.breakdownUnavailable")}
                   </p>
                 )}
                 {draft.display?.type &&
                   BREAKDOWN_REQUIRED_DISPLAYS.has(draft.display.type) &&
                   !draft.breakdown && (
                     <p className="mt-1 text-[12px] text-warning">
-                      A {draft.display.type} chart needs a breakdown dimension
+                      {t("dashboardsBuilder.breakdownRequired", {
+                        type: t(DISPLAY_LABEL_KEY[draft.display.type]),
+                      })}
                     </p>
                   )}
               </div>
             </SectionBox>
 
-            <SectionBox label="Visualization">
+            <SectionBox label={t("dashboardsBuilder.visualization")}>
               <div className="p-4">
-                <FieldLabel>Display</FieldLabel>
+                <FieldLabel>{t("dashboardsBuilder.display")}</FieldLabel>
                 <div className="grid grid-cols-4 gap-2">
-                  {DISPLAY_TYPES.map((t) => (
+                  {DISPLAY_TYPES.map((displayType) => (
                     <Button
-                      key={t}
+                      key={displayType}
                       type="button"
-                      variant={draft.display?.type === t ? "default" : "outline"}
-                      onClick={() => handleDisplayChange(t)}
+                      variant={draft.display?.type === displayType ? "default" : "outline"}
+                      onClick={() => handleDisplayChange(displayType)}
                       // Entering the state is blocked when we already know the
                       // engine will reject it; the hint below covers reaching
                       // it the other way round (picking the measure last).
-                      disabled={t === "histogram" && measureField?.histogrammable === false}
+                      disabled={
+                        displayType === "histogram" && measureField?.histogrammable === false
+                      }
                       className="w-full"
                     >
-                      {t}
+                      {t(DISPLAY_LABEL_KEY[displayType])}
                     </Button>
                   ))}
                 </div>
                 {histogramBlocked && (
                   <p className="mt-1 text-[12px] text-warning">
-                    {measureField?.label ?? draft.metric?.measure} can&apos;t be histogrammed — pick
-                    another measure or display
+                    {t("dashboardsBuilder.histogramBlocked", {
+                      name: measureField?.label ?? draft.metric?.measure ?? "",
+                    })}
                   </p>
                 )}
               </div>
 
               <div className="p-4">
-                <FieldLabel>Name</FieldLabel>
+                <FieldLabel>{t("common.name")}</FieldLabel>
                 <Input
                   className="h-8 text-[13px]"
-                  placeholder="Widget name"
+                  placeholder={t("dashboardsBuilder.namePlaceholder")}
                   value={effectiveTitle}
                   onChange={(e) => {
                     setTitle(e.target.value);
@@ -479,16 +509,16 @@ export function WidgetBuilderPage({
           <div className="flex flex-col gap-2 pt-3">
             {saveError ? (
               <p className="text-[11.5px] text-red-600">
-                Failed to save widget
+                {t("dashboardsBuilder.saveFailed")}
                 {saveError instanceof Error ? `: ${saveError.message}` : ""}
               </p>
             ) : null}
             <div className="flex justify-end gap-2">
               <Link href={dashboardUrl} className={buttonVariants({ variant: "outline" })}>
-                Cancel
+                {t("common.cancel")}
               </Link>
               <Button disabled={!canSave} onClick={handleSave}>
-                Save widget
+                {t("dashboardsBuilder.saveWidget")}
               </Button>
             </div>
           </div>
@@ -501,7 +531,7 @@ export function WidgetBuilderPage({
               className="truncate text-[13px] font-medium text-foreground"
               title={effectiveTitle}
             >
-              {effectiveTitle || "Preview"}
+              {effectiveTitle || t("dashboardsBuilder.preview")}
             </span>
             <PreviewRangeSelect rangeId={rangeId} onRangeChange={handleRangePick} />
           </div>
@@ -509,16 +539,18 @@ export function WidgetBuilderPage({
             {!specComplete || histogramBlocked ? (
               <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
                 {histogramBlocked
-                  ? "Preview unavailable for this measure/display combination"
-                  : "Complete the data selection and display to preview"}
+                  ? t("dashboardsBuilder.previewUnavailable")
+                  : t("dashboardsBuilder.previewIncomplete")}
               </div>
             ) : preview.isPending ? (
               <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
-                Running…
+                {t("dashboardsBuilder.running")}
               </div>
             ) : preview.error ? (
               <div className="flex h-full items-start justify-center pt-8 text-[12px] text-red-600">
-                {preview.error instanceof Error ? preview.error.message : "Query failed"}
+                {preview.error instanceof Error
+                  ? preview.error.message
+                  : t("dashboardsWidget.queryFailed")}
               </div>
             ) : preview.data ? (
               // Everything spec-derived comes from the spec that produced the

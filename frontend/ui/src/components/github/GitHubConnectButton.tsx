@@ -10,6 +10,7 @@ import { useWorkspace } from "@/features/workspaces/hooks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
+import { useT } from "@/lib/i18n/provider";
 import { ImpersonationError, throwIfImpersonationDenied } from "@/lib/api/errors";
 
 interface GitHubConnectButtonProps {
@@ -17,6 +18,7 @@ interface GitHubConnectButtonProps {
 }
 
 export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [open, setOpen] = useState(false);
@@ -66,8 +68,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
         <div>
           <div className="text-sm font-medium">GitHub</div>
           <p role="status" className="text-sm text-muted-foreground">
-            {denial ||
-              "GitHub connections cannot be managed while impersonating, including as an admin."}
+            {denial || t("componentsIntegrations.githubImpersonating")}
           </p>
         </div>
       </div>
@@ -81,7 +82,9 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
           <FaGithub className="h-6 w-6 text-foreground" />
           <div>
             <div className="text-sm font-medium">GitHub</div>
-            <div className="text-sm text-muted-foreground">Loading...</div>
+            <div className="text-sm text-muted-foreground">
+              {t("componentsIntegrations.loading")}
+            </div>
           </div>
         </div>
       </div>
@@ -92,7 +95,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
     const summary =
       data.installations.length === 1
         ? data.installations[0].accountLogin
-        : `${data.installations.length} installations`;
+        : t("componentsIntegrations.installations", { count: data.installations.length });
     return (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -100,10 +103,11 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
           <div>
             <div className="text-sm font-medium">GitHub</div>
             <div className="text-sm text-muted-foreground">
-              Connect GitHub for repository linking and code-level tracing.
+              {t("componentsIntegrations.githubDescription")}
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
-              Connected to <span className="font-medium text-foreground">{summary}</span>
+              {t("componentsIntegrations.connectedTo")}{" "}
+              <span className="font-medium text-foreground">{summary}</span>
             </div>
           </div>
         </div>
@@ -112,7 +116,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1">
-                Manage
+                {t("componentsIntegrations.manage")}
                 <ChevronDown className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
@@ -122,7 +126,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
                 className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] transition-colors hover:bg-muted"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
-                Configure
+                {t("componentsIntegrations.configure")}
               </a>
               <button
                 onClick={handleDisconnect}
@@ -130,7 +134,9 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
                 className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive transition-colors hover:bg-muted disabled:opacity-50"
               >
                 <Unlink className="h-3.5 w-3.5" />
-                {isDisconnecting ? "Disconnecting..." : "Disconnect"}
+                {isDisconnecting
+                  ? t("componentsIntegrations.disconnecting")
+                  : t("componentsIntegrations.disconnect")}
               </button>
             </PopoverContent>
           </Popover>
@@ -147,8 +153,8 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
           <div className="text-sm font-medium">GitHub</div>
           <div className="text-sm text-muted-foreground">
             {canManage
-              ? "Connect GitHub for repository linking and code-level tracing."
-              : "GitHub is not connected. Ask a workspace admin to set it up."}
+              ? t("componentsIntegrations.githubDescription")
+              : t("componentsIntegrations.githubNotConnected")}
           </div>
         </div>
       </div>
@@ -158,7 +164,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
           href={buildHref("/api/github/login")}
           className="inline-flex h-7 items-center gap-2 rounded-[2px] bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-foreground hover:text-background"
         >
-          Connect
+          {t("componentsIntegrations.connect")}
           <ExternalLink className="h-3 w-3" />
         </a>
       )}

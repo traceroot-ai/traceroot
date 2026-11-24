@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,6 +28,7 @@ import { DeleteDatasetDialog } from "../components/delete-dataset-dialog";
 export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
+  const t = useT();
 
   const { page, limit, goToPage, setLimit, resetPageState, clampToTotal } = useUrlPagination(50);
   // The page and the search text (`?search=`) live in the URL; record them so the
@@ -84,10 +86,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
     const dataset = deleteTarget;
     del.mutate(dataset.id, {
       onSuccess: () => {
-        toast({ title: `Deleted ${dataset.name}`, tone: "success" });
+        toast({ title: t("datasetsList.deleted", { name: dataset.name }), tone: "success" });
         setDeleteTarget(null);
       },
-      onError: (e) => toast({ title: "Could not delete", description: String(e), tone: "warning" }),
+      onError: (e) =>
+        toast({ title: t("datasetsList.deleteFailed"), description: String(e), tone: "warning" }),
     });
   };
 
@@ -97,8 +100,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
           mounted ProjectBreadcrumb the header goes blank on this route. */}
       <ProjectBreadcrumb projectId={projectId} />
       <PageHeader
-        title="Datasets"
-        actions={<Button onClick={() => setNewOpen(true)}>New dataset</Button>}
+        title={t("datasetsList.title")}
+        actions={<Button onClick={() => setNewOpen(true)}>{t("datasetsList.newDataset")}</Button>}
       />
 
       {/* No date filter here: the list has no date predicate to apply one to
@@ -107,7 +110,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
       <SearchFilterBar
         searchValue={keyword}
         onSearchChange={setKeyword}
-        searchPlaceholder="Search..."
+        searchPlaceholder={t("evalsShared.search")}
       >
         <span className="flex-1" aria-hidden />
       </SearchFilterBar>
@@ -116,36 +119,34 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         <Table>
           <THead>
             <TRHead>
-              <Th className="w-[170px]">Updated at</Th>
-              <Th>Name</Th>
-              <Th className="w-[240px]">Dataset ID</Th>
-              <Th className="w-[110px] text-right">Items</Th>
-              <Th className="w-[90px] text-right">Versions</Th>
-              <Th className="w-[110px] text-right">Evaluations</Th>
+              <Th className="w-[170px]">{t("datasetsList.colUpdatedAt")}</Th>
+              <Th>{t("common.name")}</Th>
+              <Th className="w-[240px]">{t("datasetsList.colDatasetId")}</Th>
+              <Th className="w-[110px] text-right">{t("datasetsList.colItems")}</Th>
+              <Th className="w-[90px] text-right">{t("datasetsList.colVersions")}</Th>
+              <Th className="w-[110px] text-right">{t("nav.evaluations")}</Th>
               <Th className="col-sticky-end-head w-[56px] text-right">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t("evalsShared.actions")}</span>
               </Th>
             </TRHead>
           </THead>
           <TBody>
             {isLoading ? (
-              <TableEmpty colSpan={7}>Loading datasets...</TableEmpty>
+              <TableEmpty colSpan={7}>{t("datasetsList.loading")}</TableEmpty>
             ) : error ? (
               <TableEmpty colSpan={7}>
-                Error loading datasets.{" "}
+                {t("datasetsList.loadError")}{" "}
                 <button
                   type="button"
                   onClick={() => refetch()}
                   className="underline underline-offset-2"
                 >
-                  Try again
+                  {t("evalsShared.tryAgain")}
                 </button>
               </TableEmpty>
             ) : datasets.length === 0 ? (
               <TableEmpty colSpan={7}>
-                {keyword
-                  ? "No datasets match your search."
-                  : "No datasets yet — save a trace or span as a test case to start one."}
+                {keyword ? t("datasetsList.emptySearch") : t("datasetsList.empty")}
               </TableEmpty>
             ) : (
               datasets.map((dataset) => {

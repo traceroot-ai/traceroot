@@ -5,6 +5,7 @@ import { Check, Loader2 } from "lucide-react";
 import { traceUrl } from "@/lib/first-trace";
 import { cn } from "@/lib/utils";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { useT } from "@/lib/i18n/provider";
 
 interface FirstTraceLineProps {
   /** How the watch for the first trace is going. */
@@ -43,6 +44,7 @@ export function FirstTraceLine({ wait, align = "center" }: FirstTraceLineProps) 
 }
 
 function Line({ wait, align }: Required<FirstTraceLineProps>) {
+  const t = useT();
   const row = cn("flex items-center gap-2 text-[12px] text-muted-foreground", {
     "justify-center": align === "center",
   });
@@ -51,7 +53,7 @@ function Line({ wait, align }: Required<FirstTraceLineProps>) {
     return (
       <p className={row}>
         <Loader2 className="h-3 w-3 animate-spin" />
-        Waiting for your first trace. This page updates when it arrives.
+        {t("componentsFirstTrace.waiting")}
       </p>
     );
   }
@@ -60,9 +62,9 @@ function Line({ wait, align }: Required<FirstTraceLineProps>) {
     return (
       <p className={row}>
         <Check className="h-3.5 w-3.5 text-success" />
-        <span>Your first trace arrived. Opening it…</span>
+        <span>{t("componentsFirstTrace.arrived")}</span>
         <Link href={traceUrl(wait.found)} className="font-medium underline hover:text-foreground">
-          View it
+          {t("componentsFirstTrace.viewIt")}
         </Link>
       </p>
     );
@@ -74,11 +76,11 @@ function Line({ wait, align }: Required<FirstTraceLineProps>) {
     // and it is also where an expired session gets asked to sign in again.
     return (
       <p className={text}>
-        We could not read your traces from this tab.{" "}
+        {t("componentsFirstTrace.unreadableBefore")}
         <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
-          Open your traces
-        </Link>{" "}
-        to see what has arrived.
+          {t("componentsFirstTrace.openTraces")}
+        </Link>
+        {t("componentsFirstTrace.unreadableAfter")}
       </p>
     );
   }
@@ -88,11 +90,11 @@ function Line({ wait, align }: Required<FirstTraceLineProps>) {
   // is still running wherever the command was run.
   return (
     <p className={text}>
-      Still no trace.{" "}
+      {t("componentsFirstTrace.stillNoneBefore")}
       <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
-        Open your traces
-      </Link>{" "}
-      once your application has sent one.
+        {t("componentsFirstTrace.openTraces")}
+      </Link>
+      {t("componentsFirstTrace.stillNoneAfter")}
     </p>
   );
 }

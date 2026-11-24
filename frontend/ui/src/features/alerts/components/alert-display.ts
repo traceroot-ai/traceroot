@@ -1,4 +1,11 @@
 import type { AlertSeverity, AlertStatus, AlertWindow } from "@traceroot/core";
+import { DEFAULT_LOCALE } from "@/lib/i18n/locales";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import { createTranslator, type Translate } from "@/lib/i18n/translate";
+
+// Every function here takes the visitor's `t` last. A caller without one (the assistant's
+// cards, a unit test) gets English, the text these functions always returned.
+const ENGLISH = createTranslator(DEFAULT_LOCALE);
 
 export type AlertTone = "ok" | "alert" | "warning" | "neutral";
 
@@ -30,51 +37,49 @@ export interface AlertDisplayInput {
 const DELIVERED = "DELIVERED";
 const COMPENSATED = "COMPENSATED";
 
-const SEVERITY_DISPLAY: Record<AlertSeverity, { label: string; tone: AlertTone }> = {
-  OK: { label: "OK", tone: "ok" },
-  ALERT: { label: "Alert", tone: "alert" },
-  NO_DATA: { label: "No data", tone: "warning" },
-  UNKNOWN: { label: "No data", tone: "warning" },
+const SEVERITY_DISPLAY: Record<AlertSeverity, { labelKey: MessageKey; tone: AlertTone }> = {
+  OK: { labelKey: "alertsDisplay.labelOk", tone: "ok" },
+  ALERT: { labelKey: "alertsDisplay.labelAlert", tone: "alert" },
+  NO_DATA: { labelKey: "alertsDisplay.labelNoData", tone: "warning" },
+  UNKNOWN: { labelKey: "alertsDisplay.labelNoData", tone: "warning" },
 };
 
-const UNSENT = "The last notification could not be sent.";
 const NO_ENTITLEMENT = "no-entitlement";
 
-const DELIVERY_REASONS: Record<string, string> = {
-  "no-channel":
-    "No Slack channel is set for this workspace, so nothing was sent. Choose one in workspace settings.",
-  "no-bot-token":
-    "This workspace's Slack connection is incomplete. Reconnect Slack in workspace settings.",
-  "bot-token-undecryptable":
-    "This workspace's Slack connection is incomplete. Reconnect Slack in workspace settings.",
-  "retries-exhausted":
-    "Slack did not accept the message after several attempts. It will be sent again the next time this rule changes.",
-  "permanent-slack-error":
-    "Slack rejected the message. Check the channel still exists and the app is still in it.",
+const DELIVERY_REASON_KEYS: Record<string, MessageKey> = {
+  "no-channel": "alertsDisplay.noChannel",
+  "no-bot-token": "alertsDisplay.slackIncomplete",
+  "bot-token-undecryptable": "alertsDisplay.slackIncomplete",
+  "retries-exhausted": "alertsDisplay.retriesExhausted",
+  "permanent-slack-error": "alertsDisplay.slackRejected",
 };
 
-function describeDeliveryReason(code: string | null | undefined): string {
-  if (!code) return UNSENT;
-  if (code.startsWith(NO_ENTITLEMENT)) {
-    return "Slack delivery is not included in this workspace's plan.";
-  }
-  return DELIVERY_REASONS[code] ?? `${UNSENT} (${code})`;
+function describeDeliveryReason(code: string | null | undefined, t: Translate): string {
+  if (!code) return t("alertsDisplay.unsent");
+  if (code.startsWith(NO_ENTITLEMENT)) return t("alertsDisplay.noEntitlement");
+  const key = DELIVERY_REASON_KEYS[code];
+  return key ? t(key) : t("alertsDisplay.unsentWithCode", { code });
 }
 
-const SLACK_FIX: AlertDeliveryFix = { settingsPage: "integrations", label: "Open Slack settings" };
-
-const DELIVERY_FIXES: Record<string, AlertDeliveryFix> = {
-  "no-channel": SLACK_FIX,
-  "no-bot-token": SLACK_FIX,
-  "bot-token-undecryptable": SLACK_FIX,
-};
+const SLACK_FIX_CODES: readonly string[] = [
+  "no-channel",
+  "no-bot-token",
+  "bot-token-undecryptable",
+];
 
 /** Where a reader can go to make the next delivery succeed, when anywhere. */
-export function resolveAlertDeliveryFix(alert: AlertDisplayInput): AlertDeliveryFix | undefined {
+export function resolveAlertDeliveryFix(
+  alert: AlertDisplayInput,
+  t: Translate = ENGLISH,
+): AlertDeliveryFix | undefined {
   const code = alert.lastNotifyError;
   if (!code || !alert.lastNotifyStatus || alert.lastNotifyStatus === DELIVERED) return undefined;
-  if (code.startsWith(NO_ENTITLEMENT)) return { settingsPage: "billing", label: "See plans" };
-  return DELIVERY_FIXES[code];
+  if (code.startsWith(NO_ENTITLEMENT)) {
+    return { settingsPage: "billing", label: t("alertsDisplay.fixPlans") };
+  }
+  return SLACK_FIX_CODES.includes(code)
+    ? { settingsPage: "integrations", label: t("alertsDisplay.fixSlack") }
+    : undefined;
 }
 
 /**
@@ -82,19 +87,29 @@ export function resolveAlertDeliveryFix(alert: AlertDisplayInput): AlertDelivery
  * next successful run clears `lastError` within the minute, and the user still
  * never heard about the breach.
  */
-function describeUndelivered(alert: AlertDisplayInput): string | undefined {
+function describeUndelivered(alert: AlertDisplayInput, t: Translate): string | undefined {
   const status = alert.lastNotifyStatus;
   if (!status || status === DELIVERED) return undefined;
 
-  const reason = describeDeliveryReason(alert.lastNotifyError);
+  const reason = describeDeliveryReason(alert.lastNotifyError, t);
   return status === COMPENSATED
-    ? `${reason} The alert was rolled back, so the next breach raises it again.`
-    : `${reason} The alert it belonged to could not be rolled back.`;
+    ? t("alertsDisplay.rolledBack", { reason })
+    : t("alertsDisplay.notRolledBack", { reason });
 }
 
-function withDetail(state: AlertDisplayState, extra: string | undefined): AlertDisplayState {
+function withDetail(
+  state: AlertDisplayState,
+  extra: string | undefined,
+  t: Translate,
+): AlertDisplayState {
   if (extra === undefined) return state;
-  return { ...state, detail: state.detail === undefined ? extra : `${state.detail} ${extra}` };
+  return {
+    ...state,
+    detail:
+      state.detail === undefined
+        ? extra
+        : t("alertsDisplay.joined", { first: state.detail, second: extra }),
+  };
 }
 
 /**
@@ -104,8 +119,7 @@ function withDetail(state: AlertDisplayState, extra: string | undefined): AlertD
  * already says what unparks the rule, so restating it there would repeat the
  * same sentence back to back in one popover.
  */
-const PARKED_WITHOUT_REASON =
-  "Stopped: this rule's settings cannot be evaluated. Edit and save the rule to start it again.";
+const PARKED_WITHOUT_REASON: MessageKey = "alertsDisplay.parkedNoReason";
 
 /**
  * Parked, then paused, then failing, then never run, each outranking the
@@ -113,36 +127,47 @@ const PARKED_WITHOUT_REASON =
  * the run did not happen. Parked leads because it is the only one of them that
  * no amount of waiting resolves.
  */
-export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplayState {
+export function resolveAlertDisplayState(
+  alert: AlertDisplayInput,
+  t: Translate = ENGLISH,
+): AlertDisplayState {
   if (alert.status === "PARKED") {
     return {
-      label: "Parked",
+      label: t("alertsDisplay.labelParked"),
       tone: "warning",
       isPaused: false,
       isStopped: true,
       // Not "it will retry": that is the sentence this status exists to stop
       // telling. The error already says what unparks the rule, so this adds
       // nothing to it beyond the "Stopped:" framing.
-      detail: alert.lastError ? `Stopped: ${alert.lastError}.` : PARKED_WITHOUT_REASON,
+      detail: alert.lastError
+        ? t("alertsDisplay.stopped", { error: alert.lastError })
+        : t(PARKED_WITHOUT_REASON),
     };
   }
 
   if (alert.status === "PAUSED") {
-    return { label: "Paused", tone: "neutral", isPaused: true, isStopped: true };
+    return {
+      label: t("alertsDisplay.labelPaused"),
+      tone: "neutral",
+      isPaused: true,
+      isStopped: true,
+    };
   }
 
-  const undelivered = describeUndelivered(alert);
+  const undelivered = describeUndelivered(alert, t);
 
   if (alert.lastError) {
     return withDetail(
       {
-        label: "Failing",
+        label: t("alertsDisplay.labelFailing"),
         tone: "alert",
         isPaused: false,
         isStopped: false,
-        detail: `Last run failed: ${alert.lastError}. It will retry next minute; if this persists, check the rule's filters and measure.`,
+        detail: t("alertsDisplay.lastRunFailed", { error: alert.lastError }),
       },
       undelivered,
+      t,
     );
   }
 
@@ -151,20 +176,25 @@ export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplay
   if (alert.lastEvaluatedAt === null) {
     return withDetail(
       {
-        label: "No data",
+        label: t("alertsDisplay.labelNoData"),
         tone: "warning",
         isPaused: false,
         isStopped: false,
-        detail: "This rule has not run yet. Its first result appears within a minute.",
+        detail: t("alertsDisplay.notRunYet"),
       },
       undelivered,
+      t,
     );
   }
 
   const severity = SEVERITY_DISPLAY[alert.severity] ?? SEVERITY_DISPLAY.UNKNOWN;
-  return withDetail({ ...severity, isPaused: false, isStopped: false }, undelivered);
+  return withDetail(
+    { label: t(severity.labelKey), tone: severity.tone, isPaused: false, isStopped: false },
+    undelivered,
+    t,
+  );
 }
 
-export function formatAlertWindow(window: AlertWindow | string): string {
-  return `Last ${window}`;
+export function formatAlertWindow(window: AlertWindow | string, t: Translate = ENGLISH): string {
+  return t("alertsList.windowLast", { window });
 }

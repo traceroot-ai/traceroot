@@ -18,7 +18,11 @@ import { MAX_FILTERS } from "./predicate";
  * because the field alone does not say what was filtered and two keys can be active at
  * once — so a caller that pre-dots the key into the name would spell it twice.
  */
-export function predicateLabel(p: Predicate, displayName: string = p.field): string {
+export function predicateLabel(
+  p: Predicate,
+  displayName: string = p.field,
+  containsWord: string = "contains",
+): string {
   const name = p.key === undefined ? displayName : `${displayName}.${p.key}`;
   switch (p.op) {
     case "in":
@@ -36,7 +40,7 @@ export function predicateLabel(p: Predicate, displayName: string = p.field): str
     case "lte":
       return `${name} ≤ ${p.value}`;
     case "contains":
-      return `${name} contains ${p.value}`;
+      return `${name} ${containsWord} ${p.value}`;
   }
 }
 

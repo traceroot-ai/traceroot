@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { updateProject, deleteProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
+import { useT } from "@/lib/i18n/provider";
 
 interface GeneralTabProps {
   projectId: string;
@@ -23,6 +24,7 @@ interface GeneralTabProps {
 
 export function GeneralTab({ projectId }: GeneralTabProps) {
   const router = useRouter();
+  const t = useT();
   const queryClient = useQueryClient();
 
   const { data: project, isLoading } = useProject(projectId);
@@ -74,31 +76,29 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
   };
 
   if (isLoading) {
-    return <div className="text-[13px] text-muted-foreground">Loading project...</div>;
+    return <div className="text-[13px] text-muted-foreground">{t("projectSettings.loading")}</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
-        <h2 className="text-[15px] font-medium">General</h2>
-        <p className="text-[13px] text-muted-foreground">
-          Manage your project settings and preferences
-        </p>
+        <h2 className="text-[15px] font-medium">{t("settings.general")}</h2>
+        <p className="text-[13px] text-muted-foreground">{t("projectSettings.subtitle")}</p>
       </div>
 
       <div className="border">
         <div className="flex h-9 items-center border-b px-4">
-          <h3 className="text-[13px] font-medium">Rename project</h3>
+          <h3 className="text-[13px] font-medium">{t("projectSettings.renameTitle")}</h3>
         </div>
         <div className="p-4">
           <p className="mt-1 text-[12px] text-muted-foreground">
-            Update the name of your project. Changes will take effect immediately.
+            {t("projectSettings.renameText")}
           </p>
           <div className="mt-3 flex gap-2">
             <Input
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              placeholder="Project name"
+              placeholder={t("projects.namePlaceholder")}
               className="h-8 max-w-xs text-[13px]"
             />
             <Button
@@ -109,7 +109,7 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
                 updateMutation.isPending || projectName === project?.name || !projectName.trim()
               }
             >
-              {updateMutation.isPending ? "Saving..." : "Save"}
+              {updateMutation.isPending ? t("common.saving") : t("common.save")}
             </Button>
           </div>
         </div>
@@ -117,14 +117,14 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
 
       <div className="border">
         <div className="flex h-9 items-center border-b px-4">
-          <h3 className="text-[13px] font-medium">Delete project</h3>
+          <h3 className="text-[13px] font-medium">{t("projectSettings.deleteTitle")}</h3>
         </div>
         <div className="p-4">
           <p className="mt-1 text-[12px] text-muted-foreground">
-            Permanently delete this project and all of its data. This action cannot be undone.
+            {t("projectSettings.deleteText")}
           </p>
           <DeleteButton onClick={() => setShowDeleteDialog(true)} className="mt-3 h-7 text-[12px]">
-            Delete project
+            {t("projectSettings.deleteTitle")}
           </DeleteButton>
         </div>
       </div>
@@ -132,34 +132,38 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Project</DialogTitle>
+            <DialogTitle>{t("projectSettings.deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. This will permanently delete the project &quot;
-              <span className="font-semibold">{project?.name}</span>&quot; and all associated data.
+              {t("projectSettings.deleteDialogBefore")}
+              <span className="font-semibold">{project?.name}</span>
+              {t("projectSettings.deleteDialogAfter")}
             </DialogDescription>
           </DialogHeader>
           <div>
             <p className="mb-2 text-sm text-muted-foreground">
-              Type <span className="font-mono font-semibold text-foreground">{project?.name}</span>{" "}
-              to confirm:
+              {t("workspaceSettings.typeBefore")}{" "}
+              <span className="font-mono font-semibold text-foreground">{project?.name}</span>{" "}
+              {t("workspaceSettings.typeAfter")}
             </p>
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleDelete()}
-              placeholder="Project name"
+              placeholder={t("projects.namePlaceholder")}
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
               onClick={handleDelete}
               disabled={deleteConfirmText !== project?.name || deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete Project"}
+              {deleteMutation.isPending
+                ? t("workspaceSettings.deleting")
+                : t("projectSettings.deleteDialogTitle")}
             </Button>
           </DialogFooter>
         </DialogContent>

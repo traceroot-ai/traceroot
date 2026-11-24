@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -20,6 +21,7 @@ import { PlanType } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardDetailPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -125,7 +127,7 @@ export default function DashboardDetailPage() {
             <>
               {dashboard && (
                 <Button size="sm" onClick={openCreate}>
-                  New widget
+                  {t("dashboardsDetail.newWidget")}
                 </Button>
               )}
               <DateFilterSelect
@@ -148,17 +150,17 @@ export default function DashboardDetailPage() {
             // Only when there's nothing to render: a failed background poll
             // keeps the cached dashboard, and the stale grid beats a notice.
             <div className="flex h-64 items-center justify-center text-[13px] text-red-600">
-              Failed to load the dashboard — retrying automatically
+              {t("dashboardsDetail.loadFailed")}
             </div>
           ) : !dashboard ? (
             <div className="flex h-64 items-center justify-center text-[13px] text-muted-foreground">
-              Loading…
+              {t("dashboardsDetail.loading")}
             </div>
           ) : widgets.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-muted-foreground">No widgets yet.</p>
+              <p className="text-[13px] text-muted-foreground">{t("dashboardsDetail.empty")}</p>
               <Button size="sm" className="text-[12px]" onClick={openCreate}>
-                New widget
+                {t("dashboardsDetail.newWidget")}
               </Button>
             </div>
           ) : (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState } from "react";
 import { useDashboardMutations } from "../hooks/use-dashboards";
 import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "../types";
@@ -29,6 +30,7 @@ export function EditDashboardDialog({
   target: { id: string; name: string; description: string | null } | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const { renameDashboard } = useDashboardMutations(projectId, target?.id);
   const [name, setName] = useState(target?.name ?? "");
   const [description, setDescription] = useState(target?.description ?? "");
@@ -58,26 +60,26 @@ export function EditDashboardDialog({
       <DialogContent>
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>Edit Dashboard</DialogTitle>
+            <DialogTitle>{t("dashboardsList.editTitle")}</DialogTitle>
             <DialogDescription>
-              Update the name and description of “{target?.name}”.
+              {t("dashboardsList.editText", { name: target?.name ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <Input
               autoFocus
-              aria-label="Dashboard name"
+              aria-label={t("dashboardsList.namePlaceholder")}
               maxLength={DASHBOARD_NAME_MAX}
-              placeholder="Dashboard name"
+              placeholder={t("dashboardsList.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={renameDashboard.isPending}
             />
             <textarea
-              aria-label="Dashboard description"
+              aria-label={t("dashboardsList.descriptionAria")}
               maxLength={DASHBOARD_DESCRIPTION_MAX}
               rows={3}
-              placeholder="Describe the purpose of this dashboard (optional)"
+              placeholder={t("dashboardsList.descriptionPlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               disabled={renameDashboard.isPending}
@@ -94,10 +96,10 @@ export function EditDashboardDialog({
               onClick={() => handleOpenChange(false)}
               disabled={renameDashboard.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!name.trim() || renameDashboard.isPending}>
-              {renameDashboard.isPending ? "Saving..." : "Save"}
+              {renameDashboard.isPending ? t("common.saving") : t("common.save")}
             </Button>
           </DialogFooter>
         </form>

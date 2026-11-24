@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { useT } from "@/lib/i18n/provider";
 
 interface ExpandableSectionProps {
   title: string;
@@ -26,6 +27,7 @@ export function ExpandableSection({
   onCopy,
   headerAction,
 }: ExpandableSectionProps) {
+  const t = useT();
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -55,7 +57,7 @@ export function ExpandableSection({
                 onCopy();
               }}
               className="p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-              title="Copy"
+              title={t("componentsUi.copy")}
             >
               <Copy className="h-3 w-3" />
             </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n/provider";
 
 import { AttachmentImage, InlineMedia, attachmentHash, mediaSrc } from "./inline-media";
 import {
@@ -25,6 +26,7 @@ interface JsonRendererProps {
  */
 function TruncatableString({ value }: { value: string }) {
   const [expanded, setExpanded] = useState(false);
+  const t = useT();
 
   // Full value once expanded, or when it was never long enough to truncate.
   if (expanded || !shouldTruncate(value)) {
@@ -48,7 +50,7 @@ function TruncatableString({ value }: { value: string }) {
         onClick={() => setExpanded(true)}
         className="cursor-pointer align-baseline text-muted-foreground hover:text-foreground"
       >
-        ...expand ({hiddenCount} more characters)
+        {t("tracesSpan.expandString", { count: hiddenCount })}
       </button>
       {"\n"}&quot;
     </span>
@@ -75,6 +77,7 @@ function CollapsibleNode({
   children: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const t = useT();
 
   if (!expanded) {
     return (
@@ -85,7 +88,7 @@ function CollapsibleNode({
       >
         <span className="text-muted-foreground">{open}</span>
         <span className="mx-0.5 text-[12px] text-muted-foreground">
-          {count} {count === 1 ? "item" : "items"}
+          {count} {count === 1 ? t("tracesSpan.itemOne") : t("tracesSpan.itemOther")}
         </span>
         <span className="text-muted-foreground">{close}</span>
       </button>

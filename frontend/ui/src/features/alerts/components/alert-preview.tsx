@@ -45,6 +45,7 @@ import {
   type AlertView,
 } from "../rule-model";
 import { buildPreviewSpec, parseThreshold } from "../preview";
+import { useT } from "@/lib/i18n/provider";
 
 interface AlertPreviewProps {
   projectId: string;
@@ -122,6 +123,7 @@ export function AlertPreviewChart({
   operator: AlertOperator;
   bucketMs: number;
 }) {
+  const t = useT();
   const { spec, result } = data;
   const additive = isAdditiveAgg(spec.metric.agg);
   // From the spec that produced these rows, not the live draft: keepPreviousData
@@ -158,7 +160,7 @@ export function AlertPreviewChart({
   // A range with nothing measured in it densifies to all-null rows, which the
   // chart would still draw as bare axes.
   if (!hasValue) {
-    return <PreviewMessage>No data in range</PreviewMessage>;
+    return <PreviewMessage>{t("alertsForm.previewNoData")}</PreviewMessage>;
   }
 
   return (
@@ -265,6 +267,7 @@ export function AlertPreview({
   threshold,
   window,
 }: AlertPreviewProps) {
+  const t = useT();
   const spec = buildPreviewSpec(view, measureId, aggregation, filters);
   const bucketMs = ALERT_WINDOWS[window];
   const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
@@ -288,7 +291,9 @@ export function AlertPreview({
   return (
     <div className="flex min-h-[320px] min-w-0 flex-1 flex-col border border-border">
       <div className="flex h-9 items-center justify-between border-b border-border px-4">
-        <span className="text-[13px] font-medium text-foreground">Live preview</span>
+        <span className="text-[13px] font-medium text-foreground">
+          {t("alertsForm.livePreview")}
+        </span>
         <DateFilterSelect
           dateFilter={dateFilter}
           customStartDate={customStart}
@@ -303,11 +308,11 @@ export function AlertPreview({
       </div>
       <div className="min-h-0 flex-1 p-4">
         {spec === null ? (
-          <PreviewMessage>No preview available for this metric yet.</PreviewMessage>
+          <PreviewMessage>{t("alertsForm.previewUnavailable")}</PreviewMessage>
         ) : preview.isPending ? (
-          <PreviewMessage>Running...</PreviewMessage>
+          <PreviewMessage>{t("alertsForm.previewRunning")}</PreviewMessage>
         ) : preview.error ? (
-          <PreviewMessage>Preview failed to load.</PreviewMessage>
+          <PreviewMessage>{t("alertsForm.previewFailed")}</PreviewMessage>
         ) : preview.data ? (
           <AlertPreviewChart
             data={preview.data}

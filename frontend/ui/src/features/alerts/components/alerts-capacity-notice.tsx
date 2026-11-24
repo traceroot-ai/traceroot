@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { isAtAlertCapacity, type AlertCapacity } from "../capacity";
+import { useT } from "@/lib/i18n/provider";
 
 export interface AlertsCapacityNoticeProps {
   capacity?: AlertCapacity;
@@ -11,12 +12,12 @@ export interface AlertsCapacityNoticeProps {
 // The create control is disabled at the cap, and a disabled button takes no
 // pointer events, so the reason has to be text beside it rather than a tooltip.
 export function AlertsCapacityNotice({ capacity, className }: AlertsCapacityNoticeProps) {
+  const t = useT();
   if (!capacity || !isAtAlertCapacity(capacity)) return null;
 
   return (
     <p className={cn("text-[12px]", className)}>
-      This project has {capacity.used} of {capacity.max} alerts. Delete one to make room — paused
-      alerts still count toward the limit.
+      {t("alertsList.atCapacity", { used: capacity.used, max: capacity.max })}
     </p>
   );
 }

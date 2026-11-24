@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
+import { useT } from "@/lib/i18n/provider";
 
 interface CodeBlockProps {
   /** Sub-heading shown on the left of the header row (e.g. "bash", "python"). */
@@ -166,13 +167,14 @@ function highlightCommands(value: string) {
  * onboarding shares one style and copy-button placement.
  */
 export function CodeBlock({ label, value, mono = true, language, onCopy }: CodeBlockProps) {
+  const t = useT();
   const body = language ? highlightCode(value, language) : mono ? highlightCommands(value) : value;
   return (
     <div className="overflow-hidden rounded-md border border-border">
       <div className="flex h-8 items-center justify-between border-b border-border px-4">
         <span className="text-[12px] text-muted-foreground">{label}</span>
         <CopyButton
-          aria-label={`Copy ${label} snippet`}
+          aria-label={t("tracesSetup.copySnippet", { label })}
           value={value}
           onCopy={onCopy}
           className="h-7 w-7"

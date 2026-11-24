@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ export function EvalPageHeader({
   /** At most one primary action per page. */
   action?: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="shrink-0 border-b border-border px-4 py-3">
       {backHref && !parent && (
@@ -38,7 +40,7 @@ export function EvalPageHeader({
           className="mb-1.5 inline-flex items-center gap-1 rounded text-[12px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          {backLabel ?? "Back"}
+          {backLabel ?? t("evalsShared.back")}
         </Link>
       )}
       <div className="flex items-center justify-between gap-4">

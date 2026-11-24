@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import * as React from "react";
 import { Search } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -208,6 +209,7 @@ export function CompareRunsView({
   baselineId: string | null;
   onChangeBaseline: (baselineId: string | null) => void;
 }) {
+  const t = useT();
   const queries = useEvaluationRunDetails(projectId, runIds);
   const [keyword, setKeyword] = React.useState("");
 
@@ -348,7 +350,7 @@ export function CompareRunsView({
   return (
     <TooltipProvider delayDuration={400}>
       <div className="flex h-full flex-col text-[12px]">
-        <ProjectBreadcrumb projectId={projectId} current="Run Comparison" />
+        <ProjectBreadcrumb projectId={projectId} current={t("evalsCompare.breadcrumb")} />
 
         {/* Search + baseline picker. */}
         <div className="flex min-h-11 flex-wrap items-center gap-3 border-b border-border px-4 py-1">
@@ -357,19 +359,21 @@ export function CompareRunsView({
             <Input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="Search..."
+              placeholder={t("evalsShared.search")}
               className="h-8 pl-8 text-[13px]"
             />
           </div>
           {ordered.length > 0 && baseline && (
             <div className="ml-auto flex items-center gap-2">
-              <span className="text-[12px] text-muted-foreground">Baseline</span>
+              <span className="text-[12px] text-muted-foreground">
+                {t("evalsCompare.baseline")}
+              </span>
               <Select value={baselineId ?? ""} onValueChange={(v) => onChangeBaseline(v)}>
                 {/* `[&>span]:!flex` overrides the trigger's base `line-clamp-1`
                   (display:-webkit-box), which would otherwise swallow the dot. */}
                 <SelectTrigger
                   className="h-8 w-auto gap-2 text-[13px] [&>span]:!flex [&>span]:items-center [&>span]:gap-2"
-                  title="Baseline run"
+                  title={t("evalsCompare.baselineTitle")}
                 >
                   <span className="whitespace-nowrap">
                     <Dot color={dotFor(baseline.run.id)} />
@@ -395,28 +399,25 @@ export function CompareRunsView({
 
         {runIds.length < 2 ? (
           <div className="p-3">
-            <EmptyState>Select at least two runs to compare.</EmptyState>
+            <EmptyState>{t("evalsCompare.selectTwo")}</EmptyState>
           </div>
         ) : isLoading ? (
           <div className="p-3">
-            <EmptyState>Comparing…</EmptyState>
+            <EmptyState>{t("evalsCompare.comparing")}</EmptyState>
           </div>
         ) : isError || ordered.length !== runIds.length || !baseline ? (
           <div className="p-3">
-            <EmptyState>Couldn’t load one or more of these runs.</EmptyState>
+            <EmptyState>{t("evalsCompare.loadFailed")}</EmptyState>
           </div>
         ) : datasetNames.length > 1 ? (
           <div className="p-3">
             <EmptyState>
-              These runs are on different datasets ({datasetNames.join(", ")}). A run comparison
-              needs the same dataset.
+              {t("evalsCompare.differentDatasets", { names: datasetNames.join(", ") })}
             </EmptyState>
           </div>
         ) : intersection.length === 0 ? (
           <div className="p-3">
-            <EmptyState>
-              These runs share no dataset rows — their dataset versions have no rows in common.
-            </EmptyState>
+            <EmptyState>{t("evalsCompare.noCommonRows")}</EmptyState>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
@@ -424,9 +425,10 @@ export function CompareRunsView({
                 computed on a partial set — say so rather than imply full coverage. */}
             {truncatedRuns.length > 0 && (
               <div className="border-b border-warning-border bg-warning-soft px-3 py-2 text-[12px] text-warning">
-                {truncatedRuns.map((b) => runLabel(b)).join(", ")} returned only the first{" "}
-                {truncatedRuns[0].results.length} of their cases (API limit), so their scores,
-                duration, and cost aggregates and deltas are partial.
+                {t("evalsCompare.truncated", {
+                  runs: truncatedRuns.map((b) => runLabel(b)).join(", "),
+                  count: truncatedRuns[0].results.length,
+                })}
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
@@ -434,16 +436,16 @@ export function CompareRunsView({
                 <THead>
                   {/* Label row — grey, one line, with a divider below it. */}
                   <TRHead>
-                    <Th className="min-w-[220px]">Input</Th>
-                    <Th className="min-w-[220px]">Output</Th>
-                    <Th className="min-w-[180px]">Expected</Th>
+                    <Th className="min-w-[220px]">{t("evalsShared.input")}</Th>
+                    <Th className="min-w-[220px]">{t("evalsShared.output")}</Th>
+                    <Th className="min-w-[180px]">{t("evalsShared.expected")}</Th>
                     {scorerNames.map((name) => (
                       <Th key={name} className="w-[130px] text-right">
                         {name}
                       </Th>
                     ))}
-                    <Th className="w-[120px] text-right">Duration</Th>
-                    <Th className="w-[120px] text-right">Cost</Th>
+                    <Th className="w-[120px] text-right">{t("evalsShared.duration")}</Th>
+                    <Th className="w-[120px] text-right">{t("evalsShared.cost")}</Th>
                   </TRHead>
                   {/* Aggregate row — white, styled like the data cells below it. */}
                   <tr className="border-b border-border bg-background">
@@ -489,7 +491,7 @@ export function CompareRunsView({
                   {visible.length === 0 ? (
                     <tr>
                       <td colSpan={columnCount}>
-                        <EmptyState>No rows match your search.</EmptyState>
+                        <EmptyState>{t("evalsCompare.noRows")}</EmptyState>
                       </td>
                     </tr>
                   ) : (

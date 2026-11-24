@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { Input } from "@/components/ui/input";
 import type { DateFilterOption } from "@/lib/date-filter";
+import { useT } from "@/lib/i18n/provider";
 
 interface SearchFilterBarProps {
   // Search
@@ -33,7 +34,7 @@ interface SearchFilterBarProps {
 export function SearchFilterBar({
   searchValue,
   onSearchChange,
-  searchPlaceholder = "Search...",
+  searchPlaceholder,
   searchInput,
   dateFilter,
   customStartDate,
@@ -45,6 +46,7 @@ export function SearchFilterBar({
   children,
   beforeDateFilter,
 }: SearchFilterBarProps) {
+  const t = useT();
   return (
     <div className="flex min-h-11 items-center border-b border-border bg-background px-4 py-1">
       <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
@@ -54,7 +56,7 @@ export function SearchFilterBar({
           <div className="relative min-w-[12rem] max-w-lg flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder={searchPlaceholder}
+              placeholder={searchPlaceholder ?? t("componentsSearchBar.searchPlaceholder")}
               value={searchValue ?? ""}
               onChange={(e) => onSearchChange?.(e.target.value)}
               className="h-8 pl-8 text-[13px]"

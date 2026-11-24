@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import Link from "next/link";
@@ -81,12 +82,13 @@ export function formatCost(cost: number | null | undefined): React.ReactNode {
 }
 
 export function EvaluationsView({ projectId }: { projectId: string }) {
+  const t = useT();
   return (
     <div className="flex h-full flex-col text-[13px]">
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
       <ProjectBreadcrumb projectId={projectId} />
-      <PageHeader title="Evaluations" />
+      <PageHeader title={t("nav.evaluations")} />
       <RunsTab projectId={projectId} />
     </div>
   );
@@ -112,6 +114,7 @@ function RunTableRow({
   onToggleSelect: () => void;
 }) {
   const router = useRouter();
+  const t = useT();
   // Total ÷ case count. elapsedMs here is the SUM of per-case durations (see the
   // runs route), so avg duration is a true average case latency.
   const avgCost = r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
@@ -126,7 +129,7 @@ function RunTableRow({
         <Checkbox
           checked={selected}
           onCheckedChange={onToggleSelect}
-          aria-label={`Select run ${r.candidateVersion} #${r.runNumber}`}
+          aria-label={t("evalsList.selectRun", { name: `${r.candidateVersion} #${r.runNumber}` })}
         />
       </Td>
       <Td className="whitespace-nowrap text-muted-foreground">
@@ -169,6 +172,7 @@ function RunTableRow({
 function RunsTab({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
+  const t = useT();
   const del = useDeleteRuns(projectId);
   const [deleteRun, setDeleteRun] = React.useState<RunRow | null>(null);
   // Row selection for bulk actions (compare / delete).
@@ -272,11 +276,11 @@ function RunsTab({ projectId }: { projectId: string }) {
     if (!deleteRun) return;
     del.mutate([deleteRun.id], {
       onSuccess: () => {
-        toast({ title: "Run deleted", tone: "success" });
+        toast({ title: t("evalsList.runDeleted"), tone: "success" });
         setDeleteRun(null);
       },
       onError: (e) =>
-        toast({ title: "Could not delete the run", description: String(e), tone: "warning" }),
+        toast({ title: t("evalsList.runDeleteFailed"), description: String(e), tone: "warning" }),
     });
   };
 
@@ -309,8 +313,8 @@ function RunsTab({ projectId }: { projectId: string }) {
     // page — rather than landing on an empty comparison.
     if (new Set(chosen.map((r) => r.datasetName ?? r.datasetId)).size > 1) {
       toast({
-        title: "Pick runs from the same dataset",
-        description: "Runs can only be compared within a single dataset.",
+        title: t("evalsList.sameDatasetTitle"),
+        description: t("evalsList.sameDatasetText"),
         tone: "warning",
       });
       return;
@@ -324,14 +328,17 @@ function RunsTab({ projectId }: { projectId: string }) {
     del.mutate(ids, {
       onSuccess: () => {
         toast({
-          title: `Deleted ${ids.length} run${ids.length === 1 ? "" : "s"}`,
+          title:
+            ids.length === 1
+              ? t("evalsList.deletedOne", { count: ids.length })
+              : t("evalsList.deletedOther", { count: ids.length }),
           tone: "success",
         });
         setSelectedIds(new Set());
         setBulkDeleteOpen(false);
       },
       onError: (e) =>
-        toast({ title: "Could not delete the runs", description: String(e), tone: "warning" }),
+        toast({ title: t("evalsList.runsDeleteFailed"), description: String(e), tone: "warning" }),
     });
   };
 
@@ -340,7 +347,7 @@ function RunsTab({ projectId }: { projectId: string }) {
       <SearchFilterBar
         searchValue={keyword}
         onSearchChange={setKeyword}
-        searchPlaceholder="Search..."
+        searchPlaceholder={t("evalsShared.search")}
       >
         {/* The bulk-Actions button and the date filter form one right-aligned group
             (a single `ml-auto`), so Actions sits immediately left of the date range
@@ -352,22 +359,24 @@ function RunsTab({ projectId }: { projectId: string }) {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" className="h-8 gap-1.5 text-[13px]">
-                  Actions ({selectedIds.size} selected)
+                  {t("evalsList.actionsSelected", { count: selectedIds.size })}
                   <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-32">
                 <DropdownMenuItem disabled={selectedIds.size < 2} onSelect={compareSelected}>
-                  Compare
+                  {t("evalsList.compare")}
                   {selectedIds.size < 2 && (
-                    <span className="ml-auto text-[12px] text-muted-foreground">pick 2+</span>
+                    <span className="ml-auto text-[12px] text-muted-foreground">
+                      {t("evalsList.pickTwo")}
+                    </span>
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => setBulkDeleteOpen(true)}
                   className="text-destructive"
                 >
-                  Delete
+                  {t("common.delete")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -391,37 +400,35 @@ function RunsTab({ projectId }: { projectId: string }) {
                   checked={allSelected}
                   indeterminate={selectedIds.size > 0 && !allSelected}
                   onCheckedChange={toggleAll}
-                  aria-label="Select all runs"
+                  aria-label={t("evalsList.selectAll")}
                 />
               </Th>
-              <Th className="w-[150px]">Timestamp</Th>
-              <Th>Evaluation name</Th>
-              <Th>Run name</Th>
-              <Th>Dataset</Th>
-              <Th className="w-[100px] text-right">Cost</Th>
-              <Th className="w-[100px] text-right">Avg cost</Th>
-              <Th className="w-[90px] text-right">Duration</Th>
-              <Th className="w-[100px] text-right">Avg duration</Th>
+              <Th className="w-[150px]">{t("evalsShared.timestamp")}</Th>
+              <Th>{t("evalsShared.evaluationName")}</Th>
+              <Th>{t("evalsShared.runName")}</Th>
+              <Th>{t("evalsShared.dataset")}</Th>
+              <Th className="w-[100px] text-right">{t("evalsShared.cost")}</Th>
+              <Th className="w-[100px] text-right">{t("evalsShared.avgCost")}</Th>
+              <Th className="w-[90px] text-right">{t("evalsShared.duration")}</Th>
+              <Th className="w-[100px] text-right">{t("evalsShared.avgDuration")}</Th>
               <Th className="col-sticky-end-head w-[70px] text-right">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t("evalsShared.actions")}</span>
               </Th>
             </TRHead>
           </THead>
           <TBody>
             {isLoading ? (
               <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>Loading runs...</EmptyState>
+                <EmptyState>{t("evalsList.loading")}</EmptyState>
               </Cell>
             ) : error ? (
               <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>Error loading runs</EmptyState>
+                <EmptyState>{t("evalsList.loadError")}</EmptyState>
               </Cell>
             ) : runs.length === 0 ? (
               <Cell colSpan={RUNS_COLUMN_COUNT}>
                 <EmptyState>
-                  {filtered
-                    ? "No runs match these filters."
-                    : "No evaluation runs yet. Report a run from your SDK and it appears here."}
+                  {filtered ? t("evalsList.emptyFiltered") : t("evalsList.empty")}
                 </EmptyState>
               </Cell>
             ) : (
@@ -462,7 +469,11 @@ function RunsTab({ projectId }: { projectId: string }) {
 
       {bulkDeleteOpen && (
         <DeleteRunDialog
-          runLabel={`${selectedIds.size} selected run${selectedIds.size === 1 ? "" : "s"}`}
+          runLabel={
+            selectedIds.size === 1
+              ? t("evalsList.selectedRunOne", { count: selectedIds.size })
+              : t("evalsList.selectedRunOther", { count: selectedIds.size })
+          }
           isOpen
           onClose={() => setBulkDeleteOpen(false)}
           onConfirm={confirmBulkDelete}

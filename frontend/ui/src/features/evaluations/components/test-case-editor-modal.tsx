@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import * as React from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,7 @@ export function TestCaseEditorModal({
   onSaved: () => void;
 }) {
   const { toast } = useToast();
+  const t = useT();
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
   const isEdit = mode.kind === "edit";
@@ -104,10 +106,10 @@ export function TestCaseEditorModal({
     try {
       parsed = JSON.parse(trimmed);
     } catch {
-      return "Metadata isn't valid JSON.";
+      return t("evalsShared.metadataInvalidJson");
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return 'Metadata must be a JSON object, e.g. {"key": "value"}.';
+      return t("evalsShared.metadataMustBeObject");
     }
     // Valid JSON syntax is not enough. An unpaired UTF-16 surrogate parses fine but is not
     // valid Unicode text, so `canonicalJson` rejects it (its only rejection) and the value
@@ -119,12 +121,12 @@ export function TestCaseEditorModal({
       canonicalJson(parsed);
     } catch (err) {
       if (err instanceof LoneSurrogateError) {
-        return "Metadata contains invalid Unicode (an unpaired surrogate).";
+        return t("evalsShared.metadataInvalidUnicode");
       }
       throw err;
     }
     return null;
-  }, [isEdit, metadata, seedMetadataText]);
+  }, [isEdit, metadata, seedMetadataText, t]);
 
   const pending = save.isPending || update.isPending;
   // In edit mode, keep Save disabled until a field actually changes. In create mode,
@@ -150,14 +152,14 @@ export function TestCaseEditorModal({
       : null;
     const onSuccess = () => {
       toast({
-        title: isEdit ? "Row saved — new version published" : "Row added",
+        title: isEdit ? t("datasetsRow.savedNewVersion") : t("datasetsRow.added"),
         tone: "success",
       });
       onSaved();
       onClose();
     };
     const onError = (e: unknown) =>
-      toast({ title: "Could not save the row", description: String(e), tone: "warning" });
+      toast({ title: t("datasetsRow.saveFailed"), description: String(e), tone: "warning" });
 
     if (mode.kind === "edit") {
       update.mutate(
@@ -186,12 +188,12 @@ export function TestCaseEditorModal({
       >
         <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4 py-2">
           <h2 id="test-case-editor-title" className="text-[15px] font-medium">
-            {isEdit ? "Edit row" : "New row"}
+            {isEdit ? t("datasetsRow.editTitle") : t("datasetsRow.newTitle")}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("evalsShared.close")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
@@ -200,7 +202,7 @@ export function TestCaseEditorModal({
 
         <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4 text-[12px]">
           <EditableValueBlock
-            label="Input"
+            label={t("evalsShared.input")}
             text={input}
             onChange={setInput}
             copyable
@@ -209,7 +211,7 @@ export function TestCaseEditorModal({
             minRows={3}
           />
           <EditableValueBlock
-            label="Expected"
+            label={t("evalsShared.expected")}
             text={expected}
             onChange={setExpected}
             copyable
@@ -234,10 +236,10 @@ export function TestCaseEditorModal({
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleSave} disabled={!canSave}>
-            {pending ? "Saving…" : "Save"}
+            {pending ? t("evalsShared.saving") : t("common.save")}
           </Button>
         </div>
       </div>

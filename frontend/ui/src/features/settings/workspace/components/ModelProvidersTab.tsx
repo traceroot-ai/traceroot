@@ -41,6 +41,7 @@ import {
   testModelProvider,
   type ModelProviderResponse,
 } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
 
 interface ModelProvidersTabProps {
   workspaceId: string;
@@ -60,6 +61,7 @@ export function getBaseUrlPayload(
 export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const queryClient = useQueryClient();
   const formId = useId();
+  const t = useT();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editProvider, setEditProvider] = useState<ModelProviderResponse | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ModelProviderResponse | null>(null);
@@ -97,7 +99,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       queryClient.invalidateQueries({ queryKey: ["llm-models", workspaceId] });
       closeDialog();
     },
-    onError: (err) => setSaveError(err instanceof Error ? err.message : "Failed to save"),
+    onError: (err) =>
+      setSaveError(err instanceof Error ? err.message : t("modelProviders.failedSave")),
   });
 
   const updateMutation = useMutation({
@@ -108,7 +111,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       queryClient.invalidateQueries({ queryKey: ["llm-models", workspaceId] });
       closeDialog();
     },
-    onError: (err) => setSaveError(err instanceof Error ? err.message : "Failed to save"),
+    onError: (err) =>
+      setSaveError(err instanceof Error ? err.message : t("modelProviders.failedSave")),
   });
 
   const deleteMutation = useMutation({
@@ -129,7 +133,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     onError: (err) =>
       setTestResult({
         success: false,
-        error: err instanceof ImpersonationError ? err.message : "Connection failed",
+        error:
+          err instanceof ImpersonationError ? err.message : t("modelProviders.connectionFailed"),
         detail:
           err instanceof Error && !(err instanceof ImpersonationError) ? err.message : undefined,
       }),
@@ -284,7 +289,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   }
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading...</div>;
+    return <div className="text-sm text-muted-foreground">{t("shellCommon.loading")}</div>;
   }
 
   // Upgrade prompt if BYOK is not enabled
@@ -292,21 +297,20 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     return (
       <div className="space-y-6">
         <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
-          <h2 className="text-[15px] font-medium">Model providers</h2>
-          <p className="text-sm text-muted-foreground">Configure your own LLM API keys</p>
+          <h2 className="text-[15px] font-medium">{t("settings.modelProviders")}</h2>
+          <p className="text-sm text-muted-foreground">{t("modelProviders.subtitle")}</p>
         </div>
         <div className="border">
           <div className="flex flex-col items-center gap-3 px-4 py-8">
             <p className="text-center text-sm text-muted-foreground">
-              Bring Your Own Key (BYOK) lets you configure your own LLM API keys for this workspace.
-              Available on Pro and Startups plans.
+              {t("modelProviders.byokText")}
             </p>
             <Button
               variant="default"
               size="sm"
               onClick={() => (window.location.href = `/workspaces/${workspaceId}/settings/billing`)}
             >
-              Upgrade plan
+              {t("modelProviders.upgradePlan")}
               <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
             </Button>
           </div>
@@ -344,28 +348,36 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     <div className="space-y-6">
       <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-3">
-          <h2 className="text-[15px] font-medium">Model providers</h2>
-          <p className="text-sm text-muted-foreground">Configure your own LLM API keys</p>
+          <h2 className="text-[15px] font-medium">{t("settings.modelProviders")}</h2>
+          <p className="text-sm text-muted-foreground">{t("modelProviders.subtitle")}</p>
         </div>
-        <AddButton onClick={openAddDialog}>Add provider</AddButton>
+        <AddButton onClick={openAddDialog}>{t("modelProviders.addProvider")}</AddButton>
       </div>
 
       <div className="border">
         <div className="flex h-9 items-center border-b border-border px-4">
-          <h3 className="text-[13px] font-medium">Configured providers</h3>
+          <h3 className="text-[13px] font-medium">{t("modelProviders.configured")}</h3>
         </div>
         {providers.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No API keys configured. Add a provider to use your own LLM keys.
+            {t("modelProviders.empty")}
           </div>
         ) : (
           <table className="data-table w-full">
             <thead>
               <tr className="border-b text-left">
-                <th className="px-4 py-2 font-medium text-muted-foreground">Provider</th>
-                <th className="px-4 py-2 font-medium text-muted-foreground">Adapter</th>
-                <th className="px-4 py-2 font-medium text-muted-foreground">Key</th>
-                <th className="px-4 py-2 font-medium text-muted-foreground">Status</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">
+                  {t("modelProviders.provider")}
+                </th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">
+                  {t("modelProviders.adapter")}
+                </th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">
+                  {t("shellCommon.key")}
+                </th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">
+                  {t("modelProviders.status")}
+                </th>
                 <th className="w-20 px-4 py-2 font-medium text-muted-foreground"></th>
               </tr>
             </thead>
@@ -384,16 +396,16 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     <td className="px-4 py-2 text-muted-foreground">{p.keyPreview}</td>
                     <td className="px-4 py-2">
                       <span className={p.enabled ? "text-green-600" : "text-yellow-600"}>
-                        {p.enabled ? "Enabled" : "Disabled"}
+                        {p.enabled ? t("modelProviders.enabled") : t("modelProviders.disabled")}
                       </span>
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="sm" onClick={() => openEditDialog(p)}>
-                          Edit
+                          {t("shellCommon.edit")}
                         </Button>
                         <DeleteIconButton
-                          aria-label={`Delete provider ${p.provider}`}
+                          aria-label={t("modelProviders.deleteProvider", { name: p.provider })}
                           onClick={() => {
                             deleteMutation.reset();
                             setDeleteTarget(p);
@@ -413,11 +425,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editProvider ? "Edit provider" : "Add provider"}</DialogTitle>
+            <DialogTitle>
+              {editProvider ? t("modelProviders.editProvider") : t("modelProviders.addProvider")}
+            </DialogTitle>
             <DialogDescription>
               {editProvider
-                ? "Update the provider configuration."
-                : "Configure an LLM provider with your own API key."}
+                ? t("modelProviders.editDescription")
+                : t("modelProviders.addDescription")}
             </DialogDescription>
           </DialogHeader>
 
@@ -425,11 +439,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {/* Adapter selector */}
             <div className="space-y-2">
               <label htmlFor={`${formId}-adapter`} className="text-sm font-medium">
-                Adapter
+                {t("modelProviders.adapter")}
               </label>
               <Select value={adapter} onValueChange={handleAdapterChange} disabled={!!editProvider}>
                 <SelectTrigger id={`${formId}-adapter`}>
-                  <SelectValue placeholder="Select an adapter" />
+                  <SelectValue placeholder={t("modelProviders.selectAdapter")} />
                 </SelectTrigger>
                 <SelectContent>
                   {Object.entries(ADAPTER_CONFIG).map(([key, cfg]) => (
@@ -448,23 +462,23 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {/* Provider name (user label) */}
             <div className="space-y-2">
               <label htmlFor={`${formId}-provider-name`} className="text-sm font-medium">
-                Provider name
+                {t("modelProviders.providerName")}
               </label>
               <Input
                 id={`${formId}-provider-name`}
                 value={providerName}
                 onChange={(e) => setProviderName(e.target.value)}
-                placeholder="e.g. My OpenAI, Production DeepSeek"
+                placeholder={t("modelProviders.providerNamePlaceholder")}
               />
               <p className="text-xs text-muted-foreground">
-                A unique name for this provider in your workspace.
+                {t("modelProviders.providerNameHint")}
               </p>
             </div>
 
             {/* Credentials — conditional on adapter type */}
             {adapterConfig?.credentialType === "aws" ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-medium">AWS credentials</h3>
+                <h3 className="text-sm font-medium">{t("modelProviders.awsCredentials")}</h3>
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -474,7 +488,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     className="rounded"
                   />
                   <label htmlFor={`${formId}-default-credentials`} className="text-sm">
-                    Use default AWS credential chain
+                    {t("modelProviders.useDefaultChain")}
                   </label>
                 </div>
                 {!useDefaultCredentials && (
@@ -484,7 +498,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                         htmlFor={`${formId}-aws-key`}
                         className="text-xs text-muted-foreground"
                       >
-                        Access key ID
+                        {t("modelProviders.accessKeyId")}
                       </label>
                       <Input
                         id={`${formId}-aws-key`}
@@ -498,21 +512,21 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                         htmlFor={`${formId}-aws-secret`}
                         className="text-xs text-muted-foreground"
                       >
-                        Secret access key
+                        {t("modelProviders.secretAccessKey")}
                       </label>
                       <Input
                         type="password"
                         id={`${formId}-aws-secret`}
                         value={awsSecretAccessKey}
                         onChange={(e) => setAwsSecretAccessKey(e.target.value)}
-                        placeholder="Secret key"
+                        placeholder={t("modelProviders.secretKeyPlaceholder")}
                       />
                     </div>
                   </>
                 )}
                 <div className="space-y-2">
                   <label htmlFor={`${formId}-aws-region`} className="text-xs text-muted-foreground">
-                    Region
+                    {t("modelProviders.region")}
                   </label>
                   <Input
                     id={`${formId}-aws-region`}
@@ -525,7 +539,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             ) : adapterConfig ? (
               <div className="space-y-2">
                 <label htmlFor={`${formId}-api-key`} className="text-sm font-medium">
-                  API key{editProvider ? " (leave blank to keep current)" : ""}
+                  {editProvider ? t("modelProviders.apiKeyKeep") : t("modelProviders.apiKey")}
                 </label>
                 <Input
                   type="password"
@@ -544,7 +558,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {adapterConfig && adapterConfig.credentialType !== "aws" && (
               <div className="space-y-2">
                 <label htmlFor={`${formId}-base-url`} className="text-sm font-medium">
-                  Base URL{adapterConfig.requiresBaseUrl ? "" : " (optional)"}
+                  {adapterConfig.requiresBaseUrl
+                    ? t("modelProviders.baseUrl")
+                    : t("modelProviders.baseUrlOptional")}
                 </label>
                 <Input
                   id={`${formId}-base-url`}
@@ -554,8 +570,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     adapterConfig.requiresBaseUrl
                       ? "https://your-resource.openai.azure.com"
                       : ADAPTER_DEFAULT_BASE_URL[adapter]
-                        ? `Default: ${ADAPTER_DEFAULT_BASE_URL[adapter]}`
-                        : "Leave blank for default"
+                        ? t("modelProviders.defaultBaseUrl", {
+                            url: ADAPTER_DEFAULT_BASE_URL[adapter],
+                          })
+                        : t("modelProviders.leaveBlank")
                   }
                 />
               </div>
@@ -565,7 +583,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {adapterConfig && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Models</h3>
+                  <h3 className="text-sm font-medium">{t("modelProviders.models")}</h3>
                   <Button
                     type="button"
                     variant="outline"
@@ -574,7 +592,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     disabled={isAddModelDisabled}
                   >
                     <Plus className="mr-1 h-3 w-3" />
-                    Add model
+                    {t("modelProviders.addModel")}
                   </Button>
                 </div>
 
@@ -587,13 +605,16 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     <div key={i} className="flex items-center gap-2">
                       {curatedModels ? (
                         <Select value={model} onValueChange={(v) => updateCustomModel(i, v)}>
-                          <SelectTrigger aria-label={`Model ${i + 1}`} className="flex-1">
-                            <SelectValue placeholder="Select a model" />
+                          <SelectTrigger
+                            aria-label={t("modelProviders.modelN", { n: i + 1 })}
+                            className="flex-1"
+                          >
+                            <SelectValue placeholder={t("modelProviders.selectModel")} />
                           </SelectTrigger>
                           <SelectContent>
                             {model && !curatedModels.some((m) => m.id === model) && (
                               <SelectItem key={model} value={model} disabled>
-                                {model} (Unsupported)
+                                {t("modelProviders.unsupported", { model })}
                               </SelectItem>
                             )}
                             {curatedModels
@@ -607,7 +628,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                         </Select>
                       ) : (
                         <Input
-                          aria-label={`Model ${i + 1}`}
+                          aria-label={t("modelProviders.modelN", { n: i + 1 })}
                           value={model}
                           onChange={(e) => updateCustomModel(i, e.target.value)}
                           placeholder={
@@ -615,7 +636,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                               azure: "e.g. my-gpt4-deployment",
                               "amazon-bedrock": "e.g. anthropic.claude-v2",
                               openrouter: "e.g. openai/gpt-4o",
-                            }[adapter] || "Model ID"
+                            }[adapter] || t("modelProviders.modelIdPlaceholder")
                           }
                           className="flex-1"
                         />
@@ -628,7 +649,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                           }
                         >
                           <SelectTrigger
-                            aria-label={`API protocol for model ${i + 1}`}
+                            aria-label={t("modelProviders.protocolFor", { n: i + 1 })}
                             className="w-[180px]"
                           >
                             <SelectValue />
@@ -655,9 +676,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 })()}
 
                 {customModels.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Add model IDs you want to use with this provider.
-                  </p>
+                  <p className="text-xs text-muted-foreground">{t("modelProviders.modelsHint")}</p>
                 )}
               </div>
             )}
@@ -673,12 +692,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   onClick={handleTest}
                 >
                   {testMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                  Test connection
+                  {t("modelProviders.testConnection")}
                 </Button>
                 {testResult?.success && (
                   <span className="flex items-center gap-1 text-xs">
                     <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                    <span className="text-green-600">Connected</span>
+                    <span className="text-green-600">{t("modelProviders.connected")}</span>
                   </span>
                 )}
               </div>
@@ -709,11 +728,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
           <DialogFooter>
             <Button variant="outline" onClick={closeDialog}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleSave} disabled={!canSave || isSaving}>
               {isSaving && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-              {editProvider ? "Update" : "Save"}
+              {editProvider ? t("shellCommon.update") : t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -731,10 +750,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete provider</DialogTitle>
+            <DialogTitle>{t("modelProviders.deleteTitle")}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {deleteTarget?.provider}? Models from this provider
-              will no longer be available.
+              {t("modelProviders.deleteConfirm", { name: deleteTarget?.provider ?? "" })}
             </DialogDescription>
           </DialogHeader>
           {deleteMutation.error instanceof ImpersonationError && (
@@ -744,7 +762,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -752,7 +770,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
             >
               {deleteMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-              Delete
+              {t("common.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

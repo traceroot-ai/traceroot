@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -32,11 +33,12 @@ function Card({
   optional?: boolean;
   children: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[12px] font-medium text-muted-foreground">
         {label}
-        {optional && <span className="ml-1 font-normal">(optional)</span>}
+        {optional && <span className="ml-1 font-normal">{t("evalsShared.optional")}</span>}
       </span>
       {children}
     </div>
@@ -52,26 +54,27 @@ export function DatasetFormFields({
   onChange: (next: DatasetFormState) => void;
   className?: string;
 }) {
+  const t = useT();
   const set = <K extends keyof DatasetFormState>(key: K, value: DatasetFormState[K]) =>
     onChange({ ...state, [key]: value });
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
-      <Card label="Name">
+      <Card label={t("common.name")}>
         <Input
           value={state.name}
           onChange={(e) => set("name", e.target.value)}
-          aria-label="Name"
+          aria-label={t("common.name")}
           className="text-[13px]"
           required
         />
       </Card>
 
-      <Card label="Description" optional>
+      <Card label={t("evalsShared.description")} optional>
         <Input
           value={state.description}
           onChange={(e) => set("description", e.target.value)}
-          aria-label="Description"
+          aria-label={t("evalsShared.description")}
           className="text-[13px]"
         />
       </Card>

@@ -8,6 +8,7 @@ import {
   flattenAvailableModels,
   pickDefaultModel,
 } from "@/features/ai-assistant/lib/resolve-model";
+import { useT } from "@/lib/i18n/provider";
 
 interface AgentModelLinkProps {
   projectId: string;
@@ -16,6 +17,7 @@ interface AgentModelLinkProps {
 }
 
 export function AgentModelLink({ projectId, rcaModel, workspaceId }: AgentModelLinkProps) {
+  const t = useT();
   const { data, isPending } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
@@ -30,7 +32,7 @@ export function AgentModelLink({ projectId, rcaModel, workspaceId }: AgentModelL
       return match?.label ?? rcaModel;
     }
     const pick = pickDefaultModel(models);
-    return pick?.label ?? pick?.id ?? "Default";
+    return pick?.label ?? pick?.id ?? t("detectorsSignals.defaultModel");
   })();
 
   return (

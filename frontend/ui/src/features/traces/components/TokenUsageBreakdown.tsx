@@ -1,4 +1,7 @@
+"use client";
+
 import { formatExactTokens } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { MetricDelta } from "./MetricDelta";
 
 export interface TokenCounts {
@@ -82,33 +85,57 @@ function Row({
  * In trace diff mode a `baseline` is supplied and each row gains a ± delta.
  */
 export function TokenUsageBreakdown(props: TokenUsageBreakdownProps) {
+  const t = useT();
   const d = derive(props);
   const b: Derived | undefined = props.baseline ? derive(props.baseline) : undefined;
 
   return (
     <div className="min-w-[220px] text-xs">
-      <div className="mb-2 font-semibold">Usage breakdown</div>
+      <div className="mb-2 font-semibold">{t("tracesBreakdown.usageTitle")}</div>
 
-      <Row label="Input usage" value={d.input} baseline={b?.input} emphasis="section" />
+      <Row
+        label={t("tracesBreakdown.inputUsage")}
+        value={d.input}
+        baseline={b?.input}
+        emphasis="section"
+      />
       <div className="mt-1 space-y-0.5">
         {/* Always shown (even at zero) so it's clear cache tokens are tracked.
             Same row order as CostBreakdown so the two panels read in parallel. */}
-        <Row label="uncached" value={d.uncachedInput} baseline={b?.uncachedInput} />
-        <Row label="cache read" value={d.cacheRead} baseline={b?.cacheRead} />
-        <Row label="cache write" value={d.cacheWrite} baseline={b?.cacheWrite} />
+        <Row
+          label={t("tracesBreakdown.uncached")}
+          value={d.uncachedInput}
+          baseline={b?.uncachedInput}
+        />
+        <Row label={t("tracesBreakdown.cacheRead")} value={d.cacheRead} baseline={b?.cacheRead} />
+        <Row
+          label={t("tracesBreakdown.cacheWrite")}
+          value={d.cacheWrite}
+          baseline={b?.cacheWrite}
+        />
       </div>
 
       <div className="mt-2">
-        <Row label="Output usage" value={d.output} baseline={b?.output} emphasis="section" />
+        <Row
+          label={t("tracesBreakdown.outputUsage")}
+          value={d.output}
+          baseline={b?.output}
+          emphasis="section"
+        />
       </div>
       <div className="mt-1 space-y-0.5">
         {(d.reasoning > 0 || (b?.reasoning ?? 0) > 0) && (
-          <Row label="reasoning" value={d.reasoning} baseline={b?.reasoning} />
+          <Row label={t("tracesBreakdown.reasoning")} value={d.reasoning} baseline={b?.reasoning} />
         )}
-        <Row label="output" value={d.plainOutput} baseline={b?.plainOutput} />
+        <Row label={t("tracesBreakdown.output")} value={d.plainOutput} baseline={b?.plainOutput} />
       </div>
 
-      <Row label="Total usage" value={d.total} baseline={b?.total} emphasis="total" />
+      <Row
+        label={t("tracesBreakdown.totalUsage")}
+        value={d.total}
+        baseline={b?.total}
+        emphasis="total"
+      />
     </div>
   );
 }

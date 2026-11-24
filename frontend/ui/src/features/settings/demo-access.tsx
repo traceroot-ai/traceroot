@@ -15,17 +15,32 @@ import { Info } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
 import type { ProjectSettingsTab, WorkspaceSettingsTab } from "./settings-layout";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 export type SettingsAccess =
   | { mode: "loading" }
   | { mode: "full" }
   | { mode: "read-only"; scope?: "workspace" | "project" }
-  | { mode: "denied"; title: string; message: string };
+  | {
+      mode: "denied";
+      title: string;
+      message: string;
+      titleKey?: MessageKey;
+      messageKey?: MessageKey;
+    };
 
-const denied = (scope: "workspace" | "project", message: string): SettingsAccess => ({
+// The English text stays on the value; the keys are what the card shows in the visitor's language.
+const denied = (
+  scope: "workspace" | "project",
+  message: string,
+  messageKey: MessageKey,
+): SettingsAccess => ({
   mode: "denied",
   title: `Demo ${scope} settings`,
   message,
+  titleKey: scope === "workspace" ? "demoSettings.workspaceTitle" : "demoSettings.projectTitle",
+  messageKey,
 });
 
 const WORKSPACE_DEMO_VIEWER_ACCESS: Record<WorkspaceSettingsTab, SettingsAccess> = {
@@ -33,18 +48,22 @@ const WORKSPACE_DEMO_VIEWER_ACCESS: Record<WorkspaceSettingsTab, SettingsAccess>
   members: denied(
     "workspace",
     "The member list is not available in this demo workspace. You can manage members in your own workspace.",
+    "demoSettings.members",
   ),
   "model-providers": denied(
     "workspace",
     "Model provider settings are not available in this demo workspace. You can connect model providers in your own workspace.",
+    "demoSettings.modelProviders",
   ),
   integrations: denied(
     "workspace",
     "Integration settings are not available in this demo workspace. You can connect integrations in your own workspace.",
+    "demoSettings.integrations",
   ),
   billing: denied(
     "workspace",
     "Billing settings are not available in this demo workspace. You can manage billing in your own workspace.",
+    "demoSettings.billing",
   ),
 };
 
@@ -53,11 +72,13 @@ const PROJECT_DEMO_VIEWER_ACCESS: Record<ProjectSettingsTab, SettingsAccess> = {
   accessKeys: denied(
     "project",
     "API keys are not available in this demo project. You can create API keys in your own project.",
+    "demoSettings.accessKeys",
   ),
   // Its notification settings can list team email addresses.
   detectors: denied(
     "project",
     "Detector settings are not available in this demo project. You can explore detectors and findings, or configure detectors in your own project.",
+    "demoSettings.detectors",
   ),
 };
 
@@ -84,12 +105,23 @@ export function projectSettingsAccess(
   return accessFor(PROJECT_DEMO_VIEWER_ACCESS[tab], workspace);
 }
 
-function DemoSettingsCard({ title, message }: { title: string; message: string }) {
+function DemoSettingsCard({
+  title,
+  message,
+  titleKey,
+  messageKey,
+}: {
+  title: string;
+  message: string;
+  titleKey?: MessageKey;
+  messageKey?: MessageKey;
+}) {
+  const t = useT();
   return (
     <Card className="max-w-xl">
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <CardDescription>{message}</CardDescription>
+        <CardTitle className="text-base">{titleKey ? t(titleKey) : title}</CardTitle>
+        <CardDescription>{messageKey ? t(messageKey) : message}</CardDescription>
       </CardHeader>
     </Card>
   );
@@ -108,11 +140,19 @@ export function SettingsAccessGate({
   access: SettingsAccess;
   children: ReactNode;
 }) {
+  const t = useT();
   switch (access.mode) {
     case "loading":
       return null;
     case "denied":
-      return <DemoSettingsCard title={access.title} message={access.message} />;
+      return (
+        <DemoSettingsCard
+          title={access.title}
+          message={access.message}
+          titleKey={access.titleKey}
+          messageKey={access.messageKey}
+        />
+      );
     case "read-only":
       return (
         <>
@@ -120,7 +160,9 @@ export function SettingsAccessGate({
             <CardContent className="flex items-start gap-2 p-3">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <CardDescription className="text-[13px]">
-                Settings in this demo {access.scope ?? "project"} are read-only.
+                {access.scope === "workspace"
+                  ? t("demoSettings.readOnlyWorkspace")
+                  : t("demoSettings.readOnlyProject")}
               </CardDescription>
             </CardContent>
           </Card>

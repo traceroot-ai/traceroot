@@ -23,6 +23,8 @@ import {
 } from "../hooks";
 import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
+import { useT } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n/translate";
 
 /**
  * One block of the panel: a titled box like ExpandableSection's, but always
@@ -80,14 +82,12 @@ interface SignalDetailPanelProps {
  * analysis, how often it happened per day, and its latest traces.
  */
 /** What happened to the analysis of a reopening, in the sentence after "before the signal reopened". */
-function reopeningState(state: string | null, available: boolean): string {
+function reopeningState(state: string | null, available: boolean, t: Translate): string {
   // Without the key no analysis runs at all; the run control says so.
   if (!available) return "";
-  if (state === null) {
-    return "No new analysis ran, because the last one was less than 24 hours earlier or this detector's root cause analysis is Manual.";
-  }
-  if (state === "failed") return "The new analysis failed.";
-  if (rcaInProgress(state)) return "A new analysis is running.";
+  if (state === null) return t("eeSignalDetail.reopenNone");
+  if (state === "failed") return t("eeSignalDetail.reopenFailed");
+  if (rcaInProgress(state)) return t("eeSignalDetail.reopenRunning");
   return "";
 }
 
@@ -108,6 +108,7 @@ export function SignalDetailPanel({
   const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
     useLayout();
   const { data, isPending, isPlaceholderData, error } = useSignal(projectId, signalId, range);
+  const t = useT();
 
   // Claim the AI slot for this panel, as the session panel does. On unmount,
   // also clear the AI state: otherwise aiPanelOpen stays true after this host
@@ -153,7 +154,7 @@ export function SignalDetailPanel({
           <CopyButton
             value={signalId}
             className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-            title="Copy signal ID"
+            title={t("eeSignalDetail.copyId")}
           />
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -163,7 +164,7 @@ export function SignalDetailPanel({
             onClick={() => onNavigate("up")}
             disabled={!canNavigateUp}
             className="h-7 w-7 p-0"
-            title="Previous signal"
+            title={t("eeSignalDetail.previous")}
           >
             <ArrowUp className="h-4 w-4" />
           </Button>
@@ -173,7 +174,7 @@ export function SignalDetailPanel({
             onClick={() => onNavigate("down")}
             disabled={!canNavigateDown}
             className="h-7 w-7 p-0"
-            title="Next signal"
+            title={t("eeSignalDetail.next")}
           >
             <ArrowDown className="h-4 w-4" />
           </Button>
@@ -182,7 +183,7 @@ export function SignalDetailPanel({
             size="sm"
             onClick={onToggleFullscreen}
             className="h-7 w-7 p-0"
-            title={fullscreen ? "Restore default size" : "Expand to full screen"}
+            title={fullscreen ? t("eeSignalDetail.restore") : t("eeSignalDetail.expand")}
           >
             {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
           </Button>
@@ -191,7 +192,7 @@ export function SignalDetailPanel({
             size="sm"
             onClick={() => (aiPanelOpen ? setAiPanelOpen(false) : openAgent())}
             className="ml-2 h-7 w-7 p-0"
-            title="AI Assistant"
+            title={t("eeSignalDetail.assistant")}
           >
             <DOMAIN_ICONS.assistant className="h-4 w-4" />
           </Button>
@@ -200,7 +201,7 @@ export function SignalDetailPanel({
             size="sm"
             onClick={onClose}
             className="h-7 w-7 p-0"
-            title="Close signal"
+            title={t("eeSignalDetail.close")}
           >
             <X className="h-4 w-4" />
           </Button>
@@ -213,14 +214,15 @@ export function SignalDetailPanel({
             <div className="h-full space-y-3 overflow-auto p-4">
               {isPending ? (
                 <div className="flex h-64 items-center justify-center">
-                  <LoadingState label="Loading signal..." />
+                  <LoadingState label={t("eeSignalDetail.loading")} />
                 </div>
               ) : error || !data ? (
-                <p className="p-4 text-[13px] text-destructive">Error loading signal</p>
+                <p className="p-4 text-[13px] text-destructive">{t("eeSignalDetail.loadError")}</p>
               ) : data.merged ? (
                 <p className="p-4 text-[13px] text-muted-foreground">
-                  This signal was merged into{" "}
-                  <span className="text-[12px]">{data.mergedIntoId}</span>.
+                  {t("eeSignalDetail.mergedInto")}{" "}
+                  <span className="text-[12px]">{data.mergedIntoId}</span>
+                  {t("eeSignalDetail.mergedIntoEnd")}
                 </p>
               ) : (
                 <SignalBlocks
@@ -284,6 +286,7 @@ function SignalBlocks({
   onOpenAgent: (sessionId?: string) => void;
   onOpenTrace: (traceId: string) => void;
 }) {
+  const t = useT();
   const { signal, hits, hitSeries, window } = detail;
   const rca = signal.canonicalRca;
   // The analysis shown is of an earlier opening: the signal reopened since it ran.
@@ -306,7 +309,7 @@ function SignalBlocks({
 
   return (
     <>
-      <Block title="Status">
+      <Block title={t("eeSignalDetail.status")}>
         <div className="px-3 py-2.5">
           <SignalStatusControl
             projectId={projectId}
@@ -317,19 +320,18 @@ function SignalBlocks({
         </div>
       </Block>
 
-      <Block title="Summary">
+      <Block title={t("eeSignalDetail.summary")}>
         <p className="px-3 py-2.5 text-[13px] text-foreground">{signal.criteriaCovers}</p>
         {signal.criteriaValidated === false && (
           // A diagnostic only: the signal was created anyway.
           <p className="px-3 pb-2.5 text-[12px] text-muted-foreground">
-            These criteria did not pass the check when the signal was created: they may not match
-            its first hit, or may also match another signal&apos;s hits.
+            {t("eeSignalDetail.criteriaFailed")}
           </p>
         )}
       </Block>
 
       <Block
-        title="Root Cause Analysis"
+        title={t("eeSignalDetail.rca")}
         headerAction={
           rca?.sessionId ? (
             <button
@@ -337,7 +339,7 @@ function SignalBlocks({
               onClick={() => onOpenAgent(rca.sessionId ?? undefined)}
               className="flex items-center gap-0.5 text-[12px] font-medium text-foreground hover:underline"
             >
-              Open in agent <ArrowUpRight className="h-3 w-3" />
+              {t("eeSignalDetail.openInAgent")} <ArrowUpRight className="h-3 w-3" />
             </button>
           ) : undefined
         }
@@ -350,18 +352,20 @@ function SignalBlocks({
                   <p className="text-[12px] text-muted-foreground">
                     {earlier ? (
                       <>
-                        This analysis is from{" "}
+                        {t("eeSignalDetail.fromBefore")}{" "}
                         {earlierAt ? (
                           <span title={formatDate(earlierAt)}>{formatRelativeTime(earlierAt)}</span>
                         ) : (
-                          "earlier"
+                          t("eeSignalDetail.earlier")
                         )}
-                        , before the signal reopened. {reopeningState(ownState, detail.grouping)}
+                        {t("eeSignalDetail.fromAfter")}
+                        {reopeningState(ownState, detail.grouping, t)}
                       </>
                     ) : (
                       <>
-                        This analysis is from a signal merged into this one. This signal&apos;s own
-                        analysis {ownState === "failed" ? "failed" : "is running"}.
+                        {ownState === "failed"
+                          ? t("eeSignalDetail.mergedFailed")
+                          : t("eeSignalDetail.mergedRunning")}
                       </>
                     )}
                   </p>
@@ -390,7 +394,7 @@ function SignalBlocks({
         </div>
       </Block>
 
-      <Block title="Count over time" plain headerAction={rangePicker}>
+      <Block title={t("eeSignalDetail.countOverTime")} plain headerAction={rangePicker}>
         <div
           className={cn("px-3 pb-2.5 pt-1 transition-opacity", refreshing && "opacity-50")}
           aria-busy={refreshing}
@@ -401,12 +405,14 @@ function SignalBlocks({
                 <span className="font-medium text-foreground">
                   {total > 0 ? Math.round((affected / total) * 100) : 0}%
                 </span>{" "}
-                {affected} of {total} traces affected
+                {t("eeSignalDetail.affectedOf", { affected, total })}
               </>
             ) : (
               <>
                 <span className="font-medium text-foreground">{affected}</span>{" "}
-                {affected === 1 ? "trace" : "traces"} affected
+                {affected === 1
+                  ? t("eeSignalDetail.affectedOne")
+                  : t("eeSignalDetail.affectedOther")}
               </>
             )}
           </p>
@@ -426,10 +432,10 @@ function SignalBlocks({
                 // Affected first, so it draws at the bottom of the stack.
                 rows: hitSeries.flatMap((b) =>
                   total === null
-                    ? [[b.bucket, "Affected", b.hits]]
+                    ? [[b.bucket, t("eeSignalDetail.seriesAffected"), b.hits]]
                     : [
-                        [b.bucket, "Affected", b.hits],
-                        [b.bucket, "Unaffected", b.unaffected ?? 0],
+                        [b.bucket, t("eeSignalDetail.seriesAffected"), b.hits],
+                        [b.bucket, t("eeSignalDetail.seriesUnaffected"), b.unaffected ?? 0],
                       ],
                 ),
                 meta: { granularity: window.granularity },
@@ -475,69 +481,70 @@ function AffectedTraces({
   viewAllHref: string;
   onOpenTrace: (traceId: string) => void;
 }) {
+  const t = useT();
   const traceIds = [...new Set(hits.map((h) => h.traceId))].slice(0, TRACES_SHOWN);
   const { data: traces, isPending } = useSignalTraces(projectId, traceIds);
   const traceStartTimes = new Map(hits.map((h) => [h.traceId, h.traceStartTime]));
 
   return (
     <Block
-      title="Affected traces"
+      title={t("eeSignalDetail.affectedTraces")}
       plain
       headerAction={
         <Link
           href={viewAllHref}
           className="text-[12px] font-medium text-foreground hover:underline"
         >
-          View all
+          {t("eeSignalDetail.viewAll")}
         </Link>
       }
     >
       <div className={cn("transition-opacity", refreshing && "opacity-50")} aria-busy={refreshing}>
         {traceIds.length === 0 ? (
           <p className="px-3 py-2.5 text-[12px] text-muted-foreground">
-            No traces in this time range.
+            {t("eeSignalDetail.noTraces")}
           </p>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
-                <th className={TH}>Timestamp</th>
-                <th className={TH}>Name</th>
-                <th className={TH}>Errors</th>
-                <th className={TH}>Cost</th>
-                <th className={TH}>Latency</th>
+                <th className={TH}>{t("eeSignalDetail.timestamp")}</th>
+                <th className={TH}>{t("common.name")}</th>
+                <th className={TH}>{t("eeSignalDetail.errors")}</th>
+                <th className={TH}>{t("eeSignalDetail.cost")}</th>
+                <th className={TH}>{t("eeSignalDetail.latency")}</th>
               </tr>
             </thead>
             <tbody>
               {traceIds.map((traceId) => {
-                const t = traces?.get(traceId);
+                const trace = traces?.get(traceId);
                 const pending = isPending ? "…" : "-";
                 return (
                   <TR key={traceId} interactive onClick={() => onOpenTrace(traceId)}>
                     <td className={cn(TD, "whitespace-nowrap tabular-nums text-muted-foreground")}>
-                      {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
+                      {formatDate(trace?.trace_start_time ?? traceStartTimes.get(traceId))}
                     </td>
                     <td className={cn(TD, "text-foreground")}>
-                      {t?.name || (
+                      {trace?.name || (
                         <span className="text-[12px] text-muted-foreground">{traceId}</span>
                       )}
                     </td>
                     <td className={TD}>
-                      {!t ? (
+                      {!trace ? (
                         <span className="text-muted-foreground">{pending}</span>
-                      ) : t.error_count > 0 ? (
+                      ) : trace.error_count > 0 ? (
                         <span className="inline-flex min-w-5 justify-center rounded bg-danger-soft px-1.5 py-0.5 text-[12px] font-medium text-danger">
-                          {t.error_count}
+                          {trace.error_count}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">0</span>
                       )}
                     </td>
                     <td className={cn(TD, "text-muted-foreground")}>
-                      {t?.total_cost != null ? formatCost(t.total_cost) : pending}
+                      {trace?.total_cost != null ? formatCost(trace.total_cost) : pending}
                     </td>
                     <td className={cn(TD, "text-muted-foreground")}>
-                      {t ? formatDuration(t.duration_ms) : pending}
+                      {trace ? formatDuration(trace.duration_ms) : pending}
                     </td>
                   </TR>
                 );

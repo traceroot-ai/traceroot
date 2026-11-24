@@ -17,6 +17,7 @@ import { toTimestampBounds } from "@/lib/date-filter";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import type { SessionTraceItem } from "@/types/api";
+import { useT } from "@/lib/i18n/provider";
 
 interface SessionDetailPanelProps {
   projectId: string;
@@ -39,6 +40,7 @@ function TraceCard({
   index: number;
   traceUrl: string;
 }) {
+  const t = useT();
   return (
     <div className="border-b border-border last:border-b-0">
       {/* Header: trace link */}
@@ -56,14 +58,14 @@ function TraceCard({
       {/* Content: Input/Output */}
       <div className="space-y-3 px-4 pb-4 pt-2">
         <ExpandableSection
-          title="Input"
+          title={t("sessionsDetail.input")}
           defaultOpen={true}
           onCopy={trace.input ? () => navigator.clipboard.writeText(trace.input!) : undefined}
         >
           <ContentRenderer key={trace.trace_id} content={trace.input} />
         </ExpandableSection>
         <ExpandableSection
-          title="Output"
+          title={t("sessionsDetail.output")}
           defaultOpen={true}
           onCopy={trace.output ? () => navigator.clipboard.writeText(trace.output!) : undefined}
         >
@@ -86,6 +88,7 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
+  const t = useT();
   const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
   const { isPending: authPending } = useAuthSession();
 
@@ -147,7 +150,7 @@ export function SessionDetailPanel({
       <div className="flex h-11 items-center justify-between border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <DOMAIN_ICONS.session className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Session</span>
+          <span className="text-sm font-medium">{t("sessionsDetail.session")}</span>
           <span className="truncate text-xs text-muted-foreground">{sessionId}</span>
         </div>
         <div className="flex items-center gap-1">
@@ -157,7 +160,7 @@ export function SessionDetailPanel({
             onClick={() => onNavigate("up")}
             disabled={!canNavigateUp}
             className="h-7 w-7 p-0"
-            title="Previous session"
+            title={t("sessionsDetail.previous")}
           >
             <ArrowUp className="h-4 w-4" />
           </Button>
@@ -167,7 +170,7 @@ export function SessionDetailPanel({
             onClick={() => onNavigate("down")}
             disabled={!canNavigateDown}
             className="h-7 w-7 p-0"
-            title="Next session"
+            title={t("sessionsDetail.next")}
           >
             <ArrowDown className="h-4 w-4" />
           </Button>
@@ -182,7 +185,7 @@ export function SessionDetailPanel({
               setAiPanelOpen(!aiPanelOpen);
             }}
             className="ml-2 h-7 w-7 p-0"
-            title="AI Assistant"
+            title={t("sessionsDetail.aiAssistant")}
           >
             <DOMAIN_ICONS.assistant className="h-4 w-4" />
           </Button>
@@ -207,26 +210,30 @@ export function SessionDetailPanel({
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 text-[12px]">
                       <DOMAIN_ICONS.session className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">Traces:</span>
+                      <span className="text-muted-foreground">{t("sessionsDetail.traces")}</span>
                       <span className="font-medium">{data.trace_count}</span>
                     </div>
                     {data.duration_ms !== null && data.duration_ms > 0 && (
                       <div className="inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 text-[12px]">
                         <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-muted-foreground">Total latency:</span>
+                        <span className="text-muted-foreground">
+                          {t("sessionsDetail.totalLatency")}
+                        </span>
                         <span className="font-medium">{formatDuration(data.duration_ms)}</span>
                       </div>
                     )}
                     <div className="inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 text-[12px]">
                       <DOMAIN_ICONS.tokens className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">Total tokens:</span>
+                      <span className="text-muted-foreground">
+                        {t("sessionsDetail.totalTokens")}
+                      </span>
                       <span className="font-medium">
                         {totalTokenCount != null ? formatTokens(totalTokenCount) : "-"}
                       </span>
                     </div>
                     <div className="inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 text-[12px]">
                       <DOMAIN_ICONS.cost className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">Cost:</span>
+                      <span className="text-muted-foreground">{t("sessionsDetail.cost")}</span>
                       <span className="font-medium">{formatCost(totalCost)}</span>
                     </div>
                   </div>
@@ -247,7 +254,7 @@ export function SessionDetailPanel({
                           className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] border bg-background py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
                         >
                           <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-muted-foreground">User:</span>
+                          <span className="text-muted-foreground">{t("sessionsDetail.user")}</span>
                           <span className="font-medium">{userId}</span>
                           <ChevronRight className="h-3 w-3 text-muted-foreground" />
                         </button>
@@ -261,21 +268,25 @@ export function SessionDetailPanel({
               <div className="flex-1 overflow-auto">
                 {checking ? (
                   <div className="flex h-64 items-center justify-center">
-                    <LoadingState label="Loading session..." />
+                    <LoadingState label={t("sessionsDetail.loading")} />
                   </div>
                 ) : error ? (
                   <div className="flex h-64 flex-col items-center justify-center gap-3">
-                    <p className="text-[13px] text-destructive">Error loading session</p>
+                    <p className="text-[13px] text-destructive">{t("sessionsDetail.error")}</p>
                   </div>
                 ) : !data ? (
                   <div className="flex h-64 flex-col items-center justify-center gap-3">
                     <DOMAIN_ICONS.session className="h-8 w-8 text-muted-foreground" />
-                    <p className="text-[13px] text-muted-foreground">Session not found</p>
+                    <p className="text-[13px] text-muted-foreground">
+                      {t("sessionsDetail.notFound")}
+                    </p>
                   </div>
                 ) : data.traces.length === 0 ? (
                   <div className="flex h-64 flex-col items-center justify-center gap-3">
                     <DOMAIN_ICONS.session className="h-8 w-8 text-muted-foreground" />
-                    <p className="text-[13px] text-muted-foreground">No traces in this session</p>
+                    <p className="text-[13px] text-muted-foreground">
+                      {t("sessionsDetail.noTraces")}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3">

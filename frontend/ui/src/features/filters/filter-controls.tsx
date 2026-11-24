@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { useT } from "@/lib/i18n/provider";
 import { useMetadataKeys } from "./hooks";
 import { MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "./predicate";
 
@@ -61,12 +62,13 @@ export function FilterControlSizeProvider({
 
 /** The disabled value input a filter row parks in until a field is picked. */
 export function ParkedValueField() {
+  const t = useT();
   return (
     <Input
       disabled
       readOnly
       value=""
-      placeholder="Enter value"
+      placeholder={t("componentsFilters.enterValue")}
       className={cn("h-7 min-w-0 flex-1 rounded-md", useTextSize())}
     />
   );
@@ -187,7 +189,7 @@ export function ValueDropdown({
   value,
   options,
   onValue,
-  placeholder = "Enter value",
+  placeholder,
   triggerClassName,
 }: {
   value: string;
@@ -196,12 +198,13 @@ export function ValueDropdown({
   placeholder?: string;
   triggerClassName?: string;
 }) {
+  const t = useT();
   const textSize = useTextSize();
   return (
     <Dropdown
       trigger={
         <span className={cn("truncate", !value && "text-muted-foreground")}>
-          {value || placeholder}
+          {value || (placeholder ?? t("componentsFilters.enterValue"))}
         </span>
       }
       triggerClassName={cn("min-w-0 flex-1", triggerClassName)}
@@ -209,7 +212,7 @@ export function ValueDropdown({
     >
       {(close) =>
         options.length === 0 ? (
-          <div className={cn(NO_OPTIONS_CLASS, textSize)}>No options</div>
+          <div className={cn(NO_OPTIONS_CLASS, textSize)}>{t("componentsFilters.noOptions")}</div>
         ) : (
           options.map((opt) => (
             <DropdownItem
@@ -241,7 +244,7 @@ export function MultiValueDropdown({
   values,
   options,
   onValues,
-  placeholder = "Select values",
+  placeholder,
   triggerClassName,
 }: {
   values: readonly string[];
@@ -250,13 +253,16 @@ export function MultiValueDropdown({
   placeholder?: string;
   triggerClassName?: string;
 }) {
+  const t = useT();
   const textSize = useTextSize();
   const selected = new Set(values);
   return (
     <Dropdown
       trigger={
         <span className={cn("truncate", values.length === 0 && "text-muted-foreground")}>
-          {values.length > 0 ? values.join(", ") : placeholder}
+          {values.length > 0
+            ? values.join(", ")
+            : (placeholder ?? t("componentsFilters.selectValues"))}
         </span>
       }
       triggerClassName={cn("min-w-0 flex-1", triggerClassName)}
@@ -264,7 +270,7 @@ export function MultiValueDropdown({
     >
       {() =>
         options.length === 0 ? (
-          <div className={cn(NO_OPTIONS_CLASS, textSize)}>No options</div>
+          <div className={cn(NO_OPTIONS_CLASS, textSize)}>{t("componentsFilters.noOptions")}</div>
         ) : (
           options.map((opt) => {
             const on = selected.has(opt.value);
@@ -324,6 +330,7 @@ export function MetadataKeyCombobox({
   // as it is edited has nothing to submit and passes none.
   onEnter?: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const textSize = useTextSize();
   const { keys } = useMetadataKeys(projectId, startAfter, endBefore, true);
@@ -342,8 +349,8 @@ export function MetadataKeyCombobox({
       <PopoverAnchor asChild>
         <div className="flex h-7 min-w-0 flex-1 items-center rounded-md border border-input bg-transparent px-2 focus-within:ring-1 focus-within:ring-ring">
           <input
-            aria-label="metadata key"
-            placeholder="Key"
+            aria-label={t("componentsFilters.metadataKey")}
+            placeholder={t("componentsFilters.keyPlaceholder")}
             maxLength={MAX_KEY_LENGTH}
             value={value}
             onChange={(e) => {
@@ -395,7 +402,7 @@ export function MetadataKeyCombobox({
           // too, and the metadata control should not read as a louder or more alarming
           // surface than the filter beside it. An empty list blocks nothing — suggestions
           // only save typing, and any key typed still filters.
-          <div className={cn(NO_OPTIONS_CLASS, textSize)}>No options</div>
+          <div className={cn(NO_OPTIONS_CLASS, textSize)}>{t("componentsFilters.noOptions")}</div>
         )}
       </PopoverContent>
     </Popover>
@@ -417,6 +424,7 @@ export function FieldDropdown({
   valueKey: string | null;
   onPick: (key: string) => void;
 }) {
+  const t = useT();
   const selected = valueKey ? (options.find((o) => o.key === valueKey) ?? null) : null;
   const Icon = selected ? (selected.icon ?? DOMAIN_ICONS.fallback) : null;
   return (
@@ -424,7 +432,9 @@ export function FieldDropdown({
       trigger={
         <span className="flex min-w-0 items-center gap-1.5">
           {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-          <span className="truncate">{selected ? selected.label : "Field"}</span>
+          <span className="truncate">
+            {selected ? selected.label : t("componentsFilters.field")}
+          </span>
         </span>
       }
       triggerClassName="w-[8.5rem] shrink-0"

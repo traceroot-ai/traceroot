@@ -5,8 +5,10 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { AlertForm } from "@/features/alerts/components/alert-form";
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
+import { useT } from "@/lib/i18n/provider";
 
 export default function NewAlertPage() {
+  const t = useT();
   const params = useParams();
   const projectId = params.projectId as string;
   const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
@@ -16,7 +18,11 @@ export default function NewAlertPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <PageBackHeader backHref={listHref} backLabel="Alerts" title="New alert" />
+        <PageBackHeader
+          backHref={listHref}
+          backLabel={t("nav.alerts")}
+          title={t("alertsList.newAlert")}
+        />
 
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           <AlertForm projectId={projectId} />

@@ -15,21 +15,20 @@ import {
 import type { UsageStats, AIUsageByModel } from "@/types/api";
 import { formatRcaQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
 import { PricingDialog } from "./PricingDialog";
+import { useT } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n/translate";
 
 function formatCost(cost: number): string {
   if (cost < 0.01) return cost > 0 ? "< $0.01" : "$0.00";
   return `$${cost.toFixed(2)}`;
 }
 
-function formatTokens(input: number, output: number): string {
-  return `${(input + output).toLocaleString()} tokens`;
-}
-
-function formatModelUsage(row: AIUsageByModel): string {
-  const cost = formatCost(row.cost);
-  return row.isByok
-    ? `${formatTokens(row.inputTokens, row.outputTokens)} · ${cost} (not billed)`
-    : `${formatTokens(row.inputTokens, row.outputTokens)} · ${cost}`;
+function formatModelUsage(row: AIUsageByModel, t: Translate): string {
+  const values = {
+    count: (row.inputTokens + row.outputTokens).toLocaleString(),
+    cost: formatCost(row.cost),
+  };
+  return row.isByok ? t("billing.modelUsageByok", values) : t("billing.modelUsage", values);
 }
 
 function isAttributedModelUsage(row: AIUsageByModel): boolean {
@@ -59,6 +58,7 @@ function UsageSection({
   systemOutputTokens,
   byModel,
 }: UsageSectionProps) {
+  const t = useT();
   const attributedByModel = byModel?.filter(isAttributedModelUsage);
 
   return (
@@ -77,12 +77,12 @@ function UsageSection({
 
         <div>
           <div className="flex items-baseline justify-between">
-            <p className="text-[13px] font-medium">Internal models</p>
+            <p className="text-[13px] font-medium">{t("billing.internalModels")}</p>
             <span className="text-[13px] font-medium tabular-nums">{formatCost(systemCost)}</span>
           </div>
           <p className="text-[12px] text-muted-foreground">{systemHelper}</p>
           <div className="mt-2 flex justify-between text-[12px] text-muted-foreground">
-            <span>Input / Output</span>
+            <span>{t("billing.inputOutput")}</span>
             <span>
               {systemInputTokens.toLocaleString()} / {systemOutputTokens.toLocaleString()}
             </span>
@@ -91,7 +91,7 @@ function UsageSection({
 
         {attributedByModel && attributedByModel.length > 0 && (
           <div className="-mx-4 border-t px-4 pt-3">
-            <p className="text-[12px] font-medium text-muted-foreground">By model</p>
+            <p className="text-[12px] font-medium text-muted-foreground">{t("billing.byModel")}</p>
             <div className="mt-2 space-y-1.5 text-[12px]">
               {attributedByModel.map((row) => (
                 <div key={`${row.model}-${row.isByok}`} className="flex justify-between">
@@ -99,7 +99,7 @@ function UsageSection({
                     {row.model}
                     {row.isByok && <span className="ml-1 text-[12px] opacity-60">BYOK</span>}
                   </span>
-                  <span className="text-muted-foreground">{formatModelUsage(row)}</span>
+                  <span className="text-muted-foreground">{formatModelUsage(row, t)}</span>
                 </div>
               ))}
             </div>
@@ -125,6 +125,7 @@ export function BillingTab({
   currentUsage,
 }: BillingTabProps) {
   const searchParams = useSearchParams();
+  const t = useT();
   const upgradeIntent = searchParams.get("upgrade");
   const [showPricingDialog, setShowPricingDialog] = useState(Boolean(upgradeIntent));
   const [isLoading, setIsLoading] = useState(false);
@@ -157,7 +158,7 @@ export function BillingTab({
       const { url } = await getPortalUrl(workspaceId);
       window.location.href = url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to open billing portal");
+      setError(err instanceof Error ? err.message : t("billing.failedPortal"));
     } finally {
       setIsLoading(false);
     }
@@ -167,10 +168,8 @@ export function BillingTab({
     <div className="space-y-6">
       {/* Header */}
       <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
-        <h2 className="text-[15px] font-medium">Billing</h2>
-        <p className="text-sm text-muted-foreground">
-          Manage your subscription and billing details
-        </p>
+        <h2 className="text-[15px] font-medium">{t("settings.billing")}</h2>
+        <p className="text-sm text-muted-foreground">{t("billing.subtitle")}</p>
       </div>
 
       {/* Error Message */}
@@ -183,12 +182,13 @@ export function BillingTab({
       {/* Current Plan Section */}
       <div className="border">
         <div className="flex h-9 items-center border-b px-4">
-          <h3 className="text-[13px] font-medium">Current plan</h3>
+          <h3 className="text-[13px] font-medium">{t("billing.currentPlan")}</h3>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
-            You are currently on the{" "}
-            <span className="font-medium text-foreground">{currentPlanConfig.name}</span> plan.
+            {t("billing.onPlanBefore")}{" "}
+            <span className="font-medium text-foreground">{currentPlanConfig.name}</span>
+            {t("billing.onPlanAfter")}
           </p>
 
           {/* Cancellation Notice */}
@@ -196,11 +196,11 @@ export function BillingTab({
             <div className="mt-3 flex items-start gap-2 border border-warning-border bg-warning-soft p-3">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
               <div className="text-sm">
-                <p className="font-medium text-warning">Subscription ending</p>
+                <p className="font-medium text-warning">{t("billing.subscriptionEnding")}</p>
                 <p className="text-warning">
-                  Your subscription will be canceled on{" "}
-                  {new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString()}. You will
-                  be downgraded to the Free plan after this date.
+                  {t("billing.cancelNotice", {
+                    date: new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString(),
+                  })}
                 </p>
               </div>
             </div>
@@ -211,14 +211,16 @@ export function BillingTab({
             <div className="mt-3 flex items-start gap-2 border border-info-border bg-info-soft p-3">
               <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0 text-info" />
               <div className="text-sm">
-                <p className="font-medium text-info">Plan change scheduled</p>
+                <p className="font-medium text-info">{t("billing.planChangeScheduled")}</p>
                 <p className="text-info">
-                  Your plan will change to{" "}
+                  {t("billing.planChangeBefore")}{" "}
                   <span className="font-medium">
                     {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name ||
                       subscriptionInfo.scheduledChange.newPlan}
-                  </span>{" "}
-                  on {new Date(subscriptionInfo.scheduledChange.switchAt).toLocaleDateString()}.
+                  </span>
+                  {t("billing.planChangeAfter", {
+                    date: new Date(subscriptionInfo.scheduledChange.switchAt).toLocaleDateString(),
+                  })}
                 </p>
               </div>
             </div>
@@ -227,19 +229,20 @@ export function BillingTab({
           {/* Billing Period */}
           {subscriptionInfo?.billingPeriod && !subscriptionInfo.cancellation && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Current billing period:{" "}
-              {new Date(subscriptionInfo.billingPeriod.start).toLocaleDateString()} -{" "}
-              {new Date(subscriptionInfo.billingPeriod.end).toLocaleDateString()}
+              {t("billing.billingPeriod", {
+                start: new Date(subscriptionInfo.billingPeriod.start).toLocaleDateString(),
+                end: new Date(subscriptionInfo.billingPeriod.end).toLocaleDateString(),
+              })}
             </p>
           )}
 
           <div className="mt-3 flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(true)}>
-              Change plan
+              {t("billing.changePlan")}
             </Button>
             {hasSubscription && (
               <Button variant="ghost" size="sm" onClick={handleOpenPortal} disabled={isLoading}>
-                Manage billing <ExternalLink className="ml-1 h-3 w-3" />
+                {t("billing.manageBilling")} <ExternalLink className="ml-1 h-3 w-3" />
               </Button>
             )}
           </div>
@@ -249,15 +252,18 @@ export function BillingTab({
       {/* Event usage Section */}
       <div className="border">
         <div className="flex h-9 items-center border-b px-4">
-          <h3 className="text-[13px] font-medium">Event usage</h3>
+          <h3 className="text-[13px] font-medium">{t("billing.eventUsage")}</h3>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
             {currentPlan === PlanType.FREE
-              ? `Events used this period. Free plan includes ${eventQuota.included.toLocaleString()} events (hard cap).`
+              ? t("billing.eventsFree", { count: eventQuota.included.toLocaleString() })
               : eventQuota.included === Infinity
-                ? "Events used this billing period. Unlimited events included."
-                : `Events used this billing period. ${eventQuota.included.toLocaleString()} included, then ${eventQuota.overageLabel}.`}
+                ? t("billing.eventsUnlimited")
+                : t("billing.eventsIncluded", {
+                    count: eventQuota.included.toLocaleString(),
+                    overage: eventQuota.overageLabel,
+                  })}
           </p>
           <div className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between">
@@ -269,7 +275,7 @@ export function BillingTab({
               <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
             </div>
             <div className="-mx-4 flex justify-between border-t px-4 pt-2">
-              <span className="font-medium">Total events</span>
+              <span className="font-medium">{t("billing.totalEvents")}</span>
               <span className="font-medium">
                 {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
                 {eventQuota.included === Infinity
@@ -280,7 +286,7 @@ export function BillingTab({
             {currentUsage?.bySource && (
               <>
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Your events</span>
+                  <span>{t("billing.yourEvents")}</span>
                   <span>
                     {(
                       currentUsage.bySource.user.traces + currentUsage.bySource.user.spans
@@ -288,8 +294,8 @@ export function BillingTab({
                   </span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span title="Traces and spans written by detector scans and agent analyses traceroot ran in this project">
-                    Platform events
+                  <span title={t("billing.platformEventsTitle")}>
+                    {t("billing.platformEvents")}
                   </span>
                   <span>
                     {/* Everything that is not the customer's: total − user, so a
@@ -307,31 +313,30 @@ export function BillingTab({
           </div>
           {currentUsage?.updatedAt && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+              {t("billing.lastUpdated", {
+                time: new Date(currentUsage.updatedAt).toLocaleString(),
+              })}
             </p>
           )}
         </div>
       </div>
 
       <UsageSection
-        title="Chat usage"
-        runsLabel="Chat runs"
+        title={t("billing.chatUsage")}
+        runsLabel={t("billing.chatRuns")}
         runsValue={
           aiRunQuota.included === Infinity
-            ? `${aiUsage?.runsUsed ?? 0} (Unlimited)`
+            ? t("billing.unlimitedCount", { count: aiUsage?.runsUsed ?? 0 })
             : `${aiUsage?.runsUsed ?? 0} / ${aiRunQuota.included}`
         }
         runsHelper={
-          "Each chat request." +
-          (currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
-            ? ` Overage: ${aiRunQuota.overageLabel}.`
-            : "")
+          currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
+            ? t("billing.eachChatOverage", { label: aiRunQuota.overageLabel })
+            : t("billing.eachChat")
         }
         systemCost={aiUsage?.systemUsage.cost ?? 0}
         systemHelper={
-          currentPlan === PlanType.FREE
-            ? "Included in your plan (we pay)."
-            : "Included with runs; 1.05x markup on overage token cost."
+          currentPlan === PlanType.FREE ? t("billing.includedFree") : t("billing.includedMarkup")
         }
         systemInputTokens={aiUsage?.systemUsage.inputTokens ?? 0}
         systemOutputTokens={aiUsage?.systemUsage.outputTokens ?? 0}
@@ -339,36 +344,33 @@ export function BillingTab({
       />
 
       <UsageSection
-        title="Detector usage"
-        runsLabel="Detector runs"
+        title={t("billing.detectorUsage")}
+        runsLabel={t("billing.detectorRuns")}
         runsValue={
           detectorRunQuota.included === Infinity
             ? formatDetectorScanLabel(detectorUsage?.scansRun ?? 0)
             : `${detectorUsage?.scansRun ?? 0} / ${detectorRunQuota.included}`
         }
-        runsHelper="Each detector scan."
+        runsHelper={t("billing.eachScan")}
         systemCost={detectorUsage?.systemTokenCost ?? 0}
-        systemHelper="Usage based."
+        systemHelper={t("billing.usageBased")}
         systemInputTokens={detectorUsage?.systemInputTokens ?? 0}
         systemOutputTokens={detectorUsage?.systemOutputTokens ?? 0}
         byModel={detectorUsage?.byModel}
       />
 
       <UsageSection
-        title="Root cause analysis usage"
-        runsLabel="Root cause analysis runs"
-        runsValue={formatRcaQuotaLabel(rcaRunQuota, rcaUsage?.runsUsed ?? 0)}
+        title={t("billing.rcaUsage")}
+        runsLabel={t("billing.rcaRuns")}
+        runsValue={formatRcaQuotaLabel(rcaRunQuota, rcaUsage?.runsUsed ?? 0, t)}
         runsHelper={
-          "Triggered by detector findings." +
-          (currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
-            ? ` Overage: ${rcaRunQuota.overageLabel}.`
-            : "")
+          currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
+            ? t("billing.triggeredByOverage", { label: rcaRunQuota.overageLabel })
+            : t("billing.triggeredBy")
         }
         systemCost={rcaUsage?.systemTokenCost ?? 0}
         systemHelper={
-          currentPlan === PlanType.FREE
-            ? "Included in your plan (we pay)."
-            : "Included with runs; 1.05x markup on overage token cost."
+          currentPlan === PlanType.FREE ? t("billing.includedFree") : t("billing.includedMarkup")
         }
         systemInputTokens={rcaUsage?.systemInputTokens ?? 0}
         systemOutputTokens={rcaUsage?.systemOutputTokens ?? 0}

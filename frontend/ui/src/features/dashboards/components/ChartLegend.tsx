@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -39,6 +40,7 @@ export function ChartLegend({
   hoveredKey: string | null;
   onHoverKey: (key: string | null) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   // Closing can unmount a hovered row without its mouseleave firing — clear
@@ -57,7 +59,7 @@ export function ChartLegend({
       <div role="listitem" className="flex w-full items-center gap-2 rounded px-1 py-0.5">
         <div className="h-2.5 w-2.5 shrink-0" />
         <div className="flex min-w-0 flex-1 items-center justify-between gap-x-3 leading-tight">
-          <span className="truncate text-muted-foreground">Total</span>
+          <span className="truncate text-muted-foreground">{t("dashboardsWidget.total")}</span>
           <span className="shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground">
             {format(total)}
           </span>
@@ -92,7 +94,11 @@ export function ChartLegend({
     <Popover open={open} onOpenChange={handleOpenChange}>
       <div className="shrink-0 pt-1 text-[12px]">
         {/* Tile rows hide from assistive tech while the popover mirrors them. */}
-        <div role="list" aria-label="Chart legend" aria-hidden={open || undefined}>
+        <div
+          role="list"
+          aria-label={t("dashboardsWidget.legendAria")}
+          aria-hidden={open || undefined}
+        >
           {totalRow}
           {shown.map(row)}
         </div>
@@ -105,7 +111,9 @@ export function ChartLegend({
               type="button"
               className="rounded px-1 py-0.5 text-[12px] text-muted-foreground hover:text-foreground"
             >
-              {open ? "show less" : `${hiddenCount} more`}
+              {open
+                ? t("dashboardsWidget.showLess")
+                : t("dashboardsWidget.more", { count: hiddenCount })}
             </button>
           </PopoverTrigger>
         )}
@@ -114,7 +122,7 @@ export function ChartLegend({
         align="start"
         className="max-h-64 w-56 overflow-auto p-1 text-[12px] shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
-        <div role="list" aria-label="Chart legend (all series)">
+        <div role="list" aria-label={t("dashboardsWidget.legendAllAria")}>
           {totalRow}
           {sorted.map(row)}
         </div>

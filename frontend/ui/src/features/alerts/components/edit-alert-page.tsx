@@ -7,6 +7,7 @@ import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader"
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { AlertForm, type AlertDraft } from "./alert-form";
 import { isAlertGone, useAlert, type AlertRecord } from "../hooks/use-alerts";
+import { useT } from "@/lib/i18n/provider";
 
 interface EditAlertPageProps {
   projectId: string;
@@ -34,6 +35,7 @@ function toDraft(alert: AlertRecord): AlertDraft {
  * metric the user is not editing.
  */
 export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
+  const t = useT();
   const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const { data: alert, isPending, error } = useAlert(projectId, alertId);
 
@@ -44,24 +46,24 @@ export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <PageBackHeader
           backHref={listHref}
-          backLabel="Alerts"
-          title={alert ? `Edit Alert - ${alert.name}` : "Edit Alert"}
+          backLabel={t("nav.alerts")}
+          title={
+            alert ? t("alertsForm.editTitleNamed", { name: alert.name }) : t("alertsForm.editTitle")
+          }
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           {isPending ? (
             <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading alert..." />
+              <LoadingState label={t("alertsForm.loadingAlert")} />
             </div>
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">
-                {isAlertGone(error) ? "Alert not found" : "Alert could not be edited"}
+                {isAlertGone(error) ? t("alertsForm.notFound") : t("alertsForm.cannotEdit")}
               </p>
               <p className="max-w-md text-center text-[12px] text-muted-foreground">
-                {isAlertGone(error)
-                  ? "This alert doesn't exist or has been deleted."
-                  : error.message}
+                {isAlertGone(error) ? t("alertsForm.notFoundText") : error.message}
               </p>
             </div>
           ) : (

@@ -9,7 +9,11 @@ import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
-import { normalizeTriggerConditions, validateTriggerConditions } from "../trigger-fields";
+import {
+  normalizeTriggerConditions,
+  translateTriggerError,
+  validateTriggerConditions,
+} from "../trigger-fields";
 import { SignalsCard } from "./signals-card";
 import {
   detectorToFormValues,
@@ -23,6 +27,7 @@ import {
 } from "@/features/ai-assistant/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/lib/i18n/provider";
 
 interface DetectorPanelProps {
   detectorId: string;
@@ -43,6 +48,7 @@ export function DetectorPanel({
   canNavigateUp,
   canNavigateDown,
 }: DetectorPanelProps) {
+  const t = useT();
   const { data: detector } = useDetector(projectId, detectorId);
   const { data: project } = useProject(projectId);
 
@@ -181,7 +187,7 @@ export function DetectorPanel({
       <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <DOMAIN_ICONS.detector className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-[13px] font-medium">Detector</span>
+          <span className="text-[13px] font-medium">{t("detectorsForm.panelTitle")}</span>
           <span className="truncate text-[13px] text-muted-foreground">
             {detector?.name ?? detectorId}
           </span>
@@ -189,7 +195,7 @@ export function DetectorPanel({
             type="button"
             onClick={copyId}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[12px] text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
-            title="Copy detector ID"
+            title={t("detectorsForm.copyId")}
           >
             {detectorId}
             {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
@@ -204,7 +210,7 @@ export function DetectorPanel({
                 onClick={() => onNavigate("up")}
                 disabled={!canNavigateUp}
                 className="h-7 w-7 p-0"
-                title="Previous detector"
+                title={t("detectorsForm.previous")}
               >
                 <ArrowUp className="h-4 w-4" />
               </Button>
@@ -214,7 +220,7 @@ export function DetectorPanel({
                 onClick={() => onNavigate("down")}
                 disabled={!canNavigateDown}
                 className="h-7 w-7 p-0"
-                title="Next detector"
+                title={t("detectorsForm.next")}
               >
                 <ArrowDown className="h-4 w-4" />
               </Button>
@@ -231,7 +237,7 @@ export function DetectorPanel({
         {/* Name */}
         <div className="border border-border">
           <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Name</span>
+            <span className="text-[13px] font-medium text-foreground">{t("common.name")}</span>
           </div>
           <div className="p-3">
             <Input
@@ -245,7 +251,9 @@ export function DetectorPanel({
         {/* Models */}
         <div className="border border-border">
           <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Model</span>
+            <span className="text-[13px] font-medium text-foreground">
+              {t("detectorsForm.model")}
+            </span>
           </div>
           {/* Detector Model — per-detector, editable */}
           <div className="p-3">
@@ -256,16 +264,16 @@ export function DetectorPanel({
               defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
               allowDecisionModels
             />
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              Used to evaluate each trace for this detector.
-            </p>
+            <p className="mt-1 text-[12px] text-muted-foreground">{t("detectorsForm.modelHint")}</p>
           </div>
         </div>
 
         {/* Prompt */}
         <div className="border border-border">
           <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Prompt</span>
+            <span className="text-[13px] font-medium text-foreground">
+              {t("detectorsForm.prompt")}
+            </span>
           </div>
           <div className="p-3">
             <textarea
@@ -290,7 +298,9 @@ export function DetectorPanel({
         {/* Sampling */}
         <div className="border border-border">
           <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Sampling</span>
+            <span className="text-[13px] font-medium text-foreground">
+              {t("detectorsForm.sampling")}
+            </span>
           </div>
           <div className="flex items-center gap-3 p-3">
             <input
@@ -321,10 +331,12 @@ export function DetectorPanel({
         {/* Save / Cancel */}
         <div className="flex items-center justify-end gap-2 pt-1">
           {conditionsError && (
-            <span className="text-[12px] text-destructive">{conditionsError}</span>
+            <span className="text-[12px] text-destructive">
+              {translateTriggerError(t, conditionsError)}
+            </span>
           )}
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             size="sm"
@@ -337,7 +349,7 @@ export function DetectorPanel({
             }
             className="h-7 text-[12px]"
           >
-            {updateMutation.isPending ? "Saving..." : "Save"}
+            {updateMutation.isPending ? t("common.saving") : t("common.save")}
           </Button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { ContentRenderer } from "./ContentRenderer";
 import { AttachmentSourceContext, type AttachmentSource } from "./inline-media";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * A collapsible span I/O / metadata section: a title, an optional copy button, and
@@ -27,12 +28,13 @@ export function TraceIOSection({
   /** The span the content belongs to, so image references in it can load. */
   attachmentSource?: AttachmentSource | null;
 }) {
+  const t = useT();
   return (
     <ExpandableSection title={title} defaultOpen={defaultOpen} onCopy={onCopy}>
       {loading ? (
         <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Loading…
+          {t("tracesSpan.loading")}
         </div>
       ) : (
         <AttachmentSourceContext.Provider value={attachmentSource}>

@@ -13,6 +13,24 @@ import {
   isOptionLocked,
   type DateFilterOption,
 } from "@/lib/date-filter";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+
+// The option labels live with the options in lib/date-filter; this maps each option id to the
+// translatable copy of the same text.
+const OPTION_LABEL_KEYS: Record<string, MessageKey> = {
+  "30m": "componentsDateFilter.last30m",
+  "1h": "componentsDateFilter.last1h",
+  "3h": "componentsDateFilter.last3h",
+  "6h": "componentsDateFilter.last6h",
+  "1d": "componentsDateFilter.last1d",
+  "7d": "componentsDateFilter.last7d",
+  "14d": "componentsDateFilter.last14d",
+  "30d": "componentsDateFilter.last30d",
+  "60d": "componentsDateFilter.last60d",
+  "90d": "componentsDateFilter.last90d",
+  custom: "componentsDateFilter.custom",
+};
 
 // The one date-filter control: preset list + custom range picker in a popover.
 // Extracted from SearchFilterBar so every windowed surface (trace list,
@@ -36,14 +54,20 @@ export function DateFilterSelect({
   onUpgradeClick?: () => void;
   className?: string;
 }) {
+  const t = useT();
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+
+  const optionLabel = (option: DateFilterOption) => {
+    const key = OPTION_LABEL_KEYS[option.id];
+    return key ? t(key) : option.label;
+  };
 
   const getDateFilterLabel = () => {
     if (dateFilter.isCustom && customStartDate && customEndDate) {
       return formatDateRange(customStartDate, customEndDate);
     }
-    return dateFilter.label;
+    return optionLabel(dateFilter);
   };
 
   const handleCustomDateApply = (startDate: Date | null, endDate: Date | null) => {
@@ -117,7 +141,7 @@ export function DateFilterSelect({
                     {option.isCustom && !locked && (
                       <Calendar className="h-3 w-3 text-muted-foreground" />
                     )}
-                    <span className="flex-1">{option.label}</span>
+                    <span className="flex-1">{optionLabel(option)}</span>
                     {locked && <Lock className="h-3 w-3 text-muted-foreground" />}
                   </button>
                 );
@@ -130,7 +154,7 @@ export function DateFilterSelect({
                   <Tooltip key={option.id}>
                     <TooltipTrigger asChild>{row}</TooltipTrigger>
                     <TooltipContent side="left" sideOffset={8}>
-                      {retentionDays}-day retention limit · click to upgrade
+                      {t("componentsDateFilter.retentionLimit", { days: retentionDays ?? "" })}
                     </TooltipContent>
                   </Tooltip>
                 );

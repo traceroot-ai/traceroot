@@ -26,6 +26,7 @@ import {
 import { spanIOQueryKey, SPAN_IO_STALE_TIME_MS } from "../hooks";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { SpanTreeConnector } from "./SpanTreeConnector";
+import { useT } from "@/lib/i18n/provider";
 
 const ROW_HEIGHT = TREE_LAYOUT.ROW_HEIGHT;
 
@@ -138,6 +139,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
   },
   ref,
 ) {
+  const t = useT();
   // Enrich with placeholder spans for any missing ancestors — handles both
   // live-streaming gaps (parent not yet arrived) and permanently dropped spans.
   const spans = useMemo(() => enrichSpansWithPending(trace.spans), [trace.spans]);
@@ -374,7 +376,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                 {/* Error badge stays outside the @container to guarantee it is always visible */}
                 {span.status === SpanStatus.ERROR && (
                   <span className="shrink-0 whitespace-nowrap rounded bg-danger-soft px-1 py-0.5 text-[12px] font-medium text-danger">
-                    ERROR
+                    {t("tracesSpan.errorBadge")}
                   </span>
                 )}
 

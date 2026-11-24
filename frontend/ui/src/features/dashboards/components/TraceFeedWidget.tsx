@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
@@ -44,6 +45,7 @@ function fmtTime(iso: string): string {
 
 export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceFeedWidgetProps) {
   const router = useRouter();
+  const t = useT();
   const limit = spec.limit ?? 10;
   const filters = (spec.filters ?? []).filter(isValidPredicate);
   const { user, sessionReady } = useTraceApiUser();
@@ -78,16 +80,16 @@ export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceF
   // auth session is still resolving the query is disabled — not fetching — and
   // isLoading would fall through to the misleading "No traces" empty state.
   if (isPending) {
-    return <p className="text-[11.5px] text-muted-foreground">Loading…</p>;
+    return <p className="text-[11.5px] text-muted-foreground">{t("dashboardsDetail.loading")}</p>;
   }
   if (isError) {
-    return <p className="text-[11.5px] text-danger">Failed to load traces</p>;
+    return <p className="text-[11.5px] text-danger">{t("dashboardsWidget.loadTracesFailed")}</p>;
   }
 
   const traces = data?.data ?? [];
 
   if (traces.length === 0) {
-    return <p className="text-[11.5px] text-muted-foreground">No traces in this time range</p>;
+    return <p className="text-[11.5px] text-muted-foreground">{t("dashboardsWidget.noTraces")}</p>;
   }
 
   return (
@@ -95,11 +97,11 @@ export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceF
       <table className="w-full text-[11.5px]">
         <thead>
           <tr className="text-left text-[12px] text-muted-foreground">
-            <th className="pb-1.5 pr-3 font-medium">Timestamp</th>
-            <th className="pb-1.5 pr-3 font-medium">Name</th>
-            <th className="pb-1.5 pr-3 font-medium">Errors</th>
-            <th className="pb-1.5 pr-3 font-medium">Cost</th>
-            <th className="pb-1.5 font-medium">Latency</th>
+            <th className="pb-1.5 pr-3 font-medium">{t("dashboardsWidget.colTimestamp")}</th>
+            <th className="pb-1.5 pr-3 font-medium">{t("common.name")}</th>
+            <th className="pb-1.5 pr-3 font-medium">{t("dashboardsWidget.colErrors")}</th>
+            <th className="pb-1.5 pr-3 font-medium">{t("dashboardsWidget.colCost")}</th>
+            <th className="pb-1.5 font-medium">{t("dashboardsWidget.colLatency")}</th>
           </tr>
         </thead>
         <tbody>

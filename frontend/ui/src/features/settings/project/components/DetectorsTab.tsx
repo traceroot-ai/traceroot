@@ -27,6 +27,7 @@ import {
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
 import { AlertChannelsEditor } from "@/features/detectors/components/alert-channels-editor";
+import { useT } from "@/lib/i18n/provider";
 
 interface DetectorsTabProps {
   projectId: string;
@@ -34,6 +35,7 @@ interface DetectorsTabProps {
 
 export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const queryClient = useQueryClient();
+  const t = useT();
   const { data: project, isLoading } = useProject(projectId);
   const { data: slack } = useSlackStatus(project?.workspace_id);
 
@@ -109,19 +111,19 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const canSave = !!project;
 
   if (isLoading) {
-    return <div className="text-[13px] text-muted-foreground">Loading...</div>;
+    return <div className="text-[13px] text-muted-foreground">{t("shellCommon.loading")}</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
-        <h2 className="text-[15px] font-medium">Detectors</h2>
-        <p className="text-[13px] text-muted-foreground">Settings shared across all detectors.</p>
+        <h2 className="text-[15px] font-medium">{t("settings.detectors")}</h2>
+        <p className="text-[13px] text-muted-foreground">{t("detectorSettings.subtitle")}</p>
       </div>
 
       <div className="border">
         <div className="flex h-9 items-center border-b border-border px-4">
-          <h3 className="text-[13px] font-medium">Agent model</h3>
+          <h3 className="text-[13px] font-medium">{t("detectorSettings.agentModel")}</h3>
         </div>
         <div className="px-4 py-3">
           <div className="max-w-xs">
@@ -137,7 +139,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             />
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            Used for deep analysis when a finding is triggered. Shared across all detectors.
+            {t("detectorSettings.agentModelHint")}
           </p>
           <Button
             size="sm"
@@ -145,27 +147,27 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             onClick={() => modelMutation.mutate(agentModelSelection)}
             disabled={!canSave || modelMutation.isPending || !isModelDirty}
           >
-            {modelMutation.isPending ? "Saving..." : "Save"}
+            {modelMutation.isPending ? t("common.saving") : t("common.save")}
           </Button>
         </div>
       </div>
 
       <div className="border">
         <div className="flex h-9 items-center border-b border-border px-4">
-          <h3 className="text-[13px] font-medium">Notifications</h3>
+          <h3 className="text-[13px] font-medium">{t("detectorSettings.notifications")}</h3>
         </div>
 
         {/* Email subsection */}
         <div className="px-4 py-3">
           <div className="flex items-center gap-1.5">
             <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-            <h4 className="text-[13px] font-medium">Email</h4>
+            <h4 className="text-[13px] font-medium">{t("detectorSettings.email")}</h4>
           </div>
           <div className="mt-2">
             <AlertChannelsEditor emailAddresses={emailAddresses} onChange={setEmailAddresses} />
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            New and reopened signals are batched into one email per alert window.
+            {t("detectorSettings.emailHint")}
           </p>
           <Button
             size="sm"
@@ -173,7 +175,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             onClick={() => emailsMutation.mutate(emailAddresses)}
             disabled={!canSave || emailsMutation.isPending || !isEmailsDirty}
           >
-            {emailsMutation.isPending ? "Saving..." : "Save"}
+            {emailsMutation.isPending ? t("common.saving") : t("common.save")}
           </Button>
         </div>
 
@@ -186,11 +188,16 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           <p className="mt-2 text-[12px] text-muted-foreground">
             {slack?.connected ? (
               <>
-                Connected to <span className="font-medium text-foreground">{slack.teamName}</span>
-                {slack.channel ? <> · #{slack.channel.name}</> : <> · No channel selected</>}
+                {t("detectorSettings.connectedTo")}{" "}
+                <span className="font-medium text-foreground">{slack.teamName}</span>
+                {slack.channel ? (
+                  <> · #{slack.channel.name}</>
+                ) : (
+                  <> · {t("detectorSettings.noChannel")}</>
+                )}
               </>
             ) : (
-              <>Not connected.</>
+              <>{t("detectorSettings.notConnected")}</>
             )}
           </p>
           {project?.workspace_id && (
@@ -198,7 +205,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
               href={`/workspaces/${project.workspace_id}/settings/integrations`}
               className="mt-3 inline-flex h-7 min-w-[5.5rem] items-center justify-center gap-1 rounded-[2px] bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              {slack?.connected ? "Manage" : "Connect"}
+              {slack?.connected ? t("detectorSettings.manage") : t("detectorSettings.connect")}
             </Link>
           )}
         </div>
@@ -207,33 +214,33 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         <div className="border-t border-border px-4 py-3">
           <div className="flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-            <h4 className="text-[13px] font-medium">Alert window</h4>
+            <h4 className="text-[13px] font-medium">{t("detectorSettings.alertWindow")}</h4>
           </div>
           <div className="mt-2 max-w-xs">
             <Select value={alertWindow} onValueChange={(v) => setAlertWindow(v as AlertWindow)}>
-              <SelectTrigger aria-label="window">
+              <SelectTrigger aria-label={t("detectorSettings.windowAria")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
                   <SelectItem key={w} value={w}>
-                    {`Every ${w}`}
+                    {t("detectorSettings.every", { window: w })}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            New and reopened signals in each window are sent as one notification.
+            {t("detectorSettings.windowHint")}
           </p>
           <Button
             size="sm"
             className="mt-3 min-w-[5.5rem]"
-            aria-label="Save alert window"
+            aria-label={t("detectorSettings.saveWindow")}
             onClick={() => windowMutation.mutate(alertWindow)}
             disabled={!canSave || windowMutation.isPending || !isWindowDirty}
           >
-            {windowMutation.isPending ? "Saving..." : "Save"}
+            {windowMutation.isPending ? t("common.saving") : t("common.save")}
           </Button>
         </div>
       </div>

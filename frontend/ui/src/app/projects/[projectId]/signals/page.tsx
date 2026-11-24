@@ -23,9 +23,11 @@ import { useSignalSetup, useSignals } from "@/ee/features/signals/hooks";
 import { SignalsEmptyState } from "@/ee/features/signals/components/signals-empty-state";
 import { Button } from "@/components/ui/button";
 import { SignalDetailPanel } from "@/ee/features/signals/components/signal-detail-panel";
-import { STATUS_LABELS } from "@/ee/features/signals/components/signal-status-control";
+import { STATUS_LABEL_KEYS } from "@/ee/features/signals/components/signal-status-control";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import { buildUrlWithFilters, formatDate, cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n/translate";
 
 /** The list opens on open signals; removing the chip sticks (see useUrlFilters). */
 const SIGNALS_DEFAULT_FILTERS: Predicate[] = [{ field: "status", op: "in", value: ["open"] }];
@@ -33,34 +35,34 @@ const SIGNALS_DEFAULT_FILTERS: Predicate[] = [{ field: "status", op: "in", value
 const SIGNALS_DEFAULT_DATE_FILTER_ID = "7d";
 
 /** The filter chips of this list; every value is typed or picked, none is looked up in traces. */
-function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
+function signalFilterFields(detectorNames: string[], t: Translate): FilterFieldDef[] {
   const field = (def: Omit<FilterFieldDef, "level" | "enum_values"> & { enum_values?: string[] }) =>
     ({ level: "SIGNAL", enum_values: [], ...def }) as FilterFieldDef;
   return [
     field({
       field: "signal_id",
-      label: "Signal ID",
+      label: t("signalsList.signalId"),
       type: "text",
       operators: ["eq"],
       value_source: "free_text",
     }),
     field({
       field: "title",
-      label: "Signal name",
+      label: t("signalsList.signalName"),
       type: "text",
       operators: ["contains"],
       value_source: "free_text",
     }),
     field({
       field: "detector_id",
-      label: "Detector ID",
+      label: t("signalsList.detectorId"),
       type: "text",
       operators: ["eq"],
       value_source: "free_text",
     }),
     field({
       field: "detector",
-      label: "Detector name",
+      label: t("signalsList.detectorName"),
       type: "categorical",
       operators: ["in"],
       value_source: "static_enum",
@@ -68,7 +70,7 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
     }),
     field({
       field: "status",
-      label: "Status",
+      label: t("signalsList.status"),
       type: "categorical",
       operators: ["in"],
       value_source: "static_enum",
@@ -82,6 +84,7 @@ const TH =
 const TD = "whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px]";
 
 export default function SignalsPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
@@ -147,8 +150,9 @@ export default function SignalsPage() {
     () =>
       signalFilterFields(
         [...new Set((detectorNames ?? []).map((d) => d.name))].sort((a, b) => a.localeCompare(b)),
+        t,
       ),
-    [detectorNames],
+    [detectorNames, t],
   );
 
   const { data, isLoading, error } = useSignals(projectId, {
@@ -177,7 +181,7 @@ export default function SignalsPage() {
       <div className="relative flex h-full text-[13px]">
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <PageHeader title="Signals" />
+          <PageHeader title={t("nav.signals")} />
           <div className="flex-1 overflow-auto">
             <SignalsEmptyState projectId={projectId} setup={setup.data} />
           </div>
@@ -191,7 +195,7 @@ export default function SignalsPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <PageHeader title="Signals" />
+        <PageHeader title={t("nav.signals")} />
 
         <SearchFilterBar
           searchInput={
@@ -200,7 +204,7 @@ export default function SignalsPage() {
               filters={state.filters}
               onFiltersChange={updateFilters}
               fields={fields}
-              placeholder="Filter signals…"
+              placeholder={t("signalsList.filterPlaceholder")}
             />
           }
           beforeDateFilter={rangePicker}
@@ -209,27 +213,27 @@ export default function SignalsPage() {
         <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading signals..." />
+              <LoadingState label={t("signalsList.loading")} />
             </div>
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading signals</p>
+              <p className="text-[13px] text-destructive">{t("signalsList.loadError")}</p>
             </div>
           ) : signals.length === 0 ? (
             setup.isPending ? (
               <div className="flex h-64 items-center justify-center">
-                <LoadingState label="Loading signals..." />
+                <LoadingState label={t("signalsList.loading")} />
               </div>
             ) : setup.error ? (
               <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <p className="text-[13px] text-muted-foreground">Unable to load signal setup.</p>
+                <p className="text-[13px] text-muted-foreground">{t("signalsList.setupError")}</p>
                 <Button variant="outline" size="sm" onClick={() => void setup.refetch()}>
-                  Try again
+                  {t("signalsList.tryAgain")}
                 </Button>
               </div>
             ) : (
               <div className="flex h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
-                <p>No signals match your filters.</p>
+                <p>{t("signalsList.noMatch")}</p>
                 {state.filters.length > 0 && (
                   <Button
                     variant="outline"
@@ -237,7 +241,7 @@ export default function SignalsPage() {
                     className="h-7 text-[12px]"
                     onClick={() => updateFilters([])}
                   >
-                    Clear filters
+                    {t("signalsList.clearFilters")}
                   </Button>
                 )}
               </div>
@@ -246,14 +250,16 @@ export default function SignalsPage() {
             <table className="data-table w-full min-w-[44rem]">
               <thead className="sticky top-0 bg-background">
                 <tr className="border-b border-border">
-                  <th className={cn(TH, "w-[150px]")}>Timestamp</th>
-                  <th className={cn(TH, "hidden xl:table-cell")}>Signal ID</th>
-                  <th className={TH}>Signal name</th>
-                  <th className={cn(TH, "hidden xl:table-cell")}>Detector ID</th>
-                  <th className={TH}>Detector name</th>
-                  <th className={cn(TH, "w-[120px] text-right")}>Affected traces</th>
+                  <th className={cn(TH, "w-[150px]")}>{t("signalsList.timestamp")}</th>
+                  <th className={cn(TH, "hidden xl:table-cell")}>{t("signalsList.signalId")}</th>
+                  <th className={TH}>{t("signalsList.signalName")}</th>
+                  <th className={cn(TH, "hidden xl:table-cell")}>{t("signalsList.detectorId")}</th>
+                  <th className={TH}>{t("signalsList.detectorName")}</th>
+                  <th className={cn(TH, "w-[120px] text-right")}>
+                    {t("signalsList.affectedTraces")}
+                  </th>
                   <th className="w-[90px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Status
+                    {t("signalsList.status")}
                   </th>
                 </tr>
               </thead>
@@ -296,7 +302,9 @@ export default function SignalsPage() {
                         href={`/projects/${projectId}/detectors/${signal.detectorId}`}
                         onClick={(e) => e.stopPropagation()}
                         className="hover:text-foreground hover:underline"
-                        aria-label={`Open detector ${signal.detectorName ?? signal.detectorId}`}
+                        aria-label={t("signalsList.openDetector", {
+                          name: signal.detectorName ?? signal.detectorId,
+                        })}
                       >
                         {signal.detectorId}
                       </Link>
@@ -307,13 +315,13 @@ export default function SignalsPage() {
                         href={tracesHref(signal.id)}
                         onClick={(e) => e.stopPropagation()}
                         className="hover:text-foreground hover:underline"
-                        aria-label={`View affected traces for ${signal.title}`}
+                        aria-label={t("signalsList.viewAffected", { title: signal.title })}
                       >
                         {signal.rangeHitCount ?? signal.hitCount}
                       </Link>
                     </td>
                     <td className="px-3 py-1.5 text-[12px] text-foreground">
-                      {STATUS_LABELS[signal.status]}
+                      {t(STATUS_LABEL_KEYS[signal.status])}
                     </td>
                   </tr>
                 ))}

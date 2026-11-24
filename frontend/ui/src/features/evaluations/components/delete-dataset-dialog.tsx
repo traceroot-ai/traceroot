@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ export function DeleteDatasetDialog({
   onConfirm,
   isDeleting,
 }: DeleteDatasetDialogProps) {
+  const t = useT();
   const [typed, setTyped] = useState("");
 
   const handleOpenChange = (open: boolean) => {
@@ -41,15 +43,18 @@ export function DeleteDatasetDialog({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
-          <DialogTitle>Delete dataset</DialogTitle>
+          <DialogTitle>{t("datasetsDelete.title")}</DialogTitle>
         </DialogHeader>
 
         <div className="mt-1 space-y-4">
           <p className="text-[12px] text-muted-foreground">
-            This deletes <span className="font-medium text-foreground">{datasetName}</span> and all{" "}
-            {caseCount} test case{caseCount === 1 ? "" : "s"} across every version. This action
-            cannot be undone. Type{" "}
-            <span className="font-medium text-foreground">{datasetName}</span> to confirm.
+            {t("datasetsDelete.textBefore")}{" "}
+            <span className="font-medium text-foreground">{datasetName}</span>{" "}
+            {caseCount === 1
+              ? t("datasetsDelete.textMiddleOne", { count: caseCount })
+              : t("datasetsDelete.textMiddleOther", { count: caseCount })}{" "}
+            <span className="font-medium text-foreground">{datasetName}</span>{" "}
+            {t("datasetsDelete.textAfter")}
           </p>
 
           <Input
@@ -62,7 +67,7 @@ export function DeleteDatasetDialog({
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -70,7 +75,7 @@ export function DeleteDatasetDialog({
               disabled={typed !== datasetName || isDeleting}
               onClick={onConfirm}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? t("evalsShared.deletingDots") : t("common.delete")}
             </Button>
           </div>
         </div>

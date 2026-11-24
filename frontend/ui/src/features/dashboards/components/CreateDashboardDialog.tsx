@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDashboardMutations } from "../hooks/use-dashboards";
@@ -27,6 +28,7 @@ export function CreateDashboardDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const router = useRouter();
+  const t = useT();
   const { createDashboard } = useDashboardMutations(projectId);
 
   // Closing discards the draft: a cancelled name or stale error must not
@@ -63,23 +65,23 @@ export function CreateDashboardDialog({
       <DialogContent>
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>Create Dashboard</DialogTitle>
-            <DialogDescription>Create a new dashboard to organize your widgets.</DialogDescription>
+            <DialogTitle>{t("dashboardsList.createTitle")}</DialogTitle>
+            <DialogDescription>{t("dashboardsList.createText")}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <Input
               autoFocus
               maxLength={DASHBOARD_NAME_MAX}
-              placeholder="Dashboard name"
+              placeholder={t("dashboardsList.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={createDashboard.isPending}
             />
             <textarea
-              aria-label="Dashboard description"
+              aria-label={t("dashboardsList.descriptionAria")}
               maxLength={DASHBOARD_DESCRIPTION_MAX}
               rows={3}
-              placeholder="Describe the purpose of this dashboard (optional)"
+              placeholder={t("dashboardsList.descriptionPlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               disabled={createDashboard.isPending}
@@ -96,10 +98,10 @@ export function CreateDashboardDialog({
               onClick={() => handleOpenChange(false)}
               disabled={createDashboard.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!name.trim() || createDashboard.isPending}>
-              {createDashboard.isPending ? "Creating..." : "Create"}
+              {createDashboard.isPending ? t("common.creating") : t("common.create")}
             </Button>
           </DialogFooter>
         </form>

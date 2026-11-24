@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { MoreVertical } from "lucide-react";
 import {
   DropdownMenu,
@@ -24,6 +25,7 @@ function QueryWidgetBody({
   range: TimeRange;
   queryOptions?: WidgetDataRefetchOptions;
 }) {
+  const t = useT();
   const spec = parseSpec(widget.spec);
 
   // Hooks cannot be conditional — pass a placeholder spec when invalid, but
@@ -44,18 +46,21 @@ function QueryWidgetBody({
   );
 
   if (!spec) {
-    return <div className="p-2 text-[12px] text-danger">Invalid widget spec — edit to fix</div>;
+    return <div className="p-2 text-[12px] text-danger">{t("dashboardsWidget.invalidSpec")}</div>;
   }
   // isPending (no data yet), not isLoading (pending AND fetching): while the
   // auth session is still resolving the query is disabled — not fetching — and
   // isLoading would fall through to a blank body on every dashboard load.
   if (isPending) {
-    return <div className="p-2 text-[12px] text-muted-foreground">Loading…</div>;
+    return (
+      <div className="p-2 text-[12px] text-muted-foreground">{t("dashboardsDetail.loading")}</div>
+    );
   }
   if (error) {
     return (
       <div className="p-2 text-[12px] text-danger">
-        Query failed{error instanceof Error ? `: ${error.message}` : ""}
+        {t("dashboardsWidget.queryFailed")}
+        {error instanceof Error ? `: ${error.message}` : ""}
       </div>
     );
   }
@@ -124,6 +129,7 @@ export function WidgetCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex h-full flex-col rounded-md border bg-background p-3">
       {/* Header: drag handle + title + menu */}
@@ -136,18 +142,20 @@ export function WidgetCard({
           <DropdownMenuTrigger asChild>
             <button
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
-              aria-label="Widget options"
+              aria-label={t("dashboardsWidget.options")}
             >
               <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {widget.type === "query" && <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>}
+            {widget.type === "query" && (
+              <DropdownMenuItem onSelect={onEdit}>{t("dashboardsList.edit")}</DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onSelect={onDelete}
               className="text-destructive focus:bg-destructive/10 focus:text-destructive"
             >
-              Delete
+              {t("common.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

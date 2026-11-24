@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Settings } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Project } from "@/types/api";
+import { useT } from "@/lib/i18n/provider";
 
 interface ProjectCardProps {
   project: Project;
@@ -14,6 +15,7 @@ interface ProjectCardProps {
  * Card component for displaying a project in the grid
  */
 export function ProjectCard({ project, isDemo = false }: ProjectCardProps) {
+  const t = useT();
   const router = useRouter();
 
   return (
@@ -36,7 +38,9 @@ export function ProjectCard({ project, isDemo = false }: ProjectCardProps) {
         </div>
         {!isDemo && (
           <div className="text-[12px] text-muted-foreground">
-            Created {new Date(project.create_time).toLocaleDateString()}
+            {t("componentsCards.createdOn", {
+              date: new Date(project.create_time).toLocaleDateString(),
+            })}
           </div>
         )}
       </CardContent>

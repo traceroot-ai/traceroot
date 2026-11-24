@@ -5,8 +5,10 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { formatRelativeTime } from "@/lib/utils";
 import { useActiveSessions, type SessionRow } from "./hooks";
 import { formatSessionAgent } from "./utils/session-label";
+import { useT } from "@/lib/i18n/provider";
 
 export function ActiveSessions() {
+  const t = useT();
   const {
     sessions,
     isLoading,
@@ -31,10 +33,8 @@ export function ActiveSessions() {
     <div className="space-y-6">
       <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-3">
-          <h2 className="text-[15px] font-medium">Active sessions</h2>
-          <p className="text-sm text-muted-foreground">
-            Browser and CLI sessions currently signed in to your account.
-          </p>
+          <h2 className="text-[15px] font-medium">{t("settings.activeSessions")}</h2>
+          <p className="text-sm text-muted-foreground">{t("activeSessions.subtitle")}</p>
         </div>
         <Button
           variant="outline"
@@ -42,7 +42,7 @@ export function ActiveSessions() {
           onClick={() => revokeOthers()}
           disabled={!hasOtherSessions || isRevokingOthers}
         >
-          {isRevokingOthers ? "Revoking..." : "Revoke all other sessions"}
+          {isRevokingOthers ? t("activeSessions.revoking") : t("activeSessions.revokeAll")}
         </Button>
       </div>
 
@@ -55,25 +55,31 @@ export function ActiveSessions() {
       <div className="border">
         {isLoading ? (
           <div className="px-3 py-4">
-            <LoadingState label="Loading sessions..." />
+            <LoadingState label={t("activeSessions.loading")} />
           </div>
         ) : isError ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">
-            Couldn&apos;t load your sessions. Try refreshing the page.
+            {t("activeSessions.loadError")}
           </div>
         ) : sessions.length === 0 ? (
-          <div className="px-3 py-3 text-[13px] text-muted-foreground">No active sessions.</div>
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">
+            {t("activeSessions.empty")}
+          </div>
         ) : (
           <table className="data-table w-full">
             <thead>
               <tr className="border-b text-left">
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Device</th>
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Created</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
-                  Last active
+                  {t("activeSessions.device")}
                 </th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
-                  IP address
+                  {t("common.created")}
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  {t("activeSessions.lastActive")}
+                </th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+                  {t("activeSessions.ipAddress")}
                 </th>
                 <th className="w-28 px-3 py-2 text-[12px] font-medium text-muted-foreground" />
               </tr>
@@ -105,13 +111,14 @@ interface SessionTableRowProps {
 }
 
 function SessionTableRow({ session, canRevoke, onRevoke, isRevoking }: SessionTableRowProps) {
+  const t = useT();
   return (
     <tr className="border-b last:border-b-0 hover:bg-muted">
       <td className="px-3 py-2">
-        {formatSessionAgent(session.userAgent)}
+        {formatSessionAgent(session.userAgent, t)}
         {session.isCurrent && (
           <span className="ml-2 border px-1.5 py-0.5 text-[12px] text-muted-foreground">
-            This device
+            {t("activeSessions.thisDevice")}
           </span>
         )}
       </td>
@@ -132,7 +139,7 @@ function SessionTableRow({ session, canRevoke, onRevoke, isRevoking }: SessionTa
             onClick={onRevoke}
             disabled={isRevoking}
           >
-            {isRevoking ? "Revoking..." : "Revoke"}
+            {isRevoking ? t("activeSessions.revoking") : t("activeSessions.revoke")}
           </Button>
         )}
       </td>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import * as React from "react";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export function DatasetActionsMenu({
   onEdit?: () => void;
   onDelete: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = React.useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -30,7 +32,7 @@ export function DatasetActionsMenu({
           // Keyboard users: Enter/Space must open THIS menu, not bubble to the row's
           // own key handler (which would open the case instead).
           onKeyDown={(e) => e.stopPropagation()}
-          aria-label="Row actions"
+          aria-label={t("evalsShared.rowActions")}
         >
           <MoreHorizontal className="h-3.5 w-3.5" />
         </Button>
@@ -46,7 +48,7 @@ export function DatasetActionsMenu({
             }}
           >
             <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-            Edit
+            {t("evalsShared.edit")}
           </button>
         )}
         <button
@@ -58,7 +60,7 @@ export function DatasetActionsMenu({
           }}
         >
           <Trash2 className="h-3.5 w-3.5" />
-          Delete
+          {t("common.delete")}
         </button>
       </PopoverContent>
     </Popover>

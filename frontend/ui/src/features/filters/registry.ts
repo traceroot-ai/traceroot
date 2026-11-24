@@ -5,6 +5,9 @@
  * this; the fallback only needs to be shape-correct, not authoritative.
  */
 
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import type { Translate } from "@/lib/i18n/translate";
+
 export interface FilterFieldDef {
   field: string;
   label: string;
@@ -166,3 +169,28 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     requires_key: true,
   },
 ];
+
+// Translatable copies of the labels above, by field. Fields left out keep their English label
+// (product terms such as trace, signal, token and metadata are not translated).
+const FIELD_LABEL_KEYS: Record<string, MessageKey> = {
+  model_name: "componentsFilters.fieldModel",
+  environment: "componentsFilters.fieldEnvironment",
+  span_kind: "componentsFilters.fieldSpanKind",
+  status: "componentsFilters.fieldStatus",
+  error_type: "componentsFilters.fieldErrorType",
+  name: "componentsFilters.fieldSpanName",
+  cost: "componentsFilters.fieldCost",
+  duration_ms: "componentsFilters.fieldLatency",
+  errors: "componentsFilters.fieldErrors",
+};
+
+/**
+ * A field's label in the visitor's language. Only a label that still reads as the registry's
+ * own is translated, so a caller's custom label for the same field is shown as given.
+ */
+export function filterFieldLabel(def: Pick<FilterFieldDef, "field" | "label">, t: Translate) {
+  const key = FIELD_LABEL_KEYS[def.field];
+  if (!key) return def.label;
+  const known = STATIC_FILTER_FIELDS.find((f) => f.field === def.field);
+  return known?.label === def.label ? t(key) : def.label;
+}

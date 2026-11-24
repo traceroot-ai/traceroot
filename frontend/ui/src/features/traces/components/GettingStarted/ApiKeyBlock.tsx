@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { createAccessKey } from "@/lib/api";
 import { ImpersonationError } from "@/lib/api/errors";
+import { useT } from "@/lib/i18n/provider";
 
 interface ApiKeyBlockProps {
   projectId: string;
@@ -14,6 +15,7 @@ interface ApiKeyBlockProps {
 
 export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
   const queryClient = useQueryClient();
+  const t = useT();
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,9 +31,7 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
     },
     onError: (error) => {
       setError(
-        error instanceof ImpersonationError
-          ? error.message
-          : "Failed to generate key. Please try again.",
+        error instanceof ImpersonationError ? error.message : t("tracesSetup.generateFailed"),
       );
     },
   });
@@ -43,14 +43,14 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
           <span className="text-muted-foreground">TRACEROOT_API_KEY=</span>
           <span className="flex-1 truncate text-foreground">&quot;{generatedKey}&quot;</span>
           <CopyButton
-            aria-label="Copy environment configuration"
+            aria-label={t("tracesSetup.copyEnvConfig")}
             value={`TRACEROOT_API_KEY="${generatedKey}"`}
             className="h-6 w-6 shrink-0"
           />
         </div>
         <p className="flex items-center gap-1 text-[12px] text-muted-foreground">
           <Check className="h-3 w-3 text-success" />
-          Copy this key — you won&apos;t see it again.
+          {t("tracesSetup.copyKeyWarning")}
         </p>
       </div>
     );
@@ -73,7 +73,7 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
           onClick={() => createMutation.mutate()}
           disabled={createMutation.isPending}
         >
-          {createMutation.isPending ? "Generating..." : "Generate"}
+          {createMutation.isPending ? t("tracesSetup.generating") : t("tracesSetup.generate")}
         </Button>
       </div>
       {error && <p className="text-[12px] text-destructive">{error}</p>}

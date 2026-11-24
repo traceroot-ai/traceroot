@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -20,6 +21,7 @@ import { formatDate } from "@/lib/utils";
  * list page in the house table style, one row per dashboard.
  */
 export default function DashboardIndexPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
@@ -53,13 +55,13 @@ export default function DashboardIndexPage() {
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-[13px]">
-        <span className="text-destructive">Failed to load dashboards — retry</span>
+        <span className="text-destructive">{t("dashboardsList.loadFailed")}</span>
         <button
           type="button"
           onClick={() => void refetch()}
           className="rounded border border-border px-3 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          Retry
+          {t("dashboardsList.retry")}
         </button>
       </div>
     );
@@ -69,7 +71,7 @@ export default function DashboardIndexPage() {
   if (!dashboards || autoOpening) {
     return (
       <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
-        Loading dashboards…
+        {t("dashboardsList.loading")}
       </div>
     );
   }
@@ -101,7 +103,7 @@ export default function DashboardIndexPage() {
           title="Dashboards"
           actions={
             <Button size="sm" onClick={() => setCreateOpen(true)}>
-              New dashboard
+              {t("dashboardsList.newDashboard")}
             </Button>
           }
         />
@@ -112,19 +114,19 @@ export default function DashboardIndexPage() {
             <thead className="sticky top-0 bg-background">
               <tr className="border-b border-border">
                 <th className="w-[16rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                  Name
+                  {t("common.name")}
                 </th>
                 <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                  Description
+                  {t("dashboardsList.description")}
                 </th>
                 <th className="w-[12rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                  Owner
+                  {t("dashboardsList.owner")}
                 </th>
                 <th className="w-[10rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                  Created
+                  {t("common.created")}
                 </th>
                 <th className="w-[10rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                  Updated
+                  {t("common.updated")}
                 </th>
                 <th className="col-sticky-end-head w-10 whitespace-nowrap px-2 py-1.5" />
               </tr>
@@ -133,7 +135,7 @@ export default function DashboardIndexPage() {
               {dashboards.length === 0 && (
                 <tr>
                   <td colSpan={6} className="!h-auto !p-6 text-center text-muted-foreground">
-                    No dashboards yet.
+                    {t("dashboardsList.empty")}
                   </td>
                 </tr>
               )}
@@ -173,7 +175,7 @@ export default function DashboardIndexPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          aria-label="Dashboard actions"
+                          aria-label={t("dashboardsList.actions")}
                           className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -190,18 +192,14 @@ export default function DashboardIndexPage() {
                           }}
                         >
                           <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                          Edit
+                          {t("dashboardsList.edit")}
                         </button>
                         <button
                           className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:hover:bg-transparent"
                           // The DELETE route rejects removing a project's last
                           // dashboard (the list endpoint would only reseed it).
                           disabled={dashboards.length === 1}
-                          title={
-                            dashboards.length === 1
-                              ? "Projects keep at least one dashboard"
-                              : undefined
-                          }
+                          title={dashboards.length === 1 ? t("dashboardsList.keepOne") : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             setDeleteTarget({ id: d.id, name: d.name });
@@ -209,7 +207,7 @@ export default function DashboardIndexPage() {
                           }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                          Delete
+                          {t("common.delete")}
                         </button>
                       </PopoverContent>
                     </Popover>
