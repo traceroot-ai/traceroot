@@ -100,7 +100,7 @@ def test_extra_attributes_become_metadata():
 
 
 def test_known_attributes_excluded_from_metadata():
-    """Known attributes (traceroot.span.input, gen_ai.*, etc.) do NOT leak into metadata."""
+    """Known attributes (traceroot.span.input, gen_ai.system, etc.) do NOT leak into metadata."""
     payload = _otel_payload(
         [
             _attr("traceroot.span.input", "some input"),
@@ -475,3 +475,82 @@ def test_non_object_explicit_metadata_is_stored_verbatim():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     assert spans[0]["metadata"] == "just a note"
+
+
+# Keys the transform reads into dedicated fields (span kind, model_name, input/
+# output, tool name, tokens). Everything else in the gen_ai namespace has no
+# column, so it must reach metadata instead of being dropped.
+_EXTRACTED_GEN_AI_ATTRIBUTES = (
+    "gen_ai.operation.name",
+    "gen_ai.system",
+    "gen_ai.request.model",
+    "gen_ai.input.messages",
+    "gen_ai.output.messages",
+    "gen_ai.tool.call.arguments",
+    "gen_ai.tool.call.result",
+    "gen_ai.tool.name",
+    "gen_ai.usage.input_tokens",
+    "gen_ai.usage.details.cache_read_tokens",
+)
+
+_UNEXTRACTED_GEN_AI_ATTRIBUTES = (
+    "gen_ai.request.temperature",
+    "gen_ai.request.max_tokens",
+    "gen_ai.response.model",
+    "gen_ai.response.finish_reasons",
+    "gen_ai.response.id",
+    "gen_ai.conversation.id",
+    "gen_ai.agent.name",
+    "gen_ai.tool.call.id",
+)
+
+
+def test_unextracted_gen_ai_attributes_kept_in_metadata():
+    """gen_ai.* attributes with no dedicated column land in metadata (#3229)."""
+    payload = _otel_payload(
+        [
+            _attr("gen_ai.operation.name", "chat"),
+            _attr("gen_ai.system", "openai"),
+            _attr("gen_ai.request.model", "gpt-4o"),
+            _attr("gen_ai.response.model", "gpt-4o-2024-08-06"),
+            _attr("gen_ai.request.temperature", 0.2),
+            _attr("gen_ai.request.max_tokens", 256),
+            _array_attr("gen_ai.response.finish_reasons", ["length"]),
+            _attr("gen_ai.response.id", "chatcmpl-123"),
+            _attr("gen_ai.conversation.id", "conv-42"),
+            _attr("gen_ai.agent.name", "support-bot"),
+            _attr("gen_ai.usage.input_tokens", 10),
+            _attr("gen_ai.usage.output_tokens", 256),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    meta = json.loads(spans[0]["metadata"])
+    assert meta == {
+        "gen_ai.response.model": "gpt-4o-2024-08-06",
+        "gen_ai.request.temperature": 0.2,
+        "gen_ai.request.max_tokens": 256,
+        "gen_ai.response.finish_reasons": ["length"],
+        "gen_ai.response.id": "chatcmpl-123",
+        "gen_ai.conversation.id": "conv-42",
+        "gen_ai.agent.name": "support-bot",
+    }
+    # The extracted keys still go to their columns, not to metadata.
+    assert spans[0]["model_name"] == "gpt-4o"
+    assert spans[0]["input_tokens"] == 10
+    assert spans[0]["output_tokens"] == 256
+
+
+@pytest.mark.parametrize("attribute", _EXTRACTED_GEN_AI_ATTRIBUTES)
+def test_extracted_gen_ai_attributes_are_known(attribute):
+    """gen_ai keys read into dedicated fields stay out of metadata."""
+    assert _is_known_attribute(attribute)
+
+
+@pytest.mark.parametrize("attribute", _UNEXTRACTED_GEN_AI_ATTRIBUTES)
+def test_unextracted_gen_ai_attributes_are_not_known(attribute):
+    """Guards against a blanket gen_ai prefix hiding keys that have no column."""
+    assert not _is_known_attribute(attribute), (
+        f"{attribute} has no dedicated column, so treating it as known drops it entirely"
+    )

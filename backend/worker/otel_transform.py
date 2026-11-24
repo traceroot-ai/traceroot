@@ -140,7 +140,11 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "user.id",
     "input.value",
     "output.value",
-    "gen_ai.",
+    # Token counts only: the usage block reads dozens of spellings. The other
+    # gen_ai keys read into dedicated fields are listed by exact name below, so
+    # the rest of the namespace (request parameters, response model, finish
+    # reasons, conversation and agent IDs) reaches metadata.
+    "gen_ai.usage.",
     "llm.token_count.",
     "decision.token_count.",
     "llm.model_name",
@@ -164,6 +168,14 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # -> cost column (OpenInference caller-reported total). Consumed on any
         # non-wrapper span, with or without a model name.
         "llm.cost.total",
+        "gen_ai.operation.name",  # -> span kind + aggregate-usage wrapper check
+        "gen_ai.system",  # -> LLM span-kind detection
+        "gen_ai.request.model",  # -> model_name column + LLM span-kind detection
+        "gen_ai.input.messages",  # -> input column
+        "gen_ai.output.messages",  # -> output column
+        "gen_ai.tool.call.arguments",  # -> input column + TOOL span-kind detection
+        "gen_ai.tool.call.result",  # -> output column + TOOL span-kind detection
+        "gen_ai.tool.name",  # -> span name of tool spans
     }
 )
 
