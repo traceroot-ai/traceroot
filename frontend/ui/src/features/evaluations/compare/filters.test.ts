@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PAIRED_FIXTURE } from "./__tests__/paired-fixture";
+import { ANY_NAMED_FIXTURE, PAIRED_FIXTURE } from "./__tests__/paired-fixture";
 import { fixtureResult } from "./__tests__/paired-fixture";
 import {
   addFilter,
@@ -23,7 +23,7 @@ const model = buildCompareModel(PAIRED_FIXTURE, null);
 const pairs = comparePairs(model);
 const row = (n: number) => model.cases.find((c) => c.key === `id:case-${n}`) as CaseRow;
 
-const filter = (kind: FilterKind, scorer = "any", runId = "any"): CaseFilter => ({
+const filter = (kind: FilterKind, scorer: string | null = null, runId = "any"): CaseFilter => ({
   kind,
   scorer,
   runId,
@@ -79,7 +79,7 @@ describe("selectCases — filters", () => {
   it("reads any scorer and any candidate as any of them", () => {
     // #3 scores 80% everywhere, below the baseline's 85% on every case but case 1.
     expect(only(filter("regressed", "quality"))).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 11, 12]);
-    expect(only(filter("regressed", "any", "run-2"))).toEqual([2]);
+    expect(only(filter("regressed", null, "run-2"))).toEqual([2]);
     expect(only(filter("improved"))).toEqual([1, 3, 4, 5, 11, 12]);
   });
 
@@ -94,14 +94,14 @@ describe("selectCases — filters", () => {
     expect(only(filter("errors"))).toEqual([6, 7]);
     expect(only(filter("errors", "quality", "run-2"))).toEqual([6, 7]);
     expect(only(filter("errors", "policy_violations", "run-2"))).toEqual([6]);
-    expect(only(filter("errors", "any", "run-1"))).toEqual([]);
+    expect(only(filter("errors", null, "run-1"))).toEqual([]);
   });
 
   it("picks cases some run, or the run named, has no result for", () => {
     expect(only(filter("unmatched"))).toEqual([9, 10]);
-    expect(only(filter("unmatched", "any", "run-1"))).toEqual([10]);
-    expect(only(filter("unmatched", "any", "run-2"))).toEqual([9]);
-    expect(only(filter("unmatched", "any", "run-3"))).toEqual([]);
+    expect(only(filter("unmatched", null, "run-1"))).toEqual([10]);
+    expect(only(filter("unmatched", null, "run-2"))).toEqual([9]);
+    expect(only(filter("unmatched", null, "run-3"))).toEqual([]);
   });
 
   it("keeps only the cases every filter picks", () => {
@@ -121,8 +121,8 @@ describe("selectCases — filters", () => {
     // The baseline has no change against itself.
     expect(only(filter("regressed", "quality", "run-1"))).toEqual([]);
     expect(only(filter("regressed", "quality", "run-gone"))).toEqual([]);
-    expect(only(filter("errors", "any", "run-gone"))).toEqual([]);
-    expect(only(filter("unmatched", "any", "run-gone"))).toEqual([]);
+    expect(only(filter("errors", null, "run-gone"))).toEqual([]);
+    expect(only(filter("unmatched", null, "run-gone"))).toEqual([]);
     expect(only(filter("changed", "no-such-scorer"))).toEqual([]);
   });
 
@@ -137,6 +137,20 @@ describe("selectCases — filters", () => {
 
   it("shows every case in dataset order with no search or filters", () => {
     expect(picked({})).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 10]);
+  });
+});
+
+describe("selectCases — a metric named any", () => {
+  const anyModel = buildCompareModel(ANY_NAMED_FIXTURE, "a");
+  const anyPairs = comparePairs(anyModel);
+  const count = (f: CaseFilter) =>
+    selectCases(anyModel, anyPairs, { ...NO_ANALYSIS, filters: [f] }).length;
+
+  it("filters on that metric, not on any metric", () => {
+    const named: CaseFilter = { kind: "regressed", scorer: "any", runId: "b" };
+    expect(count(named)).toBe(0);
+    expect(count({ ...named, scorer: null })).toBe(1);
+    expect(describeFilter(named, () => "#2")).toBe("Regressed · any · #2");
   });
 });
 
@@ -167,7 +181,7 @@ describe("describeFilter", () => {
   });
 
   it("leaves the metric out of an unmatched filter", () => {
-    expect(describeFilter(filter("unmatched", "any", "run-2"), tagOf)).toBe("Unmatched · #2");
+    expect(describeFilter(filter("unmatched", null, "run-2"), tagOf)).toBe("Unmatched · #2");
   });
 
   it("says when the run is no longer compared", () => {
@@ -255,9 +269,9 @@ describe("pruneForRuns", () => {
       q: "refund",
       filters: [
         filter("regressed", "quality", "run-2"),
-        filter("changed", "any", "run-2"),
-        filter("errors", "any", "run-2"),
-        filter("unmatched", "any", "run-2"),
+        filter("changed", null, "run-2"),
+        filter("errors", null, "run-2"),
+        filter("unmatched", null, "run-2"),
         filter("improved", "quality", "run-3"),
         filter("regressed"),
       ],
@@ -266,8 +280,8 @@ describe("pruneForRuns", () => {
     expect(pruneForRuns(analysis, runs, "run-2")).toEqual({
       q: "refund",
       filters: [
-        filter("errors", "any", "run-2"),
-        filter("unmatched", "any", "run-2"),
+        filter("errors", null, "run-2"),
+        filter("unmatched", null, "run-2"),
         filter("improved", "quality", "run-3"),
         filter("regressed"),
       ],
@@ -278,7 +292,7 @@ describe("pruneForRuns", () => {
   it("drops every filter and the sort on a run no longer compared", () => {
     const analysis: CaseAnalysis = {
       ...NO_ANALYSIS,
-      filters: [filter("errors", "any", "run-gone"), filter("unmatched", "any", "run-gone")],
+      filters: [filter("errors", null, "run-gone"), filter("unmatched", null, "run-gone")],
       sort: byRegression("run-gone"),
     };
     expect(pruneForRuns(analysis, runs, "run-1")).toEqual(NO_ANALYSIS);
@@ -287,7 +301,7 @@ describe("pruneForRuns", () => {
   it("hands back the same analysis when everything still applies", () => {
     const analysis: CaseAnalysis = {
       q: "",
-      filters: [filter("regressed", "quality", "run-2"), filter("errors", "any", "run-1")],
+      filters: [filter("regressed", "quality", "run-2"), filter("errors", null, "run-1")],
       sort: byRegression("run-3"),
     };
     expect(pruneForRuns(analysis, runs, "run-1")).toBe(analysis);

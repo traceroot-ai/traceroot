@@ -5,7 +5,13 @@
  * give the same reason. Also whether the comparison compared a cell, the change it found,
  * and why it set a recorded value aside, for the table and the export.
  */
-import { latestScoreByName, readScore, type ScorerCellComparison } from "@/lib/eval/comparison";
+import {
+  latestScoreByName,
+  readScore,
+  type ScorerCellComparison,
+  type ScorerDirection,
+  type ScorerValueType,
+} from "@/lib/eval/comparison";
 import type { ResultRow, ScoreRow } from "../types";
 
 /** Each scorer's score row on a result, the one the comparison engine reads (the highest
@@ -89,6 +95,19 @@ export function cellDelta(cell: ScorerCellComparison | undefined): number | null
   const c = num(cell.candidateValue);
   const b = num(cell.baselineValue);
   return c !== null && b !== null ? c - b : null;
+}
+
+/** Whether a cell's values are labels, and which way is better, as its pair compared them.
+ *  That can differ from its column's when another run recorded another kind of value for
+ *  the scorer. A cell the pair has none of reads as its column. */
+export function cellPolicy(
+  cell: ScorerCellComparison | undefined,
+  column: { valueType: ScorerValueType; direction: ScorerDirection },
+): { categorical: boolean; direction: ScorerDirection } {
+  return {
+    categorical: (cell?.valueType ?? column.valueType) === "categorical",
+    direction: cell?.direction ?? column.direction,
+  };
 }
 
 // Why a value the run recorded was not compared with the baseline's.
