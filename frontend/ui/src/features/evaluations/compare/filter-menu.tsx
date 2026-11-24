@@ -45,13 +45,13 @@ export function FilterMenu({
   onAdd: (filter: CaseFilter) => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [pickedScorer, setScorer] = React.useState(ANY);
+  const [pickedScorer, setScorer] = React.useState<string | null>(null);
   const [pickedRun, setRunId] = React.useState(ANY);
   // A pick the comparison no longer has (a run since removed) falls back to any.
-  const scorer = model.scorers.some((s) => s.name === pickedScorer) ? pickedScorer : ANY;
+  const column = model.scorers.find((s) => s.name === pickedScorer);
+  const scorer = column?.name ?? null;
   const runId = model.runs.some(({ run }) => run.id === pickedRun) ? pickedRun : ANY;
 
-  const column = model.scorers.find((s) => s.name === scorer);
   const directionless =
     !!column && (column.valueType === "categorical" || column.direction === "none");
   const onBaseline = runId === model.baselineRunId;
@@ -63,7 +63,7 @@ export function FilterMenu({
   };
 
   const add = (kind: FilterKind) => {
-    onAdd({ kind, scorer: kind === "unmatched" ? ANY : scorer, runId });
+    onAdd({ kind, scorer: kind === "unmatched" ? null : scorer, runId });
     setOpen(false);
   };
 
@@ -84,14 +84,20 @@ export function FilterMenu({
       <PopoverContent align="start" aria-label="Filters" className="w-[300px] p-0 text-[12px]">
         <div className="grid grid-cols-[3.5rem_1fr] items-center gap-2 border-b border-border p-2">
           <span className="text-muted-foreground">Metric</span>
-          <Select value={scorer} onValueChange={setScorer}>
+          {/* Metrics go by index, so one named "any" is never taken for Any metric. */}
+          <Select
+            value={column ? String(model.scorers.indexOf(column)) : ANY}
+            onValueChange={(value) =>
+              setScorer(value === ANY ? null : model.scorers[Number(value)].name)
+            }
+          >
             <SelectTrigger aria-label="Metric" className="h-7 text-[12px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ANY}>Any metric</SelectItem>
-              {model.scorers.map((s) => (
-                <SelectItem key={s.name} value={s.name}>
+              {model.scorers.map((s, i) => (
+                <SelectItem key={s.name} value={String(i)}>
                   {s.name}
                 </SelectItem>
               ))}

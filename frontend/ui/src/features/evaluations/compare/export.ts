@@ -15,7 +15,14 @@ import type {
   ScorerValueType,
 } from "@/lib/eval/comparison";
 import type { EvalResultStatus } from "../types";
-import { CELL_STATE_LABEL, cellDelta, isCompared, MISMATCH, scorerCellState } from "./cell-state";
+import {
+  CELL_STATE_LABEL,
+  cellDelta,
+  cellPolicy,
+  isCompared,
+  MISMATCH,
+  scorerCellState,
+} from "./cell-state";
 import { casesText } from "./coverage";
 import { describeFilter, type CaseAnalysis, type CaseFilter, type CaseSort } from "./filters";
 import {
@@ -136,9 +143,10 @@ function notComparedText(
   return reason === "not_scored" ? `${label} in either run` : `${label} in both runs`;
 }
 
-/** The change a cell shows: the numeric difference, or a label's transition. */
+/** The change a cell shows: the numeric difference, or a label's transition, as its pair
+ *  compared it. */
 function changeOf(cell: ScorerCellComparison | undefined, column: ScorerColumn) {
-  if (column.valueType !== "categorical") return difference(cellDelta(cell));
+  if (!cellPolicy(cell, column).categorical) return difference(cellDelta(cell));
   const transition = isCompared(cell) ? cell?.transition : undefined;
   return transition && transition.from !== transition.to
     ? `${transition.from} → ${transition.to}`

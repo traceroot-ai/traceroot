@@ -184,3 +184,22 @@ export const PAIRED_FIXTURE: RunBundle[] = [
   { run: CANDIDATE_RUN, results: candidateResults },
   { run: BASELINE_RUN, results: baselineResults },
 ];
+
+/** Two runs, a and b, of one case, on a metric named `any` that holds at 0.5 while
+ *  `other` falls from 1 to 0: a name that must read as that metric, not as any of them. */
+const ANY_NAMED_SCORERS = scorerManifest([
+  { name: "any", version: "1", value_type: "numeric", direction: "higher_is_better" },
+  { name: "other", version: "1", value_type: "numeric", direction: "higher_is_better" },
+]);
+export const ANY_NAMED_FIXTURE: RunBundle[] = [
+  { id: "a", other: 1 },
+  { id: "b", other: 0 },
+].map(({ id, other }, i) => ({
+  run: fixtureRun(id, i + 1, id, `2026-11-0${i + 1}T00:00:00Z`, { scorers: ANY_NAMED_SCORERS }),
+  results: [
+    fixtureResult(id, "case-1", "Ticket 1", [
+      fixtureScore("any", 0.5),
+      fixtureScore("other", other),
+    ]),
+  ],
+}));
