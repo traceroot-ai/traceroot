@@ -1,4 +1,4 @@
-"""Minimal multi-agent demo with TraceRoot observability.
+"""Minimal multi-agent demo with traceroot observability.
 
 A trimmed-down version of main.py for quick end-to-end SDK testing:
 - ONE topic (not 2)

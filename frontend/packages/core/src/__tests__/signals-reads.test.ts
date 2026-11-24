@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { getSignal } from "../ee/signals/index.ts";
+import { getSignal, recentSignalHits } from "../ee/signals/index.ts";
 
 const DAY_MS = 86_400_000;
 
@@ -25,6 +25,79 @@ function stubDb() {
     $queryRaw: vi.fn(async () => []),
   };
 }
+
+const HIT = {
+  runId: "run-1",
+  traceId: "trace-1",
+  findingId: "finding-1",
+  seenAt: new Date("2026-10-14T07:12:00Z"),
+  traceStartTime: new Date("2026-10-14T07:10:00Z"),
+  score: 0.9,
+  criteriaVersion: 1,
+  assignedAt: new Date("2026-10-14T07:13:00Z"),
+};
+const HIT_SELECT = {
+  runId: true,
+  traceId: true,
+  findingId: true,
+  seenAt: true,
+  traceStartTime: true,
+  score: true,
+  criteriaVersion: true,
+  assignedAt: true,
+};
+const ORDER = [{ traceStartTime: "desc" }, { runId: "asc" }];
+
+describe("recentSignalHits", () => {
+  it("reads the window's latest hits by trace start, then by run id, up to the limit", async () => {
+    const db = stubDb();
+    db.signalHit.findMany.mockResolvedValue([HIT] as never);
+    const from = new Date("2026-10-01T00:00:00Z");
+    const to = new Date("2026-10-15T00:00:00Z");
+
+    const hits = await recentSignalHits(db as never, { signalId: "a", from, to, limit: 20 });
+
+    expect(hits).toEqual([HIT]);
+    expect(db.signalHit.findMany).toHaveBeenCalledWith({
+      where: { signalId: "a", traceStartTime: { not: null, gte: from, lt: to } },
+      orderBy: ORDER,
+      take: 20,
+      select: HIT_SELECT,
+    });
+  });
+
+  it("leaves out hits without a trace start when the window has no bounds", async () => {
+    const db = stubDb();
+
+    await recentSignalHits(db as never, { signalId: "a", limit: 5 });
+
+    expect(db.signalHit.findMany).toHaveBeenCalledWith({
+      where: { signalId: "a", traceStartTime: { not: null } },
+      orderBy: ORDER,
+      take: 5,
+      select: HIT_SELECT,
+    });
+  });
+});
+
+describe("getSignal hits", () => {
+  it("lists the window's 50 latest hits", async () => {
+    const db = stubDb();
+    db.signalHit.findMany.mockResolvedValue([HIT] as never);
+    const from = new Date("2026-10-08T00:00:00Z");
+    const to = new Date("2026-10-15T00:00:00Z");
+
+    const result = await getSignal(db as never, { projectId: "p", signalId: "a", from, to });
+
+    expect((result as { hits: unknown[] }).hits).toEqual([HIT]);
+    expect(db.signalHit.findMany).toHaveBeenCalledWith({
+      where: { signalId: "a", traceStartTime: { not: null, gte: from, lt: to } },
+      orderBy: ORDER,
+      take: 50,
+      select: HIT_SELECT,
+    });
+  });
+});
 
 describe("getSignal day-bucket stepping", () => {
   beforeEach(() => vi.restoreAllMocks());

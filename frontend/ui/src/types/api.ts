@@ -1,5 +1,5 @@
 /**
- * Shared API types for TraceRoot UI
+ * Shared API types for traceroot UI
  */
 
 import type { Role, SpanKind, SpanStatus } from "@traceroot/core";

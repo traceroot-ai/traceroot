@@ -1,5 +1,5 @@
 """
-Google ADK 2.x graph Workflow (fan-out / fan-in) with TraceRoot observability.
+Google ADK 2.x graph Workflow (fan-out / fan-in) with traceroot observability.
 
 Usage:
     cp .env.example .env
@@ -118,7 +118,7 @@ async def run_demo():
         print("=" * 60)
 
         # Fresh ADK session per city so each run starts from empty workflow state.
-        # TraceRoot records this ADK session id as session.id.
+        # traceroot records this ADK session id as session.id.
         session_id = f"google-adk-workflow-{city.lower()}"
         await runner.session_service.create_session(
             app_name=app_name,

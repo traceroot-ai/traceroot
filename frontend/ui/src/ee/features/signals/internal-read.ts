@@ -7,15 +7,18 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
-import { SIGNAL_STATUSES, listSignals } from "@traceroot/core/signals";
+import { PlanType, prisma } from "@traceroot/core";
+import { SIGNAL_STATUSES, listSignals, recentSignalHits } from "@traceroot/core/signals";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
+import { clampStartAfter } from "@/lib/server/retention";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 // `skip` is a 32-bit int in Prisma; at MAX_LIMIT this is still far more pages
 // than a project holds signals.
 const MAX_PAGE = 10_000;
+/** The latest hits returned with one signal. */
+const RECENT_HITS_LIMIT = 20;
 
 const bodySchema = z.object({
   projectId: z.string("projectId is required").min(1, "projectId is required"),
@@ -45,6 +48,30 @@ function serializeListed(s: ListedSignal) {
   };
 }
 
+/**
+ * The signal's latest hits whose trace started inside the retention window of the
+ * plan of the workspace that owns the project, so each trace still opens with the
+ * public trace read. An unreadable or absent workspace falls back to the most
+ * restrictive plan; a plan with unlimited retention reads with no lower bound.
+ */
+async function recentHits(projectId: string, signalId: string) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { workspace: { select: { billingPlan: true } } },
+  });
+  const cutoff = clampStartAfter(project?.workspace?.billingPlan || PlanType.FREE, null);
+  const hits = await recentSignalHits(prisma, {
+    signalId,
+    from: cutoff ? new Date(cutoff) : undefined,
+    limit: RECENT_HITS_LIMIT,
+  });
+  return hits.map((hit) => ({
+    traceId: hit.traceId,
+    findingId: hit.findingId,
+    traceStartTime: hit.traceStartTime.toISOString(),
+  }));
+}
+
 async function readOne(projectId: string, signalId: string) {
   const signal = await prisma.signal.findFirst({
     where: { id: signalId, projectId },
@@ -64,11 +91,14 @@ async function readOne(projectId: string, signalId: string) {
     },
   });
   if (!signal) return null;
-  // Signals keep no relation to detectors (a detector can be deleted first).
-  const detector = await prisma.detector.findFirst({
-    where: { id: signal.detectorId, projectId },
-    select: { name: true },
-  });
+  const [detector, hits] = await Promise.all([
+    // Signals keep no relation to detectors (a detector can be deleted first).
+    prisma.detector.findFirst({
+      where: { id: signal.detectorId, projectId },
+      select: { name: true },
+    }),
+    recentHits(projectId, signal.id),
+  ]);
   return {
     id: signal.id,
     detectorId: signal.detectorId,
@@ -86,6 +116,7 @@ async function readOne(projectId: string, signalId: string) {
     mergedIntoId: signal.mergedIntoId,
     rcaState:
       signal.rcas.find((opening) => opening.reopenSeq === signal.reopenSeq)?.rca.status ?? null,
+    recentHits: hits,
   };
 }
 
