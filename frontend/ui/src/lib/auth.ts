@@ -8,6 +8,7 @@ import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
 import { oauthDefaultResource } from "@/lib/oauth/default-resource";
 import { oauthImpersonationGuard } from "@/lib/oauth/impersonation-guard";
+import { oauthRefreshReuseLog } from "@/lib/oauth/refresh-reuse-log";
 import { mcpOAuthProviderOptions } from "@/lib/oauth/provider-options";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import { createAccessControl } from "better-auth/plugins/access";
@@ -128,6 +129,11 @@ export const auth = betterAuth({
       // registers a new client on every fresh connection, and many users of one
       // assistant reach us from the same few egress addresses.
       "/oauth2/register": { window: 60, max: 60 },
+      // Code exchanges and refreshes. The provider's own default is 20 a minute
+      // per address, and an assistant's users all refresh from its few egress
+      // addresses, so one busy assistant would be throttled as a whole. A first
+      // value to tune from the logs.
+      "/oauth2/token": { window: 60, max: 120 },
     },
   },
 
@@ -177,6 +183,7 @@ export const auth = betterAuth({
       ? [
           oauthImpersonationGuard(),
           oauthDefaultResource(env.MCP_RESOURCE_URL),
+          oauthRefreshReuseLog(),
           oauthProvider(mcpOAuthProviderOptions(env.MCP_RESOURCE_URL)),
         ]
       : []),
