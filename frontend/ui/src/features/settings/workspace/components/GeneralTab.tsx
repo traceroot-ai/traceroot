@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -131,16 +132,24 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
           <DialogHeader>
             <DialogTitle>{t("workspaceSettings.deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {t("workspaceSettings.deleteDialogBefore")}
-              <span className="font-semibold">{workspace?.name}</span>
-              {t("workspaceSettings.deleteDialogAfter")}
+              <Slots
+                text={t("workspaceSettings.deleteDialogText")}
+                slots={{ name: <span className="font-semibold">{workspace?.name}</span> }}
+              />
             </DialogDescription>
           </DialogHeader>
           <div>
             <p className="mb-2 text-sm text-muted-foreground">
-              {t("workspaceSettings.typeBefore")}{" "}
-              <span className="font-mono font-semibold text-foreground">{workspace?.name}</span>{" "}
-              {t("workspaceSettings.typeAfter")}
+              <Slots
+                text={t("workspaceSettings.typeToConfirm")}
+                slots={{
+                  name: (
+                    <span className="font-mono font-semibold text-foreground">
+                      {workspace?.name}
+                    </span>
+                  ),
+                }}
+              />
             </p>
             <Input
               value={deleteConfirmText}
