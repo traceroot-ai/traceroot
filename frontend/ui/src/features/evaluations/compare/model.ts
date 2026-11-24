@@ -155,23 +155,31 @@ function declaredScorers(runsOldestFirst: RunBundle[]): Map<string, DeclaredScor
   return declared;
 }
 
-/** Per scorer, the kinds of value the runs recorded and every number among them. */
-function observedScores(runs: RunBundle[]) {
+/** The results alignment kept for `runIds` (every run's when null), each once. A
+ *  duplicate it set aside is never compared, so it never sets a scorer's type either. */
+function keptResults(cases: readonly CaseRow[], runIds: ReadonlySet<string> | null) {
+  const kept = new Set<ResultRow>();
+  for (const c of cases) {
+    for (const [runId, r] of c.byRun) if (!runIds || runIds.has(runId)) kept.add(r);
+  }
+  return kept;
+}
+
+/** Per scorer, the kinds of value the results recorded and every number among them. */
+function observedScores(results: Iterable<ResultRow>) {
   const observed = new Map<string, { kinds: Set<ScorerValueType>; numbers: number[] }>();
-  for (const b of runs) {
-    for (const r of b.results) {
-      // One score per scorer per result (the latest version), as the aggregates use, so a
-      // superseded row can't change a column's format.
-      for (const s of scoreRowsOf(r).values()) {
-        const seen = observed.get(s.scorerName) ?? { kinds: new Set(), numbers: [] };
-        observed.set(s.scorerName, seen);
-        const v = readScore(s);
-        if (v.kind !== "value") continue;
-        seen.kinds.add(v.valueType);
-        if (typeof v.value === "boolean") seen.numbers.push(v.value ? 1 : 0);
-        else if (typeof v.value === "number" && Number.isFinite(v.value)) {
-          seen.numbers.push(v.value);
-        }
+  for (const r of results) {
+    // One score per scorer per result (the latest version), as the aggregates use, so a
+    // superseded row can't change a column's format.
+    for (const s of scoreRowsOf(r).values()) {
+      const seen = observed.get(s.scorerName) ?? { kinds: new Set(), numbers: [] };
+      observed.set(s.scorerName, seen);
+      const v = readScore(s);
+      if (v.kind !== "value") continue;
+      seen.kinds.add(v.valueType);
+      if (typeof v.value === "boolean") seen.numbers.push(v.value ? 1 : 0);
+      else if (typeof v.value === "number" && Number.isFinite(v.value)) {
+        seen.numbers.push(v.value);
       }
     }
   }
@@ -192,14 +200,14 @@ function scorerPolicy(
   return { valueType, direction: meta?.direction ?? defaultDirection(valueType) };
 }
 
-/** One column per scorer any run reported, read from every run's values (`scorerPolicy`).
- *  The format comes from every number any run recorded for it, true/false counting as
- *  1/0. */
+/** One column per scorer the aligned results report, read from all their values
+ *  (`scorerPolicy`). The format comes from every number they recorded for it, true/false
+ *  counting as 1/0. */
 function scorerColumns(
-  runsOldestFirst: RunBundle[],
+  cases: readonly CaseRow[],
   declared: ReadonlyMap<string, DeclaredScorer>,
 ): ScorerColumn[] {
-  const observed = observedScores(runsOldestFirst);
+  const observed = observedScores(keptResults(cases, null));
   return [...observed.keys()].sort().map((name) => {
     const { kinds, numbers } = observed.get(name)!;
     const policy = scorerPolicy(declared.get(name), kinds);
@@ -269,7 +277,7 @@ export function buildCompareModel(
     alignment: runs.every(onBaselineDataset) ? "case_id" : "canonical_input",
     cases,
     sharedByAllCount: cases.filter((c) => c.byRun.size === runs.length).length,
-    scorers: scorerColumns(byAge, declared),
+    scorers: scorerColumns(cases, declared),
     declared,
   };
 }
@@ -318,8 +326,11 @@ export function comparePairs(
     if (candidate === baseline) continue;
     // One policy for both sides. What the runs declared holds for every pair, so a
     // direction declared on only one run can't make the same column read differently from
-    // pair to pair; the rest comes from this pair's values, never another run's.
-    const observed = observedScores([baseline, candidate]);
+    // pair to pair; the rest comes from the values this pair's runs have in the comparison
+    // (every case, however the table is filtered), never another run's.
+    const observed = observedScores(
+      keptResults(model.cases, new Set([baseline.run.id, candidate.run.id])),
+    );
     const policy: ComparisonScorerMeta[] = model.scorers.map(({ name }) => ({
       name,
       version: "",
