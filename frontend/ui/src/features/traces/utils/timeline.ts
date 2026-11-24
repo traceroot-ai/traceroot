@@ -19,6 +19,12 @@ export interface FlatTimelineItem {
   metrics: TimelineMetrics;
 }
 
+/** Whether a finished span's bar is drawn as a thin tick: under 2px wide, or under 0.2% of
+ *  the time the timeline covers. */
+export function isInstantBar(widthPx: number, durationMs: number, scaleMs: number): boolean {
+  return widthPx < 2 || durationMs / scaleMs < 0.002;
+}
+
 /**
  * Flattens a flat array of spans into a DFS-ordered list for virtualized rendering,
  * pre-computing pixel offsets and widths for the Gantt bars.
@@ -92,7 +98,7 @@ export function flattenTreeWithMetrics(
 
     const startOffsetPx = (offsetMs / safeTraceDuration) * scaleWidth;
     const widthPx = (durationMs / safeTraceDuration) * scaleWidth;
-    const isInstant = !isInProgress && (widthPx < 2 || durationMs / safeTraceDuration < 0.002);
+    const isInstant = !isInProgress && isInstantBar(widthPx, durationMs, safeTraceDuration);
 
     flatList.push({
       span,

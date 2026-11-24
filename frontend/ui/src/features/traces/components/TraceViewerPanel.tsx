@@ -466,7 +466,7 @@ export function TraceViewerPanel({
       if (sel.type === "span") {
         // Defer a frame so the tree has its up-to-date (non-compact) row model
         // before the virtualizer scrolls.
-        requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span.span_id));
+        requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span));
       }
     },
     [selectManually],
