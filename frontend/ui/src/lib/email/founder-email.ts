@@ -1,7 +1,8 @@
 /**
  * The founder-signed product emails on the cloud service: the welcome email
- * and the follow-ups (and the monthly newsletter, when it gets a template). One
- * layout and one sign-off, so they cannot drift apart.
+ * (and the monthly newsletter, when it gets a template). The follow-ups have
+ * their own approved layout (follow-up/render.ts) and share the sign-off and
+ * the opt-out label from here, so those cannot drift apart.
  *
  * Laid out as the welcome email: the pixel wordmark, "Hi <name>,", the body,
  * the sign-off, the small wordmark, and the opt-out line linking to the

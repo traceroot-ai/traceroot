@@ -63,6 +63,49 @@ describe("the follow-up emails, as approved", () => {
     expect(html).toContain(`<a href="${LINKS.integrationsUrl}" style="display:inline-block`);
   });
 
+  it("Slack and GitHub, with the open-signals line after the button", () => {
+    const signals = "https://app.traceroot.ai/projects/p1/signals?from=email-open-signals";
+    const one = renderFollowUp({
+      campaign: "connect_slack_github",
+      firstName: "Kai",
+      links: { ...LINKS, openSignals: { count: 1, url: signals } },
+      unsubscribeUrl: UNSUB,
+    });
+    expect(one.text).toBe(
+      email(
+        "You can choose a Slack channel for alerts and connect the GitHub repo your agent runs from. Both settings are in your workspace.",
+        `Open integrations: ${LINKS.integrationsUrl}`,
+        `1 open signal (${signals}) is waiting in your project.`,
+      ),
+    );
+    expect(one.html).toContain(
+      `<p style="margin:16px 0 0;font-size:16px;line-height:25px"><a href="${signals}" style="color:#0B1015;text-decoration:underline">1 open signal</a> is waiting in your project.</p>`,
+    );
+    expect(one.html.indexOf(">Open integrations</a>")).toBeLessThan(
+      one.html.indexOf("1 open signal"),
+    );
+    const many = renderFollowUp({
+      campaign: "connect_slack_github",
+      firstName: "Kai",
+      links: { ...LINKS, openSignals: { count: 12, url: signals } },
+      unsubscribeUrl: UNSUB,
+    });
+    expect(many.text).toContain(`12 open signals (${signals}) are waiting in your project.`);
+  });
+
+  it.each(["setup_help", "last_note", "first_eval"] as const)(
+    "%s never carries the open-signals line",
+    (campaign) => {
+      const { text, html } = renderFollowUp({
+        campaign,
+        firstName: "Kai",
+        links: { ...LINKS, openSignals: { count: 2, url: "https://app.traceroot.ai/x/signals" } },
+        unsubscribeUrl: UNSUB,
+      });
+      expect(`${text}${html}`).not.toContain("open signal");
+    },
+  );
+
   it("First eval", () => {
     const { subject, text, html } = render("first_eval");
     expect(subject).toBe("Try an eval on one change");
@@ -87,9 +130,15 @@ describe("every follow-up", () => {
       expect(text).toContain(SIGNOFF);
       expect(text.endsWith(OPT_OUT)).toBe(true);
       expect(html).toContain(
-        `<a href="${UNSUB}" style="color:#0B1015;text-decoration:underline">Unsubscribe from product emails</a>`,
+        `<a href="${UNSUB}" style="color:#5F646B;text-decoration:underline">Unsubscribe from product emails</a>`,
       );
       expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
+      // One wordmark, at the top; no second logo by the signature.
+      expect(html.match(/<img /g) ?? []).toHaveLength(1);
+      // The provider fills the postal address in, under the opt-out line.
+      expect(html.indexOf("<!--traceroot:postal-address-->")).toBeGreaterThan(
+        html.indexOf("Unsubscribe from product emails"),
+      );
       expect(`${text}${html}`).not.toContain("Founder");
     },
   );
