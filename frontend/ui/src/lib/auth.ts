@@ -15,10 +15,15 @@ import { onUserCreated } from "@/lib/signup/on-user-created";
 import { sendPasswordResetEmail } from "@/lib/email/send-password-reset-email";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
+import { refuseUnverifiedGitHubSignUp } from "@/lib/signup/verified-social-email";
 import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { agentIdProvider } from "@/lib/agentid";
-import { AGENTID_PROVIDER_ID, configuredSocialProviders } from "@/lib/social-providers";
+import {
+  AGENTID_PROVIDER_ID,
+  configuredSocialProviders,
+  socialProviderOptions,
+} from "@/lib/social-providers";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -26,6 +31,8 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
+
+const emailPolicy = signupEmailPolicyHook(isCloud());
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -58,7 +65,10 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        before: signupEmailPolicyHook(isCloud()),
+        before: async (user, context) => {
+          await refuseUnverifiedGitHubSignUp(user, context ?? null);
+          await emailPolicy?.(user, context ?? null);
+        },
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {
@@ -83,18 +93,29 @@ export const auth = betterAuth({
     },
   },
 
-  socialProviders: {
-    google: {
-      clientId: env.AUTH_GOOGLE_CLIENT_ID,
-      clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
-    },
-  },
+  socialProviders: socialProviderOptions(env),
 
   account: {
     accountLinking: {
       enabled: true,
-      // Never add "agentid": a trusted provider links on email alone.
+      // A trusted provider is one whose *unverified* email addresses may still
+      // be used as proof of ownership when linking into an account that already
+      // exists: better-auth skips the `emailVerified` check on the incoming
+      // profile for these. GitHub is deliberately absent. It serves the
+      // account's primary address whether or not that address has been
+      // confirmed, so trusting it would let anyone who adds a victim's address
+      // to their own GitHub account sign in as that victim. Leaving it out
+      // costs nothing a real user notices: a GitHub identity whose address *is*
+      // verified still links (to an account whose own address is verified, see
+      // below), and a first-time GitHub sign-in still creates an account either
+      // way. account-linking.test.ts pins these.
+      // Never add "agentid" either: a trusted provider links on email alone.
       trustedProviders: ["google"],
+      // And no provider, trusted or not, links into an account whose own email
+      // was never verified: otherwise whoever registered someone's address
+      // with a password first would get that person's later social sign-in.
+      // This is better-auth's default; it is set so that cannot change quietly.
+      requireLocalEmailVerified: true,
     },
   },
 
