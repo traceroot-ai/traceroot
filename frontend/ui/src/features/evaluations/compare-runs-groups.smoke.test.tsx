@@ -294,7 +294,10 @@ describe("CompareRunsView — a scorer another run records as text", () => {
     expect(change.className).toContain("text-emerald-600");
     expect(shownText(cellAt(group, CANDIDATE_RUN.id, QUALITY))).not.toContain("changed");
     // The run that recorded text still reads as a value type change, not a change.
-    expect(shownText(cellAt(group, FAST_RUN.id, QUALITY))).not.toContain("+");
+    const text = shownText(cellAt(group, FAST_RUN.id, QUALITY));
+    expect(text).toContain("Type mismatch");
+    expect(text).not.toContain("changed");
+    expect(text).not.toContain("+");
   });
 });
 
