@@ -6,6 +6,7 @@ import {
   expectedKeyOf,
   pairExclusions,
   type CompareModel,
+  type RunBundle,
 } from "./model";
 import {
   BASELINE_RUN,
@@ -439,6 +440,45 @@ describe("comparePairs", () => {
     expect(quality.baselineMean).toBe(0.5);
     expect(p.comparison.duration.candidateMeanMs).toBe(3300);
     expect(p.comparison.duration.pairedCount).toBe(2);
+  });
+
+  it("reads an undeclared scorer type from the pair's own values, not another run's", () => {
+    // Bare `{ name, version }` scorers, so each value type comes from what was recorded.
+    const bundle = (id: string, day: number, value: number | string) => ({
+      run: fixtureRun(id, day, id, `2026-11-0${day}T00:00:00Z`, {
+        scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+      }),
+      results: [fixtureResult(id, "tc-1", "one", [fixtureScore(QUALITY, value)])],
+    });
+    const a = bundle("a", 1, 0.4);
+    const b = bundle("b", 2, 0.8);
+    const labelled = bundle("c", 3, "high");
+    const pairOf = (bundles: RunBundle[], candidateId: string) => {
+      const model = buildCompareModel(bundles, "a");
+      const p = comparePairs(model).get(candidateId)!;
+      return {
+        quality: p.comparison.scorers.find((s) => s.name === QUALITY),
+        counts: countCellsByScorer(p).get(QUALITY),
+        exclusions: pairExclusions(model, p).get(QUALITY),
+      };
+    };
+    const alone = pairOf([a, b], "b");
+    expect(alone.quality).toEqual(
+      expect.objectContaining({
+        direction: "higher_is_better",
+        baselineMean: 0.4,
+        candidateMean: 0.8,
+        pairedCount: 1,
+      }),
+    );
+    expect(alone.counts).toEqual(expect.objectContaining({ improved: 1, changed: 0 }));
+    // Adding a run that records text, then taking it away again, leaves the pair as it was.
+    expect(pairOf([a, b, labelled], "b")).toEqual(alone);
+    expect(pairOf([a, b], "b")).toEqual(alone);
+    // The text run's own pair is still a value type change.
+    expect(pairOf([a, b, labelled], "c").exclusions).toEqual([
+      { reason: "type_mismatch", runId: null, count: 1 },
+    ]);
   });
 });
 

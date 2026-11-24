@@ -14,6 +14,7 @@ import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
+  ANY_NAMED_FIXTURE,
   BASELINE_RUN,
   CANDIDATE_RUN,
   FAST_RUN,
@@ -171,6 +172,31 @@ describe("CompareRunsView — search in the URL", () => {
     expect(onChangeAnalysis).not.toHaveBeenCalled();
     expect(search().value).toBe("Ticket ");
   });
+
+  it("drops a search not yet written on back or forward to another baseline or runs", () => {
+    vi.useFakeTimers();
+    const { rerender, onChangeAnalysis } = mount({}, { baselineId: CANDIDATE_RUN.id });
+    fireEvent.change(search(), { target: { value: "Ticket 2" } });
+    act(() => vi.advanceTimersByTime(100));
+    // The entry left had no search in the URL either; only its baseline differs.
+    rerender(view(NO_ANALYSIS, onChangeAnalysis, { baselineId: BASELINE_RUN.id }));
+    expect(search().value).toBe("");
+    expect(shownInputs()).toHaveLength(12);
+    act(() => vi.advanceTimersByTime(300));
+    expect(onChangeAnalysis).not.toHaveBeenCalled();
+
+    // The same goes for an entry that differs only in its runs.
+    fireEvent.change(search(), { target: { value: "Ticket 3" } });
+    rerender(
+      view(NO_ANALYSIS, onChangeAnalysis, {
+        baselineId: BASELINE_RUN.id,
+        runIds: [BASELINE_RUN.id, CANDIDATE_RUN.id],
+      }),
+    );
+    expect(search().value).toBe("");
+    act(() => vi.advanceTimersByTime(300));
+    expect(onChangeAnalysis).not.toHaveBeenCalled();
+  });
 });
 
 describe("CompareRunsView — filters from the URL", () => {
@@ -186,7 +212,7 @@ describe("CompareRunsView — filters from the URL", () => {
   });
 
   it("shows a run's missing result in the cases it picks for being unmatched", () => {
-    mount({ filters: [{ kind: "unmatched", scorer: "any", runId: "any" }] });
+    mount({ filters: [{ kind: "unmatched", scorer: null, runId: "any" }] });
     expect(shownInputs()).toEqual(["Ticket 9", "Ticket 10"]);
     expect(within(caseRow("Ticket 9")).getByText("No result in this run")).toBeTruthy();
   });
@@ -325,7 +351,7 @@ describe("CompareRunsView — the Filters menu", () => {
       q: "Ticket",
       filters: [
         { kind: "regressed", scorer: QUALITY, runId: FAST_RUN.id },
-        { kind: "errors", scorer: "any", runId: "any" },
+        { kind: "errors", scorer: null, runId: "any" },
       ],
     });
     expect(shownInputs()).toEqual(["Ticket 6", "Ticket 7"]);
@@ -344,8 +370,24 @@ describe("CompareRunsView — the Filters menu", () => {
   });
 
   it("says what Clear takes off", () => {
-    mount({ filters: [{ kind: "errors", scorer: "any", runId: "any" }] });
+    mount({ filters: [{ kind: "errors", scorer: null, runId: "any" }] });
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
+  });
+
+  it("tells a metric named any from Any metric", async () => {
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: ANY_NAMED_FIXTURE.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount({}, { runIds: ["a", "b"] });
+    const menu = await openFilters();
+    await pick(menu, "Metric", "any");
+    fireEvent.click(menu.getByRole("button", { name: /^Regressed/ }));
+    expect(chips()).toEqual(["Regressed · any · any run"]);
+    expect(screen.getByText("No cases match the search or filters")).toBeTruthy();
   });
 });
 
@@ -508,7 +550,7 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
   };
   const onCandidate = (runId: string) => [
     { kind: "regressed" as const, scorer: QUALITY, runId },
-    { kind: "errors" as const, scorer: "any", runId },
+    { kind: "errors" as const, scorer: null, runId },
   ];
 
   it("drops the change filters and the sort on a run that becomes the baseline", async () => {
@@ -517,7 +559,7 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
       {
         filters: [
           ...onCandidate(CANDIDATE_RUN.id),
-          { kind: "unmatched", scorer: "any", runId: "any" },
+          { kind: "unmatched", scorer: null, runId: "any" },
         ],
         sort: { kind: "regression", scorer: QUALITY, runId: CANDIDATE_RUN.id },
       },
@@ -528,8 +570,8 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
     const kept = {
       q: "",
       filters: [
-        { kind: "errors", scorer: "any", runId: CANDIDATE_RUN.id },
-        { kind: "unmatched", scorer: "any", runId: "any" },
+        { kind: "errors", scorer: null, runId: CANDIDATE_RUN.id },
+        { kind: "unmatched", scorer: null, runId: "any" },
       ],
       sort: { kind: "dataset" },
     };
@@ -582,7 +624,7 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
       })),
     );
     const onChangeRuns = vi.fn();
-    const unmatched = { kind: "unmatched" as const, scorer: "any", runId: "any" };
+    const unmatched = { kind: "unmatched" as const, scorer: null, runId: "any" };
     mount({ filters: [...onCandidate(FAST_RUN.id), unmatched] }, { onChangeRuns });
     fireEvent.click(screen.getByRole("button", { name: "Remove missing runs" }));
     expect(onChangeRuns).toHaveBeenCalledWith([BASELINE_RUN.id, CANDIDATE_RUN.id], null, {
@@ -598,8 +640,24 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
     // #2 is the oldest run left, so it becomes the baseline and can't regress against itself.
     expect(onChangeRuns).toHaveBeenCalledWith([CANDIDATE_RUN.id, FAST_RUN.id], null, {
       ...NO_ANALYSIS,
-      filters: [{ kind: "errors", scorer: "any", runId: CANDIDATE_RUN.id }],
+      filters: [{ kind: "errors", scorer: null, runId: CANDIDATE_RUN.id }],
     });
+  });
+
+  it("keeps showing a search carried into a baseline change once the URL has both", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const onChangeBaseline = vi.fn();
+    const { rerender, onChangeAnalysis } = mount({}, { onChangeBaseline });
+    fireEvent.change(search(), { target: { value: "Ticket 2" } });
+    await runMenu(/#2 candidate-v2/, "Set as baseline");
+    // The page writes the new baseline with the search the view hands it.
+    const [baselineId, carried] = onChangeBaseline.mock.lastCall!;
+    expect(carried).toEqual({ ...NO_ANALYSIS, q: "Ticket 2" });
+    rerender(view(carried, onChangeAnalysis, { onChangeBaseline, baselineId }));
+    expect(search().value).toBe("Ticket 2");
+    expect(shownInputs()).toEqual(["Ticket 2"]);
+    act(() => vi.advanceTimersByTime(300));
+    expect(onChangeAnalysis).not.toHaveBeenCalled();
   });
 });
 
