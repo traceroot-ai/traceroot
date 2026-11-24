@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useParams, usePathname, useRouter } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -29,9 +29,8 @@ import { clientEnv } from "@/env.client";
 import { exitImpersonation } from "@/features/support/exit";
 import { ImpersonationBanner } from "@/features/support/impersonation-banner";
 import { isStaff } from "@/lib/support/policy";
-import { ENABLED_LOCALES } from "@/lib/i18n/locales";
-import { useLocale, useT } from "@/lib/i18n/provider";
-import { storeLocale } from "@/lib/i18n/set-locale";
+import { useT } from "@/lib/i18n/provider";
+import { LanguageToggle } from "@/components/language-toggle";
 
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
@@ -98,8 +97,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const isImpersonating = !!sessionData?.session?.impersonatedBy;
   const { theme, setTheme } = useTheme();
   const t = useT();
-  const locale = useLocale();
-  const router = useRouter();
   const params = useParams<{ projectId?: string; workspaceId?: string }>();
 
   // Don't show sidebar on auth pages
@@ -378,31 +375,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 {/* Language: the cookie is the choice; refreshing re-renders the app in it. */}
                 <div className="flex h-9 items-center justify-between gap-2 px-4">
                   <span className="text-[13px]">{t("account.language")}</span>
-                  <div className="btn-group" role="radiogroup" aria-label={t("account.language")}>
-                    {ENABLED_LOCALES.map(({ code, short, label, htmlLang }) => (
-                      <button
-                        key={code}
-                        role="radio"
-                        aria-checked={locale === code}
-                        aria-label={label}
-                        title={label}
-                        lang={htmlLang}
-                        onClick={() => {
-                          if (locale === code) return;
-                          storeLocale(code);
-                          router.refresh();
-                        }}
-                        className={cn(
-                          "inline-flex h-6 items-center justify-center px-2 text-[12px] transition-colors",
-                          locale === code
-                            ? "!bg-accent text-foreground"
-                            : "text-muted-foreground hover:!bg-muted hover:text-foreground",
-                        )}
-                      >
-                        {short}
-                      </button>
-                    ))}
-                  </div>
+                  <LanguageToggle />
                 </div>
 
                 {!isImpersonating && isStaff(user?.role) && (

@@ -15,6 +15,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import type { SocialProvider } from "@/lib/social-providers";
 import { SocialSignInButtons } from "../social-sign-in-buttons";
+import { useT } from "@/lib/i18n/provider";
+import { translateFormError } from "@/lib/i18n/form-errors";
+import { LanguageToggle } from "@/components/language-toggle";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -29,6 +32,7 @@ type SignInContentProps = {
 
 function SignInContent({ socialProviders }: SignInContentProps) {
   const router = useRouter();
+  const t = useT();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
   const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
@@ -74,24 +78,28 @@ function SignInContent({ socialProviders }: SignInContentProps) {
   }
 
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
+    <div className="relative flex h-full min-h-screen items-center justify-center bg-background p-4">
+      {/* Signed-out screens have no account menu, so the language choice sits here. */}
+      <div className="absolute right-4 top-4">
+        <LanguageToggle />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-[15px] font-medium">Sign in to traceroot</CardTitle>
+          <CardTitle className="text-[15px] font-medium">{t("auth.signInTitle")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {error && (
             <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-              {error}
+              {translateFormError(t, error)}
             </div>
           )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
-              <label className="mb-1 block text-[13px] font-medium">Email</label>
+              <label className="mb-1 block text-[13px] font-medium">{t("auth.email")}</label>
               <Input
                 type="email"
                 placeholder="you@example.com"
@@ -99,12 +107,14 @@ function SignInContent({ socialProviders }: SignInContentProps) {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
+                <p className="mt-1 text-[12px] text-danger">
+                  {translateFormError(t, errors.email.message)}
+                </p>
               )}
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium">Password</label>
+              <label className="mb-1 block text-[13px] font-medium">{t("auth.password")}</label>
               <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}
@@ -121,12 +131,14 @@ function SignInContent({ socialProviders }: SignInContentProps) {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
+                <p className="mt-1 text-[12px] text-danger">
+                  {translateFormError(t, errors.password.message)}
+                </p>
               )}
             </div>
 
             <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign in"}
+              {isLoading ? t("auth.signingIn") : t("auth.signIn")}
             </Button>
           </form>
 
@@ -137,9 +149,9 @@ function SignInContent({ socialProviders }: SignInContentProps) {
           />
 
           <p className="text-center text-[12px] text-muted-foreground">
-            Don&apos;t have an account?{" "}
+            {t("auth.noAccount")}{" "}
             <Link href={signUpHref} className="font-medium text-brand hover:underline">
-              Sign up
+              {t("auth.signUp")}
             </Link>
           </p>
         </CardContent>
