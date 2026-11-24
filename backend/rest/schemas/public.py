@@ -654,17 +654,53 @@ class PublicAlertListResponse(BaseModel):
 SignalStatus = Literal["open", "resolved", "dismissed"]
 
 
-class SignalSummary(BaseModel):
-    """A signal: a recurring problem that one detector's findings are grouped into.
+class SignalSourceDetector(BaseModel):
+    """A signal raised by a detector. ``name`` is null once the detector is deleted."""
 
-    ``reopen_count`` counts the automatic reopens (a new finding after the
-    signal was resolved). ``rca_state`` is the state of the root cause analysis
-    of the current opening, null when none ran for it.
+    kind: Literal["detector"]
+    id: str
+    name: str | None
+
+
+class SignalSourceLoop(BaseModel):
+    """A signal raised by a Loop. ``detector_id`` is the Loop's own detector, not
+    one the detector reads return; the Loop's findings open with their trace."""
+
+    kind: Literal["loop"]
+    id: str
+    name: str
+    detector_id: str
+
+
+class SignalSourceDeletedLoop(BaseModel):
+    """A signal raised by a Loop that has since been deleted."""
+
+    kind: Literal["deletedLoop"]
+    detector_id: str
+
+
+# Mirrors SignalSource in frontend/packages/core/src/ee/signals/reads.ts, with
+# the public API's snake_case field names.
+SignalSource = Annotated[
+    SignalSourceDetector | SignalSourceLoop | SignalSourceDeletedLoop,
+    Field(discriminator="kind"),
+]
+
+
+class SignalSummary(BaseModel):
+    """A signal: a recurring problem that one detector's or Loop's findings are grouped into.
+
+    ``source`` names what raised the signal: a detector, a Loop, or a deleted
+    Loop. ``detector_name`` names detectors only and is null for a Loop's
+    signal. ``reopen_count`` counts the automatic reopens (a new finding after
+    the signal was resolved). ``rca_state`` is the state of the root cause
+    analysis of the current opening, null when none ran for it.
     """
 
     signal_id: str
     detector_id: str
     detector_name: str | None
+    source: SignalSource
     title: str
     status: SignalStatus
     hit_count: int
