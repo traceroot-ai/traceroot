@@ -894,6 +894,13 @@ class TestClaudeMythos5Ids:
             f"the {owner} pattern must not absorb {model_id}"
         )
 
+    @pytest.mark.parametrize(
+        "model_id", ["us.anthropic.claude-mythos-5", "bedrock_mantle/anthropic.claude-mythos-5"]
+    )
+    def test_bedrock_regional_ids_stay_unpriced(self, real_cache, model_id):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price(model_id) is None
+
 
 # ---------------------------------------------------------------------------
 # Fast-mode variant + dot-notation model ids.
