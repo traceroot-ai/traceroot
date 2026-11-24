@@ -120,3 +120,125 @@ describe("forgot password with the app's auth options", () => {
     expect(sendPasswordResetEmail).not.toHaveBeenCalled();
   });
 });
+
+/** Synthetic records: one account and its sign-in identities, as stored. */
+function seedAccount(
+  id: string,
+  email: string,
+  emailVerified: boolean,
+  identities: { providerId: string; accountId: string }[],
+) {
+  const now = new Date();
+  database.user.push({ id, email, name: id, emailVerified, createdAt: now, updatedAt: now });
+  for (const [i, identity] of identities.entries()) {
+    database.account.push({
+      id: `${id}-acc-${i}`,
+      userId: id,
+      ...identity,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  database.session.push({
+    id: `${id}-session`,
+    userId: id,
+    token: `${id}-session-token`,
+    expiresAt: new Date(now.getTime() + 3_600_000),
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/** The token from the reset link the email would carry. */
+async function resetToken(email: string): Promise<string> {
+  afterResponse.length = 0;
+  sendPasswordResetEmail.mockClear();
+  await forgotPassword(email);
+  for (const task of afterResponse) await task();
+  const { resetUrl } = sendPasswordResetEmail.mock.calls[0]![0] as { resetUrl: string };
+  return new URL(resetUrl).pathname.split("/").pop()!;
+}
+
+const providersOf = (userId: string) =>
+  database.account
+    .filter((a) => a.userId === userId)
+    .map((a) => a.providerId)
+    .sort();
+const sessionsOf = (userId: string) => database.session.filter((s) => s.userId === userId);
+const signIn = (email: string, password: string) => post("/sign-in/email", { email, password });
+
+describe("a password reset keeps only identities that proved the mailbox", () => {
+  it("drops every other identity from an account whose address was never verified", async () => {
+    seedAccount("u-unverified", "lee@example.co", false, [
+      { providerId: "agentid", accountId: "agent-sub-1" },
+    ]);
+    const token = await resetToken("lee@example.co");
+
+    const reset = await post("/reset-password", { token, newPassword: "new-password-456" });
+    expect(reset.status).toBe(200);
+    expect(providersOf("u-unverified")).toEqual(["credential"]);
+    expect(sessionsOf("u-unverified")).toHaveLength(0);
+    expect((await signIn("lee@example.co", "new-password-456")).status).toBe(200);
+  });
+
+  it("keeps a verified account's identities, except AgentID's", async () => {
+    seedAccount("u-verified", "mo@example.co", true, [
+      { providerId: "google", accountId: "google-sub-1" },
+      { providerId: "agentid", accountId: "agent-sub-2" },
+    ]);
+    const token = await resetToken("mo@example.co");
+
+    expect((await post("/reset-password", { token, newPassword: "new-password-789" })).status).toBe(
+      200,
+    );
+    expect(providersOf("u-verified")).toEqual(["credential", "google"]);
+    expect((await signIn("mo@example.co", "new-password-789")).status).toBe(200);
+  });
+
+  it("changes nothing for a verified account with only proven identities", async () => {
+    seedAccount("u-google", "ny@example.co", true, [
+      { providerId: "google", accountId: "google-sub-2" },
+    ]);
+    const before = sessionsOf("u-google").length;
+    const token = await resetToken("ny@example.co");
+
+    expect((await post("/reset-password", { token, newPassword: "new-password-321" })).status).toBe(
+      200,
+    );
+    expect(providersOf("u-google")).toEqual(["credential", "google"]);
+    expect(before).toBe(1);
+  });
+
+  it("changes nothing without a valid token", async () => {
+    seedAccount("u-other", "oz@example.co", false, [
+      { providerId: "agentid", accountId: "agent-sub-3" },
+    ]);
+
+    const reset = await post("/reset-password", {
+      token: "not-a-real-token",
+      newPassword: "new-password-654",
+    });
+    expect(reset.status).toBe(400);
+    expect(providersOf("u-other")).toEqual(["agentid"]);
+    expect(sessionsOf("u-other")).toHaveLength(1);
+  });
+
+  it("still resets the password of an ordinary password account", async () => {
+    const token = await resetToken("ada@example.co");
+
+    expect((await post("/reset-password", { token, newPassword: "fresh-password-1" })).status).toBe(
+      200,
+    );
+    expect((await signIn("ada@example.co", "fresh-password-1")).status).toBe(200);
+    expect((await signIn("ada@example.co", "test-password-123")).status).toBe(401);
+  });
+
+  it("answers the forgot-password form the same way for these accounts", async () => {
+    seedAccount("u-social", "pat@example.co", false, [
+      { providerId: "agentid", accountId: "agent-sub-4" },
+    ]);
+    const social = await forgotPassword("pat@example.co");
+    const unknown = await forgotPassword("nobody@example.co");
+    expect(social).toEqual(unknown);
+  });
+});

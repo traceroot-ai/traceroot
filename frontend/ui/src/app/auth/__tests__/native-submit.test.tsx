@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
 import { cleanup, render } from "@testing-library/react";
 
@@ -27,6 +27,10 @@ import { ForgotPasswordClient } from "../forgot-password/forgot-password-client"
 import { ResetPasswordClient } from "../reset-password/reset-password-client";
 import { SignInClient } from "../sign-in/sign-in-client";
 import { SignUpClient } from "../sign-up/sign-up-client";
+
+// Unmounts after every test, passed or failed, so one test's page never
+// reaches the next.
+afterEach(cleanup);
 
 /** Each form's opening tag and the named fields inside it, as served. */
 function forms(html: string) {
@@ -77,6 +81,5 @@ describe.each([
       const submit = form.querySelector('button[type="submit"]') as HTMLButtonElement;
       expect(submit.disabled).toBe(false);
     }
-    cleanup();
   });
 });

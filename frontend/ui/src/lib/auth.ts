@@ -13,6 +13,7 @@ import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
 import { sendPasswordResetEmail } from "@/lib/email/send-password-reset-email";
+import { dropUnprovenIdentitiesOnReset } from "@/lib/auth-recovery";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { refuseUnverifiedGitHubSignUp } from "@/lib/signup/verified-social-email";
@@ -61,6 +62,10 @@ export const auth = betterAuth({
     },
     revokeSessionsOnPasswordReset: true,
   },
+
+  // A password reset keeps only the sign-in identities that proved the mailbox;
+  // see lib/auth-recovery.ts.
+  hooks: { before: dropUnprovenIdentitiesOnReset },
 
   databaseHooks: {
     user: {
