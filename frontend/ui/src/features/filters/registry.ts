@@ -115,6 +115,15 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     enum_values: [],
   },
   {
+    field: "tags",
+    label: "Tags",
+    type: "categorical",
+    level: "SPAN_ARRAY_MEMBERSHIP",
+    operators: ["in"],
+    value_source: "distinct_query",
+    enum_values: [],
+  },
+  {
     field: "cost",
     label: "Cost",
     type: "numeric",
