@@ -39,7 +39,7 @@ describe("mcpOAuthProviderOptions", () => {
   it("rotates refresh tokens, replaying a lost response for two minutes", () => {
     // Seconds. Registration, authorization and refresh run end to end in
     // provider-flow.integration.test.ts.
-    expect(options.refreshTokenReuseInterval).toBe(120);
+    expect(options.refreshTokenReuseInterval).toBe(3600);
   });
 
   describe("the project picker", () => {

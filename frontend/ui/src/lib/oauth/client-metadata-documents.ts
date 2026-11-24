@@ -1,5 +1,5 @@
 import type { CimdOptions } from "@better-auth/cimd";
-import { fetchClientMetadataResource } from "@better-auth/cimd/node";
+import { pinnedMetadataFetch } from "@/lib/oauth/pinned-fetch";
 
 type FetchResource = CimdOptions["fetchClientMetadataResource"];
 
@@ -16,11 +16,12 @@ type FetchResource = CimdOptions["fetchClientMetadataResource"];
 //
 // The plugin refuses document URLs on private, loopback or reserved hosts, a
 // document whose client_id is not its own URL, and symmetric client secrets. The
-// Node transport resolves the host once, refuses any private answer, pins the
-// address for the connection and follows no redirects; the plugin caps a fetch
-// at 5 s and 5 KB. The same transport fetches a document's jwks_uri, which is
-// how a private_key_jwt client is authenticated.
-export function mcpCimdOptions(fetchResource: FetchResource = fetchClientMetadataResource) {
+// transport (pinned-fetch.ts) resolves the host once, refuses any private answer,
+// pins the address for the connection, follows no redirects and accepts up to
+// 64 KiB of response headers; the plugin caps a fetch at 5 s and 5 KB. The same
+// transport fetches a document's jwks_uri, which is how a private_key_jwt client
+// is authenticated.
+export function mcpCimdOptions(fetchResource: FetchResource = pinnedMetadataFetch()) {
   return {
     fetchClientMetadataResource: fetchResource,
     // Requires client_name and redirect_uris, as the MCP authorization spec does.

@@ -112,8 +112,9 @@ describe("auth options", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
   });
 
-  it("caps client registration high enough for an assistant's shared egress", () => {
+  it("caps client registration and token requests high enough for an assistant's shared egress", () => {
     expect(options.rateLimit.customRules["/oauth2/register"]).toEqual({ window: 60, max: 60 });
+    expect(options.rateLimit.customRules["/oauth2/token"]).toEqual({ window: 60, max: 120 });
   });
 
   it("sends user_signed_up when a user is created", async () => {

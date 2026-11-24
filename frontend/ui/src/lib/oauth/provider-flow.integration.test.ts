@@ -13,6 +13,7 @@ vi.mock("@/lib/oauth/project-selection", () => ({
 }));
 
 import { oauthDefaultResource } from "./default-resource";
+import { oauthRefreshReuseLog, type RefreshTokenLookup } from "./refresh-reuse-log";
 import { mcpOAuthProviderOptions } from "./provider-options";
 
 // Real better-auth handlers with the provider configured as in auth.ts, on an
@@ -24,27 +25,32 @@ const RESOURCE = "https://mcp.example.com/mcp";
 const SCOPE = "mcp:read offline_access";
 
 function testAuth() {
+  const tables = {
+    user: [],
+    session: [],
+    account: [],
+    verification: [],
+    jwks: [],
+    oauthClient: [],
+    oauthClientResource: [],
+    oauthResource: [],
+    oauthAccessToken: [],
+    oauthRefreshToken: [] as Awaited<ReturnType<RefreshTokenLookup>>[],
+    oauthConsent: [],
+    oauthClientAssertion: [],
+  };
+  // The reuse log reads the same rows the provider wrote, by their stored form.
+  const lookup: RefreshTokenLookup = async (stored) =>
+    tables.oauthRefreshToken.find((row) => (row as { token?: string })?.token === stored) ?? null;
   return betterAuth({
     baseURL,
     secret: "local-test-secret-012345678901234567890123",
-    database: memoryAdapter({
-      user: [],
-      session: [],
-      account: [],
-      verification: [],
-      jwks: [],
-      oauthClient: [],
-      oauthClientResource: [],
-      oauthResource: [],
-      oauthAccessToken: [],
-      oauthRefreshToken: [],
-      oauthConsent: [],
-      oauthClientAssertion: [],
-    }),
+    database: memoryAdapter(tables),
     emailAndPassword: { enabled: true },
     plugins: [
       jwt({ jwks: { keyPairConfig: { alg: "EdDSA" } } }),
       oauthDefaultResource(RESOURCE),
+      oauthRefreshReuseLog(lookup),
       oauthProvider(mcpOAuthProviderOptions(RESOURCE)),
     ],
   });
@@ -320,10 +326,15 @@ describe("a rotated refresh token", () => {
     return { form, rotated: rotated.body as TokenResponse, clientId };
   }
 
-  it("replays the same response when reused within two minutes", async () => {
+  it("replays the same response when reused within the hour", async () => {
     const { form, rotated } = await rotateOnce();
-    vi.advanceTimersByTime(119_000);
+    vi.advanceTimersByTime(3_599_000);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const replayed = await token(form);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/age_s=3599 within_reuse_window=true$/),
+    );
+    warn.mockRestore();
     expect(replayed.status).toBe(200);
     expect(replayed.body).toMatchObject({
       access_token: rotated.access_token,
@@ -331,10 +342,17 @@ describe("a rotated refresh token", () => {
     });
   });
 
-  it("is treated as stolen when reused after two minutes, revoking the newer token too", async () => {
+  it("is treated as stolen when reused after the hour, revoking the newer token too", async () => {
     const { form, rotated, clientId } = await rotateOnce();
-    vi.advanceTimersByTime(121_000);
+    vi.advanceTimersByTime(3_601_000);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const reused = await token(form);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        new RegExp(`client_id=${clientId} age_s=3601 within_reuse_window=false$`),
+      ),
+    );
+    warn.mockRestore();
     expect(reused.status).toBe(400);
     expect(reused.body.error).toBe("invalid_grant");
 
