@@ -156,7 +156,9 @@ export function ScorerSummary({
     />
   );
   if (agg.transitions) {
-    return <SummaryValue main={`changed ${agg.transitions.changed} of ${n}`} sub={count} />;
+    // Unknown is a dash, as for a mean: "changed 0 of 0" would read as no change.
+    const main = n === 0 ? "—" : `changed ${agg.transitions.changed} of ${n}`;
+    return <SummaryValue main={main} sub={count} />;
   }
   const cells = counts?.get(column.name);
   const sub = (

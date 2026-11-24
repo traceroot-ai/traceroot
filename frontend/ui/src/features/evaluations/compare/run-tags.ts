@@ -23,12 +23,20 @@ export function runTagger(bundles: readonly Tagged[]): (runId: string) => string
   const stable = [...first.entries()].sort(
     ([idA, a], [idB, b]) => a.start - b.start || (idA < idB ? -1 : idA > idB ? 1 : 0),
   );
+  // The later one takes the first "(n)" that is neither an evaluation's own name nor a
+  // label already given, so an evaluation actually named "support-routing (2)" still
+  // reads as itself.
+  const taken = new Set(stable.map(([, { name }]) => name));
+  const seen = new Set<string>();
   const names = new Map<string, string>();
-  const seen = new Map<string, number>();
   for (const [id, { name }] of stable) {
-    const n = (seen.get(name) ?? 0) + 1;
-    seen.set(name, n);
-    names.set(id, n === 1 ? name : `${name} (${n})`);
+    let label = name;
+    if (seen.has(name)) {
+      for (let n = 2; taken.has(label); n++) label = `${name} (${n})`;
+      taken.add(label);
+    }
+    seen.add(name);
+    names.set(id, label);
   }
   const spansEvaluations = names.size > 1;
   return (runId) => {
