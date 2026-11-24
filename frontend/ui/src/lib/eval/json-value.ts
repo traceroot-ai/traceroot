@@ -12,6 +12,81 @@
  * re-decoding strings, otherwise a genuine JSON-looking string would be double-decoded.
  */
 
+/** Deterministic JSON with recursively sorted object keys — so two structurally equal
+ *  values compare equal regardless of key order (JSONB round-trips don't preserve it).
+ *
+ *  For IN-PROCESS EQUALITY ONLY — cross-dataset run comparison (`canonicalInputKey`). Its
+ *  output is never hashed, stored, or sent anywhere, so any total key order does, and it
+ *  must never throw: a legacy value carrying a lone UTF-16 surrogate has to still compare
+ *  rather than break the page rendering it (`JSON.stringify` escapes such a string instead
+ *  of failing).
+ *
+ *  It is deliberately NOT the canonicalizer for content-addressed case ids, which lives
+ *  separately in `canonical.ts`. `stableCaseId` hashes that one's output, so it has to stay
+ *  byte-identical to the TS/Python SDK canonicalizers, and it is stricter in two ways: it
+ *  sorts object keys by Unicode code POINT (Python `sorted()` order) where this one sorts by
+ *  UTF-16 code UNIT, and it REJECTS a lone surrogate. The two therefore produce different
+ *  strings for exactly those inputs — which is harmless while each stays on its own side,
+ *  and is why an id must never be derived from this one. */
+export function canonicalJson(v: unknown): string {
+  // A loop over an explicit stack, not recursion: stored values are capped in length but
+  // not in depth, so one can nest deeper than the call stack allows. A string on the stack
+  // is text to write as is; a `{ value }` is a value still to serialize.
+  const out: string[] = [];
+  const stack: (string | { value: unknown })[] = [{ value: v }];
+  while (stack.length > 0) {
+    const next = stack.pop()!;
+    if (typeof next === "string") {
+      out.push(next);
+      continue;
+    }
+    const x = next.value;
+    if (x === null || typeof x !== "object") {
+      out.push(JSON.stringify(x) ?? "null");
+      continue;
+    }
+    const isArray = Array.isArray(x);
+    const o = x as Record<string, unknown>;
+    // Each member's prefix (separator, then the key for an object) and value.
+    const members: [string, unknown][] = isArray
+      ? Array.from(x, (item, i): [string, unknown] => [i > 0 ? "," : "", item])
+      : Object.keys(o)
+          .sort()
+          .map((k, i): [string, unknown] => [`${i > 0 ? "," : ""}${JSON.stringify(k)}:`, o[k]]);
+    out.push(isArray ? "[" : "{");
+    // Pushed last-first, so they come off the stack in order.
+    stack.push(isArray ? "]" : "}");
+    for (let i = members.length - 1; i >= 0; i--) {
+      stack.push({ value: members[i][1] }, members[i][0]);
+    }
+  }
+  return out.join("");
+}
+
+/**
+ * A dataset-independent alignment key for a stored `input` value: decode the stored
+ * text back to its native value, then canonicalize it. Two datasets holding the same
+ * input — regardless of object key order or encoding — produce the same key, even
+ * though their `testCaseId`s (which are dataset-scoped) differ. This is what lets a
+ * run comparison line up cases across datasets by shared input.
+ *
+ * Unlike a dataset test case (whose `input` is encoded through `encodeJsonValue`), a
+ * run RESULT's `input` has no enforced encoding contract: the same logical value can
+ * arrive JSON-encoded or as legacy plain text. Decoding both forms of a value converges
+ * them (a legacy plain-text `hello` and JSON `"hello"` both decode to the string
+ * `hello`), so a scalar is keyed by its JSON representation — which keeps the TYPE, so a
+ * string, number, and boolean that merely share the same text stay distinct (`123` →
+ * `s:123`, `"123"` → `s:"123"`, `true` → `s:true`, `"true"` → `s:"true"`). Objects/arrays
+ * keep their structural, key-order-independent canonical form. The `s:` / `o:` prefixes
+ * keep a genuine string that merely looks like JSON (e.g. `"{\"a\":1}"`) from colliding
+ * with the object it resembles.
+ */
+export function canonicalInputKey(input: string): string {
+  const decoded = decodeJsonValue(input);
+  if (decoded === null || typeof decoded !== "object") return `s:${JSON.stringify(decoded)}`;
+  return `o:${canonicalJson(decoded)}`;
+}
+
 /** Encode a native JSON value for text storage so its type round-trips on read. */
 export function encodeJsonValue(value: unknown): string {
   // JSON.stringify(undefined) is `undefined`; callers guard undefined separately,

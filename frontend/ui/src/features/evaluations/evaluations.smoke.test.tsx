@@ -11,9 +11,12 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 
+// One stable router so a test can assert what a click navigated to (e.g. the
+// compare route). Cleared in beforeEach.
+const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", datasetId: "ds1", runId: "run1" }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => nav,
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => "/projects/p1/evaluations",
 }));
@@ -265,6 +268,7 @@ function payloadFor(url: string): unknown {
 }
 
 beforeEach(() => {
+  nav.push.mockClear();
   global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
     ok: true,
     status: 200,
@@ -356,6 +360,89 @@ describe("real Datasets + Evaluations views render server data", () => {
       expect(urls.some((u) => u.includes("/evaluations/runs") && u.includes("page=1"))).toBe(true),
     );
     expect(scroller.scrollTop).toBe(0);
+  });
+
+  it("compares a cross-dataset selection with no refusal (navigates to the compare route)", async () => {
+    // The two selected runs live on DIFFERENT datasets. The old behaviour refused this
+    // at the selection step with a "same dataset" toast; the compare view aligns such
+    // runs by shared input, so the selection must now proceed straight to compare.
+    const RUN_OTHER_DATASET = {
+      ...RUN_OLDER,
+      datasetId: "ds2",
+      datasetName: "Refunds routing",
+      datasetVersionId: "dv2",
+    };
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const s = String(url);
+      const isRunsList = s.includes("/evaluations/runs") && !/\/evaluations\/runs\/[^/?]+/.test(s);
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          isRunsList
+            ? { data: [RUN, RUN_OTHER_DATASET], meta: { page: 0, limit: 50, total: 2 } }
+            : payloadFor(s),
+      };
+    }) as unknown as typeof fetch;
+    mount(<EvaluationsView projectId="p1" />);
+    // Select both runs (each on a different dataset).
+    fireEvent.click(await screen.findByLabelText("Select run git:4a91c02 #27"));
+    fireEvent.click(await screen.findByLabelText("Select run git:0000000 #26"));
+    // Open the bulk Actions menu and choose Compare. Radix opens the trigger on
+    // pointerdown (not a bare click), so drive it that way.
+    fireEvent.pointerDown(await screen.findByRole("button", { name: /Actions \(2 selected\)/ }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByText("Compare"));
+    // No "same dataset" refusal, and it navigates to the shareable compare route with
+    // both ids (oldest first) and the oldest run seeding the baseline.
+    expect(screen.queryByText(/same dataset/i)).toBeNull();
+    await waitFor(() =>
+      expect(nav.push).toHaveBeenCalledWith(
+        "/projects/p1/evaluations/compare?runs=run0,run1&baseline=run0",
+      ),
+    );
+  });
+
+  it("seeds the comparison baseline with the oldest selected run, not the lowest run number", async () => {
+    // Run numbers restart per evaluation, so across evaluations a low number can be the
+    // newer run: #3 of "Refund routing" started after #26 of "Billing routing".
+    const RUN_NEWER_LOW_NUMBER = {
+      ...RUN,
+      id: "run9",
+      evaluationId: "eval2",
+      evaluationName: "Refund routing",
+      runNumber: 3,
+      candidateVersion: "git:9999999",
+      startedAt: "2026-07-18T10:24:00Z",
+      completedAt: "2026-07-18T10:30:00Z",
+    };
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const s = String(url);
+      const isRunsList = s.includes("/evaluations/runs") && !/\/evaluations\/runs\/[^/?]+/.test(s);
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          isRunsList
+            ? { data: [RUN_NEWER_LOW_NUMBER, RUN_OLDER], meta: { page: 0, limit: 50, total: 2 } }
+            : payloadFor(s),
+      };
+    }) as unknown as typeof fetch;
+    mount(<EvaluationsView projectId="p1" />);
+    fireEvent.click(await screen.findByLabelText("Select run git:9999999 #3"));
+    fireEvent.click(await screen.findByLabelText("Select run git:0000000 #26"));
+    fireEvent.pointerDown(await screen.findByRole("button", { name: /Actions \(2 selected\)/ }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByText("Compare"));
+    await waitFor(() =>
+      expect(nav.push).toHaveBeenCalledWith(
+        "/projects/p1/evaluations/compare?runs=run0,run9&baseline=run0",
+      ),
+    );
   });
 
   it("Run detail renders the per-case results table (no run-identity header)", async () => {
