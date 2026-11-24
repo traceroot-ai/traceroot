@@ -661,6 +661,10 @@ services:
       MCP_GOOGLE_CONNECTED_APPS_TOKENS: ${MCP_GOOGLE_CONNECTED_APPS_TOKENS:-}
       # Longest tool result, in characters; blank keeps the default (80000).
       MCP_MAX_RESULT_CHARS: ${MCP_MAX_RESULT_CHARS:-}
+      # Where the web app answers inside this network. With OAuth on, the server
+      # checks at startup that the web app's issuer is MCP_OAUTH_ISSUER exactly,
+      # and exits if not.
+      TRACEROOT_UI_URL: http://web:3000
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
       interval: 10s
