@@ -17,6 +17,10 @@ import {
   POLICY,
   QUALITY,
   ROUTE,
+  fixtureResult,
+  fixtureRun,
+  fixtureScore,
+  scorerManifest,
 } from "./compare/__tests__/paired-fixture";
 import {
   caseGroup,
@@ -42,6 +46,8 @@ vi.mock("@/features/traces/hooks", async (importOriginal) => {
   const pending = { data: undefined, isLoading: true, isFetching: true, isError: false };
   return { ...actual, useTrace: () => ({ ...pending, refetch: vi.fn() }) };
 });
+// The open case keeps its baseline's trace live, which needs a server.
+vi.mock("@/features/traces/hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 
 import { CompareRunsView } from "./views/compare-runs-view";
 
@@ -385,6 +391,36 @@ describe("CompareRunsView — the all-cases group", () => {
     );
     expect(caseGroups()).toHaveLength(1);
     expect(shownText(cellAt(summaryGroup(), BASELINE_RUN.id, "Input"))).toBe("Matching cases");
+  });
+});
+
+describe("CompareRunsView — a scorer another run records as text", () => {
+  it("shows a numeric pair's change on its line, as its summary does", () => {
+    // Bare `{ name, version }` scorers, so each value type comes from what was recorded:
+    // numbers in the baseline and #2, text in #3.
+    const bundles = ([0.4, 0.8, "high"] as const).map((value, i) => {
+      const id = RUN_IDS[i];
+      return {
+        run: fixtureRun(id, i + 1, id, `2026-11-0${i + 1}T00:00:00Z`, {
+          scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+        }),
+        results: [fixtureResult(id, "tc-1", "one", [fixtureScore(QUALITY, value)])],
+      };
+    });
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: bundles.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount();
+    const group = caseGroup("one");
+    const change = within(cellAt(group, CANDIDATE_RUN.id, QUALITY)).getByText("+0.4");
+    expect(change.className).toContain("text-emerald-600");
+    expect(shownText(cellAt(group, CANDIDATE_RUN.id, QUALITY))).not.toContain("changed");
+    // The run that recorded text still reads as a value type change, not a change.
+    expect(shownText(cellAt(group, FAST_RUN.id, QUALITY))).not.toContain("+");
   });
 });
 

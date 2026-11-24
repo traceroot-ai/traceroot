@@ -42,7 +42,8 @@ describe("findUnionNode", () => {
 
   it("finds nothing for a span neither trace has", () => {
     expect(findUnionNode(nodes, span("tc", "gone", null, "x"), "tb")).toBeNull();
-    expect(findUnionNode(nodes, span("other", "s1", null, "x"), "tb")?.id).toBe("candidate:s1");
+    // Another trace's span, though this one reuses its id: an old baseline's, say.
+    expect(findUnionNode(nodes, span("other", "s1", null, "x"), "tb")).toBeNull();
   });
 });
 

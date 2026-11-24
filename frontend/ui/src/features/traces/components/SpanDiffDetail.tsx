@@ -18,7 +18,7 @@ import { cn, formatCost, formatDuration, formatTokens } from "@/lib/utils";
 import type { Span, TraceDetail } from "@/types/api";
 import { useSpanIO } from "../hooks";
 import { beforeAfter, moveClass, traceFigures, UNION_STATE_CLASS } from "../utils/diff";
-import { splitInternalMetadata } from "../utils/metadata";
+import { isPathOnlyMetadata, splitInternalMetadata } from "../utils/metadata";
 import { DiffBox, DiffLayoutToggle } from "./DiffBox";
 import { TraceIOSection } from "./TraceIOValue";
 import { ValueDiff, type DiffLayout, type DiffSide } from "./ValueDiff";
@@ -82,7 +82,10 @@ interface SideValues {
 function useSpanValues(projectId: string, traceId: string, span: Span | null): SideValues {
   const spanId = span && !span.pending ? span.span_id : null;
   const { data, isLoading, isError } = useSpanIO(projectId, traceId, spanId);
-  const { metadata, redacted } = splitInternalMetadata(data?.metadata ?? span?.metadata ?? null);
+  // A span's own path-only metadata isn't its stored value: until the fetch returns that,
+  // there is none to compare or copy, so the box says it's loading or couldn't load.
+  const carried = isPathOnlyMetadata(span?.metadata) ? null : span?.metadata;
+  const { metadata, redacted } = splitInternalMetadata(data?.metadata ?? carried ?? null);
   return {
     values: {
       input: data?.input ?? span?.input ?? null,

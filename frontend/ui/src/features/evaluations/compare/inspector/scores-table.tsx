@@ -9,6 +9,7 @@ import { Delta, Dot } from "../cells";
 import {
   CELL_STATE_LABEL,
   cellDelta,
+  cellPolicy,
   isCompared,
   scoreRowsOf,
   scorerCellState,
@@ -52,8 +53,10 @@ function ScoreChange({
     return <MismatchMarker reason={cell.reason} />;
   }
   if (!isCompared(cell)) return <span className="text-muted-foreground">—</span>;
-  // A categorical scorer's values are labels: they changed or they didn't.
-  const delta = column.valueType === "categorical" ? null : cellDelta(cell);
+  // A categorical scorer's values are labels: they changed or they didn't. Read as the pair
+  // compared them, as the table and its summary do.
+  const { categorical, direction } = cellPolicy(cell, column);
+  const delta = categorical ? null : cellDelta(cell);
   if (delta === null || delta === 0) {
     return (
       <span className="text-muted-foreground">
@@ -62,11 +65,7 @@ function ScoreChange({
     );
   }
   return (
-    <Delta
-      value={delta}
-      text={formatMetricDelta(delta, column.format)}
-      direction={column.direction}
-    />
+    <Delta value={delta} text={formatMetricDelta(delta, column.format)} direction={direction} />
   );
 }
 

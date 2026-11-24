@@ -392,6 +392,71 @@ describe("SpanInfoPanel in diff mode, a span whose status changed", () => {
   });
 });
 
+describe("SpanInfoPanel in diff mode, before a span's stored metadata arrives", () => {
+  // The trace skeleton's metadata is only the SDK's path keys; the stored value is fetched
+  // per span.
+  const skeleton = (idsPath: string[], path: string[]) =>
+    JSON.stringify({ "traceroot.span.ids_path": idsPath, "traceroot.span.path": path });
+  const traces = (planMetadata = skeleton(["b0"], ["agent", "plan"])) => [
+    traceOf("tb7", [
+      ["b0", null, "agent", SpanKind.AGENT, 0, 1000, { metadata: skeleton([], ["agent"]) }],
+      ["b1", "b0", "plan", SpanKind.LLM, 10, 100, { metadata: planMetadata }],
+    ]),
+    traceOf("tc7", [
+      ["c0", null, "agent", SpanKind.AGENT, 0, 1000, { metadata: skeleton([], ["agent"]) }],
+      [
+        "c1",
+        "c0",
+        "plan",
+        SpanKind.LLM,
+        10,
+        100,
+        { metadata: skeleton(["c0"], ["agent", "plan"]) },
+      ],
+    ]),
+  ];
+  const metadata = () => within(box("Metadata"));
+  const added = () => box("Metadata").querySelector("[data-line='add']");
+
+  beforeEach(() => io.byKey.set("tc7/c1", { metadata: '{"temperature":0.2}' }));
+
+  it("says Loading… for the baseline, not that this run's keys were added", () => {
+    io.pending.add("tb7/b1");
+    const [baseline, candidate] = traces();
+    renderPair(baseline, candidate, "c1");
+    expect(metadata().getByText("Loading…")).toBeTruthy();
+    expect(added()).toBeNull();
+  });
+
+  it("says the baseline's couldn't load, and offers none of it to copy", () => {
+    io.failed.add("tb7/b1");
+    const [baseline, candidate] = traces();
+    renderPair(baseline, candidate, "c1");
+    expect(metadata().getByText("Couldn't load this span's metadata")).toBeTruthy();
+    expect(metadata().queryByRole("button", { name: "Copy baseline metadata" })).toBeNull();
+    expect(added()).toBeNull();
+  });
+
+  it("says both couldn't load, rather than No differences.", () => {
+    io.byKey.delete("tc7/c1");
+    io.failed.add("tb7/b1");
+    io.failed.add("tc7/c1");
+    const [baseline, candidate] = traces();
+    renderPair(baseline, candidate, "c1");
+    expect(metadata().getAllByText("Couldn't load this span's metadata")).toHaveLength(2);
+    expect(metadata().queryByText("No differences.")).toBeNull();
+  });
+
+  it("compares metadata a span carries in full though its fetch failed", () => {
+    io.failed.add("tb7/b1");
+    const [baseline, candidate] = traces(
+      JSON.stringify({ temperature: 0, "traceroot.span.ids_path": ["b0"] }),
+    );
+    renderPair(baseline, candidate, "c1");
+    expect(added()!.textContent).toContain("0.2");
+  });
+});
+
 describe("SpanInfoPanel in diff mode, each side of a box", () => {
   const plan = () => ({ type: "span" as const, span: shown(node("plan")) });
 
