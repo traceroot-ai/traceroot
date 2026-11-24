@@ -144,10 +144,58 @@ export async function followUpFacts(
   };
 }
 
-/** Where one person's email links go. */
-async function linksFor(userId: string, appUrl: string): Promise<FollowUpLinks> {
+/**
+ * Marks the visits that come from the open-signals line: a fixed value on that
+ * one link, naming no one. Not a utm_ parameter, so it leaves acquisition
+ * attribution alone; it stays in the address when a signal is opened there, so
+ * the Signals page's own page views show both steps.
+ */
+export const OPEN_SIGNALS_SOURCE_PARAM = "from";
+export const OPEN_SIGNALS_SOURCE = "email-open-signals";
+/** The Resend tag value on the emails that carry that line, and only those. */
+export const OPEN_SIGNALS_VARIANT = "open_signals";
+
+/**
+ * The project, among those the person can open (a workspace they are a member
+ * of, not the demo, not deleted), with the most open signals, counted as the
+ * Signals list counts them: open and not merged into another. Ties go to the
+ * oldest project, then the lowest id. Null when no project has any.
+ */
+export async function openSignalsFor(
+  userId: string,
+): Promise<{ projectId: string; count: number } | null> {
   const demoId = demoWorkspaceId();
-  const [ownProject, ownWorkspace, demoUrl] = await Promise.all([
+  const projects = await prisma.project.findMany({
+    where: {
+      deleteTime: null,
+      workspace: { members: { some: { userId } }, ...(demoId && { id: { not: demoId } }) },
+    },
+    orderBy: [{ createTime: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+  if (projects.length === 0) return null;
+  const counts = await prisma.signal.groupBy({
+    by: ["projectId"],
+    where: { projectId: { in: projects.map((p) => p.id) }, status: "open", mergedIntoId: null },
+    _count: { _all: true },
+  });
+  const countOf = new Map(counts.map((c) => [c.projectId, c._count._all]));
+  let best: { projectId: string; count: number } | null = null;
+  for (const { id } of projects) {
+    const count = countOf.get(id) ?? 0;
+    if (count > 0 && (!best || count > best.count)) best = { projectId: id, count };
+  }
+  return best;
+}
+
+/** Where one person's email links go. */
+async function linksFor(
+  userId: string,
+  appUrl: string,
+  campaign: FollowUp,
+): Promise<FollowUpLinks> {
+  const demoId = demoWorkspaceId();
+  const [ownProject, ownWorkspace, demoUrl, openSignals] = await Promise.all([
     prisma.project.findFirst({
       where: {
         deleteTime: null,
@@ -162,6 +210,8 @@ async function linksFor(userId: string, appUrl: string): Promise<FollowUpLinks> 
       select: { id: true },
     }),
     demoProjectUrl(appUrl),
+    // Only the Slack and GitHub email carries the open-signals line.
+    campaign === "connect_slack_github" ? openSignalsFor(userId) : null,
   ]);
   return {
     // A project with no trace shows the setup instructions on its traces page.
@@ -171,6 +221,12 @@ async function linksFor(userId: string, appUrl: string): Promise<FollowUpLinks> 
       ? `${appUrl}/workspaces/${ownWorkspace.id}/settings/integrations`
       : `${appUrl}/workspaces`,
     bookingUrl: clientEnv.NEXT_PUBLIC_FOUNDERS_CAL_URL,
+    ...(openSignals && {
+      openSignals: {
+        count: openSignals.count,
+        url: `${appUrl}/projects/${openSignals.projectId}/signals?${OPEN_SIGNALS_SOURCE_PARAM}=${OPEN_SIGNALS_SOURCE}`,
+      },
+    }),
   };
 }
 
@@ -181,7 +237,7 @@ export async function sendFollowUp(
   options: { fetchImpl?: typeof fetch } = {},
 ): Promise<SendOnceResult> {
   const appUrl = env.NEXT_PUBLIC_APP_URL;
-  const links = await linksFor(user.id, appUrl);
+  const links = await linksFor(user.id, appUrl, campaign);
   return sendOnce(
     prisma,
     { userId: user.id, campaign, kind: "product" },
@@ -202,7 +258,13 @@ export async function sendFollowUp(
         kind: "product",
         replyTo,
         idempotencyKey: `${campaign}/${user.id}`,
-        tags: { category: "product", template: campaign },
+        // The variant tag marks exactly the emails that carry the open-signals
+        // line, so their sends can be told apart from the same email without it.
+        tags: {
+          category: "product",
+          template: campaign,
+          ...(links.openSignals && { variant: OPEN_SIGNALS_VARIANT }),
+        },
         headers: unsubscribeHeaders({ url: unsubscribeUrl, mailto: replyTo ?? "" }),
       };
     },

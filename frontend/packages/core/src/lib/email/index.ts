@@ -6,6 +6,7 @@ export {
   isProductMailConfigured,
   ensureContact,
   setTopicSubscription,
+  PRODUCT_FOOTER_SLOT,
   type EmailKind,
   type OutboundEmail,
   type SendResult,

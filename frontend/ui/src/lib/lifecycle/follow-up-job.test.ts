@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({ cloud: true, findMany: vi.fn() }));
-vi.mock("@traceroot/core", () => ({ prisma: { user: { findMany: m.findMany } } }));
+vi.mock("@traceroot/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@traceroot/core")>()),
+  prisma: { user: { findMany: m.findMany } },
+}));
 vi.mock("@/lib/server/cloud", () => ({ isCloud: () => m.cloud }));
 vi.mock("@/env", () => ({ env: { NEXT_PUBLIC_APP_URL: "https://app.example" } }));
 
