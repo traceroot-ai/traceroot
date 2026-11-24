@@ -342,9 +342,9 @@ export function comparePairs(
 }
 
 /** One case compared between any two of the selected runs (the trace panel's pair, which
- *  may not involve the table's baseline), under the same column policy as the table's
- *  pairs; null when either run isn't compared, they are the same run, or no run has the
- *  case.
+ *  may not involve the table's baseline), under the policy the table's pairs use: what
+ *  the runs declared, the rest from the two runs' own values. Null when either run isn't
+ *  compared, they are the same run, or no run has the case.
  *
  *  The case's results are the table's, aligned against the table's baseline: two runs
  *  that are both on another dataset than the baseline's met on the row by their input

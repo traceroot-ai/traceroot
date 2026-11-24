@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
+import type { ResultComparison } from "@/lib/eval/comparison";
 import { fixtureResult, fixtureScore, QUALITY } from "../__tests__/paired-fixture";
 import { inferMetricFormat } from "../metric-format";
 import type { ScorerColumn } from "../model";
@@ -44,5 +45,44 @@ describe("ScoresTable", () => {
     expect(within(row).queryByText("Old judge.")).toBeNull();
     expect(within(row).getByText(/60\.0%/)).toBeTruthy();
     expect(within(row).getByText("No result")).toBeTruthy();
+  });
+
+  it("shows a numeric pair's change when another run records text for the scorer", () => {
+    // The column reads as labels, since a run outside this pair recorded text; the pair
+    // compared numbers, and its cell says so.
+    const labels: ScorerColumn = {
+      name: QUALITY,
+      valueType: "categorical",
+      direction: "none",
+      format: inferMetricFormat("categorical", [0.4, 0.8]),
+    };
+    const result = (runId: string, value: number) =>
+      fixtureResult(runId, "case-1", "Ticket 1", [fixtureScore(QUALITY, value)]);
+    render(
+      <ScoresTable
+        scorers={[labels]}
+        baseline={{ result: result("run-1", 0.4), heading: "Baseline · #1", dot: "#000" }}
+        candidate={{ result: result("run-2", 0.8), heading: "Candidate · #2", dot: "#000" }}
+        comparison={
+          {
+            scorerCells: [
+              {
+                scorerName: QUALITY,
+                scorerVersion: "1",
+                valueType: "numeric",
+                direction: "higher_is_better",
+                candidateValue: 0.8,
+                baselineValue: 0.4,
+                delta: 0.4,
+                classification: "improved",
+              },
+            ],
+          } as unknown as ResultComparison
+        }
+      />,
+    );
+    const row = within(screen.getByRole("table")).getByText(QUALITY).closest("tr")!;
+    expect(within(row).queryByText("No change")).toBeNull();
+    expect(within(row).getByText(/\+0\.4/).className).toContain("text-emerald-600");
   });
 });
