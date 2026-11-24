@@ -67,15 +67,20 @@ export function RunPickerList({
     started_before: anchor.startedAt,
     limit: selectedIds.length + 1,
   });
-  const found = useEvaluationRuns(projectId, { search_query: searchQuery, limit: LIST_LIMIT });
+  // The selected runs are left out, so the list asks for that many more to stay full.
+  const found = useEvaluationRuns(projectId, {
+    search_query: searchQuery,
+    limit: LIST_LIMIT + selectedIds.length,
+  });
 
   // The suggestion leads the list, so the list waits for it rather than shift under the
   // pointer when it arrives; a previous selection's window (placeholder data) can't give it.
   const loading = before.isLoading || before.isPlaceholderData || found.isLoading;
   const suggested = searchQuery ? null : previousRun(before.data?.data ?? [], anchor, selected);
-  const others = (found.data?.data ?? []).filter(
-    (r) => !selected.has(r.id) && r.id !== suggested?.id,
-  );
+  const others = (found.data?.data ?? [])
+    .filter((r) => !selected.has(r.id))
+    .slice(0, LIST_LIMIT)
+    .filter((r) => r.id !== suggested?.id);
 
   const option = (run: RunRow) => (
     <button

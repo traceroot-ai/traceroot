@@ -49,7 +49,8 @@ const looksStructured = (s: string) => s.startsWith("{") || s.startsWith("[");
  * The text a value is shown and diffed as. A stored output is usually JSON-encoded:
  * a string shows as its text, an object or array as two-space JSON with keys sorted
  * (so key order, spacing and a double-encoded copy all read the same), any other
- * scalar as JSON. Text that isn't JSON is returned unchanged.
+ * scalar as JSON. Text that isn't JSON, or nests too deep to indent, is returned
+ * unchanged.
  */
 export function normalizeForDiff(text: string): string {
   let value = decodeJsonValue(text);
@@ -64,8 +65,17 @@ export function normalizeForDiff(text: string): string {
   }
   if (typeof value === "string") return value;
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  // `canonicalJson` sorts the keys; parsing it back keeps that order for the indent.
-  return JSON.stringify(JSON.parse(canonicalJson(value)), null, 2);
+  try {
+    // `canonicalJson` sorts the keys, and parsing it back keeps that order for the indent,
+    // except that integer-like keys ("2", "10") come first, in numeric order, as in any
+    // object. Every value takes the same steps, so two that differ only in key order
+    // still read the same.
+    return JSON.stringify(JSON.parse(canonicalJson(value)), null, 2);
+  } catch {
+    // Indenting recurses, so a value nested deeper than the call stack allows can't be
+    // indented; showing it as stored keeps the page up.
+    return text;
+  }
 }
 
 /**

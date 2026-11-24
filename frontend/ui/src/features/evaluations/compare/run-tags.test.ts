@@ -36,6 +36,17 @@ describe("runTagger", () => {
     expect(tagOf("c")).toBe("support-routing (2) #1");
   });
 
+  it("never numbers a same-named evaluation into another evaluation's name", () => {
+    const tagOf = runTagger([
+      run("a", 1, "ev1", "foo"),
+      run("b", 1, "ev2", "foo"),
+      run("c", 1, "ev3", "foo (2)"),
+    ]);
+    expect(tagOf("a")).toBe("foo #1");
+    expect(tagOf("b")).toBe("foo (3) #1");
+    expect(tagOf("c")).toBe("foo (2) #1");
+  });
+
   it("names nothing for a run it doesn't have", () => {
     expect(runTagger([run("a", 1)])("gone")).toBe("");
   });

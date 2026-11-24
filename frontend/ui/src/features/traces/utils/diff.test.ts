@@ -118,7 +118,9 @@ describe("unionBars", () => {
   });
 
   it("scales the timeline to the longer of the two runs", () => {
-    expect(diffScaleMs(candidate, baseline)).toBeGreaterThanOrEqual(1600);
+    // Both finished, so neither is measured against the clock.
+    const longer = traceOf("tc2", [timed(span("tc2", "c0", null, "agent"), 0, 1600)]);
+    expect(diffScaleMs(longer, baseline)).toBe(1600);
     const short = traceOf("ts", [timed(span("ts", "s0", null, "agent"), 0, 500)]);
     expect(
       diffScaleMs(short, traceOf("tb2", [timed(span("tb2", "x", null, "agent"), 0, 900)])),

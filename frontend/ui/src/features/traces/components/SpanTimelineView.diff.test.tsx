@@ -181,6 +181,39 @@ describe("SpanTimelineView in diff mode", () => {
     expect(planWidth(false)).toBe("160px");
   });
 
+  it("draws a span too short to see as a tick, by the plain timeline's rule", () => {
+    // 2000px wide over 1600ms: a 3ms span is 3.75px, but under 0.2% of the timeline.
+    class WideResizeObserver {
+      constructor(private readonly onResize: ResizeObserverCallback) {}
+      observe() {
+        this.onResize(
+          [{ contentRect: { width: 2000 } } as ResizeObserverEntry],
+          this as unknown as ResizeObserver,
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    const original = global.ResizeObserver;
+    global.ResizeObserver = WideResizeObserver as unknown as typeof ResizeObserver;
+    try {
+      const candidate = traceOf("tc", [
+        ["c0", null, "agent", SpanKind.AGENT, 0, 1600],
+        ["c1", "c0", "lookup", SpanKind.TOOL, 100, 103],
+      ]);
+      const { row, bar } = renderTimeline({
+        trace: candidate,
+        diff: { baseline: BASELINE, nodes: traceUnion(BASELINE, candidate).nodes, measured: true },
+      });
+      const lookup = row(3);
+      expect(lookup.dataset.diffState).toBe("added");
+      expect(bar(lookup, "bar")!.className).toContain("w-[2px]");
+      expect(bar(lookup, "bar")!.style.width).toBe("");
+    } finally {
+      global.ResizeObserver = original;
+    }
+  });
+
   it("selects a span only the baseline has by the baseline's span", () => {
     const { row, onSelect } = renderTimeline();
     fireEvent.click(row(2));

@@ -333,7 +333,8 @@ export function SpanTimelineView({
                   node={node}
                   bar={row.bar}
                   ghost={row.ghost}
-                  toPx={(ms) => (ms / scaleMs) * timelineWidth}
+                  scaleMs={scaleMs}
+                  timelineWidth={timelineWidth}
                   style={rowStyle}
                   selected={isSpanSelected(selection, shown)}
                   hovered={hoveredSpanId === node.id}

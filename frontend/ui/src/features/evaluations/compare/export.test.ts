@@ -541,6 +541,23 @@ describe("toCsv — numbers and formulas", () => {
       ],
     });
   });
+
+  it("keeps formula-like text as text behind leading whitespace or a line break", () => {
+    const exp = build(rowsFor(1));
+    const values: ComparisonExport = {
+      ...exp,
+      rows: [{ case: "id:x", input: " =SUM(1)", expected: "\n=SUM(1)", runs: [] }],
+    };
+    // A spreadsheet that trims a field before reading it would otherwise run these.
+    const line = toCsv(values).split("\r\n")[1];
+    expect(line).toBe(`id:x,' =SUM(1),"'\n=SUM(1)"`);
+    // A field that starts with a tab, return or line break gets one before the text too.
+    const plain: ComparisonExport = {
+      ...exp,
+      rows: [{ case: "id:x", input: "\tnote", expected: "\nnote", runs: [] }],
+    };
+    expect(toCsv(plain).split("\r\n")[1]).toBe(`id:x,'\tnote,"'\nnote"`);
+  });
 });
 
 describe("toJson", () => {
