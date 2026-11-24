@@ -1,0 +1,77 @@
+---
+title: 自托管
+description: 在你自己的基础设施上运行 traceroot
+---
+
+<Note>
+  想用托管服务？[traceroot Cloud](https://app.traceroot.ai) 由 traceroot 团队维护，无需任何设置。
+</Note>
+
+traceroot 是开源的，支持自托管。在自己的基础设施上运行它，可以完全掌控数据和部署。部分功能需要企业版 license key。
+
+## 部署方式
+
+
+### 本地开发部署
+
+适用于：为 traceroot 贡献代码、本地开发和调试。
+
+在 Docker 里启动 PostgreSQL、ClickHouse、MinIO 和 Redis，然后通过一个 tmux session 在本地运行 API、UI 和 worker。
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+make dev
+```
+
+<Frame>
+  <img src="/images/local_dev_mode_v1.png" alt="在 tmux 里运行的 traceroot 本地开发环境" />
+</Frame>
+
+详情请看 [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) 和 [CONTRIBUTING.md](https://github.com/traceroot-ai/traceroot/blob/main/CONTRIBUTING.md)。
+
+
+### 本地 Docker 部署
+
+适用于：在本地试用 traceroot、做集成测试，或者不想在本地安装依赖就运行完整的服务。
+
+用 Docker Compose 在容器里运行整套服务，不需要在本地安装 Python、Node 或其他运行时。
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+make prod
+```
+
+详情请看 [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md)。
+
+### 凭证
+
+`make prod` 和 `make prod-lite` 会创建一个 `.env` 文件，并为你的安装填好凭证：数据库和对象存储的密码、认证密钥和内部 API 密钥，以及用来加密已保存的模型提供商 key 和 Slack token 的密钥（`ENCRYPTION_KEY`）。每次安装都会得到各自不同的值。如果想用自己的值，请在启动之前写入 `.env`。从 `.env.example` 复制过来的值不会被接受，服务会停止启动，并提示需要修改哪个变量。
+
+<Warning>
+  请备份 `.env`。如果 `ENCRYPTION_KEY` 丢失，已保存的模型提供商 key 和 Slack token 将无法读取，只能重新填写。
+</Warning>
+
+对象存储的 API 只发布在 `127.0.0.1` 上。如果确实需要从其他机器访问，请自行在它前面加一层反向代理。
+
+### 升级已有的安装
+
+1. 拉取最新版本并运行 `make prod-lite`（或 `make prod`）。如果 `.env` 里的数据库或对象存储密码是从 `.env.example` 复制来的，这一步会把它们替换成自动生成的密码。
+2. 如果服务停止启动并提到 `ENCRYPTION_KEY`，说明你的 `.env` 里还是 `.env.example` 里的那个 key。运行一次 `make rotate-encryption-key`。它会在一个事务里用新 key 重新加密已保存的模型提供商 key 和 Slack token，把新 key 写入 `.env`，并把旧 key 保存在 `.env.encryption-key.d` 目录里。如果它在数据库更新之前失败，不会有任何改动，你可以重新运行。如果数据库已经更新但 `.env` 无法写入，命令会给出提示，并把新 key 保留在 `.env.encryption-key.d/pending` 里。解决问题后再运行一次即可完成。如果你的 shell 环境里设置了 `ENCRYPTION_KEY`，或者设置了 `COMPOSE_ENV_FILES`，它会拒绝运行，因为这种情况下 Docker Compose 不会使用 `.env` 里的 key。在轮换进行中或尚未完成时，用来启动服务的 `make` 目标会等待或拒绝执行，这样各个服务就不会用数据库正在弃用的 key 运行。如果想自己用 `docker compose` 启动服务，请先完成轮换。
+3. 再次用 `make prod-lite`（或 `make prod`）启动服务。如果之前是用 `make prod` 启动的，它的 tmux session 还在，`make prod` 会询问是否重新连接。请回答 `N`，让它启动一个新的 session。重新连接会跳过设置步骤，已停止的服务会一直保持停止。
+
+轮换会先停止 web、worker、agent、detector 和 billing 服务。如果轮换失败，这些服务会保持停止，在轮换完成之前无法启动：请解决问题后再次运行 `make rotate-encryption-key`（如果要放弃一次没有改动数据库的未完成轮换，请删除 `.env.encryption-key.d/pending`，然后按第 3 步启动）。
+
+从未设置过 `ENCRYPTION_KEY` 的安装没有用它加密保存的内容，会直接得到一个自动生成的 key。
+
+
+### 生产部署
+
+适用于：AWS 上的生产工作负载。
+
+用 Helm chart 和 Terraform 把 traceroot 部署到 Kubernetes 上。配置文件位于 [`deploy`](https://github.com/traceroot-ai/traceroot/tree/main/deploy) 目录。
+
+<Warning>
+  Terraform 部署目前处于实验阶段。我们建议在用于生产之前充分测试。
+</Warning>

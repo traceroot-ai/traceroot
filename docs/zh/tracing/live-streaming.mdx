@@ -1,0 +1,22 @@
+---
+title: 实时 tracing
+description: agent 还在运行时，实时查看 span 流入 trace 查看器
+---
+
+打开一条根 span 还没结束的 trace 时，traceroot 会在新 span 到达时把它们实时推送到查看器里。不需要打开开关，也不需要设置 SDK 参数：所有进行中的 trace 默认开启实时 tracing。
+
+<Frame caption="Traces 列表：Live 开关位于 Columns 和日期范围旁边">
+  <img src="/images/trace_live_toggle_v1.png" alt="Traces 列表，工具栏里的 Live 开关被高亮" />
+</Frame>
+
+Traces 列表上的 **Live** 开关是另一个功能：它每 5 秒刷新一次列表。
+
+## span 如何到达
+
+span 按 span ID 合并到已有的树里，所以到达顺序不受限制：
+
+- 刚开始的 span 显示为 **pending** 行（置灰，暂无耗时）。
+- pending 的 span 结束后，结束时间会补上，这一行恢复正常显示。
+- [Timeline 视图](/zh/tracing/timeline)会同步更新：已有的条形会延长，新的条形会出现。
+
+根 span 完成后，查看器会做最后一次一致性检查，然后停止推送。

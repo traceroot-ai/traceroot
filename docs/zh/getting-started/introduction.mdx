@@ -1,0 +1,32 @@
+---
+title: traceroot 的工作方式
+sidebarTitle: 简介
+description: 用生产环境的 trace 找出 agent 失败的原因，并在 GitHub 上提交修复。
+---
+
+找出 agent 在生产环境中反复出现的问题，再让 coding agent 提交经过验证的修复。用 [traceroot](https://github.com/traceroot-ai/traceroot) 给代码插桩，就能看到每一次 LLM 调用、工具调用和 agent 决策。运行 detector，失败和幻觉一出现就能发现。之后交给 traceroot 的 AI agent：它会分析 finding、排查失败原因，并自动创建修复 PR。
+
+## 核心能力
+
+<CardGroup cols={3} className="tr-capabilities">
+  <Card title="Tracing" icon="route" href="/zh/tracing/introduction">
+    基于 OpenTelemetry 插桩，记录每一次 LLM 调用、工具调用和 agent 步骤。
+  </Card>
+  <Card title="Detectors" icon="shield-halved" href="/zh/detectors/introduction">
+    用 LLM 持续评估每一条 trace。agent 一旦失败、出现幻觉或偏离预期，你会立刻收到通知。
+  </Card>
+  <Card title="traceroot Agent" icon="brain" href="/ai-agent/overview">
+    traceroot Agent 可以读取你的源代码，完成根因分析并自动创建修复 PR。
+  </Card>
+  <Card title="Evaluations" icon="flask" href="/evals/introduction">
+    用带版本的 dataset 测试改动，并对比多次 eval 运行的得分。
+  </Card>
+  <Card title="Dashboards" icon="chart-line" href="/dashboards/get-started">
+    用可筛选、可复用的组件查看延迟、成本和错误指标。
+  </Card>
+  <Card title="Alerts" icon="bell" href="/alerts/overview">
+    监控指标阈值，并把通知发到团队的 Slack 频道。
+  </Card>
+</CardGroup>
+
+可以从[快速开始](/zh/getting-started/quickstart)入手，也可以先了解 [workspace、project 和角色](/zh/getting-started/concepts)如何管理数据的访问权限。

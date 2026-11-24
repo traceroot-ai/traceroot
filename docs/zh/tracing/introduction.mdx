@@ -1,0 +1,27 @@
+---
+title: AI agent tracing 的工作方式
+sidebarTitle: 简介
+description: 查看一次运行中的模型调用和工具调用，以及每次模型调用用了多少 token。
+---
+
+Tracing 会记录 AI agent 的所有行为，包括每一次 LLM 调用、工具调用和函数执行。你可以用它排查单次运行，也可以了解 agent 长期的表现。
+
+启用 tracing 后，traceroot 会提供：
+- **完整的 span 层级**：逐次调用地查看 agent 的执行过程
+- **token 用量和成本**：既有每次 LLM 调用的数据，也有整条 trace 的汇总
+- **源代码关联**：每个 span 都能对应到产生它的文件和代码行
+
+<Frame caption="Trace 查看器：Trace Tree、LLM span 详情、Usage 明细和 Input">
+  <img src="/images/traces_v2.png" alt="traceroot trace 查看器，展示一条多步骤的 agent trace，选中的 LLM span 显示延迟、token 和成本" />
+</Frame>
+
+## 从哪里开始
+
+<CardGroup cols={2}>
+  <Card title="快速上手" icon="rocket" href="/zh/tracing/get-started">
+    给 agent 插桩，几分钟内发送第一条 trace。
+  </Card>
+  <Card title="功能" icon="sparkles" href="/zh/tracing/overview">
+    为 trace 附加用户、session、tag、metadata 等信息。
+  </Card>
+</CardGroup>

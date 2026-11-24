@@ -1,0 +1,173 @@
+---
+title: TypeScript SDK
+description: traceroot TypeScript SDK 的完整 API 参考
+---
+
+traceroot TypeScript SDK 基于 OpenTelemetry，为 AI agent 提供自动和手动插桩。
+
+## 插桩
+
+把模块实例传给 `initialize()`，即可自动为所有调用插桩：
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const openai = new OpenAI();
+```
+
+## Observe 包装函数
+
+包装任意异步函数来创建一个 span：
+
+{/* [start:snippet:typescript-sdk-observe] */}
+```typescript
+import { observe } from '@traceroot-ai/traceroot';
+
+const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
+  return 'your result here';
+});
+```
+{/* [end:snippet:typescript-sdk-observe] */}
+
+### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|-----------|------|---------|-------------|
+| `name` | `string` | 函数名 | span 名称 |
+| `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | span 类型：`'agent'` 用于多步骤 agent，`'tool'` 用于函数调用，`'llm'` 用于模型推理，`'span'` 用于通用场景 |
+| `metadata` | `Record<string, unknown>` | — | 要附加的静态 metadata |
+| `tags` | `string[]` | — | 要附加的 tag |
+| `captureInput` | `boolean` | `true` | 把函数参数采集为 span 输入 |
+| `captureOutput` | `boolean` | `true` | 把返回值采集为 span 输出 |
+
+如何用 `captureInput` 和 `captureOutput` 让敏感值不出现在 span 上，请看[数据采集与隐私](/zh/tracing/data-capture)里的示例。
+
+如果要在导出前改写每个 span 里的个人数据，给 `TraceRoot.initialize()` 传入一个 `redact` 函数。它可以是异步函数。详见[数据采集与隐私](/zh/tracing/data-capture#导出前脱敏个人数据)。
+
+## 设置 trace 上下文
+
+用 `usingAttributes()` 为代码块内创建的所有 span 设置用户和 session 上下文：
+
+```typescript
+import { usingAttributes } from '@traceroot-ai/traceroot';
+
+await usingAttributes(
+  {
+    sessionId: 'conv-123',
+    userId: 'user-456',
+    tags: ['production', 'v2'],
+    metadata: { feature: 'chat' },
+  },
+  async () => {
+    // 这里的所有 span 都会继承上面的属性
+    await runAgent('What is the weather?');
+  },
+);
+```
+
+### 参数
+
+| 参数 | 类型 | 说明 |
+|-----------|------|-------------|
+| `sessionId` | `string` | session / 对话 ID |
+| `userId` | `string` | 用户标识 |
+| `tags` | `string[]` | 要附加到所有 span 的 tag |
+| `metadata` | `Record<string, unknown>` | 任意 metadata |
+
+## 更新 span 和 trace
+
+用代码更新当前的 span 或 trace：
+
+```typescript
+import { observe, updateCurrentSpan, updateCurrentTrace } from '@traceroot-ai/traceroot';
+
+await observe({ name: 'my_agent', type: 'agent' }, async () => {
+  updateCurrentSpan({
+    input: { query: userInput },
+    output: { response: agentOutput },
+    model: 'gpt-4o',
+    usage: { input: 100, output: 50 },
+  });
+
+  updateCurrentTrace({
+    userId: 'user-123',
+    sessionId: 'sess-456',
+    tags: ['prod'],
+    metadata: { plan: 'pro' },
+  });
+});
+```
+
+### `updateCurrentSpan` 参数
+
+| 参数 | 类型 | 说明 |
+|-----------|------|-------------|
+| `name` | `string` | 在 span 创建后重命名 |
+| `input` | `unknown` | 输入数据 |
+| `output` | `unknown` | 输出数据 |
+| `metadata` | `Record<string, unknown>` | 自定义 metadata |
+| `model` | `string` | LLM 模型名称 |
+| `modelParameters` | `Record<string, unknown>` | LLM 模型参数 |
+| `usage` | `TokenUsage` | token 用量（`{ input, output, cacheRead, cacheWrite, total }`） |
+| `cost` | `number` | 这次调用的总成本（USD），适用于 LLM 调用，也适用于付费的工具或 API 调用。它会替换 traceroot 为这个 span 计算出的价格 |
+| `prompt` | `unknown` | 发送给 LLM 的 prompt 或 messages |
+| `attributes` | `Record<string, string \| number \| boolean>` | 任意 span 属性 |
+
+### `updateCurrentTrace` 参数
+
+| 参数 | 类型 | 说明 |
+|-----------|------|-------------|
+| `userId` | `string` | 用户标识 |
+| `sessionId` | `string` | session 标识 |
+| `tags` | `string[]` | trace 的 tag |
+| `metadata` | `Record<string, unknown>` | trace 级别的 metadata |
+
+## Flush 与关闭
+
+默认情况下，TypeScript SDK 会批量发送 span 来优化性能：每 5 秒 flush 一次，或者累积到 100 个 span 时 flush。
+
+**重要：** SDK 在关闭时唯一的自动 flush 是一个 `beforeExit` 钩子。遇到 `process.exit()`、未处理的异常或 SIGINT/SIGTERM 这类信号时，Node.js 不会触发 `beforeExit`。会冻结进程的 serverless 运行时（例如 AWS Lambda、Cloud Functions）也会跳过它。在这些情况下，如果退出前没有显式 flush，缓冲区里的 span 会丢失。
+
+要确保脚本结束前所有 span 都已导出，请 await `shutdown()`（或 `flush()`）：
+
+```typescript
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize();
+
+async function main() {
+  try {
+    // ... 你的应用逻辑 ...
+  } finally {
+    // 确保退出前导出所有批量缓冲的 span，失败时也一样
+    await TraceRoot.shutdown();
+  }
+}
+main();
+```
+
+对于测试或简短的脚本，也可以关闭批处理：
+
+```typescript
+TraceRoot.initialize({ disableBatch: true });
+```
+
+**注意：** 关闭批处理不会让网络请求变成同步的。用 `process.exit()` 结束进程之前，仍然必须 await `flush()` 或 `shutdown()`。
+
+*（注：Python SDK 注册了一个 `atexit` 处理函数，在大多数环境里会自动 flush span。但 serverless 运行时冻结进程时 `atexit` 不会执行，这类环境里的 Python 处理函数仍然需要在返回前调用 `traceroot.flush()`。）*
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|----------|---------|-------------|
+| `TRACEROOT_API_KEY` | （必填） | API key |
+| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | API 端点 |
+| `TRACEROOT_ENABLED` | `true` | 开启或关闭 tracing |
+| `TRACEROOT_ENVIRONMENT` | — | 部署环境标签（例如 `production`、`staging`） |
+| `TRACEROOT_GIT_REPO` | 自动检测 | Git 仓库（`owner/repo`） |
+| `TRACEROOT_GIT_REF` | 自动检测 | Git ref |

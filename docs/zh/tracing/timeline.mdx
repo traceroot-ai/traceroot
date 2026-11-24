@@ -1,0 +1,28 @@
+---
+title: Timeline 视图
+description: 把 span 按时间画成甘特图式的条形，用来发现耗时长的操作、并行执行和空档
+---
+
+trace 查看器有三种视图：**Trace**（层级树）、**Timeline**（甘特图式的条形）和 **Detectors**（这条 trace 产生的 finding）。Trace 视图和 Timeline 视图共用选中状态和折叠状态。
+
+<Frame caption="Timeline 视图：视图切换、span 树，以及时间轴上的耗时条">
+  <img src="/images/trace_timeline_v2.png" alt="Timeline 视图下的 traceroot trace 查看器，展示 span 树和时间轴上的耗时条" />
+</Frame>
+
+## Trace、Timeline 和 Detectors
+
+| Trace 视图 | Timeline 视图 | Detectors 视图 |
+|---|---|---|
+| 调用层级和父子关系 | span 相对于同级 span 的耗时 | detector 产生的 finding |
+| 查看 span 的属性、输入和输出 | 找出关键路径或耗时最长的 span | 查看这条 trace 的 detector 结果 |
+| 浏览嵌套的 agent 或工具调用 | 判断是并行执行还是串行执行 | 打开相关的分析 |
+
+detector trace 和 agent trace 不会被 detector 评估，所以这两类 trace 不显示 Detectors 视图。trace 查看器嵌入在 eval 视图里时，也不显示 Detectors 视图。
+
+## 切换视图
+
+使用 trace 查看器子标题栏里的 **Trace**、**Timeline** 和 **Detectors** 按钮。在 Trace 和 Timeline 之间切换时，选中状态会保留。
+
+## 点击选中
+
+在 Timeline 视图里点击一个条形会选中对应的 span，并切回 Trace 视图。视图会自动滚动并展开上级节点，让这个 span 可见。

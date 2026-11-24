@@ -1,0 +1,56 @@
+---
+title: Metadata
+description: 为 trace 和 span 附加任意键值对
+---
+
+**Metadata** 是附加在 trace 或 span 上的键值对，适合记录模型版本、请求 ID、功能开关，或任何你想用来搜索的结构化上下文。
+
+## 使用 `observe`
+
+对于定义时就已知的值，把静态 metadata 传给 `observe`：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe
+
+    @observe(name="process", type="agent", metadata={"version": "v2", "tier": "premium"})
+    def process(query: str):
+        return result
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe } from '@traceroot-ai/traceroot';
+
+    const result = await observe(
+      { name: 'process', type: 'agent', metadata: { version: 'v2', tier: 'premium' } },
+      async () => doWork(query),
+    );
+    ```
+  </Tab>
+</Tabs>
+
+## 使用 `using_attributes` / `usingAttributes`
+
+把 metadata 传递给代码块内的所有 trace 和 span：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import using_attributes
+
+    with using_attributes(metadata={"deploy": "canary", "region": "us-west-2"}):
+        agent.run(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { usingAttributes } from '@traceroot-ai/traceroot';
+
+    await usingAttributes({ metadata: { deploy: 'canary', region: 'us-west-2' } }, async () => {
+      await agent.run(query);
+    });
+    ```
+  </Tab>
+</Tabs>

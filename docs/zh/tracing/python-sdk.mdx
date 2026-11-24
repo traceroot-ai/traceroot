@@ -1,0 +1,285 @@
+---
+title: Python SDK
+description: traceroot Python SDK 的安装、初始化和完整 API 参考
+---
+
+traceroot Python SDK 基于 OpenTelemetry，为 AI agent 和 LLM 应用提供自动和手动插桩。
+
+## 安装
+
+用 `pip` 安装核心 SDK：
+
+```bash
+pip install traceroot
+```
+
+### 可选 extras
+
+部分集成有额外的依赖，以 extras 的形式提供：
+
+```bash
+# 用于 DSPy 集成
+pip install traceroot[dspy]
+
+# 用于 Microsoft Agent Framework 集成
+pip install traceroot[agent-framework]
+```
+
+框架本身的包（例如 `openai`、`anthropic` 或 `langchain-core`）需要随你的应用单独安装。
+
+## 初始化
+
+在应用启动时调用一次 `traceroot.initialize()`，用来配置 SDK 并为受支持的框架开启自动插桩：
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(
+    api_key="your-api-key",
+    integrations=[
+        Integration.OPENAI,
+        Integration.ANTHROPIC,
+        Integration.LANGCHAIN,
+    ],
+)
+```
+
+<Note>
+**自动初始化**：不调用 `initialize()`，`@observe` 装饰器也能工作。如果还没有 client，`@observe` 会调用 `get_client()`，后者根据环境变量（例如 `TRACEROOT_API_KEY`）自动初始化 SDK。不过自动初始化不会为任何框架插桩。要自动为各个库插桩，必须显式调用 `initialize(integrations=[...])`。
+</Note>
+
+<Warning>
+**重复调用会被忽略**：多次调用 `traceroot.initialize()` 会输出一条警告日志，并返回已有的 client 实例，新的参数和集成不会生效。请在第一次调用时传入所有需要的设置。SDK 初始化之后无法重新配置。
+</Warning>
+
+### `initialize()` 参数
+
+| 参数 | 类型 | 默认值 | 对应的环境变量 | 说明 |
+|-----------|------|---------|------------------|-------------|
+| `api_key` | `str \| None` | `None` | `TRACEROOT_API_KEY` | 用于身份验证的 traceroot API key。向后端导出 trace 时必须提供。 |
+| `host_url` | `str \| None` | `"https://app.traceroot.ai"` | `TRACEROOT_HOST_URL` | traceroot 后端 API 端点的 URL（或自托管实例的 URL）。 |
+| `flush_interval` | `float \| None` | `5.0` | `TRACEROOT_FLUSH_INTERVAL` | 后台自动 flush 的间隔，单位为秒。 |
+| `batch_size` | `int \| None` | `100` | `TRACEROOT_FLUSH_AT` | 触发 flush 之前最多缓冲的 span 数量。未设置时使用 `TRACEROOT_FLUSH_AT`。 |
+| `timeout` | `float \| None` | `30.0` | `TRACEROOT_TIMEOUT` | 导出批次时 HTTP 请求的超时时间，单位为秒。 |
+| `enabled` | `bool \| None` | `True` | `TRACEROOT_ENABLED` | 开启或关闭 tracing。为 `False` 或没有设置 `api_key` 时，不会导出 span。 |
+| `integrations` | `list[Integration] \| None` | `None` | — | 要自动插桩的 `Integration` 枚举成员列表。 |
+| `git_repo` | `str \| None` | 自动检测 | `TRACEROOT_GIT_REPO` | Git 仓库，格式为 `owner/repo`。未设置时从 CI 环境或本地 git 仓库自动检测。 |
+| `git_ref` | `str \| None` | 自动检测 | `TRACEROOT_GIT_REF` | Git ref（commit SHA、tag 或分支）。未设置时从 CI 环境或本地 git 仓库自动检测。 |
+| `redact` | `Callable[[dict[str, Any]], dict[str, Any]] \| None` | `None` | — | 在每个已结束 span 的属性发送到 traceroot 之前改写它们。你的应用里的其他 exporter 收到的仍然是原始 span。详见[导出前脱敏个人数据](/zh/tracing/data-capture#导出前脱敏个人数据)。 |
+
+## 支持的集成
+
+`Integration` 枚举（`from traceroot import Integration`）为 17 个 AI 框架和模型提供商提供自动插桩。
+
+traceroot 在插桩之前会检查所需的包是否已安装。如果包没有安装，这个集成会被跳过并输出一条警告，不会抛出错误。
+
+| 集成 | 枚举成员 | 值 | 所需的包 | 备注 |
+|-------------|-------------|-------|------------------|-------|
+| OpenAI | `Integration.OPENAI` | `"openai"` | `openai` | 为 OpenAI API client 的调用插桩。 |
+| Anthropic | `Integration.ANTHROPIC` | `"anthropic"` | `anthropic` | 为 Anthropic API client 的调用插桩。 |
+| LangChain | `Integration.LANGCHAIN` | `"langchain"` | `langchain-core` 或 `langchain` | 为 LangChain chain 和 LangGraph 工作流插桩。 |
+| Google GenAI | `Integration.GOOGLE_GENAI` | `"google_genai"` | `google-genai` | 为 Google Gemini / GenAI SDK 插桩。 |
+| CrewAI | `Integration.CREWAI` | `"crewai"` | `crewai` | 为 CrewAI 的 agent 和 task 插桩。 |
+| OpenAI Agents | `Integration.OPENAI_AGENTS` | `"openai_agents"` | `openai-agents` | 为 OpenAI Agents SDK 插桩。 |
+| Claude Agent SDK | `Integration.CLAUDE_AGENT_SDK` | `"claude_agent_sdk"` | `claude-agent-sdk` | 通过 traceroot 自研的包装层为 Anthropic Claude Agent SDK 插桩。 |
+| LlamaIndex | `Integration.LLAMA_INDEX` | `"llama_index"` | `llama-index-core` | 为 LlamaIndex 的查询引擎、工具和工作流插桩。 |
+| AutoGen | `Integration.AUTOGEN` | `"autogen"` | `ag2` | AutoGen 插桩需要安装 `ag2`。 |
+| Agno | `Integration.AGNO` | `"agno"` | `agno` | 为 Agno（原 Phidata）的 agent 插桩。 |
+| Groq | `Integration.GROQ` | `"groq"` | `groq` | 为 Groq API client 的调用插桩。 |
+| DSPy | `Integration.DSPY` | `"dspy"` | `dspy` 或 `dspy-ai` | 需要 pip extra：`pip install traceroot[dspy]`。 |
+| Google ADK | `Integration.GOOGLE_ADK` | `"google_adk"` | `google-adk` | 为 Google Agent Development Kit 插桩。 |
+| Mistral | `Integration.MISTRAL` | `"mistral"` | `mistralai` | 为 Mistral AI client 的调用插桩。 |
+| PydanticAI | `Integration.PYDANTIC_AI` | `"pydantic_ai"` | `pydantic-ai` 或 `pydantic-ai-slim` | 为 PydanticAI 的 agent 和模型插桩。 |
+| AWS Bedrock | `Integration.BEDROCK` | `"bedrock"` | `boto3` | 通过 `boto3` 为 Amazon Bedrock runtime 的调用插桩。 |
+| Agent Framework | `Integration.AGENT_FRAMEWORK` | `"agent_framework"` | `agent-framework-core` | 需要 pip extra：`pip install traceroot[agent-framework]`。 |
+
+## Observe 装饰器
+
+包装任意函数来创建一个 OpenTelemetry span。支持同步函数、异步函数和生成器。
+
+{/* [start:snippet:python-sdk-observe] */}
+```python
+from traceroot import observe
+
+
+@observe(name="my_function", type="tool")
+def my_function(query: str) -> str:
+    return f"Processed: {query}"
+
+
+@observe(name="async_agent", type="agent")
+async def async_agent(query: str) -> str:
+    return f"Result: {query}"
+```
+{/* [end:snippet:python-sdk-observe] */}
+
+### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|-----------|------|---------|-------------|
+| `name` | `str \| None` | 函数名 | 自定义 span 名称。默认使用被装饰函数的名称。 |
+| `type` | `SpanKind \| str` | `"span"` | span 类型：`"llm"`、`"agent"`、`"tool"` 或 `"span"`。可以传字符串字面量，也可以传通过 `from traceroot.constants import SpanKind` 导入的 `SpanKind`。无法识别的值会触发一条警告，并回退为 `"span"`。（这个枚举还定义了 `"evaluation"`、`"task"` 和 `"scorer"`，供 eval 内部使用。） |
+| `metadata` | `dict[str, Any] \| None` | `None` | 要附加到 span 的静态 metadata 字典。 |
+| `tags` | `list[str] \| None` | `None` | 用于给 span 分类的 tag。 |
+| `capture_input` | `bool` | `True` | 是否自动把函数参数采集为输入。 |
+| `capture_output` | `bool` | `True` | 是否自动把返回值采集为输出。 |
+| `session_id` | `str \| None` | `None` | 要附加到 trace 的 session 标识。 |
+| `user_id` | `str \| None` | `None` | 要附加到 trace 的用户标识。 |
+
+如何让敏感的函数输入和输出不出现在 span 上，请看[数据采集与隐私](/zh/tracing/data-capture)里的示例。
+
+## 设置 trace 上下文
+
+用 `using_attributes` 为代码块内创建的所有 span 设置用户和 session 上下文。为了方便使用，它从 OpenInference 重新导出：
+
+```python
+from traceroot import using_attributes
+
+with using_attributes(
+    user_id="user-123",
+    session_id="sess-456",
+    tags=["production", "v2"],
+    metadata={"feature": "chat"},
+):
+    result = run_agent("What is the weather?")
+```
+
+### 参数
+
+| 参数 | 类型 | 说明 |
+|-----------|------|-------------|
+| `user_id` | `str` | 用户标识。 |
+| `session_id` | `str` | session / 对话 ID。 |
+| `tags` | `list[str]` | 要附加到该上下文内创建的所有 span 的 tag。 |
+| `metadata` | `dict` | 任意 metadata 字典。 |
+
+## 更新 span 和 trace
+
+在任何被追踪的函数内部，用代码更新当前活跃的 span 或 trace：
+
+```python
+from traceroot import update_current_span, update_current_trace
+
+# 更新当前 span
+update_current_span(
+    name="custom_name",
+    input={"query": "hello"},
+    output={"response": "world"},
+    metadata={"custom_key": "custom_value"},
+    # LLM 相关的属性（适用于自定义或暂不支持的提供商）
+    model="gpt-4o",
+    model_parameters={"temperature": 0.7, "max_tokens": 1024},
+    usage={"input_tokens": 100, "output_tokens": 50},
+    prompt=[{"role": "user", "content": "hello"}],
+)
+
+# 更新当前 trace
+update_current_trace(
+    user_id="user-123",
+    session_id="sess-456",
+    tags=["production", "v2"],
+    metadata={"plan": "pro", "region": "us-east-1"},
+)
+```
+
+<Note>
+`update_current_span` 和 `update_current_trace` 都**只接受关键字参数**。用位置参数调用它们会抛出 `TypeError`。
+</Note>
+
+### `update_current_span` 参数
+
+| 参数 | 类型 | 说明 |
+|-----------|------|-------------|
+| `name` | `str \| None` | 更新当前活跃 span 的名称。 |
+| `input` | `Any` | 输入数据（例如发送给 LLM 的 messages 或参数）。 |
+| `output` | `Any` | 输出数据（例如 LLM 的 completion 或函数返回值）。 |
+| `metadata` | `dict[str, Any] \| None` | 自定义 metadata 键值对。 |
+| `model` | `str \| None` | LLM 模型名称（例如 `"gpt-4o"`、`"claude-3-5-sonnet"`）。 |
+| `model_parameters` | `dict[str, Any] \| None` | 模型参数（例如 `{"temperature": 0.7, "max_tokens": 1024}`）。 |
+| `usage` | `dict[str, int] \| None` | token 用量字典（例如 `{"input_tokens": 100, "output_tokens": 50}`）。 |
+| `cost` | `float \| None` | 这次调用的总成本（USD），适用于 LLM 调用，也适用于付费的工具或 API 调用。它会替换 traceroot 为这个 span 计算出的价格。 |
+| `prompt` | `Any` | 发送给模型的 prompt 或 messages 内容。 |
+
+### `update_current_trace` 参数
+
+| 参数 | 类型 | 说明 |
+|-----------|------|-------------|
+| `user_id` | `str \| None` | 发起这条 trace 的用户的标识。 |
+| `session_id` | `str \| None` | session 标识，用于把相关的 trace 归入同一段对话。 |
+| `metadata` | `dict[str, Any] \| None` | trace 级别的 metadata 键值对。 |
+| `tags` | `list[str] \| None` | 用于在 UI 里给 trace 分类和筛选的 tag。 |
+
+## SDK 工具函数与上下文
+
+`traceroot` 包导出了 client 管理和 OpenTelemetry 上下文相关的工具函数：
+
+```python
+import traceroot
+from traceroot import (
+    get_client,
+    flush,
+    shutdown,
+    get_current_trace_id,
+    get_current_span_id,
+)
+
+@traceroot.observe()
+def my_function():
+    # 获取当前活跃的 OpenTelemetry ID
+    trace_id = get_current_trace_id()
+    span_id = get_current_span_id()
+    print(f"Trace ID: {trace_id}, Span ID: {span_id}")
+
+# flush 待发送的 span（例如在 serverless 函数或 notebook 里）
+traceroot.flush()
+
+# 应用退出时优雅关闭
+traceroot.shutdown()
+```
+
+### 导出的工具
+
+| 符号 | 类型 | 说明 |
+|--------|------|-------------|
+| `flush()` | 函数 | 立即把所有待发送的 span 和 trace flush 到后端。在 serverless 环境（AWS Lambda、Google Cloud Functions）和 Jupyter notebook 里，进程结束前调用它非常重要。 |
+| `shutdown()` | 函数 | flush 待发送的 span，并优雅地停止后台 exporter 工作线程。在应用退出时调用一次。 |
+| `get_client()` | 函数 | 返回 `TracerootClient` 单例。如果还没有实例，会根据环境变量自动初始化一个。 |
+| `TracerootClient` | 类 | 由 `initialize()` 和 `get_client()` 实例化的 client 类。负责批处理、后台 worker 和 OpenTelemetry trace 导出。 |
+| `get_current_trace_id()` | 函数 | 返回当前活跃的 trace ID，是一个 32 位十六进制字符串（例如 `"4bf92f3577b34da6a3ce929d0e0e4736"`）。没有正在记录的活跃 span 时返回 `None`。 |
+| `get_current_span_id()` | 函数 | 返回当前活跃的 span ID，是一个 16 位十六进制字符串（例如 `"00f067aa0ba902b7"`）。没有正在记录的活跃 span 时返回 `None`。 |
+
+## 离线 eval
+
+traceroot 自带一套完整的离线 eval 框架，直接从顶层的 `traceroot` 模块导出：
+
+- **Dataset 与用例**：`Dataset`、`DatasetSnapshot`、`EvalCase`、`pull_dataset`、`pull_dataset_version`
+- **执行**：`evaluate`、`evaluate_async`、`Evaluation`、`EvalRunResult`、`EvalItemResult`、`RunDatasetRef`
+- **Scorer 与指标**：`Scorer`、`ScorerContext`、`scorer`、`Score`、`ScoreSummary`、`llm_judge`、`DeferredScore`
+- **异常**：`DatasetConflictError`、`DatasetPublishAborted`、`EvalCompletionError`
+
+eval 相关的符号按需懒加载，让 import 保持轻量。
+
+<CardGroup cols={2}>
+  <Card title="Evaluations 概览" icon="chart-simple" href="/evals/introduction">
+    了解 traceroot 里的离线 eval 如何工作。
+  </Card>
+  <Card title="运行 eval" icon="play" href="/evals/running-evals">
+    用 <code>evaluate()</code> 在 dataset 上运行你的 AI 系统并为输出打分。
+  </Card>
+</CardGroup>
+
+## 环境变量
+
+除 `integrations` 之外的所有参数都可以通过环境变量配置：
+
+| 变量 | 默认值 | 对应的参数 | 说明 |
+|----------|---------|-------------------|-------------|
+| `TRACEROOT_API_KEY` | （必填） | `api_key` | 用于身份验证的 traceroot API key。 |
+| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | `host_url` | API 端点的 URL。 |
+| `TRACEROOT_ENABLED` | `true` | `enabled` | 开启或关闭 tracing。 |
+| `TRACEROOT_FLUSH_INTERVAL` | `5.0` | `flush_interval` | 自动 flush 的间隔，单位为秒。 |
+| `TRACEROOT_FLUSH_AT` | `100` | `batch_size` | 触发 flush 的批次大小（注意：对应 `initialize()` 里的 `batch_size`）。 |
+| `TRACEROOT_TIMEOUT` | `30.0` | `timeout` | HTTP 请求的超时时间，单位为秒。 |
+| `TRACEROOT_GIT_REPO` | 自动检测 | `git_repo` | Git 仓库（`owner/repo`）。 |
+| `TRACEROOT_GIT_REF` | 自动检测 | `git_ref` | Git ref（commit SHA、tag 或分支）。 |

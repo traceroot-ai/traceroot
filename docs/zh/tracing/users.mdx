@@ -1,0 +1,59 @@
+---
+title: 用户
+description: 把 trace 关联到具体的用户
+---
+
+为 trace 设置 **User ID**，就能把它关联到具体的用户。这样可以在 dashboard 里按用户筛选、跟踪成本和做分析。
+
+## 使用 `using_attributes` / `usingAttributes`
+
+把 User ID 传递给代码块内的所有 trace：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import using_attributes
+
+    with using_attributes(user_id="user-42"):
+        response = agent.run("What's the weather in SF?")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { usingAttributes } from '@traceroot-ai/traceroot';
+
+    await usingAttributes({ userId: 'user-42' }, async () => {
+      await agent.run("What's the weather in SF?");
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 使用 `observe` / 在函数内部设置
+
+在任何被 observe 的函数内部调用 `update_current_trace` / `updateCurrentTrace`：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, update_current_trace
+
+    @observe(name="handle_request", type="agent")
+    def handle_request(query: str, user_id: str):
+        update_current_trace(user_id=user_id)
+        return process(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentTrace } from '@traceroot-ai/traceroot';
+
+    async function handleRequest(query: string, userId: string) {
+      return observe({ name: 'handle_request', type: 'agent' }, async () => {
+        updateCurrentTrace({ userId });
+        return handleQuery(query);
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
