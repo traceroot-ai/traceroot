@@ -83,7 +83,7 @@ To enable Google sign-in:
 #### AgentID Sign-in for AI Agents (Optional)
 
 traceroot supports agent-aided authentication via [AgentID](https://agentmail.to) (AgentMail's OpenID Connect issuer for autonomous AI agents). This allows AI agents to sign in with their own dedicated agent identity without sharing personal developer Google accounts:
-1. Register an OAuth client at [AgentMail](https://agentmail.to).
+1. Register an OAuth client in the [AgentMail Console](https://console.agentmail.to) or via the AgentID CLI (`npx @agentmail/agentid-cli init`).
 2. Set the authorized callback URI to:
    ```text
    <BETTER_AUTH_URL>/api/auth/callback/agentid
