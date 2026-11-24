@@ -1,4 +1,4 @@
-import { createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 
 /** better-auth's own provider id for the email-and-password sign-in. */
@@ -9,21 +9,25 @@ interface LinkedAccount {
   providerId: string;
 }
 
+/** Said when a reset is refused; the same for every such account. */
+export const RESET_NOT_AVAILABLE =
+  "This account can't be reset with a link. Please contact support to recover it.";
+
 /**
- * The sign-in identities that do not survive a password reset. A valid reset
- * token proves the person holds the mailbox; an identity that never proved it
- * could belong to whoever registered the address first, and would otherwise
- * keep a way in after the owner has recovered the account.
+ * The sign-in identities whose ownership a reset link cannot settle. A reset
+ * proves the person holds the mailbox; an identity that never proved it could
+ * belong to whoever registered the address first, and would keep a way in
+ * after the owner set a password.
  *
- * - On an account whose address was never verified, nothing but the password
- *   proved it, so every other identity goes.
- * - AgentID always reports its address unverified, so an AgentID identity goes
- *   from any account.
+ * - On an account whose address was never verified, nothing but a password
+ *   proved it, so every other identity is unproven.
+ * - AgentID always reports its address unverified, so an AgentID identity is
+ *   unproven on any account.
  *
- * Identities a verified account linked under the linking rules in lib/auth.ts
- * stay, and so does the password being reset.
+ * Identities a verified account linked under the linking rules in lib/auth.ts,
+ * and the password itself, are proven.
  */
-export function identitiesToDropOnReset(
+export function unprovenIdentities(
   user: { emailVerified: boolean },
   accounts: LinkedAccount[],
 ): LinkedAccount[] {
@@ -35,13 +39,15 @@ export function identitiesToDropOnReset(
 }
 
 /**
- * Runs before better-auth's `POST /reset-password`. With a valid, unexpired
- * token, it drops the identities above and the account's sessions before the
- * new password is set; a failure here stops the reset, leaving the token
- * usable. Anything else (no token, an unknown or expired one) is left to the
- * endpoint, which answers as it always does.
+ * Runs before better-auth's `POST /reset-password` and only reads. With a
+ * valid, unexpired token for an account that has an unproven identity, it
+ * refuses the reset, so nothing about that account changes and recovery goes
+ * through support. Every other request (no token, an unknown or expired one,
+ * a password-only account, a verified account's proven identities) goes on to
+ * the endpoint unchanged, which validates the password and applies the reset
+ * in its own transaction.
  */
-export const dropUnprovenIdentitiesOnReset = createAuthMiddleware(async (ctx) => {
+export const refuseResetWithUnprovenIdentities = createAuthMiddleware(async (ctx) => {
   if (ctx.path !== "/reset-password") return;
   const body = ctx.body as { token?: unknown } | undefined;
   const query = ctx.query as { token?: unknown } | undefined;
@@ -54,9 +60,7 @@ export const dropUnprovenIdentitiesOnReset = createAuthMiddleware(async (ctx) =>
   const user = await adapter.findUserById(verification.value);
   if (!user) return;
 
-  const drop = identitiesToDropOnReset(user, await adapter.findAccounts(user.id));
-  if (drop.length === 0) return;
-  for (const account of drop) await adapter.deleteAccount(account.id);
-  // A session the dropped identity opened ends now, not only when the reset lands.
-  await adapter.deleteUserSessions(user.id);
+  if (unprovenIdentities(user, await adapter.findAccounts(user.id)).length > 0) {
+    throw new APIError("FORBIDDEN", { message: RESET_NOT_AVAILABLE });
+  }
 });
