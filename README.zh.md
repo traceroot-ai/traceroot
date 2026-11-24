@@ -159,6 +159,8 @@ make prod-lite
 
 打开 [localhost:3000](http://localhost:3000)。配置与部署详情请参阅[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
 
+生产环境请使用 [Helm chart](https://github.com/traceroot-ai/traceroot-k8s) 部署到 Kubernetes；在 AWS 上可使用 [Terraform 模块](https://github.com/traceroot-ai/traceroot-terraform-aws)，它会创建基础设施并自动安装该 chart。
+
 ## 集成
 
 ### 原生 SDK

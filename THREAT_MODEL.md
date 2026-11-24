@@ -31,7 +31,7 @@ traceroot is an open-source AI agent improvement platform. It captures LLM trace
 
 - **SaaS** (`app.traceroot.ai`): traceroot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
 - **Self-hosted (Docker)**: Single-tenant. User runs the full stack locally or on their own cloud.
-- **Self-hosted (Kubernetes / Terraform)**: Production-grade deploy on AWS with Helm charts.
+- **Self-hosted (Kubernetes / Terraform)**: Production deploy with the [Helm chart](https://github.com/traceroot-ai/traceroot-k8s), or on AWS with the [Terraform module](https://github.com/traceroot-ai/traceroot-terraform-aws).
 - **SDK only**: User installs the Python or TypeScript SDK and points it at either SaaS or their own host.
 
 ### Trust Boundaries

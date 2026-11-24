@@ -161,6 +161,8 @@ make prod-lite
 
 Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
 
+For production, deploy on Kubernetes with the [Helm chart](https://github.com/traceroot-ai/traceroot-k8s), or on AWS with the [Terraform module](https://github.com/traceroot-ai/traceroot-terraform-aws), which provisions the infrastructure and installs the chart.
+
 ## Integrations
 
 ### Native SDKs
