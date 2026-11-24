@@ -14,7 +14,7 @@ import {
 import {
   FILTER_KINDS,
   FILTER_LABEL,
-  hasDirection,
+  hasDirectionOn,
   type CaseFilter,
   type FilterKind,
 } from "./filters";
@@ -61,7 +61,8 @@ export function FilterMenu({
   const scorer = column?.name ?? null;
   const runId = model.runs.some(({ run }) => run.id === pickedRun) ? pickedRun : ANY;
 
-  const directionless = !!column && !hasDirection(column, pairs, runId);
+  // Any metric has a direction when one of them does.
+  const directionless = !hasDirectionOn(model.scorers, pairs, scorer, runId);
   const onBaseline = runId === model.baselineRunId;
   /** Why a kind can't pick anything with this metric and run, shown in place of its hint. */
   const unavailable = (kind: FilterKind): string | null => {

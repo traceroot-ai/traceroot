@@ -345,7 +345,7 @@ describe("TraceViewerPanel tree/timeline behaviour", () => {
     await act(async () => {
       await new Promise((r) => requestAnimationFrame(() => r(null)));
     });
-    expect(scrollToSpan).toHaveBeenCalledWith("span-9");
+    expect(scrollToSpan).toHaveBeenCalledWith({ span_id: "span-9" });
   });
 
   it("mirrors scrolling between the tree and the timeline", async () => {

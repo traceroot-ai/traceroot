@@ -108,11 +108,7 @@ function groupChildren(sorted: readonly Span[]): Map<string | null, Span[]> {
 
 function recordedPath(span: Span): string[] | null {
   const { namePath } = spanMetadataPaths(span);
-  return Array.isArray(namePath) &&
-    namePath.length > 0 &&
-    namePath.every((v) => typeof v === "string")
-    ? namePath
-    : null;
+  return namePath && namePath.length > 0 ? namePath : null;
 }
 
 interface Side {
@@ -356,16 +352,29 @@ export function matchSpans(baseline: readonly Span[], candidate: readonly Span[]
     }
   };
 
+  // A span whose parent never arrived sits at the top level beside the root; the root is
+  // then the one top-level span with no parent at all.
+  const rootOf = (top: Span[]): Span | undefined => {
+    if (top.length === 1) return top[0];
+    const roots = top.filter((s) => !s.parent_span_id);
+    return roots.length === 1 ? roots[0] : undefined;
+  };
   const baseTop = base.children.get(null) ?? [];
   const candTop = cand.children.get(null) ?? [];
-  const rootsPaired = baseTop.length === 1 && candTop.length === 1;
+  const baseRoot = rootOf(baseTop);
+  const candRoot = rootOf(candTop);
+  const rootsPaired = baseRoot !== undefined && candRoot !== undefined;
   if (rootsPaired) {
-    const [b] = baseTop;
-    const [c] = candTop;
+    const b = baseRoot;
+    const c = candRoot;
     // A placeholder root has a generic kind; its name is what it knows.
     const same = b.name === c.name && (b.pending || c.pending || b.span_kind === c.span_kind);
     record(b, c, same ? "path" : "root");
     walk(base.children.get(b.span_id) ?? [], cand.children.get(c.span_id) ?? []);
+    walk(
+      baseTop.filter((s) => s !== b),
+      candTop.filter((s) => s !== c),
+    );
   } else {
     walk(baseTop, candTop);
   }
@@ -380,8 +389,8 @@ export function matchSpans(baseline: readonly Span[], candidate: readonly Span[]
   const stranded = pairByKey(
     base.spans.filter((s) => !byBaselineId.has(s.span_id)),
     cand.spans.filter((s) => !byCandidateId.has(s.span_id)),
-    pathKey(base, rootsPaired ? baseTop[0] : undefined),
-    pathKey(cand, rootsPaired ? candTop[0] : undefined),
+    pathKey(base, rootsPaired ? baseRoot : undefined),
+    pathKey(cand, rootsPaired ? candRoot : undefined),
   ).map(([b, c]) => record(b, c, "path"));
 
   // A stranded pair is drawn under the baseline span's parent; say where the candidate
