@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/app/auth/use-hydrated";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import Link from "next/link";
@@ -99,6 +100,7 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
       : "/auth/sign-in";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const hydrated = useHydrated();
 
   const {
     register,
@@ -195,7 +197,7 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
             type="submit"
             size="sm"
             className="mt-6 h-10 w-full text-[14px] font-[600] text-primary-ink"
-            disabled={isLoading}
+            disabled={isLoading || !hydrated}
           >
             {isLoading ? "Creating account..." : "Sign up"}
           </Button>

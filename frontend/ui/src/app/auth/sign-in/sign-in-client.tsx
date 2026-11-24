@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/app/auth/use-hydrated";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -49,6 +50,7 @@ function SignInContent({ socialProviders, passwordResetEnabled = false }: SignIn
       : "/auth/sign-up";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const hydrated = useHydrated();
 
   const {
     register,
@@ -134,7 +136,7 @@ function SignInContent({ socialProviders, passwordResetEnabled = false }: SignIn
             type="submit"
             size="sm"
             className="mt-6 h-10 w-full text-[14px] font-[600] text-primary-ink"
-            disabled={isLoading}
+            disabled={isLoading || !hydrated}
           >
             {isLoading ? "Signing in..." : "Sign in"}
           </Button>
