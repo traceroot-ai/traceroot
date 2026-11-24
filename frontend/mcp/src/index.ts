@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { createApp, parseAllowedHosts } from "./app.js";
+import { createApp, parseAllowedHosts, parseVerificationTokens } from "./app.js";
 import { parseOAuthConfig } from "./oauth.js";
 import { parseMaxResultChars } from "./server.js";
 
@@ -13,6 +13,7 @@ const app = createApp({
   oauth: parseOAuthConfig(process.env),
   maxResultChars: parseMaxResultChars(process.env.MCP_MAX_RESULT_CHARS),
   openaiAppsChallenge: process.env.MCP_OPENAI_APPS_CHALLENGE?.trim() || undefined,
+  googleConnectedAppsTokens: parseVerificationTokens(process.env.MCP_GOOGLE_CONNECTED_APPS_TOKENS),
 });
 
 serve({ fetch: app.fetch, port: PORT });

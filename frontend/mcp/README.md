@@ -35,13 +35,14 @@ MCP_URL=http://localhost:8200/mcp TRACEROOT_API_KEY=tr-… \
   pnpm exec vite-node scripts/smoke.ts get_trace '{"trace_id":"…"}'
 ```
 
-| Variable                    | Default                 | Meaning                                                                                              |
-| --------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| `MCP_SERVICE_URL`           | `http://localhost:8200` | Its port is the listen port                                                                          |
-| `BACKEND_INTERNAL_URL`      | `http://localhost:8000` | The public API (`rest`)                                                                              |
-| `MCP_ALLOWED_HOSTS`         | unset (any)             | Comma-separated hostnames the endpoint answers to                                                    |
-| `MCP_MAX_RESULT_CHARS`      | `80000`                 | Longest tool result; a longer one is cut with a note on how to narrow the call                       |
-| `MCP_OPENAI_APPS_CHALLENGE` | unset (404)             | Token served as plain text at `/.well-known/openai-apps-challenge`, for OpenAI's domain verification |
+| Variable                           | Default                 | Meaning                                                                                                                                     |
+| ---------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_SERVICE_URL`                  | `http://localhost:8200` | Its port is the listen port                                                                                                                 |
+| `BACKEND_INTERNAL_URL`             | `http://localhost:8000` | The public API (`rest`)                                                                                                                     |
+| `MCP_ALLOWED_HOSTS`                | unset (any)             | Comma-separated hostnames the endpoint answers to                                                                                           |
+| `MCP_MAX_RESULT_CHARS`             | `80000`                 | Longest tool result; a longer one is cut with a note on how to narrow the call                                                              |
+| `MCP_OPENAI_APPS_CHALLENGE`        | unset (404)             | Token served as plain text at `/.well-known/openai-apps-challenge`, for OpenAI's domain verification                                        |
+| `MCP_GOOGLE_CONNECTED_APPS_TOKENS` | unset (404)             | Comma-separated tokens served as `{"verification_tokens": [...]}` at `/.well-known/google-connected-apps`, for Google's domain verification |
 
 ## Parity check
 
