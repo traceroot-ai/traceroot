@@ -196,9 +196,24 @@ export function matchesFilter(
   );
 }
 
-/** Whether a column can be sorted by regression: only a change with a direction is one. */
-export const sortsByRegression = (column: ScorerColumn) =>
-  column.valueType !== "categorical" && column.direction !== "none";
+/** Whether a case can improve or regress on `column` in `runId`'s pair with the baseline,
+ *  or in some pair for any run: only a change with a direction can, and only it sorts by
+ *  regression. Each pair reads the scorer as it compared it, which can differ from the
+ *  column when another run recorded another kind of value; with no pair to read, the
+ *  column says. */
+export function hasDirection(
+  column: ScorerColumn,
+  pairs: ReadonlyMap<string, PairComparison>,
+  runId: string | "any",
+): boolean {
+  const directed = (p: Pick<ScorerColumn, "valueType" | "direction">) =>
+    p.valueType !== "categorical" && p.direction !== "none";
+  const read = isAny(runId) ? [...pairs.values()] : [pairs.get(runId)];
+  const compared = read.flatMap(
+    (pair) => pair?.comparison.scorers.filter((s) => s.name === column.name) ?? [],
+  );
+  return compared.length > 0 ? compared.some(directed) : directed(column);
+}
 
 /** How far the candidate fell behind the baseline on the case: the pair's change for the
  *  scorer, signed so that worse is positive; null when the pair didn't compare it. */

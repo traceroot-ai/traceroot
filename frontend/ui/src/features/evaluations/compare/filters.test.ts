@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ANY_NAMED_FIXTURE, PAIRED_FIXTURE } from "./__tests__/paired-fixture";
-import { fixtureResult } from "./__tests__/paired-fixture";
+import {
+  fixtureResult,
+  fixtureRun,
+  fixtureScore,
+  QUALITY,
+  scorerManifest,
+} from "./__tests__/paired-fixture";
 import {
   addFilter,
   clearLabel,
@@ -10,7 +16,7 @@ import {
   NO_ANALYSIS,
   pruneForRuns,
   selectCases,
-  sortsByRegression,
+  hasDirection,
   toggleFilter,
   type CaseAnalysis,
   type CaseFilter,
@@ -226,10 +232,29 @@ describe("selectCases — regression sort", () => {
 
   it("only sorts a scorer with a direction by regression", () => {
     const column = (name: string) => model.scorers.find((s) => s.name === name)!;
-    expect(sortsByRegression(column("quality"))).toBe(true);
-    expect(sortsByRegression(column("policy_violations"))).toBe(true);
-    expect(sortsByRegression(column("route"))).toBe(false);
-    expect(sortsByRegression({ ...column("quality"), direction: "none" })).toBe(false);
+    expect(hasDirection(column("quality"), pairs, "run-2")).toBe(true);
+    expect(hasDirection(column("policy_violations"), pairs, "any")).toBe(true);
+    expect(hasDirection(column("route"), pairs, "any")).toBe(false);
+    // With no pair to read, the column says.
+    expect(hasDirection({ ...column("quality"), direction: "none" }, new Map(), "any")).toBe(false);
+  });
+
+  it("reads a scorer's direction from each pair when another run records text for it", () => {
+    // Bare `{ name, version }` scorers, so each value type comes from what was recorded.
+    const bundles = ([0.4, 0.8, "high"] as const).map((value, i) => ({
+      run: fixtureRun(`m${i}`, i + 1, `m${i}`, `2026-11-0${i + 1}T00:00:00Z`, {
+        scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+      }),
+      results: [fixtureResult(`m${i}`, "tc-1", "one", [fixtureScore(QUALITY, value)])],
+    }));
+    const mixed = buildCompareModel(bundles, "m0");
+    const mixedPairs = comparePairs(mixed);
+    const quality = mixed.scorers.find((s) => s.name === QUALITY)!;
+    // The column reads as labels, but the pair that compared numbers can still improve.
+    expect(quality.valueType).toBe("categorical");
+    expect(hasDirection(quality, mixedPairs, "m1")).toBe(true);
+    expect(hasDirection(quality, mixedPairs, "m2")).toBe(false);
+    expect(hasDirection(quality, mixedPairs, "any")).toBe(true);
   });
 });
 
