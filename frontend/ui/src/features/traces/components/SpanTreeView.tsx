@@ -135,10 +135,10 @@ interface SpanTreeViewProps {
 
 export interface SpanTreeViewHandle {
   /**
-   * Scroll the row for `spanId` into view, centered. No-op when the span is not
+   * Scroll the row for `span` into view, centered. No-op when the span is not
    * currently visible (an ancestor is collapsed) or not present in the trace.
    */
-  scrollToSpan: (spanId: string) => void;
+  scrollToSpan: (span: Span) => void;
 }
 
 /**
@@ -269,11 +269,12 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
   useImperativeHandle(
     ref,
     () => ({
-      scrollToSpan: (spanId: string) => {
+      scrollToSpan: (span: Span) => {
         const index = allRows.findIndex(
           (r) =>
-            (r.type === "span" && r.row.span.span_id === spanId) ||
-            (r.type === "union" && unionNodeSpan(r.node).span_id === spanId),
+            (r.type === "span" && r.row.span.span_id === span.span_id) ||
+            // The two traces' span ids can coincide, so a union row is found by trace too.
+            (r.type === "union" && isSpanSelected({ type: "span", span }, unionNodeSpan(r.node))),
         );
         if (index !== -1) rowVirtualizer.scrollToIndex(index, { align: "center" });
       },

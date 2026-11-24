@@ -34,13 +34,16 @@ export interface DiffSideLabel {
 /** Diff mode for the span detail panel: the selection beside its counterpart in a baseline
  *  trace of the same case. */
 export interface SpanInfoDiff {
-  /** The baseline trace; null when there is none, which leaves only the root's host
-   *  content to show. */
+  /** The baseline trace; null when there is none, which leaves the root showing this trace
+   *  alone, or the host's content where it has some. */
   baseline: TraceDetail | null;
   /** The selected span as the union of both traces has it; null at the trace root. */
   node: UnionNode | null;
   /** Both traces measured their timings and usage, so the chips compare them. */
   measured: boolean;
+  /** Which sides are reconstructions rather than stored traces: their spans have no stored
+   *  images to load, so image references in their values stay text. */
+  reconstructed?: { baseline: boolean; candidate: boolean };
   /** At the trace root: chips in place of the latency, token and cost chips, and boxes in
    *  place of Input, Output and Metadata (the evaluation comparison's case). */
   root?: { tags?: ReactNode; body?: ReactNode };
@@ -221,7 +224,8 @@ export function SpanDiffChips({
   }, [node, hostChips, diff.baseline, trace]);
   if (!figures) return <>{diff.root?.tags}</>;
 
-  const oneSided = !!node && node.state !== "matched";
+  // A span only one run has, or the root with no baseline trace: that side's figures alone.
+  const oneSided = node ? node.state !== "matched" : !diff.baseline;
   const span = node && unionNodeSpan(node);
   const statusChange =
     node?.state === "matched" && node.baseline.status !== node.candidate.status
@@ -413,6 +417,7 @@ export function SpanDiffIO({
 
   // One run alone has the span: its values, as the panel shows any span's.
   const only = (candidate ?? baseline)!;
+  const stored = !diff.reconstructed?.[candidate ? "candidate" : "baseline"];
   return (
     <>
       {FIELDS.map(({ field, title }) => (
@@ -426,9 +431,10 @@ export function SpanDiffIO({
               ? () => navigator.clipboard.writeText(only.values[field]!)
               : undefined
           }
-          // A whole trace's metadata has no span behind it.
+          // A whole trace's metadata has no span behind it, and a reconstruction no stored
+          // spans at all.
           attachmentSource={
-            only.spanId && (diff.node || field !== "metadata")
+            stored && only.spanId && (diff.node || field !== "metadata")
               ? { projectId, traceId: only.traceId, spanId: only.spanId }
               : null
           }

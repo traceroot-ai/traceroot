@@ -279,7 +279,9 @@ export function buildComparisonExport(
   };
 }
 
-const FORMULA_START = /^[=+\-@\t\r]/;
+// A formula character, also behind whitespace or a line break that a spreadsheet may trim
+// first; or a tab, return or line break, which some spreadsheets read as the start of one.
+const FORMULA_START = /^\s*[=+\-@]|^[\t\r\n]/;
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
 
 /** One CSV field (RFC 4180): quoted when it holds a comma, quote or line break, with its

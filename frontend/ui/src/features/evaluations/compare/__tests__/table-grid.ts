@@ -41,13 +41,19 @@ export function lineOf(group: HTMLElement, runId: string): HTMLTableRowElement {
   return line;
 }
 
-/** The index of the column headed `header` (the first whose label starts with it). */
+/** The index of the column headed `header`: its whole label, or a measure's label without
+ *  " (mean)" ("Latency" for "Latency (mean)"). Throws unless exactly one column matches, so
+ *  a scorer named like a measure can't be read in the measure's place. */
 export function columnIndex(header: string): number {
-  const index = within(comparisonTable())
+  const matches = within(comparisonTable())
     .getAllByRole("columnheader")
-    .findIndex((h) => h.textContent?.startsWith(header));
-  if (index < 0) throw new Error(`no column ${header}`);
-  return index;
+    .flatMap((h, i) =>
+      h.textContent === header || h.textContent === `${header} (mean)` ? [i] : [],
+    );
+  if (matches.length !== 1) {
+    throw new Error(`${matches.length === 0 ? "no" : "more than one"} column ${header}`);
+  }
+  return matches[0];
 }
 
 /** Each line's cells by column, a spanning cell repeated in every slot it covers. */

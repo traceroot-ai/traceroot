@@ -118,7 +118,16 @@ export function CompareRunsView({
   // A change of runs or baseline takes the table's analysis with it, a change not yet
   // written included, less the filters and sort it leaves with nothing to pick.
   const analysisFor = (runs: string[], nextBaseline: string) => {
-    const next = pruneForRuns(analysis, runs, nextBaseline);
+    // When every run it keeps is loaded, the comparison it leaves is known, so filters and a
+    // sort on a scorer or a direction it no longer has go too.
+    const kept = loaded.filter((b) => runs.includes(b.run.id));
+    const nextModel = kept.length === runs.length ? buildCompareModel(kept, nextBaseline) : null;
+    const next = pruneForRuns(
+      analysis,
+      runs,
+      nextBaseline,
+      nextModel && { scorers: nextModel.scorers, pairs: comparePairs(nextModel) },
+    );
     commitAnalysis(next);
     return next;
   };

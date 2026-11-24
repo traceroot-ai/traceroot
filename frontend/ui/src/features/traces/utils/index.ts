@@ -57,16 +57,20 @@ function parseMetadata(metadata: string | null): Record<string, unknown> {
 /**
  * The ancestry the SDK recorded in a span's metadata, as stored: `traceroot.span.path`
  * (root → span names) and `traceroot.span.ids_path` (root → parent ids). Either is
- * undefined when the metadata is missing or isn't JSON.
+ * undefined when the metadata is missing or isn't JSON, or the key isn't a list of strings.
  */
 export function spanMetadataPaths(span: Pick<Span, "metadata">): {
   idsPath: string[] | undefined;
   namePath: string[] | undefined;
 } {
   const meta = parseMetadata(span.metadata ?? null);
+  const path = (key: string): string[] | undefined => {
+    const value = meta[key];
+    return Array.isArray(value) && value.every((v) => typeof v === "string") ? value : undefined;
+  };
   return {
-    idsPath: meta["traceroot.span.ids_path"] as string[] | undefined,
-    namePath: meta["traceroot.span.path"] as string[] | undefined,
+    idsPath: path("traceroot.span.ids_path"),
+    namePath: path("traceroot.span.path"),
   };
 }
 
