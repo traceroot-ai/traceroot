@@ -38,6 +38,40 @@ _SERVICE = "Signal"
 _INTERNAL_PATH = "/api/internal/project-signals"
 
 
+def _source(signal: Any) -> dict[str, Any]:
+    """Map the internal route's ``source`` (camelCase) to the public shape.
+
+    A route that predates ``source`` leaves it out; it predates Loops too, so
+    the signal reads as its detector's. A malformed source still fails closed.
+
+    Args:
+        signal (Any): One signal object from the internal route's body.
+
+    Returns:
+        dict[str, Any]: The source, validated by :data:`SignalSource`.
+
+    Raises:
+        KeyError: If a required field is missing (the caller fails closed).
+        TypeError: If the source is not a mapping (the caller fails closed).
+    """
+    source = signal.get("source")
+    if source is None:
+        return {"kind": "detector", "id": signal["detectorId"], "name": signal["detectorName"]}
+    if not isinstance(source, dict):
+        raise TypeError("source must be a mapping")
+    kind = source["kind"]
+    if kind == "detector":
+        return {"kind": kind, "id": source["id"], "name": source["name"]}
+    if kind == "loop":
+        return {
+            "kind": kind,
+            "id": source["id"],
+            "name": source["name"],
+            "detector_id": source["detectorId"],
+        }
+    return {"kind": kind, "detector_id": source["detectorId"]}
+
+
 def _summary_fields(signal: Any) -> dict[str, Any]:
     """Map one camelCase signal from the internal route to summary kwargs.
 
@@ -55,6 +89,7 @@ def _summary_fields(signal: Any) -> dict[str, Any]:
         "signal_id": signal["id"],
         "detector_id": signal["detectorId"],
         "detector_name": signal["detectorName"],
+        "source": _source(signal),
         "title": signal["title"],
         "status": signal["status"],
         "hit_count": signal["hitCount"],

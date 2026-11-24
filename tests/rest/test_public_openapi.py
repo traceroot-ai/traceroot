@@ -1395,3 +1395,20 @@ def test_each_resource_has_one_tag():
         "Whoami",
         "Widgets",
     }
+
+
+def test_signal_reads_publish_the_source_as_a_closed_union():
+    """The CLI and tools re-vendor this document: a Loop's signal must say so."""
+    schemas = _schema()["components"]["schemas"]
+    for model in ("SignalSummary", "SignalDetail"):
+        assert "source" in schemas[model]["required"], model
+    kinds = {
+        name: schemas[name]["properties"]["kind"]["const"]
+        for name in ("SignalSourceDetector", "SignalSourceLoop", "SignalSourceDeletedLoop")
+    }
+    assert kinds == {
+        "SignalSourceDetector": "detector",
+        "SignalSourceLoop": "loop",
+        "SignalSourceDeletedLoop": "deletedLoop",
+    }
+    assert set(schemas["SignalSourceLoop"]["required"]) == {"kind", "id", "name", "detector_id"}
