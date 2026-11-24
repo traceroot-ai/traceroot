@@ -62,6 +62,23 @@ export function traceMetadataEntries(trace: TraceListItem): MetadataEntry[] {
   return parseMetadataEntries(trace.metadata_map);
 }
 
+/** The keys a trace's span list carries in place of each span's stored metadata. */
+const SPAN_PATH_KEYS = new Set(["traceroot.span.path", "traceroot.span.ids_path"]);
+
+/**
+ * True when a span's metadata is only the SDK's span path, as a trace's span list carries
+ * it: a stand-in from which the stored value can't be told, since that is fetched per span.
+ */
+export function isPathOnlyMetadata(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const keys = Object.keys(JSON.parse(raw) ?? {});
+    return keys.length > 0 && keys.every((k) => SPAN_PATH_KEYS.has(k));
+  } catch {
+    return false;
+  }
+}
+
 /** Set by an SDK whose redaction function ran on this span before export. */
 const REDACTED_ATTRIBUTE = "traceroot.redacted";
 

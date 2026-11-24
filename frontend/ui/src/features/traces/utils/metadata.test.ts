@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { TraceListItem } from "@/types/api";
 import {
+  isPathOnlyMetadata,
   parseMetadataEntries,
   stringifyMetadataEntries,
   traceMetadataEntries,
@@ -140,6 +141,23 @@ describe("unstructuredMetadataText", () => {
   it("returns null for absent or blank metadata", () => {
     expect(unstructuredMetadataText(null)).toBeNull();
     expect(unstructuredMetadataText("   ")).toBeNull();
+  });
+});
+
+describe("isPathOnlyMetadata", () => {
+  it("is true for the span path alone, as a trace's span list carries a span's metadata", () => {
+    expect(
+      isPathOnlyMetadata(
+        '{"traceroot.span.ids_path":["s0"],"traceroot.span.path":["agent","plan"]}',
+      ),
+    ).toBe(true);
+  });
+
+  it("is false for a stored value, or for none", () => {
+    expect(isPathOnlyMetadata('{"temperature":0,"traceroot.span.path":["agent"]}')).toBe(false);
+    expect(isPathOnlyMetadata("{}")).toBe(false);
+    expect(isPathOnlyMetadata("plain note")).toBe(false);
+    expect(isPathOnlyMetadata(null)).toBe(false);
   });
 });
 
