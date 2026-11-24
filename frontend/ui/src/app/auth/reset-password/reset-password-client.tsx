@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/app/auth/use-hydrated";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -66,6 +67,7 @@ function ResetPasswordContent() {
   const [expired, setExpired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const hydrated = useHydrated();
 
   const {
     register,
@@ -143,7 +145,12 @@ function ResetPasswordContent() {
               {...register("confirmPassword")}
             />
           </AuthField>
-          <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
+          <Button
+            type="submit"
+            size="sm"
+            className="h-8 w-full text-[13px]"
+            disabled={isLoading || !hydrated}
+          >
             {isLoading ? "Saving..." : "Reset password"}
           </Button>
         </form>
