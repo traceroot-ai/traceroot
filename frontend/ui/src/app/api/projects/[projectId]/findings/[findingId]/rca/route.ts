@@ -22,22 +22,32 @@ type FindingTraceStart = {
   timestamp: string;
 };
 
+/** A time from the backend as a Date; anything but a string is an invalid date. */
+function parseTime(value: unknown): Date {
+  return typeof value === "string" ? new Date(value) : new Date(NaN);
+}
+
 /**
  * Gate an RCA read against the workspace plan's retention window using the
  * customer trace's start time (not the finding/RCA processing time).
  *
  * The backend resolves the customer root span's start, falling back to the
- * earliest customer span when the root has not arrived, and returns the
- * finding's oldest stored `timestamp` for when the trace has no customer span
- * at all. Fails closed: a failed or unreadable backend answer returns 502
- * instead of the RCA, a 404 hides it as `{ rca: null }`, and a trace that
- * started before the cutoff returns 403. A database error throws, as the RCA
- * lookup in the handler does, so it ends in a 500 without the RCA.
+ * earliest customer span when the root has not arrived. When the trace has no
+ * customer span at all, the gate takes the earlier of the finding's oldest
+ * stored `timestamp` and the RCA row's `createTime`. A ClickHouse merge keeps
+ * only a finding's newest version, so a re-run can make `timestamp` recent,
+ * while nothing rewrites `createTime`.
+ *
+ * Fails closed: a failed or unreadable backend answer returns 502 instead of
+ * the RCA, a 404 hides it as `{ rca: null }`, and a trace that started before
+ * the cutoff returns 403. A database error throws, as the RCA lookup in the
+ * handler does, so it ends in a 500 without the RCA.
  */
 async function checkRcaRetention(
   projectId: string,
   workspaceId: string,
   findingId: string,
+  rcaCreatedAt: Date,
 ): Promise<NextResponse | null> {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -73,8 +83,11 @@ async function checkRcaRetention(
     return errorResponse("Backend error", 502);
   }
 
-  const rawTime = body?.trace_start_time ?? body?.timestamp;
-  const judgedAt = typeof rawTime === "string" ? new Date(rawTime) : new Date(NaN);
+  // An invalid date (NaN) survives Math.min, so a bad `timestamp` still fails.
+  const judgedAt =
+    body?.trace_start_time != null
+      ? parseTime(body.trace_start_time)
+      : new Date(Math.min(parseTime(body?.timestamp).getTime(), rcaCreatedAt.getTime()));
   if (isNaN(judgedAt.getTime())) {
     return errorResponse("Backend error", 502);
   }
@@ -110,6 +123,7 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
     projectId,
     accessResult.project.workspaceId,
     row.findingId,
+    row.createTime,
   );
   if (blocked) return blocked;
 

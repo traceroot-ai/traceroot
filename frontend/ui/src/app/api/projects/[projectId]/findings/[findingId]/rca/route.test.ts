@@ -56,7 +56,7 @@ const sampleRow = (overrides: Record<string, unknown> = {}) => ({
   status: "done",
   result: "root cause text",
   completedAt: null,
-  createTime: new Date(0),
+  createTime: new Date(daysAgo(1)),
   executions: [{ sessionId: "s2", traceId: "abc", traceStatus: "available", attempt: 2 }],
   ...overrides,
 });
@@ -240,7 +240,7 @@ describe("GET /findings/:id/rca — retention gate", () => {
     expect("rca" in body).toBe(false);
   });
 
-  it("falls back to timestamp when trace_start_time is null", async () => {
+  it("falls back to the finding timestamp when trace_start_time is null", async () => {
     findFirst.mockResolvedValue(sampleRow());
     fetchMock.mockResolvedValueOnce(
       backendResponse({
@@ -270,6 +270,27 @@ describe("GET /findings/:id/rca — retention gate", () => {
       findingId: "f1",
       result: "root cause text",
     });
+  });
+
+  it("judges a trace with no customer span by the RCA's creation when the finding timestamp is newer", async () => {
+    // A ClickHouse merge keeps only a finding's newest version, so a re-run can
+    // leave a recent `timestamp` on a finding first seen long ago. The RCA
+    // row's createTime is never rewritten, so it still holds the read back.
+    findFirst.mockResolvedValue(sampleRow({ createTime: new Date(daysAgo(400)) }));
+    fetchMock.mockResolvedValue(
+      backendResponse({
+        trace_id: "trace-1",
+        trace_start_time: null,
+        timestamp: daysAgo(1),
+      }),
+    );
+
+    const res = await call();
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body).toEqual({ error: "Data outside retention window" });
+    expect("rca" in body).toBe(false);
   });
 
   it("returns 200 with RCA fields when inside the retention window", async () => {
@@ -330,7 +351,7 @@ describe("GET /findings/:id/rca — retention gate", () => {
     expect(await res.json()).toEqual({ rca: null });
   });
 
-  it("fails closed with 502 and no rca on backend 500, fetch rejection, or unparseable date", async () => {
+  it("fails closed with 502 and no rca on backend 500, fetch rejection, or an unparseable time", async () => {
     findFirst.mockResolvedValue(sampleRow());
 
     fetchMock.mockResolvedValueOnce(backendResponse({ detail: "boom" }, 500));
@@ -356,6 +377,20 @@ describe("GET /findings/:id/rca — retention gate", () => {
     const bodyBadDate = await resBadDate.json();
     expect(resBadDate.status).toBe(502);
     expect("rca" in bodyBadDate).toBe(false);
+
+    // With no trace start, a bad finding timestamp fails too, even though the
+    // RCA row's createTime is a valid date.
+    fetchMock.mockResolvedValueOnce(
+      backendResponse({
+        trace_id: "trace-1",
+        trace_start_time: null,
+        timestamp: "not-a-date",
+      }),
+    );
+    const resBadSeen = await call();
+    const bodyBadSeen = await resBadSeen.json();
+    expect(resBadSeen.status).toBe(502);
+    expect("rca" in bodyBadSeen).toBe(false);
   });
 
   it("calls the backend with the percent-encoded stored findingId, project_id, and secret header", async () => {
