@@ -13,6 +13,8 @@ pnpm install
 
 ```bash
 pnpm demo        # tool-calling agent
+pnpm demo:images # multimodal image generation & conditioning
+pnpm demo:voice  # audio input & speech output
 pnpm streaming   # streaming pipeline (generator support)
 ```
 
