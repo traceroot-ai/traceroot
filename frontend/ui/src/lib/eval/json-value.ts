@@ -15,11 +15,14 @@
 /** Deterministic JSON with recursively sorted object keys — so two structurally equal
  *  values compare equal regardless of key order (JSONB round-trips don't preserve it).
  *
- *  For IN-PROCESS EQUALITY ONLY — cross-dataset run comparison (`canonicalInputKey`). Its
- *  output is never hashed, stored, or sent anywhere, so any total key order does, and it
- *  must never throw: a legacy value carrying a lone UTF-16 surrogate has to still compare
- *  rather than break the page rendering it (`JSON.stringify` escapes such a string instead
- *  of failing).
+ *  For IN-PROCESS EQUALITY — cross-dataset run comparison (`canonicalInputKey`). Its output
+ *  itself is never stored or sent anywhere, so any total key order does, and it must never
+ *  throw: a legacy value carrying a lone UTF-16 surrogate has to still compare rather than
+ *  break the page rendering it (`JSON.stringify` escapes such a string instead of failing).
+ *  One exception: the comparison page names a case aligned by input in its URL by a hash
+ *  of that key (`features/evaluations/compare/case-token.ts`), so changing this output
+ *  changes those hashes and a saved link stops finding its case. Such a link fails safe:
+ *  it opens the comparison with no case open.
  *
  *  It is deliberately NOT the canonicalizer for content-addressed case ids, which lives
  *  separately in `canonical.ts`. `stableCaseId` hashes that one's output, so it has to stay

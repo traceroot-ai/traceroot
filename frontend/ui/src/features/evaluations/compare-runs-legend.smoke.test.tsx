@@ -43,6 +43,8 @@ const view = (props: Partial<React.ComponentProps<typeof CompareRunsView>> = {})
     baselineId={null}
     onChangeBaseline={vi.fn()}
     onChangeRuns={vi.fn()}
+    inspected={null}
+    onInspect={vi.fn()}
     {...props}
   />
 );
@@ -113,7 +115,7 @@ describe("CompareRunsView — run legend", () => {
     openMenu(/#2 candidate-v2/);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Set as baseline" }));
     // With the table's search, filters and sort, which this comparison doesn't have.
-    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, NO_ANALYSIS);
+    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, NO_ANALYSIS, BASELINE_RUN.id);
   });
 
   it("keeps every run's colour when the baseline changes", () => {

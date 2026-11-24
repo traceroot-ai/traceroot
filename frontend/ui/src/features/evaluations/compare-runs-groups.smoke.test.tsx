@@ -4,10 +4,11 @@
  * run, the baseline first and muted, then the other runs in display order. Input and
  * Expected span the group; the Run column names each line. A candidate's line shows its
  * value and its change against the baseline; the baseline's line shows values only.
- * Hovering a line highlights its whole group. The label row, Input and Run stay pinned.
+ * Hovering a line highlights its whole group, a click on a line opens the case on that
+ * line's run, and each group is one tab stop. The label row, Input and Run stay pinned.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   BASELINE_RUN,
   CANDIDATE_RUN,
@@ -36,6 +37,17 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 
 const hooks = vi.hoisted(() => ({ useEvaluationRunDetails: vi.fn() }));
 vi.mock("./hooks", () => hooks);
+// A case opens in the trace panel, which the trace panel's own tests mount for real.
+vi.mock("@/features/traces/components", async () => ({
+  TraceViewerPanel: (await import("./compare/__tests__/viewer-stand-in")).ViewerStandIn,
+}));
+vi.mock("@/features/traces/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/traces/hooks")>();
+  const pending = { data: undefined, isLoading: true, isFetching: true, isError: false };
+  return { ...actual, useTrace: () => ({ ...pending, refetch: vi.fn() }) };
+});
+// The open case keeps its baseline's trace live, which needs a server.
+vi.mock("@/features/traces/hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 
 import { CompareRunsView } from "./views/compare-runs-view";
 
@@ -52,7 +64,8 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
-const mount = () =>
+const mount = () => {
+  const onInspect = vi.fn();
   render(
     <CompareRunsView
       projectId="p1"
@@ -60,8 +73,12 @@ const mount = () =>
       baselineId={null}
       onChangeBaseline={vi.fn()}
       onChangeRuns={vi.fn()}
+      inspected={null}
+      onInspect={onInspect}
     />,
   );
+  return onInspect;
+};
 
 describe("CompareRunsView — one line per run", () => {
   it("lays out each case as a group of lines, the baseline's first", () => {
@@ -227,6 +244,65 @@ describe("CompareRunsView — a group as one target", () => {
     mount();
     expect(caseGroup("Ticket 2").className).toContain("hover:bg-muted");
   });
+
+  it("opens the case on the run of the line clicked, and the baseline's line on the default pair", () => {
+    const onInspect = mount();
+    const group = caseGroup("Ticket 2");
+    fireEvent.click(cellAt(group, FAST_RUN.id, "Latency"));
+    fireEvent.click(cellAt(group, BASELINE_RUN.id, QUALITY));
+    expect(onInspect.mock.calls).toEqual([
+      [{ caseToken: "id:case-2", pair: [BASELINE_RUN.id, FAST_RUN.id] }],
+      // Nothing has been shown yet, so the first run after the baseline.
+      [{ caseToken: "id:case-2", pair: [BASELINE_RUN.id, CANDIDATE_RUN.id] }],
+    ]);
+  });
+
+  it("makes each group one tab stop, its first line, opened with Enter", () => {
+    const onInspect = mount();
+    const group = caseGroup("Ticket 2");
+    const [first, ...rest] = linesOf(group);
+    expect(first.tabIndex).toBe(0);
+    expect(first.dataset.row).toBeDefined();
+    expect(rest.every((line) => !line.hasAttribute("tabindex"))).toBe(true);
+    act(() => first.focus());
+    fireEvent.keyDown(first, { key: "Enter" });
+    expect(onInspect).toHaveBeenLastCalledWith({
+      caseToken: "id:case-2",
+      pair: [BASELINE_RUN.id, CANDIDATE_RUN.id],
+    });
+    // A key on another line's content is not the group's own.
+    fireEvent.keyDown(rest[0], { key: "Enter" });
+    expect(onInspect).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the focused group with Space too", () => {
+    const onInspect = mount();
+    const [first] = linesOf(caseGroup("Ticket 3"));
+    act(() => first.focus());
+    fireEvent.keyDown(first, { key: " " });
+    expect(onInspect).toHaveBeenLastCalledWith({
+      caseToken: "id:case-3",
+      pair: [BASELINE_RUN.id, CANDIDATE_RUN.id],
+    });
+  });
+
+  it("marks the open case's group", () => {
+    render(
+      <CompareRunsView
+        projectId="p1"
+        runIds={RUN_IDS}
+        baselineId={null}
+        onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
+        inspected={{ caseToken: "id:case-2", pair: null }}
+        onInspect={vi.fn()}
+      />,
+    );
+    const group = caseGroup("Ticket 2");
+    expect(group.dataset.selected).toBe("true");
+    expect(linesOf(group)[0].getAttribute("aria-current")).toBe("true");
+    expect(caseGroup("Ticket 3").dataset.selected).toBeUndefined();
+  });
 });
 
 describe("CompareRunsView — the all-cases group", () => {
@@ -239,6 +315,8 @@ describe("CompareRunsView — the all-cases group", () => {
     expect(shownText(cellAt(summary, BASELINE_RUN.id, "Input"))).toBe("All cases");
     expect(linesOf(summary).map((l) => l.dataset.runId)).toEqual(RUN_IDS);
     expect(columnTexts(summary, "Run")).toEqual(["#1", "#2", "#3"]);
+    // A summary, not a case: no line of it is a tab stop that opens a case.
+    expect(summary.querySelector("tr[tabindex], tr[data-row]")).toBeNull();
   });
 
   it("shows each candidate's paired means and change, then n and its counts", () => {

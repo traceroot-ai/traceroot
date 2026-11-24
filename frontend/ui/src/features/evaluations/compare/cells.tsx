@@ -18,8 +18,10 @@ export const RUN_COLUMN = "sticky left-[240px] z-[1] whitespace-nowrap";
  *  Rows are ruled per case (`GROUP_EDGE`), not per line. */
 export const COMPARISON_TABLE =
   "sticky-sep [&_td]:!border-r [&_th]:!border-r [&_tr>*:last-child]:!border-r-0";
-/** A pinned body cell's fill, which has to follow its case group's: plain or hovered. */
-export const PINNED_FILL = "bg-background group-hover/row:bg-muted";
+/** A pinned body cell's fill, which has to follow its case group's: plain, hovered,
+ *  focused or open. */
+export const PINNED_FILL =
+  "bg-background group-hover/row:bg-muted group-has-[>tr:focus-visible]/row:bg-muted group-data-[selected=true]/row:!bg-accent";
 
 /** A run's line in a group (a case, or the summary). The table's cell rule sets a fixed
  *  height and no vertical padding; a line sets its own, the group's first and last lines
@@ -113,7 +115,8 @@ export function CellStateLabel({ state }: { state: Exclude<CellState, { kind: "v
   );
 }
 
-/** One value per run, stacked and colour-keyed (in baseline-first display order). */
+/** One value per run, stacked and colour-keyed (in baseline-first display order). Each
+ *  value carries its run's id, so a click on it can tell which run it was about. */
 export function RunStack({
   values,
   align = "left",
@@ -134,6 +137,7 @@ export function RunStack({
       {values.map((v) => (
         <span
           key={v.runId}
+          data-run-id={v.runId}
           title={tooltipped ? undefined : v.label}
           className="flex max-w-full items-center gap-1.5"
         >

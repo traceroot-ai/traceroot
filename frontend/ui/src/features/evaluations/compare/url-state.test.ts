@@ -6,6 +6,8 @@ const EMPTY: CompareUrlState = {
   runs: [],
   baseline: null,
   ...NO_ANALYSIS,
+  case: null,
+  pair: null,
 };
 
 const parse = (query: string) => parseCompareUrl(new URLSearchParams(query));
@@ -18,7 +20,7 @@ describe("parseCompareUrl", () => {
     expect(
       parse(
         "runs=a,b,c&baseline=b&q=refund&f=regressed:quality:c&f=errors:any:any" +
-          "&sort=regression:quality:c",
+          "&sort=regression:quality:c&case=id:tc_1&pair=b,c",
       ),
     ).toEqual({
       runs: ["a", "b", "c"],
@@ -29,6 +31,8 @@ describe("parseCompareUrl", () => {
         { kind: "errors", scorer: null, runId: "any" },
       ],
       sort: { kind: "regression", scorer: "quality", runId: "c" },
+      case: "id:tc_1",
+      pair: ["b", "c"],
     });
   });
 
@@ -38,7 +42,13 @@ describe("parseCompareUrl", () => {
 
   it("reads an empty URL as the default view", () => {
     expect(parse("")).toEqual(EMPTY);
-    expect(parse("runs=&baseline=&q=")).toEqual(EMPTY);
+    expect(parse("runs=&baseline=&q=&case=&pair=")).toEqual(EMPTY);
+  });
+
+  it("keeps a pair only when it names two runs", () => {
+    expect(parse("pair=a").pair).toBeNull();
+    expect(parse("pair=a,").pair).toBeNull();
+    expect(parse("pair=a,b,c").pair).toBeNull();
   });
 
   it("drops filters and sorts it can't read", () => {
@@ -87,8 +97,13 @@ describe("serializeCompareUrl", () => {
         q: "refund",
         filters: [{ kind: "regressed", scorer: "quality", runId: "b" }],
         sort: { kind: "regression", scorer: "quality", runId: "b" },
+        case: "id:tc_1",
+        pair: ["a", "b"],
       }),
-    ).toBe("runs=a,b&baseline=a&q=refund&f=regressed:quality:b&sort=regression:quality:b");
+    ).toBe(
+      "runs=a,b&baseline=a&q=refund&f=regressed:quality:b&sort=regression:quality:b" +
+        "&case=id:tc_1&pair=a,b",
+    );
   });
 
   it("leaves a blank search out", () => {
@@ -99,7 +114,7 @@ describe("serializeCompareUrl", () => {
   it("keeps the parameters it doesn't own, in their order, and replaces the ones it does", () => {
     const qs = serializeCompareUrl(
       { ...EMPTY, runs: ["a", "b"], q: "new" },
-      new URLSearchParams("utm=x&q=old&f=errors:any:any&tag=1&tag=2"),
+      new URLSearchParams("utm=x&q=old&f=errors:any:any&tag=1&tag=2&case=id:gone"),
     );
     expect(qs).toBe("runs=a,b&q=new&utm=x&tag=1&tag=2");
   });

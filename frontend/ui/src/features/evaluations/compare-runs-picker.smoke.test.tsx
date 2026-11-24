@@ -88,6 +88,8 @@ const view = (
     baselineId={null}
     onChangeBaseline={vi.fn()}
     onChangeRuns={onChangeRuns}
+    inspected={null}
+    onInspect={vi.fn()}
   />
 );
 const mount = (onChangeRuns = vi.fn()) => {

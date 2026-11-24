@@ -12,7 +12,7 @@ import {
   FAST_RUN,
   PAIRED_FIXTURE,
 } from "./compare/__tests__/paired-fixture";
-import { caseGroups, linesOf, summaryGroup } from "./compare/__tests__/table-grid";
+import { linesOf, summaryGroup } from "./compare/__tests__/table-grid";
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
@@ -48,11 +48,13 @@ const view = () => (
     baselineId={null}
     onChangeBaseline={vi.fn()}
     onChangeRuns={vi.fn()}
+    inspected={null}
+    onInspect={vi.fn()}
   />
 );
 
 /** Each case's first line, which holds its Input. */
-const bodyRows = () => caseGroups().map((group) => linesOf(group)[0]);
+const bodyRows = () => Array.from(document.querySelectorAll<HTMLElement>("tbody tr[data-row]"));
 const headRows = () => Array.from(document.querySelectorAll<HTMLElement>("thead tr"));
 
 describe("CompareRunsView — pinned input, run and headers", () => {

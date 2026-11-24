@@ -58,6 +58,8 @@ const mount = () =>
       baselineId={null}
       onChangeBaseline={vi.fn()}
       onChangeRuns={vi.fn()}
+      inspected={null}
+      onInspect={vi.fn()}
     />,
   );
 
@@ -117,6 +119,8 @@ function mountRuns(runs: RunBundle[]) {
       baselineId={runs[0].run.id}
       onChangeBaseline={vi.fn()}
       onChangeRuns={vi.fn()}
+      inspected={null}
+      onInspect={vi.fn()}
     />,
   );
 }
@@ -168,6 +172,8 @@ function mountPair(a: RunBundle["results"], b: RunBundle["results"]) {
       baselineId="a"
       onChangeBaseline={vi.fn()}
       onChangeRuns={vi.fn()}
+      inspected={null}
+      onInspect={vi.fn()}
     />,
   );
 }
@@ -313,6 +319,8 @@ describe("CompareRunsView — cells without a value", () => {
         baselineId="a"
         onChangeBaseline={vi.fn()}
         onChangeRuns={vi.fn()}
+        inspected={null}
+        onInspect={vi.fn()}
       />,
     );
     // 1 → 2 is a different label, not "+1".
@@ -395,6 +403,8 @@ describe("CompareRunsView — runs that couldn’t be loaded", () => {
         baselineId={CANDIDATE_RUN.id}
         onChangeBaseline={vi.fn()}
         onChangeRuns={onChangeRuns}
+        inspected={null}
+        onInspect={vi.fn()}
       />,
     );
     expect(screen.getByText("1 run couldn’t be loaded.")).toBeTruthy();

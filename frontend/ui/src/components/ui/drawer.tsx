@@ -37,6 +37,12 @@ export interface DrawerContentProps extends React.ComponentPropsWithoutRef<
    * overlap or read as two different controls.
    */
   hideClose?: boolean;
+  /**
+   * Portal the panel to `<body>` (the default). Pass false to render it in place, for a
+   * panel sized with the app shell's CSS variables (`--app-header-h`, `--app-nav-w`),
+   * which are defined on the shell and so don't resolve under `<body>`.
+   */
+  portal?: boolean;
 }
 
 const DrawerContent = React.forwardRef<
@@ -44,10 +50,18 @@ const DrawerContent = React.forwardRef<
   DrawerContentProps
 >(
   (
-    { className, children, width = "w-[720px]", side = "right", hideClose = false, ...props },
+    {
+      className,
+      children,
+      width = "w-[720px]",
+      side = "right",
+      hideClose = false,
+      portal = true,
+      ...props
+    },
     ref,
-  ) => (
-    <DrawerPortal>
+  ) => {
+    const content = (
       <DialogPrimitive.Content
         ref={ref}
         // Non-modal: a click on the page behind interacts with it (and never closes
@@ -75,8 +89,9 @@ const DrawerContent = React.forwardRef<
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>
-    </DrawerPortal>
-  ),
+    );
+    return portal ? <DrawerPortal>{content}</DrawerPortal> : content;
+  },
 );
 DrawerContent.displayName = "DrawerContent";
 

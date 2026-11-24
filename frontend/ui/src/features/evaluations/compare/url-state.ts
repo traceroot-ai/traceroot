@@ -1,10 +1,12 @@
 /**
  * The comparison page's URL, which holds everything needed to land on the same view
- * again: the runs and baseline, and the table's search, filters and sort.
+ * again: the runs and baseline, the table's search, filters and sort, and the case open
+ * in the trace panel with its two runs.
  *
  *   ?runs=<id,id,…>&baseline=<id>&q=<search>
  *    &f=<kind>:<scorer|any>:<run id|any>      (once per filter)
  *    &sort=regression:<scorer>:<run id>
+ *    &case=<case token>&pair=<baseline id>,<candidate id>
  *
  * A filter's or sort's scorer and run are percent-encoded on their own, so a scorer name
  * with a colon survives; one written by hand is split on its first and last colon. A
@@ -20,9 +22,13 @@ export interface CompareUrlState {
   q: string;
   filters: CaseFilter[];
   sort: CaseSort;
+  /** The case open in the trace panel, by its URL token. */
+  case: string | null;
+  /** The trace panel's two runs, `[baseline, candidate]`. */
+  pair: [string, string] | null;
 }
 
-const OWNED = new Set(["runs", "baseline", "q", "f", "sort"]);
+const OWNED = new Set(["runs", "baseline", "q", "f", "sort", "case", "pair"]);
 
 /** The ids in a comma list, each once (a run listed twice is still one run). */
 const ids = (text: string | null) => [
@@ -80,12 +86,15 @@ export function parseCompareUrl(params: URLSearchParams): CompareUrlState {
     const filter = readFilter(text);
     if (filter && !filters.some((f) => sameFilter(f, filter))) filters.push(filter);
   }
+  const pair = (params.get("pair") ?? "").split(",").map((s) => s.trim());
   return {
     runs: ids(params.get("runs")),
     baseline: params.get("baseline") || null,
     q: params.get("q") ?? "",
     filters,
     sort: readSort(params.get("sort")),
+    case: params.get("case") || null,
+    pair: pair.length === 2 && pair.every(Boolean) ? [pair[0], pair[1]] : null,
   };
 }
 
@@ -106,6 +115,8 @@ export function serializeCompareUrl(state: CompareUrlState, current?: URLSearchP
   if (state.sort.kind === "regression") {
     entries.push(["sort", writeTriple("regression", state.sort.scorer, state.sort.runId)]);
   }
+  if (state.case) entries.push(["case", state.case]);
+  if (state.pair) entries.push(["pair", state.pair.join(",")]);
   current?.forEach((value, key) => {
     if (!OWNED.has(key)) entries.push([key, value]);
   });

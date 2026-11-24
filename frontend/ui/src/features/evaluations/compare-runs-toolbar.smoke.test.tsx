@@ -52,6 +52,8 @@ const mount = (props: Partial<React.ComponentProps<typeof CompareRunsView>> = {}
       baselineId={null}
       onChangeBaseline={vi.fn()}
       onChangeRuns={vi.fn()}
+      inspected={null}
+      onInspect={vi.fn()}
       {...props}
     />,
   );
@@ -110,7 +112,7 @@ describe("CompareRunsView — the Runs menu", () => {
     const onChangeRuns = vi.fn();
     mount({ onChangeBaseline, onChangeRuns });
     await runMenu(/#2 candidate-v2/, "Set as baseline");
-    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, NO_ANALYSIS);
+    expect(onChangeBaseline).toHaveBeenCalledWith(CANDIDATE_RUN.id, NO_ANALYSIS, BASELINE_RUN.id);
     await runMenu(/#3 fast-v3/, "Remove from comparison");
     expect(onChangeRuns).toHaveBeenCalledWith(
       [BASELINE_RUN.id, CANDIDATE_RUN.id],
