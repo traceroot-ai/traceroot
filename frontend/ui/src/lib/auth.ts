@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { after } from "next/server";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
@@ -11,6 +12,7 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
+import { sendPasswordResetEmail } from "@/lib/email/send-password-reset-email";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { refuseUnverifiedGitHubSignUp } from "@/lib/signup/verified-social-email";
@@ -46,6 +48,18 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    // better-auth gives known and unknown emails the same answer, but only known
+    // ones reach this callback. Rendering or sending the email here would make
+    // their responses slower and reveal which addresses have accounts, so all of
+    // that work waits until the response has been sent.
+    sendResetPassword: async ({ user, url }) => {
+      after(() =>
+        sendPasswordResetEmail({ to: user.email, resetUrl: url }).catch((error) =>
+          console.error("[auth] password reset email failed:", error),
+        ),
+      );
+    },
+    revokeSessionsOnPasswordReset: true,
   },
 
   databaseHooks: {
