@@ -157,6 +157,35 @@ describe("SignUpPage", () => {
     expect(dest).toContain(`callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`);
   });
 
+  it("keeps the terminal's hand-back when it comes back through onboarding", async () => {
+    // "Not you? Sign out" on a sign-up step sends sign-in back to /onboarding,
+    // carrying the device URL; signing up a new account from there must too.
+    setParams({
+      callbackUrl: `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+    });
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+    render(<SignUpPage />);
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    const dest = new URL(mocks.push.mock.calls[0][0], "http://x");
+    expect(dest.pathname).toBe("/onboarding");
+    expect(dest.searchParams.get("callbackUrl")).toBe("/device?user_code=ABCD1234");
+  });
+
+  it("carries only a device hand-back through onboarding", async () => {
+    setParams({
+      callbackUrl: `/onboarding?callbackUrl=${encodeURIComponent("/projects/p1/traces")}`,
+    });
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+    render(<SignUpPage />);
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
+  });
+
   it("passes the same onboarding destination to Google sign-up", async () => {
     // `signIn.social` is better-auth's only social entry point, so this button
     // signs an existing account in as readily as it creates one — and with

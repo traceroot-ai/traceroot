@@ -7,6 +7,8 @@ const core = vi.hoisted(() => ({
   UNSUBSCRIBE_PATH: "/api/email/unsubscribe",
 }));
 vi.mock("@traceroot/core/email", () => core);
+const account = vi.hoisted(() => ({ recordUnsubscribe: vi.fn() }));
+vi.mock("@/lib/lifecycle/pause", () => account);
 
 import { GET, POST } from "./route";
 
@@ -26,6 +28,37 @@ beforeEach(() => {
   core.verifyUnsubscribeToken.mockImplementation((t) => ({ valid: t === "good", email: EMAIL }));
   core.ensureContact.mockResolvedValue({ ok: true });
   core.setTopicSubscription.mockResolvedValue({ ok: true });
+  account.recordUnsubscribe.mockResolvedValue("user_1");
+});
+
+it.each([
+  ["List-Unsubscribe=One-Click", "?t=good", false],
+  ["t=good&action=opt_out", "", false],
+  ["t=good&action=opt_in", "", true],
+])("POST %j%s records the choice on the account too", async (body, query, subscribed) => {
+  await post(body, query);
+  expect(account.recordUnsubscribe).toHaveBeenCalledWith(EMAIL, subscribed);
+});
+
+it("POST keeps the address out of the log", async () => {
+  await post("List-Unsubscribe=One-Click", "?t=good");
+  const logged = vi.mocked(console.log).mock.calls.flat().join(" ");
+  expect(logged).toContain("user_1");
+  expect(logged).not.toContain(EMAIL);
+});
+
+it("POST still confirms when the account cannot be updated", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  account.recordUnsubscribe.mockRejectedValue(new Error("db down"));
+  const response = await post("List-Unsubscribe=One-Click", "?t=good");
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain(BYE);
+});
+
+it("POST records nothing on the account when the provider refused", async () => {
+  core.setTopicSubscription.mockResolvedValue({ ok: false });
+  await post("List-Unsubscribe=One-Click", "?t=good");
+  expect(account.recordUnsubscribe).not.toHaveBeenCalled();
 });
 
 it("GET renders the opt-out form for a valid token and writes nothing", async () => {
