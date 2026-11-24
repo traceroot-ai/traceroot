@@ -147,6 +147,7 @@ export function CompareRunsView({
         <CaseToolbar
           projectId={projectId}
           model={model}
+          pairs={pairs}
           searchRef={searchRef}
           cases={visible}
           casesAnalysis={shownAnalysis}
