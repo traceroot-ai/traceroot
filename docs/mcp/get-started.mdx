@@ -127,7 +127,7 @@ The MCP server is one more container in the production compose file. To turn on 
 | `mcp` | `MCP_RESOURCE_URL` (the same) and `MCP_OAUTH_ISSUER`: your `BETTER_AUTH_URL` plus `/api/auth` |
 | `rest` | `TRACEROOT_OAUTH_ISSUER` (the same issuer) and `TRACEROOT_OAUTH_AUDIENCES` (the MCP server's public URL) |
 
-Leave `MCP_RESOURCE_URL` blank to run key-only. To list the server in ChatGPT's app directory, set `MCP_OPENAI_APPS_CHALLENGE` on `mcp` to the domain-verification token OpenAI gives you; the server then serves it at `/.well-known/openai-apps-challenge`. The MCP server's URL must be reachable by whoever connects: from the internet for Claude's and ChatGPT's web apps, or just your machine for Claude Code, Cursor and the Gemini CLI.
+Leave `MCP_RESOURCE_URL` blank to run key-only. To list the server in ChatGPT's app directory, set `MCP_OPENAI_APPS_CHALLENGE` on `mcp` to the domain-verification token OpenAI gives you; the server then serves it at `/.well-known/openai-apps-challenge`. For Gemini's connected apps, set `MCP_GOOGLE_CONNECTED_APPS_TOKENS` to the token from the Google Connected Console; it is served at `/.well-known/google-connected-apps`. The MCP server's URL must be reachable by whoever connects: from the internet for Claude's and ChatGPT's web apps, or just your machine for Claude Code, Cursor and the Gemini CLI.
 
 <Note>
   The MCP server never holds your data or a login of its own. It forwards the assistant's credential to the TraceRoot API, which checks the token, the project it was granted for, and that the connection is still allowed on every request.
