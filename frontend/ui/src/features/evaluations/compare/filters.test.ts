@@ -17,6 +17,7 @@ import {
   pruneForRuns,
   selectCases,
   hasDirection,
+  hasDirectionOn,
   toggleFilter,
   type CaseAnalysis,
   type CaseFilter,
@@ -256,6 +257,50 @@ describe("selectCases — regression sort", () => {
     expect(hasDirection(quality, mixedPairs, "m2")).toBe(false);
     expect(hasDirection(quality, mixedPairs, "any")).toBe(true);
   });
+
+  it("finds a direction in the cases a pair compared, whatever kind its first case held", () => {
+    // A scorer that declares a direction but recorded labels on case 1 and numbers on
+    // case 2: case 2 still improved.
+    const scorers = scorerManifest([
+      { name: QUALITY, version: "1", value_type: "numeric", direction: "higher_is_better" },
+    ]);
+    const bundles = [
+      ["low", 0.4],
+      ["high", 0.8],
+    ].map(([label, value], i) => ({
+      run: fixtureRun(`k${i}`, i + 1, `k${i}`, `2026-11-0${i + 1}T00:00:00Z`, { scorers }),
+      results: [
+        fixtureResult(`k${i}`, "tc-1", "one", [fixtureScore(QUALITY, label)]),
+        fixtureResult(`k${i}`, "tc-2", "two", [fixtureScore(QUALITY, value)]),
+      ],
+    }));
+    const mixed = buildCompareModel(bundles, "k0");
+    const mixedPairs = comparePairs(mixed);
+    const quality = mixed.scorers.find((s) => s.name === QUALITY)!;
+    // The pair's totals read labels, from case 1.
+    const totals = mixedPairs.get("k1")!.comparison.scorers.find((s) => s.name === QUALITY)!;
+    expect(totals.valueType).toBe("categorical");
+    expect(
+      selectCases(mixed, mixedPairs, { ...NO_ANALYSIS, filters: [filter("improved")] }),
+    ).toHaveLength(1);
+    expect(hasDirection(quality, mixedPairs, "k1")).toBe(true);
+    expect(hasDirection(quality, mixedPairs, "any")).toBe(true);
+  });
+});
+
+describe("hasDirectionOn", () => {
+  it("reads one metric, or any of them for null", () => {
+    expect(hasDirectionOn(model.scorers, pairs, "quality", "run-2")).toBe(true);
+    expect(hasDirectionOn(model.scorers, pairs, "route", "run-2")).toBe(false);
+    expect(hasDirectionOn(model.scorers, pairs, null, "any")).toBe(true);
+    expect(hasDirectionOn(model.scorers, pairs, "no-such-scorer", "any")).toBe(false);
+  });
+
+  it("finds no direction on any metric when no metric has one", () => {
+    const routeOnly = model.scorers.filter((s) => s.name === "route");
+    expect(hasDirectionOn(routeOnly, pairs, null, "any")).toBe(false);
+    expect(hasDirectionOn(routeOnly, pairs, null, "run-2")).toBe(false);
+  });
 });
 
 describe("clearing the search and filters", () => {
@@ -330,5 +375,53 @@ describe("pruneForRuns", () => {
       sort: byRegression("run-3"),
     };
     expect(pruneForRuns(analysis, runs, "run-1")).toBe(analysis);
+    expect(pruneForRuns(analysis, runs, "run-1", { scorers: model.scorers, pairs })).toBe(analysis);
+  });
+
+  it("drops the filters and the sort on a scorer the comparison no longer has", () => {
+    const next = { scorers: model.scorers.filter((s) => s.name !== "quality"), pairs };
+    const analysis: CaseAnalysis = {
+      q: "",
+      filters: [
+        filter("regressed", "quality", "run-2"),
+        filter("changed", "quality"),
+        filter("errors", "quality", "run-2"),
+        filter("errors", null, "run-2"),
+        filter("changed", "route"),
+      ],
+      sort: byRegression("run-2"),
+    };
+    expect(pruneForRuns(analysis, runs, "run-1", next)).toEqual({
+      q: "",
+      filters: [filter("errors", null, "run-2"), filter("changed", "route")],
+      sort: { kind: "dataset" },
+    });
+  });
+
+  it("drops improved, regressed and the sort where the new pair has no direction", () => {
+    // Bare scorers: #2 and #3 recorded numbers, #1 a label, so against #1 nothing has a
+    // direction.
+    const bundles = ([0.4, 0.8, "high"] as const).map((value, i) => ({
+      run: fixtureRun(`m${i}`, i + 1, `m${i}`, `2026-11-0${i + 1}T00:00:00Z`, {
+        scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+      }),
+      results: [fixtureResult(`m${i}`, "tc-1", "one", [fixtureScore(QUALITY, value)])],
+    }));
+    const againstLabel = buildCompareModel(bundles, "m2");
+    const next = { scorers: againstLabel.scorers, pairs: comparePairs(againstLabel) };
+    const analysis: CaseAnalysis = {
+      q: "",
+      filters: [
+        filter("improved", QUALITY, "m1"),
+        filter("regressed", null, "any"),
+        filter("changed", QUALITY, "m1"),
+      ],
+      sort: { kind: "regression", scorer: QUALITY, runId: "m1" },
+    };
+    expect(pruneForRuns(analysis, ["m0", "m1", "m2"], "m2", next)).toEqual({
+      q: "",
+      filters: [filter("changed", QUALITY, "m1")],
+      sort: { kind: "dataset" },
+    });
   });
 });

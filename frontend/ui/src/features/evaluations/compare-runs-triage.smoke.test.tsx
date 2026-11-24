@@ -25,6 +25,7 @@ import {
   fixtureResult,
   fixtureRun,
   fixtureScore,
+  scorerManifest,
 } from "./compare/__tests__/paired-fixture";
 import { NO_ANALYSIS, type CaseAnalysis } from "./compare/filters";
 import { runsLegend } from "./compare/__tests__/runs-menu";
@@ -381,6 +382,28 @@ describe("CompareRunsView — the Filters menu", () => {
     expect(chips()).toEqual(["Regressed · any · any run"]);
     expect(screen.getByText("No cases match the search or filters")).toBeTruthy();
   });
+
+  it("can't ask any metric for improvements or regressions when no metric has a direction", async () => {
+    const runs = ["billing", "refunds"].map((route, i) => ({
+      run: fixtureRun(`r${i}`, i + 1, `r${i}`, `2026-11-0${i + 1}T00:00:00Z`),
+      results: [fixtureResult(`r${i}`, "tc-1", "Ticket 1", [fixtureScore(ROUTE, route)])],
+    }));
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: runs.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount({}, { runIds: ["r0", "r1"] });
+    const menu = await openFilters();
+    const kind = (name: RegExp) => menu.getByRole("button", { name }) as HTMLButtonElement;
+    expect(menu.getByRole("combobox", { name: "Metric" }).textContent).toBe("Any metric");
+    expect(kind(/^Improved/).disabled).toBe(true);
+    expect(kind(/^Regressed/).disabled).toBe(true);
+    expect(kind(/^Changed/).disabled).toBe(false);
+    expect(kind(/^Regressed/).textContent).toBe("Regressed metric has no direction");
+  });
 });
 
 describe("CompareRunsView — sorting by regression", () => {
@@ -481,9 +504,26 @@ describe("CompareRunsView — the summary over the cases shown", () => {
   });
 
   it("takes the cost mean over the matching cases too", () => {
+    // Case 2 costs more on #2 and #3 than their other cases, so a mean over every case
+    // would read lower.
+    const costly = PAIRED_FIXTURE.map((b) => ({
+      ...b,
+      results: b.results.map((r) =>
+        r.testCaseId === "case-2" && r.runId !== BASELINE_RUN.id ? { ...r, cost: 0.1 } : r,
+      ),
+    }));
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: costly.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
     mount({ filters: [regressedOnQuality] });
     for (const runId of [CANDIDATE_RUN.id, FAST_RUN.id]) {
-      expect(within(summaryCell(runId, "Cost")).getByText("n=1")).toBeTruthy();
+      const cost = within(summaryCell(runId, "Cost"));
+      expect(cost.getByText("$0.0100 → $0.1000")).toBeTruthy();
+      expect(cost.getByText("n=1")).toBeTruthy();
     }
   });
 
@@ -613,6 +653,37 @@ describe("CompareRunsView — changing runs keeps only the filters that still ap
       ...NO_ANALYSIS,
       filters: [{ kind: "errors", scorer: null, runId: CANDIDATE_RUN.id }],
     });
+  });
+
+  it("drops the sort and the direction filters a new baseline leaves without a direction", async () => {
+    // Bare scorers: #1 and #2 recorded numbers, #3 a label, so against #3 nothing has a
+    // direction.
+    const runs = ([0.4, 0.8, "high"] as const).map((value, i) => ({
+      run: fixtureRun(`m${i}`, i + 1, `m${i}`, `2026-11-0${i + 1}T00:00:00Z`, {
+        scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+      }),
+      results: [fixtureResult(`m${i}`, "tc-1", "Ticket 1", [fixtureScore(QUALITY, value)])],
+    }));
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: runs.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    const onChangeBaseline = vi.fn();
+    const changed = { kind: "changed" as const, scorer: QUALITY, runId: "m1" };
+    mount(
+      {
+        filters: [{ kind: "improved", scorer: QUALITY, runId: "m1" }, changed],
+        sort: { kind: "regression", scorer: QUALITY, runId: "m1" },
+      },
+      { runIds: ["m0", "m1", "m2"], baselineId: "m0", onChangeBaseline },
+    );
+    await runMenu(/#3 m2/, "Set as baseline");
+    const [baselineId, carried] = onChangeBaseline.mock.lastCall!;
+    expect(baselineId).toBe("m2");
+    expect(carried).toEqual({ ...NO_ANALYSIS, filters: [changed] });
   });
 
   it("keeps showing a search carried into a baseline change once the URL has both", async () => {
