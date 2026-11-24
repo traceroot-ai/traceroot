@@ -35,7 +35,9 @@ const LAYOUT = {
 } as const;
 const TEXT = "font-size:16px;line-height:25px";
 const SIGNOFF = "font-size:15px;line-height:22px";
-const FOOTER = `font-size:12px;line-height:18px;color:${EMAIL_COLORS.muted}`;
+// Read when an email is rendered, not when the module loads, so importing this
+// module never depends on the email constants being ready.
+const footerStyle = () => `font-size:12px;line-height:18px;color:${EMAIL_COLORS.muted}`;
 
 function toHtml(paragraph: string, marginTop: number): string {
   if (COMMAND.test(paragraph)) {
@@ -100,10 +102,10 @@ export function renderFollowUp(input: RenderFollowUpInput): {
     `<p style="margin:0 0 ${LAYOUT.afterGreeting}px;${TEXT}">${escapeHtml(greeting(input.firstName))}</p>`,
     ...body,
     `<p style="margin:${LAYOUT.beforeSignoff}px 0 0;${SIGNOFF}">${FOUNDER_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
-    `<p style="margin:${LAYOUT.beforeUnsubscribe}px 0 0;${FOOTER}"><a href="${escapeHtml(input.unsubscribeUrl)}" style="color:${EMAIL_COLORS.muted};text-decoration:underline">${PRODUCT_OPT_OUT_LABEL}</a></p>`,
+    `<p style="margin:${LAYOUT.beforeUnsubscribe}px 0 0;${footerStyle()}"><a href="${escapeHtml(input.unsubscribeUrl)}" style="color:${EMAIL_COLORS.muted};text-decoration:underline">${PRODUCT_OPT_OUT_LABEL}</a></p>`,
     // The provider adds the postal address here (PRODUCT_FOOTER_SLOT), so it
     // sits in the same column and style as the unsubscribe line.
-    `<p style="margin:${LAYOUT.beforeAddress}px 0 0;${FOOTER}">${PRODUCT_FOOTER_SLOT}</p>`,
+    `<p style="margin:${LAYOUT.beforeAddress}px 0 0;${footerStyle()}">${PRODUCT_FOOTER_SLOT}</p>`,
     "</div>",
     "</body></html>",
   ].join("\n");
