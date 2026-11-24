@@ -200,7 +200,7 @@ describe("Sidebar", () => {
       expect(text).toContain(label);
     }
     expect(text).not.toContain("Home");
-    expect(container.querySelector('[aria-label="账号菜单"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="账户菜单"]')).not.toBeNull();
   });
 
   it("stores the chosen language in a cookie and refreshes the route", () => {

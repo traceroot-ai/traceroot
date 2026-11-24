@@ -26,7 +26,7 @@ describe("createTranslator", () => {
 
   it("returns the translation and falls back to English for a missing key", () => {
     const t = createTranslator("zh");
-    expect(t("workspaces.emptyTitle")).toBe("还没有 workspace");
+    expect(t("workspaces.emptyTitle")).toBe("还没有工作空间");
     // Product terms are left out of zh on purpose.
     expect(zh.nav?.traces).toBeUndefined();
     expect(t("nav.traces")).toBe("Tracing");
