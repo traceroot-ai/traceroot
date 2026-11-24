@@ -37,7 +37,7 @@ traceroot: 여러분의 AI 에이전트를 지속적으로 개선하는 오픈 �
 
 오픈소스 Braintrust 대안. 에이전트의 프로덕션 문제에서 패턴을 찾아내고, 코딩 에이전트와 함께 검증된 수정을 배포하세요.
 
-https://github.com/user-attachments/assets/5e7122df-848f-4138-85ce-cbd0b1432909
+https://github.com/user-attachments/assets/e6e4bcb9-8415-4dc8-a534-3ed257c98552
 
 ## 핵심 기능
 
