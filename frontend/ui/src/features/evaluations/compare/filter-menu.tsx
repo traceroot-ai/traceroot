@@ -11,8 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FILTER_KINDS, FILTER_LABEL, type CaseFilter, type FilterKind } from "./filters";
-import type { CompareModel } from "./model";
+import {
+  FILTER_KINDS,
+  FILTER_LABEL,
+  hasDirection,
+  type CaseFilter,
+  type FilterKind,
+} from "./filters";
+import type { CompareModel, PairComparison } from "./model";
 
 const ANY = "any";
 
@@ -32,12 +38,15 @@ const HINT: Record<FilterKind, string> = {
  */
 export function FilterMenu({
   model,
+  pairs,
   tagOf,
   disabled = false,
   triggerRef,
   onAdd,
 }: {
   model: CompareModel;
+  /** Each candidate's comparison with the baseline. */
+  pairs: ReadonlyMap<string, PairComparison>;
   tagOf: (runId: string) => string;
   disabled?: boolean;
   /** The Filters button, for the toolbar to put focus back on. */
@@ -52,8 +61,7 @@ export function FilterMenu({
   const scorer = column?.name ?? null;
   const runId = model.runs.some(({ run }) => run.id === pickedRun) ? pickedRun : ANY;
 
-  const directionless =
-    !!column && (column.valueType === "categorical" || column.direction === "none");
+  const directionless = !!column && !hasDirection(column, pairs, runId);
   const onBaseline = runId === model.baselineRunId;
   /** Why a kind can't pick anything with this metric and run, shown in place of its hint. */
   const unavailable = (kind: FilterKind): string | null => {
