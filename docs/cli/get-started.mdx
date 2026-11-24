@@ -142,7 +142,7 @@ traceroot skills install traceroot-instrument-repo --agent claude --dry-run
 
 `doctor` checks credentials, traceroot files, the repository, the environment, and the installed skills. `setup doctor` diagnoses a setup that didn't complete. Both take `--service <path>` in a monorepo, and exit 1 when a check fails.
 
-`instrument` writes a prompt for a coding agent to add traceroot, without editing your code. `setup` is the usual route. It takes `--agent` (`claude`, `codex`, or `generic`), `--print` to write the prompt to stdout, `--output <path>`, and `--force` to overwrite an existing prompt.
+`instrument` writes a prompt for a coding agent to add traceroot, without editing your code. It takes `--agent` (`claude`, `codex`, or `generic`), `--print` to write the prompt to stdout, `--output <path>`, and `--force` to overwrite an existing prompt. `setup` is the usual route.
 
 `skills list` shows the skills bundled with the CLI and where they're installed. `skills install` copies one into an agent's skill directory, and takes `--agent`, `--force`, and `--dry-run` to show what it would write. [Coding agents](/getting-started/coding-agents#skills) lists the skills to use.
 

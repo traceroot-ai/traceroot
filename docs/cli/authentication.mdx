@@ -30,7 +30,7 @@ Naming a host with `--host` or `TRACEROOT_HOST_URL`, in the environment or in `-
 `traceroot logout` depends on the credential too:
 
 - **Saved session:** revokes and removes it. A key in `./.traceroot/config.json` then takes over, so run `logout` again to remove that too. If the revoke fails, the session stays and the command exits 5.
-- **`TRACEROOT_TOKEN`:** revokes the session. Unset the variable yourself.
+- **Session token in `TRACEROOT_TOKEN`:** revokes the session. Unset the variable yourself.
 - **Key in `./.traceroot/config.json`:** removes the key.
 - **Any other key:** changes nothing. Remove it yourself.
 

@@ -44,4 +44,4 @@ Both take ADMIN and a [`--reason`](/cli/scripting#shared-flags).
 
 Deleting a project removes it from every list and read, and its API keys stop working. Its data stays for the retention window.
 
-`workspaces delete` also needs `--name`, set to the workspace's current name as confirmation. It permanently deletes everything in the workspace: its projects, their API keys, its memberships, and its invites. Your only workspace can't be deleted. A wrong name or your only workspace exits 1.
+`workspaces delete` also needs `--name`, set to the workspace's current name as confirmation. It permanently deletes the workspace with its projects, their API keys, its memberships, and its invites. Your only workspace can't be deleted. A wrong name or your only workspace exits 1.
