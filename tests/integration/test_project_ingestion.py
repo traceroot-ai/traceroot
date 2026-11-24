@@ -70,9 +70,10 @@ def test_migration_leaves_unknown_dates_null(pg):
     assert pg() == {"p1": None, "p2": None, "deleted": None}
 
 
-def test_updates_are_project_scoped_monotonic_and_ignore_deleted_projects(pg):
+def test_updates_are_project_scoped_monotonic_throttled_and_ignore_deleted_projects(pg):
     ingest_tasks._record_project_ingestion("p1", T0 + timedelta(seconds=5))
     ingest_tasks._record_project_ingestion("p1", T0)
+    ingest_tasks._record_project_ingestion("p1", T0 + timedelta(seconds=35))
     for project_id in ("p2", "deleted", "missing"):
         ingest_tasks._record_project_ingestion(project_id, T0)
     assert pg() == {
@@ -80,18 +81,23 @@ def test_updates_are_project_scoped_monotonic_and_ignore_deleted_projects(pg):
         "p2": datetime(2026, 11, 13, 12, 0),
         "deleted": None,
     }
+    ingest_tasks._record_project_ingestion("p1", T0 + timedelta(seconds=36))
+    assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 36)
 
 
 def test_concurrent_snapshots_keep_the_latest_receive_time(pg):
+    # 31s apart, so each batch is outside the previous one's 30s write window.
     offsets = [3, 1, 7, 0, 6, 2, 5, 4]
     with ThreadPoolExecutor(max_workers=8) as executor:
         list(
             executor.map(
-                lambda n: ingest_tasks._record_project_ingestion("p1", T0 + timedelta(seconds=n)),
+                lambda n: ingest_tasks._record_project_ingestion(
+                    "p1", T0 + timedelta(seconds=31 * n)
+                ),
                 offsets,
             )
         )
-    assert pg()["p1"] == datetime(2026, 11, 13, 12, 0, 7)
+    assert pg()["p1"] == datetime(2026, 11, 13, 12, 3, 37)
 
 
 def test_activity_write_times_out_on_a_locked_project_and_recovers(pg):

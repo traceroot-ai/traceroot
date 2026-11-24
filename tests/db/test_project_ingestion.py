@@ -25,7 +25,8 @@ def test_commits_receive_time_for_the_named_project(pool):
     _record_project_ingestion("p1", RECEIVED)
     conn = pool.getconn.return_value
     _, params = conn.cursor.return_value.__enter__.return_value.execute.call_args.args
-    assert params == (RECEIVED.replace(tzinfo=None), "p1", RECEIVED.replace(tzinfo=None))
+    received = RECEIVED.replace(tzinfo=None)
+    assert params == (received, "p1", received - timedelta(seconds=30))
     conn.commit.assert_called_once()
     pool.putconn.assert_called_once_with(conn, close=False)
 

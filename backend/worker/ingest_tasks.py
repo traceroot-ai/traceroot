@@ -7,7 +7,7 @@ import json
 import logging
 import threading
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from rest.sql_utils import to_utc_naive
 from shared.enums import SpanKind
@@ -145,8 +145,14 @@ def _get_pg_pool():
     return _PG_POOL
 
 
+# The workspace tables refresh every 30s, so a newer time within that window shows nothing new.
+_INGESTION_WRITE_INTERVAL = timedelta(seconds=30)
+
+
 def _record_project_ingestion(project_id: str, received_at: datetime) -> None:
     """Advance a project's ingestion time without regressing on retries or older batches.
+
+    A busy project writes its row at most once per 30 seconds of receive time.
 
     The caller handles failures as advisory bookkeeping; this function owns transaction cleanup.
 
@@ -172,7 +178,7 @@ def _record_project_ingestion(project_id: str, received_at: datetime) -> None:
                     WHERE id = %s AND delete_time IS NULL
                       AND (last_ingested_at IS NULL OR last_ingested_at < %s)
                 """,
-                (timestamp, project_id, timestamp),
+                (timestamp, project_id, timestamp - _INGESTION_WRITE_INTERVAL),
             )
         conn.commit()
     except Exception:
