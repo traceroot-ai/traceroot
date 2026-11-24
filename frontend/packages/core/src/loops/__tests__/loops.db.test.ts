@@ -15,7 +15,7 @@ import {
   projectAtLoopCap,
   upsertMemory,
 } from "../writes.ts";
-import { getLoopSummary, listLoops, listMemory } from "../queries.ts";
+import { existingLoopSignals, getLoopSummary, listLoops, listMemory } from "../queries.ts";
 import { COUNTED_RUN_STATUSES, LOOP_LIMITS } from "../contracts.ts";
 import { listSignals } from "../../ee/signals/reads.ts";
 
@@ -228,5 +228,137 @@ describe.skipIf(!url)("Loops on Postgres", () => {
     });
     const listed = await listLoops(db, { projectId: ids.project, page: 0, limit: 50 });
     expect(listed.meta.total).toBeGreaterThanOrEqual(3);
+  });
+  it("lists a Loop's signals with the reason behind their status", async () => {
+    const loop = await db.$transaction((tx) => createLoopWithDetector(tx, newLoop("theta")));
+    const other = await db.$transaction((tx) => createLoopWithDetector(tx, newLoop("iota")));
+    const signal = (data: {
+      groupKey: string | null;
+      title: string;
+      status?: string;
+      seenDay: number;
+      detectorId?: string;
+    }) => {
+      const at = new Date(Date.UTC(2026, 10, data.seenDay));
+      return db.signal.create({
+        data: {
+          projectId: ids.project,
+          detectorId: data.detectorId ?? loop.detectorId,
+          title: data.title,
+          criteriaCovers: "c",
+          criteriaExcludes: "",
+          anchorText: data.title,
+          groupKey: data.groupKey,
+          status: data.status ?? "open",
+          hitCount: 1,
+          firstSeenAt: at,
+          lastSeenAt: at,
+        },
+      });
+    };
+    const statusEvent = (
+      signalId: string,
+      fromStatus: string,
+      toStatus: string,
+      reason: string | null,
+      note: string | null,
+      minute: number,
+    ) =>
+      db.signalStatusEvent.create({
+        data: {
+          signalId,
+          actorUserId: reason === "new_hit" ? "system" : "u1",
+          fromStatus,
+          toStatus,
+          reason,
+          note,
+          createTime: new Date(Date.UTC(2026, 10, 20, 0, minute)),
+        },
+      });
+
+    const open = await signal({
+      groupKey: "loop:tool-timeouts",
+      title: "Tool calls time out",
+      seenDay: 20,
+    });
+    const dismissed = await signal({
+      groupKey: "loop:retry-storm",
+      title: "Retries pile up",
+      status: "dismissed",
+      seenDay: 19,
+    });
+    await statusEvent(dismissed.id, "open", "resolved", "fixed_by_pr", "old fix", 1);
+    await statusEvent(dismissed.id, "resolved", "open", "new_hit", null, 2);
+    await statusEvent(
+      dismissed.id,
+      "open",
+      "dismissed",
+      "expected_behavior",
+      "Retries are the design here.",
+      3,
+    );
+    const reopened = await signal({
+      groupKey: "loop:wrong-city",
+      title: "Wrong city booked",
+      seenDay: 18,
+    });
+    await statusEvent(reopened.id, "open", "resolved", "fixed_by_pr", "Fixed in #12", 1);
+    await statusEvent(reopened.id, "resolved", "open", "new_hit", null, 2);
+    const merged = await signal({
+      groupKey: "loop:slow-search",
+      title: "Search is slow",
+      seenDay: 17,
+    });
+    await db.signal.update({ where: { id: merged.id }, data: { mergedIntoId: open.id } });
+    // Not listed: an empty key, a signal without a Loop key, another Loop's signal.
+    await signal({ groupKey: "loop:", title: "empty key", seenDay: 21 });
+    await signal({ groupKey: null, title: "model-assigned", seenDay: 21 });
+    await signal({
+      groupKey: "loop:elsewhere",
+      title: "other loop",
+      seenDay: 21,
+      detectorId: other.detectorId,
+    });
+
+    expect(await existingLoopSignals(db, ids.project, loop.detectorId)).toEqual([
+      {
+        key: "tool-timeouts",
+        signalId: open.id,
+        title: "Tool calls time out",
+        status: "open",
+        reason: null,
+        note: null,
+        mergedIntoId: null,
+      },
+      {
+        key: "retry-storm",
+        signalId: dismissed.id,
+        title: "Retries pile up",
+        status: "dismissed",
+        reason: "expected_behavior",
+        note: "Retries are the design here.",
+        mergedIntoId: null,
+      },
+      {
+        // Resolved, then reopened by a new hit: the resolve reason no longer applies.
+        key: "wrong-city",
+        signalId: reopened.id,
+        title: "Wrong city booked",
+        status: "open",
+        reason: null,
+        note: null,
+        mergedIntoId: null,
+      },
+      {
+        key: "slow-search",
+        signalId: merged.id,
+        title: "Search is slow",
+        status: "open",
+        reason: null,
+        note: null,
+        mergedIntoId: open.id,
+      },
+    ]);
+    expect(await existingLoopSignals(db, ids.project, `${loop.detectorId}_none`)).toEqual([]);
   });
 });

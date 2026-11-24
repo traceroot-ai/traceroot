@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { prisma, ModelSource } from "@traceroot/core";
-import { existingFindingKeys } from "@traceroot/core/loops";
+import { existingLoopSignals } from "@traceroot/core/loops";
 import {
   LOOP_LIMITS,
+  type ExistingLoopSignal,
   type LoopAgentOutcome,
   type LoopAgentResult,
   type LoopRunModel,
@@ -187,14 +188,15 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
     return c.json({ error: "a run is already in progress for this session" }, 409);
   }
 
-  let findingKeys: string[];
+  let loopSignals: ExistingLoopSignal[];
   try {
-    findingKeys = await existingFindingKeys(prisma, projectId, run.loop.detectorId);
+    loopSignals = await existingLoopSignals(prisma, projectId, run.loop.detectorId);
   } catch (error) {
     releaseRun(body.sessionId);
-    console.error(`[Agent] Loop run ${runId} could not read its finding keys:`, error);
+    console.error(`[Agent] Loop run ${runId} could not read its signals:`, error);
     return c.json(errorResult(error));
   }
+  const findingKeys = loopSignals.map((s) => s.key);
 
   const now = new Date();
   const window = loopWindow({ lookbackHours: run.loop.lookbackHours, now });
@@ -214,7 +216,7 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
     limits: { toolCalls: LOOP_LIMITS.toolCalls, traceReads: LOOP_LIMITS.traceReads },
     dryRun: run.loop.dryRun,
     maxNewFindingKeys,
-    existingFindingKeys: findingKeys,
+    existingSignals: loopSignals,
   });
   const message = kickoffMessage(run.loop.name, window);
 
@@ -232,6 +234,7 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
       // The model keeps calling past its cap: stop paying for calls that cannot run.
       onRunaway: () => agent?.abort(),
       existingFindingKeys: findingKeys,
+      findingKeysBySignal: new Map(loopSignals.map((s) => [s.signalId, s.key])),
       maxNewFindingKeys,
       dryRun: run.loop.dryRun,
     });

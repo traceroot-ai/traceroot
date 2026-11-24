@@ -2,6 +2,7 @@
 import type { Loop, LoopRun, Prisma } from "@prisma/client";
 import {
   COUNTED_RUN_STATUSES,
+  type ExistingLoopSignal,
   type LoopDto,
   type LoopMemoryDto,
   type LoopRunDto,
@@ -220,20 +221,50 @@ export async function listMemory(
 }
 
 /**
- * The finding keys a Loop already has a signal for: its hidden detector's
+ * The signals a Loop already has, one per finding key: its hidden detector's
  * signals under a Loop group key, merged ones included (their key stays theirs),
- * most recently seen first.
+ * most recently seen first. Each carries the reason and note people gave for
+ * its current status when it is resolved or dismissed.
  */
-export async function existingFindingKeys(
+export async function existingLoopSignals(
   db: Db,
   projectId: string,
   detectorId: string,
-): Promise<string[]> {
+): Promise<ExistingLoopSignal[]> {
   const signals = await db.signal.findMany({
     where: { projectId, detectorId, groupKey: { startsWith: LOOP_GROUP_KEY_PREFIX } },
     orderBy: { lastSeenAt: "desc" },
-    select: { groupKey: true },
+    select: {
+      id: true,
+      groupKey: true,
+      title: true,
+      status: true,
+      mergedIntoId: true,
+      statusEvents: {
+        where: { toStatus: { in: ["resolved", "dismissed"] } },
+        orderBy: { createTime: "desc" },
+        take: 1,
+        select: { toStatus: true, reason: true, note: true },
+      },
+    },
   });
-  const keys = signals.map((s) => findingKeyOfGroupKey(s.groupKey));
-  return [...new Set(keys.filter((key): key is string => key !== null))];
+  const seen = new Set<string>();
+  const result: ExistingLoopSignal[] = [];
+  for (const signal of signals) {
+    const key = findingKeyOfGroupKey(signal.groupKey);
+    if (key === null || seen.has(key)) continue;
+    seen.add(key);
+    // A reason counts only while the signal still has the status it was given for.
+    const decision = signal.statusEvents.find((event) => event.toStatus === signal.status);
+    result.push({
+      key,
+      signalId: signal.id,
+      title: signal.title,
+      status: signal.status,
+      reason: decision?.reason ?? null,
+      note: decision?.note ?? null,
+      mergedIntoId: signal.mergedIntoId,
+    });
+  }
+  return result;
 }

@@ -63,6 +63,7 @@ function build(overrides: Partial<LoopToolsParams> = {}) {
     state,
     onRunaway: vi.fn(),
     existingFindingKeys: ["known-timeouts"],
+    findingKeysBySignal: new Map([["s1", "known-timeouts"]]),
     maxNewFindingKeys: 2,
     dryRun: false,
     db: db as never,
@@ -257,6 +258,26 @@ describe("createLoopTools", () => {
     expect(text).toContain("s1 | open | t | loop Costs |");
     expect(text).toContain("s2 | open | t | a deleted loop |");
     expect(text).toContain("s3 | open | t | detector Timeouts |");
+  });
+
+  it("shows the finding key on this loop's own signals only", async () => {
+    const { tool, signalHttp } = build();
+    const row = { status: "dismissed", title: "t", hitCount: 1, detectorName: null };
+    signalHttp.request.mockResolvedValueOnce({
+      signals: [
+        { ...row, id: "s1", source: { kind: "loop", name: "Errors" } },
+        { ...row, id: "s9", source: { kind: "loop", name: "Costs" } },
+      ],
+    } as never);
+    const text = textOf(await tool("list_signals").execute("tc", { label: "x" }));
+    expect(text).toContain(
+      "s1 | dismissed | t | loop Errors | this loop's key known-timeouts | 1 hits",
+    );
+    expect(text).toContain("s9 | dismissed | t | loop Costs | 1 hits");
+
+    signalHttp.request.mockResolvedValueOnce({ signal: { ...row, id: "s1" } } as never);
+    const detail = textOf(await tool("get_signal").execute("tc", { label: "x", signal_id: "s1" }));
+    expect(detail).toContain("this loop's key known-timeouts");
   });
 
   it("loop_remember writes the run's loop and run ids, and the project cannot be overridden", async () => {

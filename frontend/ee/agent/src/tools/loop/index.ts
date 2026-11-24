@@ -63,6 +63,8 @@ export interface LoopToolsParams {
   state: LoopRunState;
   /** The finding keys this Loop already has signals for, loaded at run start. */
   existingFindingKeys: readonly string[];
+  /** The same signals' finding keys by signal id: list_signals and get_signal show them. */
+  findingKeysBySignal: ReadonlyMap<string, string>;
   /** New keys this run may record: LOOP_LIMITS.newFindingKeysPerRun. */
   maxNewFindingKeys: number;
   /** Loop.dryRun: the tool says the finding is not recorded (the route answers none). */
@@ -167,7 +169,7 @@ export function createLoopTools(params: LoopToolsParams): AgentTool<any>[] {
       describe: describeTraceFields,
       details: noteRead,
     }),
-    ...createSignalReadTools(params.projectId, params.signalHttp),
+    ...createSignalReadTools(params.projectId, params.findingKeysBySignal, params.signalHttp),
   ].map(asUntrusted);
 
   // Echoes the model's own input, so its results are not wrapped as untrusted.
