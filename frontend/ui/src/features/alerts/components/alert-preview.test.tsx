@@ -210,4 +210,18 @@ describe("AlertPreview", () => {
     renderPreview();
     expect(screen.getByText("Preview failed to load.")).toBeTruthy();
   });
+
+  it("says when the chart is not at the rule's grain", () => {
+    stubPreview("count", DENSE_RESULT);
+    // 1m over the default 24 hours is 1,440 buckets, past the cap: the server picks hourly.
+    const { container } = renderPreview({ window: "1m", threshold: "100" });
+    expect(container.textContent).toContain(
+      "Showing hourly totals, but this rule checks every 1m.",
+    );
+    cleanup();
+
+    // 10m over 24 hours is 144 buckets: the chart is at the rule's grain, so no note.
+    const { container: fits } = renderPreview({ window: "10m", threshold: "100" });
+    expect(fits.textContent).not.toContain("Showing hourly totals");
+  });
 });
