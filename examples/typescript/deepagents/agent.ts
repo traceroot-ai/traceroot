@@ -28,7 +28,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { HumanMessage } from '@langchain/core/messages';
 
 // ── LLM ──────────────────────────────────────────────────────────────────────
-const llm = new ChatAnthropic({ model: 'claude-sonnet-4-20250514', temperature: 0 });
+const llm = new ChatAnthropic({ model: 'claude-sonnet-4-6', temperature: 0 });
 
 // ── Search tool ───────────────────────────────────────────────────────────────
 async function runSearch(query: string): Promise<string> {
