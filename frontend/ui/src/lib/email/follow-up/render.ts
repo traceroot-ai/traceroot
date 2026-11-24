@@ -49,7 +49,7 @@ function buttonHtml(label: string, url: string): string {
   return [
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="left" style="margin:${LAYOUT.beforeButton}px 0 0;border-collapse:separate"><tr>`,
     `<td height="${h}" bgcolor="${EMAIL_COLORS.ink}" style="height:${h}px;background-color:${EMAIL_COLORS.ink};border-radius:6px">`,
-    `<a href="${escapeHtml(url)}" style="display:inline-block;height:${h}px;line-height:${h}px;padding:0 20px;color:#FFFFFF;text-decoration:none;font-weight:500;font-size:15px;border-radius:6px">${escapeHtml(label)}</a>`,
+    `<a href="${escapeHtml(url)}" style="display:inline-block;height:${h}px;line-height:${h}px;padding:0 18px;color:#FFFFFF;text-decoration:none;font-weight:500;font-size:14px;border-radius:6px">${escapeHtml(label)}</a>`,
     "</td></tr></table>",
     // Ends the left float some clients give an aligned table.
     '<div style="clear:both;font-size:0;line-height:0">&nbsp;</div>',
