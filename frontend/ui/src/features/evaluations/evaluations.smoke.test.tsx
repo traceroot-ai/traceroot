@@ -72,6 +72,7 @@ const RUN = {
   errorCount: 2,
   baselineComparable: true,
   elapsedMs: 360000,
+  resultsTruncated: false,
   comparison: {
     available: true,
     trustworthy: true,

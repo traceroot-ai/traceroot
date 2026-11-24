@@ -92,6 +92,11 @@ describe("CompareRunsView — every case", () => {
     mount();
     expect(within(caseRow("Ticket 10")).getAllByText("Ticket 10")).toHaveLength(1);
   });
+
+  it("says how many cases every run has, and how many only some runs have", () => {
+    mount();
+    expect(screen.getByText("12 cases · 10 in all runs")).toBeTruthy();
+  });
 });
 
 /** Mount `runs`, selected in this order, the first the baseline. */
@@ -112,6 +117,8 @@ function mountRuns(runs: RunBundle[]) {
     />,
   );
 }
+
+const bundleOf = (runId: string) => PAIRED_FIXTURE.find((b) => b.run.id === runId)!;
 
 describe("CompareRunsView — expected output", () => {
   const expecting = (runId: string, expectedOutput: string) =>
@@ -319,5 +326,144 @@ describe("CompareRunsView — cells without a value", () => {
     expect(marker.className).toContain("text-muted-foreground");
     expect(marker.className).not.toMatch(/text-(emerald|red)-/);
     expect(within(caseRow("Ticket 1")).queryByText("changed")).toBeNull();
+  });
+});
+
+describe("CompareRunsView — a run that shares no case with the others", () => {
+  it("still compares the runs that do share cases when one run has no results", () => {
+    mountRuns([
+      bundleOf(BASELINE_RUN.id),
+      bundleOf(CANDIDATE_RUN.id),
+      { run: { ...FAST_RUN, caseCount: 12 }, results: [] },
+    ]);
+    expect(bodyRows()).toHaveLength(12);
+    expect(screen.getByText("#3 has no results.")).toBeTruthy();
+    // #2's change against #1 is still shown; #3 has nothing in any per-run column.
+    expect(columnTexts(caseRow("Ticket 2"), QUALITY)).toEqual(["85.0%", "30.0%−55.0 pp", ""]);
+    expect(within(caseRow("Ticket 2")).getAllByText("No result in this run")).toHaveLength(1);
+  });
+
+  it("still compares the runs that do share cases when one run is on an unrelated dataset", () => {
+    const other = fixtureRun("run-x", 7, "other-v7", "2026-11-04T10:00:00.000Z", {
+      datasetId: "ds2",
+      datasetName: "refunds",
+    });
+    mountRuns([
+      bundleOf(BASELINE_RUN.id),
+      bundleOf(CANDIDATE_RUN.id),
+      { run: other, results: [fixtureResult("run-x", "r-1", "Refund 1", [])] },
+    ]);
+    expect(screen.queryByText(/share no/)).toBeNull();
+    expect(bodyRows()).toHaveLength(13);
+    expect(columnTexts(caseRow("Ticket 2"), QUALITY)).toEqual(["85.0%", "30.0%−55.0 pp", ""]);
+  });
+
+  it("says which run has no results when no two runs share a case", () => {
+    mountRuns([bundleOf(BASELINE_RUN.id), { run: CANDIDATE_RUN, results: [] }]);
+    expect(screen.getByText("#2 has no results.")).toBeTruthy();
+    expect(screen.queryByText(/share no/)).toBeNull();
+    expect(bodyRows()).toHaveLength(0);
+  });
+});
+
+describe("CompareRunsView — runs with fewer results than cases", () => {
+  /** Mount the fixture with each run's declared case count set by `caseCount`. */
+  const mountDeclaring = (caseCount: (b: RunBundle) => Partial<RunBundle["run"]>) => {
+    const runs = PAIRED_FIXTURE.map((b) => ({ ...b, run: { ...b.run, ...caseCount(b) } }));
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: runs.find((x) => x.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount();
+  };
+
+  it("says which run reported fewer cases than it declared, without blaming a limit", () => {
+    // #2 declared 12 cases and reported 11; the run read flags it as truncated.
+    mountDeclaring((b) =>
+      b.run.id === CANDIDATE_RUN.id
+        ? { caseCount: 12, resultsTruncated: true }
+        : { caseCount: b.results.length, resultsTruncated: false },
+    );
+    expect(screen.getByText("#2 reported 11 of 12 cases.")).toBeTruthy();
+    expect(screen.queryByText(/limit/i)).toBeNull();
+    expect(screen.queryByText(/partial/i)).toBeNull();
+  });
+
+  it("folds several short runs into one line, with each run's reason on hover", async () => {
+    // #1 and #2 each declared 12 cases and reported 11.
+    mountDeclaring((b) => ({ caseCount: 12, resultsTruncated: b.results.length < 12 }));
+    const line = screen.getByText("2 runs are missing cases");
+    expect(screen.queryByText("#2 reported 11 of 12 cases.")).toBeNull();
+    fireEvent.focus(line);
+    const tip = within(await screen.findByRole("tooltip"));
+    expect(tip.getByText("#1 reported 11 of 12 cases.")).toBeTruthy();
+    expect(tip.getByText("#2 reported 11 of 12 cases.")).toBeTruthy();
+  });
+
+  it("lists two runs' notes on hover when their evaluations share a name", async () => {
+    // An evaluation named "support-routing (2)" and a second one named "support-routing":
+    // each run keeps its own tag, so each gets its own note, and no two notes share a key.
+    const empty = (id: string, evaluationId: string, evaluationName: string, day: string) => ({
+      run: fixtureRun(id, 1, `${id}-v1`, `2026-11-${day}T10:00:00.000Z`, {
+        evaluationId,
+        evaluationName,
+        caseCount: 12,
+      }),
+      results: [],
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mountRuns([
+        bundleOf(BASELINE_RUN.id),
+        bundleOf(CANDIDATE_RUN.id),
+        empty("run-b", "ev2", "support-routing", "05"),
+        empty("run-c", "ev3", "support-routing (2)", "06"),
+      ]);
+      fireEvent.focus(screen.getByText("2 runs are missing cases"));
+      const tip = within(await screen.findByRole("tooltip"));
+      expect(tip.getByText("support-routing (2) #1 has no results.")).toBeTruthy();
+      expect(tip.getByText("support-routing (3) #1 has no results.")).toBeTruthy();
+      expect(error.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("says nothing more when every run reported every case it declared", () => {
+    mountDeclaring((b) => ({ caseCount: b.results.length, resultsTruncated: false }));
+    expect(screen.queryByText(/reported|loaded the first/)).toBeNull();
+  });
+});
+
+describe("CompareRunsView — the coverage line", () => {
+  it("says how many cases there are and how many every run has, on one muted line", () => {
+    mount();
+    const line = screen.getByText("12 cases · 10 in all runs").closest("p") as HTMLElement;
+    expect(line.className).toContain("text-muted-foreground");
+  });
+
+  it("notes the runs short of their cases on the same line, each run's reason on hover", async () => {
+    const runs = PAIRED_FIXTURE.map((b) => ({
+      ...b,
+      run: { ...b.run, caseCount: 12, resultsTruncated: b.results.length < 12 },
+    }));
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: runs.find((b) => b.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount();
+    const note = screen.getByText("2 runs are missing cases");
+    expect(note.closest("p")).toBe(screen.getByText("12 cases · 10 in all runs").closest("p"));
+    expect(note.querySelector("svg")).toBeTruthy();
+    fireEvent.focus(note);
+    const tip = within(await screen.findByRole("tooltip"));
+    expect(tip.getByText("#1 reported 11 of 12 cases.")).toBeTruthy();
+    expect(tip.getByText("#2 reported 11 of 12 cases.")).toBeTruthy();
   });
 });
