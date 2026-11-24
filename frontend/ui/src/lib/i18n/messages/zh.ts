@@ -8,6 +8,8 @@ import type { PartialMessages } from "./en";
 // Wording follows Dify's Simplified Chinese where it has the same term: workspace 工作空间,
 // dataset 数据集, log out 登出, account 账户. Project is 项目.
 // Terms specific to traceroot stay in English: trace, span, session, detector, signal, eval.
+// Generic product words are Chinese: alert 告警, dashboard 仪表盘, widget 组件, evaluation 评测,
+// tracing 追踪.
 // The brand is always "traceroot", lowercase.
 const core: PartialMessages = {
   common: {
@@ -100,6 +102,10 @@ const core: PartialMessages = {
   nav: {
     home: "首页",
     observe: "观察",
+    traces: "追踪",
+    dashboard: "仪表盘",
+    alerts: "告警",
+    evaluations: "评测",
     detect: "检测",
     verify: "验证",
     datasets: "数据集",

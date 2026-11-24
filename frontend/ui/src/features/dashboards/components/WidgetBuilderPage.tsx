@@ -1,5 +1,6 @@
 "use client";
 
+import { displayDashboardName } from "@/features/dashboards/seed-display";
 import { useT } from "@/lib/i18n/provider";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -308,7 +309,9 @@ export function WidgetBuilderPage({
     <div className="flex h-full flex-col text-[13px]">
       <PageBackHeader
         backHref={dashboardUrl}
-        backLabel={dashboard?.name ?? "Dashboard"}
+        backLabel={
+          dashboard ? displayDashboardName(t, dashboard.name) : t("dashboardsSeed.fallbackName")
+        }
         title={isEdit ? t("dashboardsBuilder.editTitle") : t("dashboardsDetail.newWidget")}
       />
 

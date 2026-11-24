@@ -1,5 +1,6 @@
 "use client";
 
+import { displayWidgetTitle } from "@/features/dashboards/seed-display";
 import { useT } from "@/lib/i18n/provider";
 import { MoreVertical } from "lucide-react";
 import {
@@ -135,8 +136,11 @@ export function WidgetCard({
       {/* Header: drag handle + title + menu */}
       <div className="mb-2 flex items-center gap-1.5">
         <span className="drag-handle cursor-move select-none text-muted-foreground/50">⠿</span>
-        <span className="flex-1 truncate text-[12px] font-medium" title={widget.title}>
-          {widget.title}
+        <span
+          className="flex-1 truncate text-[12px] font-medium"
+          title={displayWidgetTitle(t, widget.title)}
+        >
+          {displayWidgetTitle(t, widget.title)}
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

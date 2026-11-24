@@ -1,5 +1,6 @@
 "use client";
 
+import { displayDashboardName } from "@/features/dashboards/seed-display";
 import { useT } from "@/lib/i18n/provider";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -121,8 +122,10 @@ export default function DashboardDetailPage() {
         {/* Page header */}
         <PageBackHeader
           backHref={`/projects/${projectId}/dashboard?list=1`}
-          backLabel="Dashboards"
-          title={dashboard?.name ?? "Dashboard"}
+          backLabel={t("dashboardsSeed.pageTitle")}
+          title={
+            dashboard ? displayDashboardName(t, dashboard.name) : t("dashboardsSeed.fallbackName")
+          }
           actions={
             <>
               {dashboard && (

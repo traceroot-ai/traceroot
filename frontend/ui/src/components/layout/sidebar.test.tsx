@@ -185,7 +185,7 @@ describe("Sidebar", () => {
       }
     },
   );
-  it("shows the navigation in Chinese and keeps product terms in English", () => {
+  it("shows the navigation in Chinese and keeps traceroot's own terms in English", () => {
     navigation.pathname = "/projects/p1/traces";
     navigation.params = { projectId: "p1" };
     act(() => {
@@ -196,10 +196,21 @@ describe("Sidebar", () => {
       );
     });
     const text = container.querySelector("nav")?.textContent ?? "";
-    for (const label of ["首页", "观察", "检测", "验证", "Tracing", "Detectors", "Signals"]) {
+    for (const label of [
+      "首页",
+      "观察",
+      "追踪",
+      "仪表盘",
+      "告警",
+      "评测",
+      "Detectors",
+      "Signals",
+    ]) {
       expect(text).toContain(label);
     }
-    expect(text).not.toContain("Home");
+    for (const english of ["Home", "Tracing", "Dashboard", "Alerts", "Evaluations"]) {
+      expect(text).not.toContain(english);
+    }
     expect(container.querySelector('[aria-label="账户菜单"]')).not.toBeNull();
   });
 

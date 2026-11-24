@@ -2,22 +2,8 @@
   "spans": {
     "fields": {
       "cache_read_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -26,22 +12,8 @@
         "type": "number"
       },
       "cache_write_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -50,22 +22,8 @@
         "type": "number"
       },
       "cost": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -74,9 +32,7 @@
         "type": "number"
       },
       "count": {
-        "aggs": [
-          "count"
-        ],
+        "aggs": ["count"],
         "filterOps": [],
         "groupable": false,
         "histogrammable": false,
@@ -86,22 +42,8 @@
         "type": "number"
       },
       "duration_ms": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -111,11 +53,7 @@
       },
       "environment": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -125,11 +63,7 @@
       },
       "error_type": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -138,22 +72,8 @@
         "type": "string"
       },
       "input_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -163,9 +83,7 @@
       },
       "is_root": {
         "aggs": [],
-        "filterOps": [
-          "="
-        ],
+        "filterOps": ["="],
         "groupable": false,
         "histogrammable": false,
         "inBuilder": false,
@@ -175,10 +93,7 @@
       },
       "metadata": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains"
-        ],
+        "filterOps": ["=", "contains"],
         "groupable": false,
         "histogrammable": false,
         "inBuilder": false,
@@ -188,11 +103,7 @@
       },
       "model_name": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -202,11 +113,7 @@
       },
       "name": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -215,22 +122,8 @@
         "type": "string"
       },
       "output_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -240,11 +133,7 @@
       },
       "span_kind": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -254,11 +143,7 @@
       },
       "status": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": false,
         "histogrammable": false,
         "inBuilder": true,
@@ -267,18 +152,7 @@
         "type": "string"
       },
       "tokens_per_second": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p75",
-          "p90",
-          "p95",
-          "p99",
-          "uniq"
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq"],
         "filterOps": [],
         "groupable": false,
         "histogrammable": true,
@@ -288,22 +162,8 @@
         "type": "number"
       },
       "total_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -312,10 +172,7 @@
         "type": "number"
       },
       "trace_id": {
-        "aggs": [
-          "count",
-          "uniq"
-        ],
+        "aggs": ["count", "uniq"],
         "filterOps": [],
         "groupable": false,
         "histogrammable": false,
@@ -329,22 +186,8 @@
   "traces": {
     "fields": {
       "cache_read_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -353,22 +196,8 @@
         "type": "number"
       },
       "cache_write_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -377,22 +206,8 @@
         "type": "number"
       },
       "cost": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -401,9 +216,7 @@
         "type": "number"
       },
       "count": {
-        "aggs": [
-          "count"
-        ],
+        "aggs": ["count"],
         "filterOps": [],
         "groupable": false,
         "histogrammable": false,
@@ -413,22 +226,8 @@
         "type": "number"
       },
       "duration_ms": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -438,11 +237,7 @@
       },
       "environment": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -451,22 +246,8 @@
         "type": "string"
       },
       "error_count": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -475,22 +256,8 @@
         "type": "number"
       },
       "input_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -500,11 +267,7 @@
       },
       "name": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -513,22 +276,8 @@
         "type": "string"
       },
       "output_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -538,11 +287,7 @@
       },
       "session_id": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,
@@ -551,22 +296,8 @@
         "type": "string"
       },
       "total_tokens": {
-        "aggs": [
-          "sum",
-          "avg",
-          "min",
-          "max",
-          "p50",
-          "p95",
-          "p99"
-        ],
-        "filterOps": [
-          ">",
-          ">=",
-          "<",
-          "<=",
-          "="
-        ],
+        "aggs": ["sum", "avg", "min", "max", "p50", "p95", "p99"],
+        "filterOps": [">", ">=", "<", "<=", "="],
         "groupable": false,
         "histogrammable": true,
         "inBuilder": true,
@@ -576,11 +307,7 @@
       },
       "user_id": {
         "aggs": [],
-        "filterOps": [
-          "=",
-          "contains",
-          "in"
-        ],
+        "filterOps": ["=", "contains", "in"],
         "groupable": true,
         "histogrammable": false,
         "inBuilder": true,

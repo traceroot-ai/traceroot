@@ -1,5 +1,6 @@
 "use client";
 
+import { displayDashboardName } from "@/features/dashboards/seed-display";
 import { useT } from "@/lib/i18n/provider";
 import { PageHeader } from "@/components/layout/page-header";
 import { useEffect, useState } from "react";
@@ -100,7 +101,7 @@ export default function DashboardIndexPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
         <PageHeader
-          title="Dashboards"
+          title={t("dashboardsSeed.pageTitle")}
           actions={
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               {t("dashboardsList.newDashboard")}
@@ -146,8 +147,8 @@ export default function DashboardIndexPage() {
                   className="cursor-pointer border-b border-border transition-colors hover:bg-muted"
                 >
                   <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-foreground">
-                    <span className="block truncate" title={d.name}>
-                      {d.name}
+                    <span className="block truncate" title={displayDashboardName(t, d.name)}>
+                      {displayDashboardName(t, d.name)}
                     </span>
                   </td>
                   <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">

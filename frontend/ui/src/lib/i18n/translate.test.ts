@@ -27,9 +27,10 @@ describe("createTranslator", () => {
   it("returns the translation and falls back to English for a missing key", () => {
     const t = createTranslator("zh");
     expect(t("workspaces.emptyTitle")).toBe("还没有工作空间");
-    // Product terms are left out of zh on purpose.
-    expect(zh.nav?.traces).toBeUndefined();
-    expect(t("nav.traces")).toBe("Tracing");
+    // traceroot's own terms are left out of zh on purpose.
+    expect(zh.nav?.detectors).toBeUndefined();
+    expect(t("nav.detectors")).toBe("Detectors");
+    expect(t("nav.traces")).toBe("追踪");
   });
 
   it("fills placeholders and leaves unknown ones visible", () => {
