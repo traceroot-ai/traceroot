@@ -67,14 +67,14 @@ export function CreateProjectDialog({
         <DialogTrigger asChild>{trigger || <AddButton>New project</AddButton>}</DialogTrigger>
       )}
       <DialogContent>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>Create Project</DialogTitle>
             <DialogDescription>
               Create a new project to start tracking your AI agent traces.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <Input
               autoFocus
               placeholder="Project name"

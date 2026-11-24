@@ -124,18 +124,11 @@ vi.mock("@/features/projects/hooks", () => ({
 vi.mock("@/features/traces/components/GettingStarted/ApiKeyBlock", () => ({
   ApiKeyBlock: () => <div data-testid="api-key-block" />,
 }));
-// The manual step asks whose model key to use, above the walkthrough. Stood in
-// for so the binding the picker hands it can be read off the DOM, and so this
-// suite does not reach the network to find out — the form's own behaviour is
-// covered in ModelProviderBlock.test.tsx and in manual-setup-step.test.tsx.
-vi.mock("@/features/traces/components/GettingStarted/ModelProviderBlock", () => ({
-  ModelProviderBlock: ({ providerKey }: { providerKey: { kind: string; adapter?: string } }) => (
-    <div
-      data-testid="model-provider-block"
-      data-kind={providerKey.kind}
-      data-adapter={providerKey.adapter ?? ""}
-    />
-  ),
+// The demo workspace the "Using AI" tab offers. Its own read of the list, so
+// stood in for: this page's workspace checks are counted through `getWorkspaces`.
+const demo = vi.hoisted(() => ({ workspaces: [] as { id: string; is_demo?: boolean }[] }));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspaces: () => ({ data: demo.workspaces }),
 }));
 vi.mock("@/components/github/GitHubConnectButton", () => ({
   GitHubConnectButton: () => <div data-testid="github-connect" />,
@@ -229,8 +222,8 @@ async function clickSignOut() {
 
 async function reachManualStep() {
   await reachHandback();
-  fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
-  await waitFor(() => expect(screen.getByText("Set up tracing by hand")).toBeDefined());
+  fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
+  await waitFor(() => expect(screen.getByText(/Install SDK/)).toBeDefined());
 }
 
 beforeEach(() => {
@@ -264,6 +257,7 @@ afterEach(() => {
   mocks.signOut.mockReset();
   mocks.getProjects.mockReset();
   mocks.params = new URLSearchParams();
+  demo.workspaces = [];
   signedInAs("user-1", "kai@example.com");
 });
 
@@ -313,19 +307,22 @@ describe("OnboardingPage", () => {
 
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Let's get started" })).toBeDefined();
-    // The real walkthrough, rendered rather than reimplemented: its own steps,
-    // the key block, and above it the stack picker and the model-key field that
-    // both routes to a first trace share — all carrying the project this run
-    // just created. Matched without the step numbers — inserting a step into
-    // the walkthrough renumbers the ones below it, and that is not this page's
-    // business.
+    // The project page's own manual tab, rendered rather than reimplemented:
+    // its steps, the key block and its stack picker, all carrying the project
+    // this run just created. Matched without the step numbers — inserting a step
+    // into the walkthrough renumbers the ones below it, and that is not this
+    // page's business.
+    expect(screen.getByRole("tab", { name: "Manual" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText(/Create an API key/)).toBeDefined();
     expect(screen.getByTestId("api-key-block")).toBeDefined();
-    expect(screen.getByText(/Select your stack/)).toBeDefined();
+    expect(screen.getByText(/Select your integration/)).toBeDefined();
     expect(screen.getByRole("radio", { name: "OpenAI" })).toBeDefined();
-    expect(screen.getByText(/Use your own model key/)).toBeDefined();
-    expect(screen.getByTestId("model-provider-block").dataset.adapter).toBe("openai");
-    expect(screen.getByText(/External integrations/)).toBeDefined();
+    expect(screen.getByText("Needs Python 3.11 or later.")).toBeDefined();
+    // Gone from sign-up: the model key, and GitHub and Slack, which move into a
+    // sign-up step of their own.
+    expect(screen.queryByText(/model key/i)).toBeNull();
+    expect(screen.queryByText(/External integrations/)).toBeNull();
+    expect(screen.queryByTestId("github-connect")).toBeNull();
     // And the terminal is no longer what is being asked of this user, so the
     // frame stops saying it is.
     expect(
@@ -343,13 +340,13 @@ describe("OnboardingPage", () => {
     renderPage();
     await reachManualStep();
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to the terminal command" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Using AI" }));
 
     await waitFor(() =>
       expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
     );
     expect(shownCommand()).toContain("--project proj-1");
-    expect(screen.queryByText("Set up tracing by hand")).toBeNull();
+    expect(screen.queryByText(/Install SDK/)).toBeNull();
     // Nothing navigated in either direction: both steps are this page.
     expect(mocks.push).not.toHaveBeenCalled();
     // The project was created once, by the form, and going back does not
@@ -383,6 +380,35 @@ describe("OnboardingPage", () => {
     expect(screen.getByText(/^Project created — add tracing to your application$/)).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-2/traces");
+  });
+
+  it("shows the project page's setup tabs, in this page's own words", async () => {
+    // One version of setup for both places; the command block keeps sign-up's
+    // heading, the line on where to run it, and the "terminal" label.
+    demo.workspaces = [{ id: "ws-1" }, { id: "ws-demo", is_demo: true }];
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await reachHandback();
+
+    expect(screen.getByRole("tab", { name: "Using AI" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "Manual" })).toBeDefined();
+    expect(screen.getByText(/Run it where my-llm-project's code lives\./)).toBeDefined();
+    expect(screen.getByText("terminal")).toBeDefined();
+    expect(
+      screen.getByText(
+        "When your first trace arrives, you can open it and see every step your agent took.",
+      ),
+    ).toBeDefined();
+    expect(screen.getByRole("link", { name: "See the demo project" }).getAttribute("href")).toBe(
+      "/workspaces/ws-demo/projects",
+    );
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
+    // GitHub and Slack move into a sign-up step of their own.
+    expect(screen.queryByText(/External integrations/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set up manually" })).toBeNull();
   });
 
   it("leaves a skipped account somewhere it can act, not back in onboarding", async () => {
@@ -1095,5 +1121,12 @@ describe("OnboardingPage", () => {
     await reachHandback();
 
     expect(screen.queryByRole("button", { name: "Not you? Sign out" })).toBeNull();
+  });
+
+  it("renders the project section glyph icon", async () => {
+    renderPage();
+    const projectLabel = await waitFor(() => screen.getByText("Project"));
+    const sectionContainer = projectLabel.closest(".flex.items-start");
+    expect(sectionContainer?.querySelector("svg")).toBeTruthy();
   });
 });

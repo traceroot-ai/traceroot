@@ -1,4 +1,4 @@
-"""Tests for the TraceRoot UI URL helper (rest.url_utils)."""
+"""Tests for the traceroot UI URL helper (rest.url_utils)."""
 
 import inspect
 

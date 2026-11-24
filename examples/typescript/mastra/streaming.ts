@@ -48,7 +48,7 @@ const getWeatherTool = createTool({
 //
 // In many codebases the agent is defined in one file, exported, and imported
 // wherever it's needed — without going through mastra.getAgent(). This
-// example shows that pattern works fine with TraceRoot.
+// example shows that pattern works fine with traceroot.
 // ---------------------------------------------------------------------------
 
 export const weatherAgent = new Agent({
@@ -61,7 +61,7 @@ export const weatherAgent = new Agent({
 });
 
 // ---------------------------------------------------------------------------
-// TraceRoot setup
+// traceroot setup
 //
 // TraceRoot.initialize() sets up the OTEL pipeline used by observe() and
 // usingAttributes(). It also auto-detects git context (repo, branch, sha)

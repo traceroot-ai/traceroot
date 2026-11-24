@@ -12,7 +12,14 @@ const core = vi.hoisted(() => ({
 }));
 vi.mock("@traceroot/core/email", () => core);
 const prisma = vi.hoisted(() => ({ emailSend: {} }));
-vi.mock("@traceroot/core", () => ({ prisma, escapeHtml: (s: string) => s }));
+vi.mock("@traceroot/core", () => ({
+  prisma,
+  escapeHtml: (s: string) => s,
+  EMAIL_COLORS: { ink: "#0B1015", muted: "#5F646B" },
+  EMAIL_FONT_STACK: "sans-serif",
+  EMAIL_LOGO_URL: "https://example.com/logo.png",
+  EMAIL_PIXEL_WORDMARK_URL: "https://example.com/pixel.png",
+}));
 
 import { sendWelcomeEmail } from "./send-welcome-email";
 
@@ -35,7 +42,7 @@ it("asks sendOnce for one welcome product send per user and returns its result",
   const email = build();
   expect(email).toMatchObject({
     to: "New@Example.com",
-    subject: "Making the most of TraceRoot",
+    subject: "Making the most of traceroot",
     kind: "product",
     replyTo,
     idempotencyKey: "welcome/u1",
@@ -44,7 +51,7 @@ it("asks sendOnce for one welcome product send per user and returns its result",
   expect(core.signUnsubscribeToken).toHaveBeenCalledWith("New@Example.com");
   expect(core.unsubscribeHeaders).toHaveBeenCalledWith({ url: unsubscribeUrl, mailto: replyTo });
   expect(email.text).toContain("Hi new,");
-  expect(email.text).toContain("Best,\nThe TraceRoot Devs\n");
+  expect(email.text).toContain("Best,\nThe traceroot Devs\n");
   expect(email.text).toContain(unsubscribeUrl);
   const other = { emailSend: {} } as never;
   const fetchImpl = vi.fn() as never;

@@ -1,10 +1,10 @@
 """
-DeepSeek ReAct agent with tool use, streaming, and TraceRoot observability.
+DeepSeek ReAct agent with tool use, streaming, and traceroot observability.
 
 DeepSeek's API is OpenAI-wire-compatible, so we use the official `openai`
 SDK with `base_url` pointed at DeepSeek and a DeepSeek model name
 (e.g. "deepseek-chat" for V3, "deepseek-reasoner" for R1).
-TraceRoot's existing OpenAI integration captures the calls automatically —
+traceroot's existing OpenAI integration captures the calls automatically —
 no extra wiring needed.
 
 Usage:
