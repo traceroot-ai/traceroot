@@ -789,7 +789,7 @@
   {
     "id": "tr-gpt-3.5-turbo-instruct",
     "modelName": "gpt-3.5-turbo-instruct",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo-instruct)$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo-instruct)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.0000015,

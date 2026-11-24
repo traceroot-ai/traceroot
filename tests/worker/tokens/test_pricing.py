@@ -178,6 +178,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-3.5-turbo-0613", "gpt-3.5-turbo-0613"),
     ("gpt-3.5-0301", "gpt-3.5-0301"),
     ("gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct"),
+    ("gpt-3.5-turbo-instruct-0914", "gpt-3.5-turbo-instruct"),
     ("gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-16k-0613"),
     ("davinci-002", "davinci-002"),
     ("babbage-002", "babbage-002"),
