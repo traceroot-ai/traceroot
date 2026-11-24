@@ -23,6 +23,7 @@ import {
   fixtureResult,
   fixtureRun,
   fixtureScore,
+  scorerManifest,
 } from "./__tests__/paired-fixture";
 
 afterEach(() => cleanup());
@@ -96,6 +97,25 @@ describe("ScorerSummary", () => {
     expect(tooltip.getByText("Not included:")).toBeTruthy();
     expect(tooltip.getByText("1 case scored by different scorer versions")).toBeTruthy();
     expect(tooltip.getByText("1 case scored as different value types")).toBeTruthy();
+  });
+
+  it("colours a pair's numeric change when another run records text for the scorer", () => {
+    // Bare `{ name, version }` scorers, so each value type comes from what was recorded.
+    const run = (id: string, day: number, value: number | string): RunBundle => ({
+      run: fixtureRun(id, day, id, `2026-11-0${day}T00:00:00Z`, {
+        scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+      }),
+      results: [fixtureResult(id, "tc-1", "one", [fixtureScore(QUALITY, value)])],
+    });
+    const { container } = renderScorer(
+      [run("a", 1, 0.4), run("b", 2, 0.8), run("c", 3, "high")],
+      "a",
+      "b",
+      QUALITY,
+    );
+    // The column reads as labels, since one run recorded text; the pair still has means.
+    expect(container.textContent).toContain("0.4 → 0.8");
+    expect(screen.getByText("+0.4").className).toContain("text-emerald-600");
   });
 
   it("reads a categorical scorer as how many cases changed", async () => {
