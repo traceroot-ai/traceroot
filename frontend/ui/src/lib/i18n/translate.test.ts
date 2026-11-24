@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_LOCALE, ENABLED_LOCALES, LOCALES, parseLocale } from "./locales";
-import { en } from "./messages/en";
+import { en, type MessageKey } from "./messages/en";
 import { zh } from "./messages/zh";
 import { createTranslator } from "./translate";
 
@@ -19,6 +19,15 @@ describe("parseLocale", () => {
   });
 });
 
+function firstUntranslatedKey(): [string, string] {
+  for (const [group, values] of Object.entries(en)) {
+    const translated = (zh as Record<string, Record<string, string> | undefined>)[group] ?? {};
+    const missing = Object.keys(values).find((key) => !(key in translated));
+    if (missing) return [group, missing];
+  }
+  throw new Error("every key is translated, so there is no fallback to test");
+}
+
 describe("createTranslator", () => {
   it("returns the English text for English", () => {
     expect(createTranslator("en")("workspaces.emptyTitle")).toBe("No workspaces yet");
@@ -27,10 +36,17 @@ describe("createTranslator", () => {
   it("returns the translation and falls back to English for a missing key", () => {
     const t = createTranslator("zh");
     expect(t("workspaces.emptyTitle")).toBe("还没有工作空间");
-    // traceroot's own terms are left out of zh on purpose.
-    expect(zh.nav?.detectors).toBeUndefined();
-    expect(t("nav.detectors")).toBe("Detectors");
     expect(t("nav.traces")).toBe("追踪");
+    // traceroot's own terms keep their English name beside the Chinese one.
+    expect(t("nav.detectors")).toBe("检测器 Detectors");
+    // A key zh leaves out shows the English text.
+    expect(zh.nav?.homeLabel).toBeDefined();
+    expect(zh.settings?.modelProviders).toBeDefined();
+    expect(zh.common?.settingsFor).toBeDefined();
+    const [group, key] = firstUntranslatedKey();
+    expect(t(`${group}.${key}` as MessageKey)).toBe(
+      (en[group as keyof typeof en] as Record<string, string>)[key],
+    );
   });
 
   it("fills placeholders and leaves unknown ones visible", () => {

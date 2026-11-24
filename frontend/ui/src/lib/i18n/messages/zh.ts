@@ -33,6 +33,7 @@ const core: PartialMessages = {
     integrations: "集成",
     billing: "账单",
     apiKeys: "API key",
+    detectors: "检测器 Detectors",
     activeSessions: "活跃会话",
     workspaceLink: "工作空间",
   },
@@ -107,6 +108,9 @@ const core: PartialMessages = {
     alerts: "告警",
     evaluations: "评测",
     detect: "检测",
+    // traceroot's own terms: Chinese first, with the English name the rest of the UI uses.
+    detectors: "检测器 Detectors",
+    signals: "信号 Signals",
     verify: "验证",
     datasets: "数据集",
     workspaces: "工作空间",
