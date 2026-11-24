@@ -36,11 +36,14 @@ Connecting asks you to sign in to TraceRoot, pick the project the assistant may 
     Then run `/mcp` inside Claude Code and follow the browser sign-in. From a shell, `claude mcp login traceroot` does the same.
   </Tab>
   <Tab title="ChatGPT">
-    ChatGPT adds MCP servers as custom connectors, which need developer mode. Availability depends on your plan, and OpenAI has changed the menu names over time, so follow ChatGPT's own help if a label differs.
+    ChatGPT connects to a custom MCP server from its web app. In Business, Enterprise and Edu workspaces, admins and owners add it (Enterprise and Edu admins can also let chosen members add one); a Pro account can add one with read access, which is all this server offers. OpenAI changes these menus often, so follow ChatGPT's own help if a label differs.
 
-    1. In **Settings → Connectors → Advanced**, turn on developer mode.
-    2. Create a connector, give it a name and enter `YOUR_MCP_URL`.
-    3. Choose **OAuth** as the authentication, then sign in to TraceRoot, pick a project and approve.
+    1. Open **Plugins**, select the plus button, then **Add custom MCP server**.
+    2. Enter a name and, under **Connection**, `YOUR_MCP_URL`.
+    3. Choose OAuth as the authentication, accept the warning about custom servers and select **Create as a plugin**.
+    4. Sign in to TraceRoot, pick a project and approve.
+
+    In older workspaces the same form is under **Settings → Apps → Create**.
 
     Like Claude's web app, ChatGPT reaches your server from the internet, so the URL must be public.
   </Tab>
@@ -58,6 +61,12 @@ Connecting asks you to sign in to TraceRoot, pick the project the assistant may 
     ```
 
     Cursor starts the sign-in when the server asks for it: sign in to TraceRoot, pick a project and approve.
+
+    If the sign-in does not finish:
+
+    - The desktop app receives the sign-in at `http://localhost:8787/callback`, so nothing else may be using port 8787.
+    - An `Authorization` header with a wrong or revoked API key also starts the sign-in, because the server refuses the key. Fix the key, or remove the header to sign in instead.
+    - To start over, run **MCP: Clear All MCP Tokens** from the command palette (it signs Cursor out of every MCP server), restart Cursor, then connect again.
   </Tab>
   <Tab title="Gemini">
     In the Gemini CLI:
