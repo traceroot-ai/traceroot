@@ -71,6 +71,20 @@ describe("ScorerSummary", () => {
     expect(tooltip.getByText("No case was scored in both runs.")).toBeTruthy();
   });
 
+  it("shows a dash and n=0 for a categorical scorer no case was scored on in both runs", () => {
+    const { container } = renderScorer(
+      two(
+        [fixtureResult("a", "tc-1", "one", [fixtureScore(ROUTE, "billing")])],
+        [fixtureResult("b", "tc-1", "one", [], { status: "not_scored" })],
+      ),
+      "a",
+      "b",
+      ROUTE,
+    );
+    expect(container.textContent).toMatch(/^—n=0/);
+    expect(container.textContent).not.toContain("changed");
+  });
+
   it("lists a scorer version and a value type difference under Not included", async () => {
     renderScorer(
       two(

@@ -52,6 +52,17 @@ describe("scorerCellState", () => {
     });
   });
 
+  it("counts an errored case whose task returned an empty output as the scorer's error", () => {
+    const scorerFailed = result([fixtureScore(QUALITY, null, "judge timed out")], {
+      status: "errored",
+      candidateOutput: "",
+    });
+    expect(scorerCellState(scorerFailed, QUALITY)).toEqual({
+      kind: "scorer_error",
+      message: "judge timed out",
+    });
+  });
+
   it("is a scorer error when the scorer failed, with its message", () => {
     const failed = result([fixtureScore(QUALITY, null, "judge timed out")]);
     expect(scorerCellState(failed, QUALITY)).toEqual({
@@ -84,6 +95,7 @@ describe("taskErrorOf", () => {
   it("is the task's message, empty for an errored case without output, else null", () => {
     expect(taskErrorOf(result([], { taskError: "boom" }))).toBe("boom");
     expect(taskErrorOf(result([], { status: "errored", candidateOutput: null }))).toBe("");
+    expect(taskErrorOf(result([], { status: "errored", candidateOutput: "" }))).toBeNull();
     expect(taskErrorOf(result([]))).toBeNull();
   });
 });

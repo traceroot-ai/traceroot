@@ -27,10 +27,11 @@ export type CellState =
 export type CellFailure = Exclude<CellState["kind"], "value">;
 
 /** The task's error message when the task failed (empty when it failed without one), else
- *  null. An errored case that produced output failed in a scorer, not in the task. */
+ *  null. An errored case that produced output, even an empty one, failed in a scorer, not
+ *  in the task. */
 export function taskErrorOf(result: ResultRow): string | null {
   if (result.taskError) return result.taskError;
-  return result.status === "errored" && !result.candidateOutput ? "" : null;
+  return result.status === "errored" && result.candidateOutput === null ? "" : null;
 }
 
 export function scorerCellState(result: ResultRow | undefined, scorerName: string): CellState {
