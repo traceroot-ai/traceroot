@@ -44,10 +44,34 @@ export function compareSpansForStableDisplay(a: Span, b: Span): number {
 function parseMetadata(metadata: string | null): Record<string, unknown> {
   if (!metadata) return {};
   try {
-    return JSON.parse(metadata) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(metadata);
+    // "null", a number or an array is valid JSON but has no keys to read.
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     return {};
   }
+}
+
+/**
+ * The ancestry the SDK recorded in a span's metadata, as stored: `traceroot.span.path`
+ * (root → span names) and `traceroot.span.ids_path` (root → parent ids). Either is
+ * undefined when the metadata is missing or isn't JSON, or the key isn't a list of strings.
+ */
+export function spanMetadataPaths(span: Pick<Span, "metadata">): {
+  idsPath: string[] | undefined;
+  namePath: string[] | undefined;
+} {
+  const meta = parseMetadata(span.metadata ?? null);
+  const path = (key: string): string[] | undefined => {
+    const value = meta[key];
+    return Array.isArray(value) && value.every((v) => typeof v === "string") ? value : undefined;
+  };
+  return {
+    idsPath: path("traceroot.span.ids_path"),
+    namePath: path("traceroot.span.path"),
+  };
 }
 
 /**
@@ -74,9 +98,7 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
     // spans carry the same keys inside their full metadata — including spans
     // that set explicit user metadata, which the ingest transform merges the
     // paths into rather than replacing.
-    const meta = parseMetadata(span.metadata ?? null);
-    const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
-    const namePath = meta["traceroot.span.path"] as string[] | undefined;
+    const { idsPath, namePath } = spanMetadataPaths(span);
 
     if (!idsPath || !namePath || idsPath.length === 0) continue;
     const ancestorNames = namePath.slice(0, -1);

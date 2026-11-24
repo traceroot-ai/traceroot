@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { attributeTraceUsage, type UsageSpan } from "./trace-usage";
+import { attributeTraceUsage, attributionOf, spanTotalTokens, type UsageSpan } from "./trace-usage";
 
 function span(
   id: string,
@@ -170,5 +170,39 @@ describe("attributeTraceUsage", () => {
     const u = attributeTraceUsage(evalTrace({ scorerLlm: true }));
     expect(u.task.models).toEqual([]);
     expect(u.scorer.models).toEqual([]);
+  });
+});
+
+describe("spanTotalTokens", () => {
+  it("is the reported total, else input + output, else unknown", () => {
+    expect(spanTotalTokens(span("a", null, "LLM", { total_tokens: 7, input_tokens: 1 }))).toBe(7);
+    expect(spanTotalTokens(span("a", null, "LLM", { input_tokens: 3, output_tokens: 4 }))).toBe(7);
+    expect(spanTotalTokens(span("a", null, "LLM", { output_tokens: 4 }))).toBe(4);
+    expect(spanTotalTokens(span("a", null, "LLM", { cost: 0.1 }))).toBeNull();
+  });
+
+  it("is unknown for a live span that carries no usage keys at all", () => {
+    // Streamed TOOL/AGENT spans arrive without the token fields rather than with nulls.
+    expect(spanTotalTokens({} as Parameters<typeof spanTotalTokens>[0])).toBeNull();
+  });
+});
+
+describe("attributionOf", () => {
+  it("puts a span under a SCORER, or the SCORER itself, on the evaluation's side", () => {
+    const spans = [
+      span("root", null, "EVALUATION"),
+      span("task", "root", "TASK"),
+      span("llm", "task", "LLM"),
+      span("scorer", "root", "SCORER"),
+      span("judge", "scorer", "LLM"),
+    ];
+    const byId = new Map(spans.map((s) => [s.span_id, s]));
+    expect(spans.map((s) => attributionOf(s, byId))).toEqual([
+      "task",
+      "task",
+      "task",
+      "scorer",
+      "scorer",
+    ]);
   });
 });
