@@ -480,6 +480,37 @@ describe("comparePairs", () => {
       { reason: "type_mismatch", runId: null, count: 1 },
     ]);
   });
+
+  it("reads a scorer's type only from the results alignment kept", () => {
+    // Bare `{ name, version }` scorers, so each value type comes from what was recorded.
+    const run = (id: string, day: number, datasetId: string) =>
+      fixtureRun(id, day, id, `2026-11-0${day}T00:00:00Z`, {
+        datasetId,
+        scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+      });
+    const result = (id: string, caseId: string, value: number | string) =>
+      fixtureResult(id, caseId, "shared input", [fixtureScore(QUALITY, value)]);
+    // The other dataset's run repeats the input: the first result is kept, the second set
+    // aside, so its text is never compared and must not make the scorer read as labels.
+    const model = buildCompareModel(
+      [
+        { run: run("a", 1, "ds-a"), results: [result("a", "a1", 0.4)] },
+        {
+          run: run("b", 2, "ds-b"),
+          results: [result("b", "b1", 0.8), result("b", "b2", "set aside")],
+        },
+      ],
+      "a",
+    );
+    expect(model.cases).toHaveLength(1);
+    expect(model.cases[0].byRun.get("b")?.id).toBe("b-b1");
+    expect(model.scorers.find((s) => s.name === QUALITY)?.valueType).toBe("numeric");
+    const pair = comparePairs(model).get("b")!;
+    expect(pair.comparison.scorers.find((s) => s.name === QUALITY)).toEqual(
+      expect.objectContaining({ baselineMean: 0.4, candidateMean: 0.8, pairedCount: 1 }),
+    );
+    expect(pair.byCase.get("id:a1")?.scorerCells[0].classification).toBe("improved");
+  });
 });
 
 describe("pairExclusions", () => {
