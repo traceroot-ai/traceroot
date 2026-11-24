@@ -59,6 +59,7 @@ const mount = () =>
       runIds={RUN_IDS}
       baselineId={null}
       onChangeBaseline={vi.fn()}
+      onChangeRuns={vi.fn()}
     />,
   );
 

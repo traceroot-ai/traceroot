@@ -56,6 +56,7 @@ const mount = () =>
       runIds={RUN_IDS}
       baselineId={null}
       onChangeBaseline={vi.fn()}
+      onChangeRuns={vi.fn()}
     />,
   );
 
@@ -91,6 +92,7 @@ describe("CompareRunsView — metric formats", () => {
         runIds={["a", "b"]}
         baselineId="a"
         onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
       />,
     );
     const change = within(cellAt(caseRow("Ticket 1"), "b", "similarity")).getByText("+30.0 pp");
@@ -127,6 +129,7 @@ describe("CompareRunsView — metric formats", () => {
         runIds={["a", "b"]}
         baselineId="a"
         onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
       />,
     );
     const row = caseRow("Ticket 1");

@@ -7,7 +7,7 @@
  * checked, exactly like offline-eval.smoke.test.tsx.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 
@@ -450,13 +450,26 @@ describe("real Datasets + Evaluations views render server data", () => {
     mount(<RunDetailView projectId="p1" runId="run1" />);
     // The result row is present (the results table shows the case input).
     expect((await screen.findAllByText(/charged twice/)).length).toBeGreaterThan(0);
-    // Run identity + switching + comparison all moved to the Evaluations list, so
-    // this page carries no header of its own: no candidate badge, no run id, no
-    // "Run #" switcher, no inline "Compare with".
+    // Run identity + switching moved to the Evaluations list, so this page carries no
+    // run header of its own: no candidate badge, no run id, no "Run #" switcher.
     expect(screen.queryByText("git:4a91c02")).toBeNull();
     expect(screen.queryByText("run1")).toBeNull();
     expect(screen.queryByText(/^Run #/)).toBeNull();
-    expect(screen.queryByLabelText("Compare with")).toBeNull();
+  });
+
+  it("Run detail starts a comparison with the previous run suggested", async () => {
+    mount(<RunDetailView projectId="p1" runId="run1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Compare with…" }));
+    const picker = within(await screen.findByRole("dialog", { name: "Compare with" }));
+    // #26 ran the day before on the same dataset.
+    expect(await picker.findByText("Suggested · previous run")).toBeTruthy();
+    fireEvent.click(picker.getByRole("button", { name: /#26 git:0000000/ }));
+    // This run first, the older of the two as the baseline.
+    await waitFor(() =>
+      expect(nav.push).toHaveBeenCalledWith(
+        "/projects/p1/evaluations/compare?runs=run1,run0&baseline=run0",
+      ),
+    );
   });
 });
 

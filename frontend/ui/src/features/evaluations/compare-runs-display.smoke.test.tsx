@@ -16,7 +16,10 @@ import { caseGroups, linesOf, summaryGroup } from "./compare/__tests__/table-gri
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
-const hooks = vi.hoisted(() => ({ useEvaluationRunDetails: vi.fn() }));
+const hooks = vi.hoisted(() => ({
+  useEvaluationRunDetails: vi.fn(),
+  useEvaluationRuns: vi.fn(),
+}));
 vi.mock("./hooks", () => hooks);
 
 import { CompareRunsView } from "./views/compare-runs-view";
@@ -31,11 +34,21 @@ beforeEach(() => {
       isError: false,
     })),
   );
+  hooks.useEvaluationRuns.mockReturnValue({
+    data: { data: [], meta: { page: 0, limit: 20, total: 0 } },
+    isLoading: false,
+  });
 });
 afterEach(() => cleanup());
 
 const view = () => (
-  <CompareRunsView projectId="p1" runIds={RUN_IDS} baselineId={null} onChangeBaseline={vi.fn()} />
+  <CompareRunsView
+    projectId="p1"
+    runIds={RUN_IDS}
+    baselineId={null}
+    onChangeBaseline={vi.fn()}
+    onChangeRuns={vi.fn()}
+  />
 );
 
 /** Each case's first line, which holds its Input. */
