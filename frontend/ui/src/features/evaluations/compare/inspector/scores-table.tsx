@@ -57,16 +57,17 @@ function ScoreChange({
   // compared them, as the table and its summary do.
   const { categorical, direction } = cellPolicy(cell, column);
   const delta = categorical ? null : cellDelta(cell);
-  if (delta === null || delta === 0) {
+  const text = delta === null ? "" : formatMetricDelta(delta, column.format);
+  // A change that rounds to nothing in the column's unit has no sign, and `Delta` draws
+  // nothing for it: it reads as no change, as its two values do.
+  if (delta === null || !/^[+−]/.test(text)) {
     return (
       <span className="text-muted-foreground">
         {cell?.classification === "changed" ? "Changed" : "No change"}
       </span>
     );
   }
-  return (
-    <Delta value={delta} text={formatMetricDelta(delta, column.format)} direction={direction} />
-  );
+  return <Delta value={delta} text={text} direction={direction} />;
 }
 
 // The table fills a box like the ones above it, its text on their inner edge rather than

@@ -85,4 +85,39 @@ describe("ScoresTable", () => {
     expect(within(row).queryByText("No change")).toBeNull();
     expect(within(row).getByText(/\+0\.4/).className).toContain("text-emerald-600");
   });
+
+  it("reads a change that rounds to nothing as no change, not a blank cell", () => {
+    const result = (runId: string, value: number) =>
+      fixtureResult(runId, "case-1", "Ticket 1", [fixtureScore(QUALITY, value)]);
+    render(
+      <ScoresTable
+        scorers={[column]}
+        baseline={{ result: result("run-1", 0.85), heading: "Baseline · #1", dot: "#000" }}
+        candidate={{ result: result("run-2", 0.8504), heading: "Candidate · #2", dot: "#000" }}
+        comparison={
+          {
+            scorerCells: [
+              {
+                scorerName: QUALITY,
+                scorerVersion: "1",
+                valueType: "numeric",
+                direction: "higher_is_better",
+                candidateValue: 0.8504,
+                baselineValue: 0.85,
+                delta: 0.0004,
+                classification: "improved",
+              },
+            ],
+          } as unknown as ResultComparison
+        }
+      />,
+    );
+    const row = within(screen.getByRole("table")).getByText(QUALITY).closest("tr")!;
+    expect([...row.querySelectorAll("td")].map((td) => td.textContent)).toEqual([
+      QUALITY,
+      "85.0%",
+      "85.0%",
+      "No change",
+    ]);
+  });
 });
