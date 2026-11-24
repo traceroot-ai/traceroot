@@ -22,7 +22,9 @@ const db = vi.hoisted(() => ({
     workspaceId: string;
     firstTraceReceiveTime: Date | null;
     createTime: Date;
+    deleteTime?: Date | null;
   }[],
+  signals: [] as { projectId: string; status: string; mergedIntoId: string | null }[],
   github: [] as { workspaceId: string }[],
   slack: [] as { workspaceId: string }[],
   evalRuns: [] as { projectId: string }[],
@@ -55,8 +57,31 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
           .map((m) => ({ workspace: db.workspaces.find((w) => w.id === m.workspaceId)! })),
     },
     project: {
-      findMany: async ({ where }: { where: { workspaceId: { in: string[] } } }) =>
-        db.projects.filter((p) => inList(p.workspaceId, where.workspaceId)),
+      // Either by workspace ids (the facts), or by membership (the projects a
+      // person can open): honours deleteTime and a workspace left out by id.
+      findMany: async ({
+        where,
+      }: {
+        where: {
+          workspaceId?: { in: string[] };
+          deleteTime?: null;
+          workspace?: { members: { some: { userId: string } }; id?: { not: string } };
+        };
+      }) =>
+        db.projects
+          .filter((p) => inList(p.workspaceId, where.workspaceId))
+          .filter((p) => !("deleteTime" in where) || !p.deleteTime)
+          .filter(
+            (p) =>
+              !where.workspace ||
+              (db.members.some(
+                (m) =>
+                  m.userId === where.workspace!.members.some.userId &&
+                  m.workspaceId === p.workspaceId,
+              ) &&
+                p.workspaceId !== where.workspace.id?.not),
+          )
+          .sort((a, b) => +a.createTime - +b.createTime || a.id.localeCompare(b.id)),
       findFirst: async ({
         where,
       }: {
@@ -73,6 +98,21 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
             .sort((a, b) => +a.createTime - +b.createTime)
             .find((p) => allowed.includes(p.workspaceId)) ?? null
         );
+      },
+    },
+    signal: {
+      groupBy: async ({
+        where,
+      }: {
+        where: { projectId: { in: string[] }; status: string; mergedIntoId: null };
+      }) => {
+        const counts = new Map<string, number>();
+        for (const sig of db.signals) {
+          if (!where.projectId.in.includes(sig.projectId)) continue;
+          if (sig.status !== where.status || sig.mergedIntoId !== where.mergedIntoId) continue;
+          counts.set(sig.projectId, (counts.get(sig.projectId) ?? 0) + 1);
+        }
+        return [...counts].map(([projectId, n]) => ({ projectId, _count: { _all: n } }));
       },
     },
     workspace: {
@@ -113,7 +153,7 @@ vi.mock("@/lib/demo-workspace", () => ({
   userMembershipWhere: (userId: string) => ({ userId }),
 }));
 
-import { followUpFacts, runFollowUps } from "./follow-up-job";
+import { followUpFacts, openSignalsFor, OPEN_SIGNALS_SOURCE, runFollowUps } from "./follow-up-job";
 
 function person(
   id: string,
@@ -299,5 +339,135 @@ describe("a dry run", () => {
     const logged = vi.mocked(console.log).mock.calls.flat().join("\n");
     expect(logged).toContain("user due is due setup_help");
     expect(logged).not.toContain("@acme.test");
+  });
+});
+
+describe("the open-signals line in Slack and GitHub", () => {
+  const environment = { LIFECYCLE_EMAILS_ENABLED: "true", LIFECYCLE_START_AT: START };
+  // Signed up 9 days ago, first trace 8 days ago: Slack and GitHub is due.
+  const due = () => person("u1", 9, { trace: 8 });
+  const open = (
+    projectId: string,
+    n: number,
+    status = "open",
+    mergedIntoId: string | null = null,
+  ) => {
+    for (let i = 0; i < n; i += 1) db.signals.push({ projectId, status, mergedIntoId });
+  };
+  const sent = async () => {
+    const run = await runFollowUps({ environment, now: NOW });
+    expect(run.due).toEqual({ connect_slack_github: 1 });
+    const build = mail.sendOnce.mock.calls[0][2] as () => {
+      text: string;
+      html: string;
+      tags: Record<string, string>;
+    };
+    return build();
+  };
+  const signalsUrl = (projectId: string) =>
+    `https://app.example/projects/${projectId}/signals?from=${OPEN_SIGNALS_SOURCE}`;
+
+  it("leaves the line and the variant tag out when no project has an open signal", async () => {
+    due();
+    const email = await sent();
+    expect(email.text).not.toContain("open signal");
+    expect(email.html).not.toContain("/signals");
+    expect(email.tags).toEqual({ category: "product", template: "connect_slack_github" });
+    expect(email.text).toContain(
+      "Open integrations: https://app.example/workspaces/ws_u1/settings/integrations",
+    );
+  });
+
+  it("says one open signal, links that project's signals in HTML and text, and tags the email", async () => {
+    due();
+    open("p_u1", 1);
+    const email = await sent();
+    expect(email.text).toContain(
+      `1 open signal (${signalsUrl("p_u1")}) is waiting in your project.`,
+    );
+    expect(email.html).toContain(`<a href="${signalsUrl("p_u1")}"`);
+    expect(email.html).toContain(">1 open signal</a> is waiting in your project.");
+    expect(email.tags).toEqual({
+      category: "product",
+      template: "connect_slack_github",
+      variant: "open_signals",
+    });
+    // The integrations button is unchanged and carries no marker.
+    expect(email.text).toContain(
+      "Open integrations: https://app.example/workspaces/ws_u1/settings/integrations",
+    );
+    expect(email.html).not.toContain("settings/integrations?from=");
+  });
+
+  it("counts only open signals not merged into another, in the plural", async () => {
+    due();
+    open("p_u1", 3);
+    open("p_u1", 2, "resolved");
+    open("p_u1", 1, "dismissed");
+    open("p_u1", 4, "open", "sig_target");
+    const email = await sent();
+    expect(email.text).toContain(
+      `3 open signals (${signalsUrl("p_u1")}) are waiting in your project.`,
+    );
+  });
+
+  it("ignores projects the person cannot open: someone else's, the demo, a deleted one", async () => {
+    due();
+    db.workspaces.push({ id: "ws_other", createdBy: "other", createTime: ago(20) });
+    db.projects.push({
+      id: "p_other",
+      workspaceId: "ws_other",
+      firstTraceReceiveTime: null,
+      createTime: ago(20),
+    });
+    db.projects.push({
+      id: "p_gone",
+      workspaceId: "ws_u1",
+      firstTraceReceiveTime: null,
+      createTime: ago(9),
+      deleteTime: ago(1),
+    });
+    open("p_other", 9);
+    open("p_demo", 9);
+    open("p_gone", 9);
+    expect(await openSignalsFor("u1")).toBeNull();
+    const email = await sent();
+    expect(email.text).not.toContain("open signal");
+    expect(email.tags.variant).toBeUndefined();
+  });
+
+  it("picks the project with the most, then the oldest, the same way every time", async () => {
+    due();
+    db.projects.push({
+      id: "p_u1_b",
+      workspaceId: "ws_u1",
+      firstTraceReceiveTime: null,
+      createTime: ago(5),
+    });
+    db.projects.push({
+      id: "p_u1_c",
+      workspaceId: "ws_u1",
+      firstTraceReceiveTime: null,
+      createTime: ago(9),
+    });
+    open("p_u1_b", 2);
+    open("p_u1_c", 2);
+    open("p_u1", 1);
+    // p_u1_b and p_u1_c tie at 2: the older project, p_u1_c, wins.
+    expect(await openSignalsFor("u1")).toEqual({ projectId: "p_u1_c", count: 2 });
+    open("p_u1_b", 1);
+    expect(await openSignalsFor("u1")).toEqual({ projectId: "p_u1_b", count: 3 });
+  });
+
+  it("is never looked up, or added, for the other emails", async () => {
+    person("u1", 3);
+    open("p_u1", 5);
+    const run = await runFollowUps({ environment, now: NOW });
+    expect(run.due).toEqual({ setup_help: 1 });
+    const email = (
+      mail.sendOnce.mock.calls[0][2] as () => { text: string; tags: Record<string, string> }
+    )();
+    expect(email.text).not.toContain("open signal");
+    expect(email.tags.variant).toBeUndefined();
   });
 });

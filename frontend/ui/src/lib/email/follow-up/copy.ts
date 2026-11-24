@@ -15,6 +15,11 @@ export interface FollowUpLinks {
   integrationsUrl: string;
   /** Booking a call. */
   bookingUrl: string;
+  /**
+   * The open signals in one project the person can open, and that project's
+   * Signals page; only for Slack and GitHub, and only when there are some.
+   */
+  openSignals?: { count: number; url: string };
 }
 
 export interface FollowUpCopy {
@@ -27,6 +32,13 @@ export interface FollowUpCopy {
 }
 
 export const EVALS_DOCS_URL = "https://traceroot.ai/docs/evals/get-started";
+
+/** The one-line reminder of a project's open signals, linked to them. */
+export function openSignalsLine({ count, url }: { count: number; url: string }): string {
+  return count === 1
+    ? `[1 open signal](${url}) is waiting in your project.`
+    : `[${count} open signals](${url}) are waiting in your project.`;
+}
 
 export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUpCopy {
   switch (campaign) {
@@ -57,6 +69,7 @@ export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUp
           "You can choose a Slack channel for alerts and connect the GitHub repo your agent runs from. Both settings are in your workspace.",
         ],
         button: { label: "Open integrations", url: links.integrationsUrl },
+        ...(links.openSignals && { after: [openSignalsLine(links.openSignals)] }),
       };
     case "first_eval":
       return {
