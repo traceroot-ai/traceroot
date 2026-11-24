@@ -18,7 +18,8 @@ import {
  * The node of the union of two traces a selected span stands for. In diff mode the tree
  * selects a span only the baseline has by the baseline's span, and any other node by the
  * candidate's, so the trace a span belongs to says which side to look it up on. Null for
- * a span neither trace has.
+ * a span neither trace has, by trace as well as id: another trace's span (an old
+ * baseline's, say) can share an id with one of these.
  */
 export function findUnionNode(
   nodes: readonly UnionNode[],
@@ -27,7 +28,12 @@ export function findUnionNode(
 ): UnionNode | null {
   const side =
     baselineTraceId !== null && span.trace_id === baselineTraceId ? "baseline" : "candidate";
-  return nodes.find((n) => n[side]?.span_id === span.span_id) ?? null;
+  return (
+    nodes.find((n) => {
+      const s = n[side];
+      return s?.span_id === span.span_id && s.trace_id === span.trace_id;
+    }) ?? null
+  );
 }
 
 /** The text colour of a figure that moved in diff mode: green when it got better (lower,

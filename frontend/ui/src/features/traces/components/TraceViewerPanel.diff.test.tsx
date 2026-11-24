@@ -304,6 +304,20 @@ describe("TraceViewerPanel diff mode", () => {
 
 describe("TraceViewerPanel diff mode in the tree", () => {
   const tree = () => screen.getByTestId("tree");
+  const panel = (baseline: TraceDetail | null) => (
+    <TraceViewerPanel
+      projectId="p1"
+      traceId="trace-c"
+      onClose={vi.fn()}
+      onNavigate={vi.fn()}
+      canNavigateUp
+      canNavigateDown
+      embedded
+      hideDetectors
+      diffBaseline={{ trace: baseline }}
+      defaultDiffOn
+    />
+  );
 
   it("hands the tree the union only while diffing", () => {
     renderPanel({ diffBaseline: { trace: BASELINE } });
@@ -336,20 +350,6 @@ describe("TraceViewerPanel diff mode in the tree", () => {
   });
 
   it("goes back to the root when another baseline doesn't have the span only the old one had", () => {
-    const panel = (baseline: TraceDetail | null) => (
-      <TraceViewerPanel
-        projectId="p1"
-        traceId="trace-c"
-        onClose={vi.fn()}
-        onNavigate={vi.fn()}
-        canNavigateUp
-        canNavigateDown
-        embedded
-        hideDetectors
-        diffBaseline={{ trace: baseline }}
-        defaultDiffOn
-      />
-    );
     const { rerender } = render(panel(BASELINE));
     fireEvent.click(screen.getByText("select-baseline-search"));
     expect(tree().dataset.selected).toBe("b1");
@@ -362,6 +362,25 @@ describe("TraceViewerPanel diff mode in the tree", () => {
 
     fireEvent.click(screen.getByText("select-baseline-search"));
     rerender(panel(null));
+    expect(tree().dataset.selected).toBe("trace");
+  });
+
+  it("goes back to the root when this trace reuses the old baseline's span id for another span", () => {
+    // This trace's answer has the id of the old baseline's search: span ids are only
+    // unique within a trace.
+    mocks.traces.set(
+      "trace-c",
+      traceOf("trace-c", [
+        CANDIDATE.spans[0],
+        { ...CANDIDATE.spans[1], span_id: "b1" },
+        ...CANDIDATE.spans.slice(2),
+      ]),
+    );
+    const { rerender } = render(panel(BASELINE));
+    fireEvent.click(screen.getByText("select-baseline-search"));
+    expect(tree().dataset.selected).toBe("b1");
+
+    rerender(panel(traceOf("trace-e", [span("trace-e", "e0", null, "agent", SpanKind.AGENT)])));
     expect(tree().dataset.selected).toBe("trace");
   });
 
