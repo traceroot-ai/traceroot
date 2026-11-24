@@ -126,7 +126,7 @@ function ResetPasswordContent() {
       />
       <div className="space-y-5">
         <AuthError message={error} />
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form method="post" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <AuthField label="New password" error={errors.password?.message}>
             <PasswordInput
               placeholder="********"

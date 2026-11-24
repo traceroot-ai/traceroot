@@ -95,7 +95,7 @@ function SignInContent({ socialProviders, passwordResetEnabled = false }: SignIn
       <div className="space-y-5">
         <AuthError message={error} />
 
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form method="post" onSubmit={handleSubmit(onSubmit)}>
           <div className="space-y-4">
             <AuthField label="Email" error={errors.email?.message}>
               <Input

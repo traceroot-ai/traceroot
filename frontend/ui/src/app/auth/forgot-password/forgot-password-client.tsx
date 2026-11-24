@@ -85,7 +85,7 @@ export function ForgotPasswordClient() {
       />
       <div className="space-y-5">
         <AuthError message={error} />
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form method="post" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <AuthField label="Email" error={errors.email?.message}>
             <Input
               type="email"
