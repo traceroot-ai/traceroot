@@ -7,7 +7,8 @@
  *    &sort=regression:<scorer>:<run id>
  *
  * A filter's or sort's scorer and run are percent-encoded on their own, so a scorer name
- * with a colon survives; one written by hand is split on its first and last colon.
+ * with a colon survives; one written by hand is split on its first and last colon. A
+ * scorer named `any` is written `%61ny`, so it never reads as any scorer.
  * Anything that can't be read is dropped, and parameters this page doesn't own are kept.
  */
 import { DATASET_ORDER, isFilterKind, sameFilter, type CaseFilter, type CaseSort } from "./filters";
@@ -33,16 +34,17 @@ const ids = (text: string | null) => [
   ),
 ];
 
-/** `kind:scorer:run`, split on the first and last colon, scorer and run decoded; null
- *  unless all three parts are there. */
-function readTriple(text: string): [string, string, string] | null {
+/** `kind:scorer:run`, split on the first and last colon, scorer and run decoded (null for
+ *  any scorer); null unless all three parts are there. */
+function readTriple(text: string): [string, string | null, string] | null {
   const first = text.indexOf(":");
   const last = text.lastIndexOf(":");
   if (first <= 0 || last <= first + 1 || last === text.length - 1) return null;
+  const scorer = text.slice(first + 1, last);
   try {
     return [
       text.slice(0, first),
-      decodeURIComponent(text.slice(first + 1, last)),
+      scorer === "any" ? null : decodeURIComponent(scorer),
       decodeURIComponent(text.slice(last + 1)),
     ];
   } catch {
@@ -50,19 +52,23 @@ function readTriple(text: string): [string, string, string] | null {
   }
 }
 
-const writeTriple = (head: string, scorer: string, runId: string) =>
-  `${head}:${encodeURIComponent(scorer)}:${encodeURIComponent(runId)}`;
+/** Any scorer as `any`, and a scorer of that name with its first letter encoded. */
+const writeScorer = (scorer: string | null) =>
+  scorer === null ? "any" : scorer === "any" ? "%61ny" : encodeURIComponent(scorer);
+
+const writeTriple = (head: string, scorer: string | null, runId: string) =>
+  `${head}:${writeScorer(scorer)}:${encodeURIComponent(runId)}`;
 
 function readFilter(text: string): CaseFilter | null {
   const parts = readTriple(text);
   if (!parts || !isFilterKind(parts[0])) return null;
   // Whether a run has the case doesn't depend on a scorer.
-  return { kind: parts[0], scorer: parts[0] === "unmatched" ? "any" : parts[1], runId: parts[2] };
+  return { kind: parts[0], scorer: parts[0] === "unmatched" ? null : parts[1], runId: parts[2] };
 }
 
 function readSort(text: string | null): CaseSort {
   const parts = text ? readTriple(text) : null;
-  if (!parts || parts[0] !== "regression" || parts[1] === "any" || parts[2] === "any") {
+  if (!parts || parts[0] !== "regression" || parts[1] === null || parts[2] === "any") {
     return DATASET_ORDER;
   }
   return { kind: "regression", scorer: parts[1], runId: parts[2] };

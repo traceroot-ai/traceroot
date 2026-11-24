@@ -61,7 +61,9 @@ export function CompareRunsView({
   onChangeAnalysis?: (next: CaseAnalysis) => void;
 }) {
   const queries = useEvaluationRunDetails(projectId, runIds);
-  const [analysis, setAnalysis, commitAnalysis] = useCaseAnalysis(fromUrl, onChangeAnalysis);
+  // Back or forward onto other runs or another baseline starts over from the URL.
+  const place = JSON.stringify([runIds, baselineId]);
+  const [analysis, setAnalysis, commitAnalysis] = useCaseAnalysis(fromUrl, onChangeAnalysis, place);
   const searchRef = React.useRef<HTMLInputElement>(null);
   // The Runs menu opens from its button, or on its picker from the empty state of runs
   // with nothing in common.
