@@ -131,7 +131,7 @@ describe("cliHostFlags", () => {
     // `_` is legal in a URL host and ordinary in container and internal DNS
     // names, and it is special to no shell. When the class that vets these
     // origins excluded it, such a deployment lost both flags and the bare
-    // command this file then rendered sent the CLI to TraceRoot Cloud.
+    // command this file then rendered sent the CLI to traceroot Cloud.
     expect(
       hostFlagsOf({ apiUrl: "http://app_internal:8000/api/v1", appUrl: "http://web_1:3000" }),
     ).toEqual({ host: "http://app_internal:8000", authHost: "http://web_1:3000" });
@@ -252,7 +252,7 @@ describe("setupCommand", () => {
     );
   });
 
-  it("leaves both hosts out on TraceRoot Cloud", async () => {
+  it("leaves both hosts out on traceroot Cloud", async () => {
     // Cloud serves the dashboard and the API behind one origin, and it is the
     // origin the CLI defaults to, so the bare command is already right.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
@@ -279,7 +279,7 @@ describe("setupCommand", () => {
 
   it("names this deployment rather than Cloud when only the API default is set", async () => {
     // The relative `/api/v1` default with no app URL: previously no flag at
-    // all, which silently ran setup against TraceRoot Cloud from a local
+    // all, which silently ran setup against traceroot Cloud from a local
     // deployment. One origin serves both, so `--auth-host` is not needed.
     const setupCommand = await setupCommandWith({});
 
@@ -306,7 +306,7 @@ describe("setupCommand", () => {
 
   it("points setup at a deployment named the way a container network names it", async () => {
     // The whole harm in one line: an underscore in the host used to cost both
-    // flags, and the bare command that was left defaults to TraceRoot Cloud,
+    // flags, and the bare command that was left defaults to traceroot Cloud,
     // so a self-hosted operator's sign-in and first traces left their network.
     const setupCommand = await setupCommandWith({
       apiUrl: "http://app_internal:8000/api/v1",
@@ -339,7 +339,7 @@ describe("setupCommand", () => {
   it("shows no command at all when the deployment cannot be identified", async () => {
     // The line this would otherwise return is the bare command, and the bare
     // command is not a weaker version of the right one: the CLI defaults to
-    // TraceRoot Cloud, so a self-hosted reader pasting it signs in against
+    // traceroot Cloud, so a self-hosted reader pasting it signs in against
     // someone else's deployment and sends their first traces there. The result
     // says so instead, and names the value to correct.
     const setupCommand = await setupCommandWith({ apiUrl: "http://:8000" });
@@ -415,7 +415,7 @@ describe("sdkHostUrl", () => {
     expect(sdkHostUrl()).toEqual({ kind: "resolved", hostUrl: "https://traceroot.example.com" });
   });
 
-  it("is null on TraceRoot Cloud, which both SDKs already default to", async () => {
+  it("is null on traceroot Cloud, which both SDKs already default to", async () => {
     const { sdkHostUrl } = await bothWith({
       apiUrl: "https://app.traceroot.ai/api/v1",
       appUrl: "https://app.traceroot.ai",
@@ -451,7 +451,7 @@ describe("sdkHostUrl", () => {
     });
   });
 
-  it("is null on TraceRoot Cloud's absolute API URL whatever the app URL holds", async () => {
+  it("is null on traceroot Cloud's absolute API URL whatever the app URL holds", async () => {
     const { sdkHostUrl } = await bothWith({
       apiUrl: "https://app.traceroot.ai/api/v1",
       appUrl: "not-a-url",

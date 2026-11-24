@@ -53,9 +53,9 @@ vi.mock("@/features/projects/hooks", () => ({
 vi.mock("@/features/traces/components/GettingStarted/ApiKeyBlock", () => ({
   ApiKeyBlock: () => <div data-testid="api-key-block" />,
 }));
-vi.mock("@/features/traces/components/GettingStarted/ModelProviderBlock", () => ({
-  ModelProviderBlock: () => <div data-testid="model-provider-block" />,
-}));
+vi.mock("@/features/workspaces/hooks", () => ({ useWorkspaces: () => ({ data: [] }) }));
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 vi.mock("@/components/github/GitHubConnectButton", () => ({
   GitHubConnectButton: () => <div data-testid="github-connect" />,
 }));
@@ -155,7 +155,7 @@ async function reachHandback() {
 /** The same, then on to the manual walkthrough. */
 async function reachManual() {
   await reachHandback();
-  fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
   await flush();
 }
 
@@ -263,6 +263,32 @@ describe("the hand-back step's first-trace watch", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
+  it("keeps waiting when the command is only copied", async () => {
+    // Copying is recorded and nothing else: the page has no trace to open
+    // until the command has run, so it stays on the step, still watching.
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    await reachHandback();
+    await rounds(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy terminal snippet" }));
+    await flush();
+    await rounds(2);
+
+    expect(capture).toHaveBeenCalledWith("setup_command_copied", {
+      project_id: "proj-1",
+      surface: "onboarding",
+    });
+    expect(traceLine().textContent).toBe(
+      "Waiting for your first trace. This page updates when it arrives.",
+    );
+    expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
+    expect(mocks.push).not.toHaveBeenCalled();
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
   it("leaves both exits working while it waits", async () => {
     // The watch is additive. It must not become a thing the user has to wait
     // out before they can choose the manual path or leave.
@@ -270,13 +296,13 @@ describe("the hand-back step's first-trace watch", () => {
     await rounds(1);
     expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
     await flush();
-    expect(screen.getByText("Set up tracing by hand")).toBeDefined();
+    expect(screen.getByText(/Select your integration/)).toBeDefined();
     // Still watching on the manual step, where the trace is just as welcome.
     expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to the terminal command" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Using AI" }));
     await flush();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(mocks.push).toHaveBeenCalledWith("/workspaces");
@@ -339,10 +365,9 @@ describe("where the page says the watch stands", () => {
 
     const line = traceLine();
     expect(headerBlock().contains(line)).toBe(true);
-    expect(isAbove(line, screen.getByText("Set up tracing by hand"))).toBe(true);
-    // And above the walkthrough's own shared top, which used to hold it.
-    expect(isAbove(line, screen.getByText("Select your stack"))).toBe(true);
-    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
+    expect(isAbove(line, screen.getByText(/Select your integration/))).toBe(true);
+    // And above the tabs themselves.
+    expect(isAbove(line, screen.getByRole("tab", { name: "Manual" }))).toBe(true);
   });
 
   it("is the same node across the switch, not a second one somewhere else", async () => {
@@ -352,11 +377,11 @@ describe("where the page says the watch stands", () => {
     await rounds(1);
     const before = traceLine();
 
-    fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
     await flush();
     expect(traceLine()).toBe(before);
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to the terminal command" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Using AI" }));
     await flush();
     expect(traceLine()).toBe(before);
   });
@@ -406,7 +431,7 @@ describe("where the page says the watch stands", () => {
     // Nothing about the arrival closes the step down: the link is the way
     // through until the page's own push lands, and neither alternative is
     // withdrawn.
-    expect(screen.getByRole("button", { name: "Set up manually" })).toBeDefined();
+    expect(screen.getByRole("tab", { name: "Manual" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
   });
 
@@ -433,7 +458,7 @@ describe("where the page says the watch stands", () => {
     const line = traceLine();
     expect(line.textContent).toContain("Your first trace arrived");
     expect(headerBlock().contains(line)).toBe(true);
-    expect(isAbove(line, screen.getByText("Set up tracing by hand"))).toBe(true);
+    expect(isAbove(line, screen.getByText(/Select your integration/))).toBe(true);
     expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
       "/projects/proj-1/traces?traceId=t-manual",
     );
@@ -448,7 +473,7 @@ describe("where the page says the watch stands", () => {
     const line = traceLine();
     expect(line.textContent).toContain("Still no trace");
     expect(headerBlock().contains(line)).toBe(true);
-    expect(isAbove(line, screen.getByText("Set up tracing by hand"))).toBe(true);
+    expect(isAbove(line, screen.getByText(/Select your integration/))).toBe(true);
     expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
       "/projects/proj-1/traces",
     );

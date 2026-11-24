@@ -74,6 +74,18 @@ app.conf.beat_schedule = {
 
 
 @worker_ready.connect
+def record_reporting_start(**kwargs):
+    """Tell the web app when this worker started reporting trace activity, as it starts.
+
+    So the cutoff is recorded before any report arrives (see worker.trace_activity).
+    Does nothing without the internal secret, and never stops the worker.
+    """
+    from worker.trace_activity import record_tracking_start
+
+    record_tracking_start()
+
+
+@worker_ready.connect
 def on_worker_ready(**kwargs):
     """Run ClickHouse migrations when worker starts."""
     logger.info("Running ClickHouse migrations on worker startup...")

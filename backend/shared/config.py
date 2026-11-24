@@ -1,4 +1,4 @@
-"""Centralized configuration for the TraceRoot backend.
+"""Centralized configuration for the traceroot backend.
 
 All environment variables are read once at import time via Pydantic Settings.
 Services import ``settings`` from this module instead of calling os.getenv().
@@ -296,7 +296,7 @@ class WorkerSettings(BaseSettings):
 
 
 class Settings(BaseSettings):
-    """Root settings for the TraceRoot backend.
+    """Root settings for the traceroot backend.
 
     Nested settings (clickhouse, s3, redis) each read from their own
     prefixed env vars. Top-level fields read from unprefixed env vars.

@@ -1,6 +1,6 @@
 # AutoGen Agent (AG2)
 
-Multi-agent conversation using the AutoGen framework with LLM tool use, instrumented with [TraceRoot](https://traceroot.ai).
+Multi-agent conversation using the AutoGen framework with LLM tool use, instrumented with [traceroot](https://traceroot.ai).
 
 *Note: This example utilizes `ag2[gemini]`, the community-maintained continuation of the AutoGen framework, configured to use Google's Gemini models.*
 
