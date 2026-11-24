@@ -1,10 +1,14 @@
+import { shellZh } from "./areas/shell";
+import { tracesZh } from "./areas/traces";
+import { detectZh } from "./areas/detect";
+import { verifyZh } from "./areas/verify";
 import type { PartialMessages } from "./en";
 
 // Wording follows Dify's Simplified Chinese where it has the same term: workspace 工作空间,
 // dataset 数据集, log out 登出, account 账户. Project is 项目.
 // Terms specific to traceroot stay in English: trace, span, session, detector, signal, eval.
 // The brand is always "traceroot", lowercase.
-export const zh: PartialMessages = {
+const core: PartialMessages = {
   common: {
     save: "保存",
     saving: "保存中...",
@@ -135,3 +139,5 @@ export const zh: PartialMessages = {
     namePlaceholder: "项目名称",
   },
 };
+
+export const zh: PartialMessages = { ...core, ...shellZh, ...tracesZh, ...detectZh, ...verifyZh };

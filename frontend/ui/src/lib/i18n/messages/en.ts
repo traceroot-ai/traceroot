@@ -1,6 +1,12 @@
+import { shellEn } from "./areas/shell";
+import { tracesEn } from "./areas/traces";
+import { detectEn } from "./areas/detect";
+import { verifyEn } from "./areas/verify";
+import type { PartialGroups } from "./types";
+
 // English is the source of truth: every key lives here and other languages fall back to it.
 // Keys are grouped by where the text appears; `{name}` marks a value filled in at render time.
-export const en = {
+const core = {
   common: {
     save: "Save",
     saving: "Saving...",
@@ -142,8 +148,11 @@ export const en = {
   },
 };
 
+// Larger areas keep their groups in ./areas so they can be worked on independently.
+export const en = { ...core, ...shellEn, ...tracesEn, ...detectEn, ...verifyEn };
+
 export type Messages = typeof en;
-export type PartialMessages = { [Group in keyof Messages]?: Partial<Messages[Group]> };
+export type PartialMessages = PartialGroups<Messages>;
 export type MessageKey = {
   [Group in keyof Messages]: `${Group}.${Extract<keyof Messages[Group], string>}`;
 }[keyof Messages];
