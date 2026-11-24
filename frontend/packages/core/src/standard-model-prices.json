@@ -1298,6 +1298,18 @@
     }
   },
   {
+    "id": "tr-glm-5-3",
+    "modelName": "glm-5.3",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]3$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000014,
+      "output": 0.0000044,
+      "cacheRead": 0.00000026,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-glm-5-2",
     "modelName": "glm-5.2",
     "matchPattern": "(?i)^(zai\\/)?glm-5[.-]2(-[\\d-]+)?$",
