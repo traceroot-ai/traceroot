@@ -393,6 +393,26 @@ describe("GET /findings/:id/rca — retention gate", () => {
     expect("rca" in bodyBadSeen).toBe(false);
   });
 
+  it("fails closed with 502 when the backend answer has no trace_start_time field", async () => {
+    // Only an explicit null means the trace has no customer span. An answer
+    // without the field, or with no body, is malformed, not a fallback.
+    findFirst.mockResolvedValue(sampleRow());
+
+    fetchMock.mockResolvedValueOnce(
+      backendResponse({ trace_id: "trace-1", timestamp: daysAgo(1) }),
+    );
+    const resMissing = await call();
+    const bodyMissing = await resMissing.json();
+    expect(resMissing.status).toBe(502);
+    expect("rca" in bodyMissing).toBe(false);
+
+    fetchMock.mockResolvedValueOnce(backendResponse(null));
+    const resNull = await call();
+    const bodyNull = await resNull.json();
+    expect(resNull.status).toBe(502);
+    expect("rca" in bodyNull).toBe(false);
+  });
+
   it("calls the backend with the percent-encoded stored findingId, project_id, and secret header", async () => {
     findFirst.mockResolvedValue(sampleRow({ findingId: "f1-stored/part 2" }));
 

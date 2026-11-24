@@ -38,10 +38,11 @@ function parseTime(value: unknown): Date {
  * only a finding's newest version, so a re-run can make `timestamp` recent,
  * while nothing rewrites `createTime`.
  *
- * Fails closed: a failed or unreadable backend answer returns 502 instead of
- * the RCA, a 404 hides it as `{ rca: null }`, and a trace that started before
- * the cutoff returns 403. A database error throws, as the RCA lookup in the
- * handler does, so it ends in a 500 without the RCA.
+ * Fails closed: a failed or unreadable backend answer, including one without
+ * `trace_start_time`, returns 502 instead of the RCA, a 404 hides it as
+ * `{ rca: null }`, and a trace that started before the cutoff returns 403. A
+ * database error throws, as the RCA lookup in the handler does, so it ends in a
+ * 500 without the RCA.
  */
 async function checkRcaRetention(
   projectId: string,
@@ -83,11 +84,13 @@ async function checkRcaRetention(
     return errorResponse("Backend error", 502);
   }
 
-  // An invalid date (NaN) survives Math.min, so a bad `timestamp` still fails.
+  // Only an explicit null means "no customer span"; an answer without the
+  // field parses as an invalid date and fails. An invalid date (NaN) also
+  // survives Math.min, so a bad `timestamp` still fails.
   const judgedAt =
-    body?.trace_start_time != null
-      ? parseTime(body.trace_start_time)
-      : new Date(Math.min(parseTime(body?.timestamp).getTime(), rcaCreatedAt.getTime()));
+    body?.trace_start_time !== null
+      ? parseTime(body?.trace_start_time)
+      : new Date(Math.min(parseTime(body.timestamp).getTime(), rcaCreatedAt.getTime()));
   if (isNaN(judgedAt.getTime())) {
     return errorResponse("Backend error", 502);
   }
