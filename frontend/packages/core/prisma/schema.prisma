@@ -259,6 +259,41 @@ model UserOnboarding {
   traceCountReportedOn DateTime?  @map("trace_count_reported_on") @db.Date
   // When a tick claimed today's send; a claim older than the lease is abandoned.
   traceCountClaimedAt  DateTime?  @map("trace_count_claimed_at") @db.Timestamp(6)
+  // Follow-up emails paused by us (outreach started, by hand, or the person
+  // wrote to us), and why: outreach, manual or conversation. Resume clears both.
+  followUpsPausedAt    DateTime?  @map("follow_ups_paused_at") @db.Timestamp(6)
+  followUpsPauseReason String?    @map("follow_ups_pause_reason") @db.VarChar
+  // When the caller decided the latest pause or resume applied. An older
+  // decision arriving later (a retry, or a call that timed out and committed
+  // late) is ignored, so the latest intent always wins.
+  followUpsIntentAt    DateTime?  @map("follow_ups_intent_at") @db.Timestamp(3)
+  // The person unsubscribed from product email; "Subscribe again" clears it.
+  // Kept apart from the pause, so neither undoes the other.
+  unsubscribedAt       DateTime?  @map("unsubscribed_at") @db.Timestamp(6)
+  // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
+  // null for a question skipped or not asked.
+  role                 String?    @db.VarChar
+  // Asked only of a personal-email sign-up. The raw answer, and the domain read from it.
+  companyInput         String?    @map("company_input") @db.VarChar
+  companyDomain        String?    @map("company_domain") @db.VarChar
+  uses                 String[]   @default([]) @db.VarChar
+  source               String?    @db.VarChar
+  // What the person typed in "Somewhere else? Tell us". Never sent to analytics.
+  sourceOther          String?    @map("source_other") @db.VarChar
+  // When the person finished or skipped the last question. Set once: the
+  // questions are asked once per user.
+  questionsDoneAt      DateTime?  @map("questions_done_at") @db.Timestamp(6)
+  // When the welcome email falls due at the latest: set at sign-up on the cloud
+  // service for someone who gets one. The questions ending sends it sooner;
+  // otherwise the scheduled run sends it from then.
+  welcomeDueAt         DateTime?  @map("welcome_due_at") @db.Timestamp(6)
+  // When the person was added to the newsletter segment (lib/email/newsletter.ts):
+  // 14 days after sign-up, or by the one-time import for earlier sign-ups.
+  newsletterAddedAt    DateTime?  @map("newsletter_added_at") @db.Timestamp(6)
+  // The last time adding the person failed or their preference could not be
+  // read; each run tries those not tried yet first, so failures at the front
+  // of the queue never hold up the rest.
+  newsletterTriedAt    DateTime?  @map("newsletter_tried_at") @db.Timestamp(6)
   createTime           DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime           DateTime   @updatedAt @map("update_time") @db.Timestamp(6)
   user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)

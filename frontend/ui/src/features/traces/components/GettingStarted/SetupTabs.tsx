@@ -18,8 +18,6 @@ interface SetupTabsProps {
   onTabChange: (tab: SetupTab) => void;
   /** How this surface words the command block. */
   commandCopy: CommandCopy;
-  /** The GitHub and Slack connections. Sign-up hides them; they move to their own step. */
-  showExternalIntegrations?: boolean;
   /** More ways out under the command, beside the demo project. */
   commandActions?: ReactNode;
   /** Under the manual walkthrough. */
@@ -41,7 +39,6 @@ export function SetupTabs({
   tab,
   onTabChange,
   commandCopy,
-  showExternalIntegrations = true,
   commandActions,
   manualFooter,
 }: SetupTabsProps) {
@@ -73,16 +70,11 @@ export function SetupTabs({
             projectId={projectId}
             surface={surface}
             copy={commandCopy}
-            showExternalIntegrations={showExternalIntegrations}
             actions={commandActions}
           />
         ) : (
           <div className="space-y-6">
-            <ManualTab
-              projectId={projectId}
-              surface={surface}
-              showExternalIntegrations={showExternalIntegrations}
-            />
+            <ManualTab projectId={projectId} surface={surface} />
             {manualFooter}
           </div>
         )}
