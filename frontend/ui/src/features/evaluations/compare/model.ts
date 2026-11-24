@@ -112,9 +112,10 @@ export function inputKeyOf(r: ResultRow): string {
 }
 
 const expectedKeys = new WeakMap<ResultRow, string>();
-/** Whether two results expect the same output, by the text a value diff reads
- *  (`normalizeForDiff`), so key order, spacing or a JSON-encoded copy don't split one
- *  expected output in two. None and an empty one stay apart. Worked out once per result. */
+/** Whether two results expect the same output, as the trace panel decides it: by the text
+ *  it shows (`normalizeForDiff`), so key order, spacing or a JSON-encoded copy don't split
+ *  one expected output in two. None and an empty one stay apart. Worked out once per
+ *  result. */
 export function expectedKeyOf(r: ResultRow): string {
   let key = expectedKeys.get(r);
   if (key === undefined) {
@@ -349,6 +350,30 @@ export function comparePairs(
     });
   }
   return pairs;
+}
+
+/** One case compared between any two of the selected runs (the trace panel's pair, which
+ *  may not involve the table's baseline), under the policy the table's pairs use: what
+ *  the runs declared, the rest from the two runs' own values. Null when either run isn't
+ *  compared, they are the same run, or no run has the case.
+ *
+ *  The case's results are the table's, aligned against the table's baseline: two runs
+ *  that are both on another dataset than the baseline's met on the row by their input
+ *  (the first result per input), not by the case id they share. */
+export function compareCase(
+  model: CompareModel,
+  key: string,
+  baselineRunId: string,
+  candidateRunId: string,
+): ResultComparison | null {
+  const baseline = model.runs.find((b) => b.run.id === baselineRunId);
+  const candidate = model.runs.find((b) => b.run.id === candidateRunId);
+  if (!baseline || !candidate || baseline === candidate) return null;
+  const pairs = comparePairs(
+    { ...model, baselineRunId, runs: [baseline, candidate] },
+    new Set([key]),
+  );
+  return pairs.get(candidateRunId)?.byCase.get(key) ?? null;
 }
 
 /** Why a case either run of a pair has is not in a scorer's paired count. */

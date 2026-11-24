@@ -41,7 +41,7 @@ export interface ResultForDataset {
   testCaseId: string;
 }
 
-const ACTION_META: Record<
+export const ACTION_META: Record<
   ResultDatasetAction,
   { title: string; blurb: string; picksDataset: boolean }
 > = {
@@ -95,6 +95,7 @@ export function SaveResultToDatasetDrawer({
   result,
   sourceDatasetId,
   sourceDatasetName,
+  onCloseAutoFocus,
 }: {
   projectId: string;
   open: boolean;
@@ -103,6 +104,9 @@ export function SaveResultToDatasetDrawer({
   result: ResultForDataset;
   sourceDatasetId: string;
   sourceDatasetName: string;
+  /** Where focus goes once the drawer has closed, when it was opened from a menu rather
+   *  than a trigger of its own; `preventDefault` replaces the default. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const meta = ACTION_META[action];
   const qc = useQueryClient();
@@ -200,7 +204,7 @@ export function SaveResultToDatasetDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent width="w-[560px]">
+      <DrawerContent width="w-[560px]" onCloseAutoFocus={onCloseAutoFocus}>
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
             <Database className="h-4 w-4 text-muted-foreground" aria-hidden />

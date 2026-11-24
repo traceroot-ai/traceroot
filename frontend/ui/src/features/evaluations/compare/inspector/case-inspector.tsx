@@ -10,8 +10,12 @@ import { cn } from "@/lib/utils";
 import { PendingTraceNotice } from "../../components/pending-trace-notice";
 import { ReconstructedTraceTag } from "../../components/reconstructed-trace-tag";
 import type { CaseRow, CompareModel } from "../model";
+import { CaseDetail } from "./case-detail";
 import { useCaseTrace, type CaseTrace } from "./case-traces";
+import type { OutputMode } from "./output-modes";
 import { PairPicker } from "./pair-picker";
+import { PairMeasures, type UsageSide } from "./pair-usage";
+import { SaveToDatasetDrawer, SaveToDatasetMenu, type DatasetSave } from "./save-to-dataset";
 import type { CaseInspectorState } from "./use-case-inspector";
 
 export interface CaseInspectorProps {
@@ -35,6 +39,12 @@ export interface CaseInspectorProps {
   returnFocus: (row: CaseRow) => void;
 }
 
+/** A trace the result names that has neither loaded nor failed to load yet. */
+const traceLoading = (
+  traceId: string | null | undefined,
+  trace: { data?: unknown; isError: boolean },
+) => !!traceId && !trace.data && !trace.isError;
+
 /** The baseline's trace for the panel's diff mode, or why there is none to compare with. */
 function diffTraceOf(
   side: CaseTrace,
@@ -56,8 +66,9 @@ function diffTraceOf(
 
 /**
  * One case of the comparison in the trace panel: the candidate's trace, in diff mode
- * against the baseline's. The table stays usable behind it; clicking another row shows
- * that case here instead.
+ * against the baseline's. The root holds the case: both outputs compared, the expected
+ * output, the scores and each run's usage, with Save to dataset for the candidate's result.
+ * The table stays usable behind it; clicking another row shows that case here instead.
  */
 export function CaseInspector({
   projectId,
@@ -73,6 +84,11 @@ export function CaseInspector({
   returnFocus,
 }: CaseInspectorProps) {
   const [fullscreen, setFullscreen] = React.useState(false);
+  // How the root compares the outputs, kept as the panel moves from case to case.
+  const [outputMode, setOutputMode] = React.useState<OutputMode>("side_by_side");
+  // A save opened from the root stays open while the panel moves on.
+  const [save, setSave] = React.useState<DatasetSave | null>(null);
+  const saveTrigger = React.useRef<HTMLButtonElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
 
   // Claim the assistant's slot while open, as the trace viewer does, so the page's assistant
@@ -106,7 +122,11 @@ export function CaseInspector({
   );
 
   // Only the open case's two traces are fetched.
-  const { trace: baselineTrace } = useCaseTrace(projectId, baselineResult, baselineRun);
+  const { fetch: baselineFetch, trace: baselineTrace } = useCaseTrace(
+    projectId,
+    baselineResult,
+    baselineRun,
+  );
   const { fetch: candidateFetch, trace: candidateTrace } = useCaseTrace(
     projectId,
     candidateResult,
@@ -119,19 +139,76 @@ export function CaseInspector({
 
   const baselineTag = tagOf(baselineId);
   const candidateTag = tagOf(candidateId);
+  const usage: [UsageSide, UsageSide] = [
+    {
+      heading: `Baseline · ${baselineTag}`,
+      dot: dotFor(baselineId),
+      result: baselineResult,
+      trace: baselineFetch.data,
+      traceLoading: traceLoading(baselineResult?.traceId, baselineFetch),
+    },
+    {
+      heading: `Candidate · ${candidateTag}`,
+      dot: dotFor(candidateId),
+      result: candidateResult,
+      trace: candidateFetch.data,
+      traceLoading: traceLoading(candidateResult?.traceId, candidateFetch),
+    },
+  ];
 
-  // With no trace of the candidate's to show, the panel says why in its place.
+  const caseDetail = (
+    <CaseDetail
+      model={model}
+      row={row}
+      pair={pair}
+      tagOf={tagOf}
+      dotFor={dotFor}
+      mode={outputMode}
+      onModeChange={setOutputMode}
+      usage={usage}
+    />
+  );
+
+  const caseTags = <PairMeasures baseline={usage[0]} candidate={usage[1]} />;
+  // The save acts on the candidate's result, not its trace, so it's offered whenever there
+  // is a result: on the trace's root, or beside the case while the trace is being ingested.
+  const saveMenu = candidateResult ? (
+    <SaveToDatasetMenu
+      ref={saveTrigger}
+      tag={candidateTag}
+      onPick={(action) => setSave({ action, result: candidateResult, run: candidateRun })}
+    />
+  ) : null;
+  // With no trace of the candidate's to show, the panel says why, above the case.
+  const caseWithoutTrace = (
+    <div className="space-y-3 p-4 text-[12px]">
+      <div className="flex flex-wrap items-center gap-2">
+        {caseTags}
+        {saveMenu && <div className="ml-auto">{saveMenu}</div>}
+      </div>
+      {caseDetail}
+    </div>
+  );
   const notice =
     candidateTrace.kind === "no_result" ? (
-      <p className="px-4 pt-4 text-[12px] text-muted-foreground">
-        {`${candidateTag} has no result for this case.`}
-      </p>
+      <>
+        <p className="px-4 pt-4 text-[12px] text-muted-foreground">
+          {`${candidateTag} has no result for this case.`}
+        </p>
+        {caseWithoutTrace}
+      </>
     ) : candidateTrace.kind === "pending" ? (
-      <PendingTraceNotice
-        traceId={candidateTrace.traceId}
-        isFetching={candidateFetch.isFetching}
-        onRetry={() => candidateFetch.refetch()}
-      />
+      <>
+        {/* Its own row, so it doesn't stretch over the case below it. */}
+        <div className="flex border-b border-border">
+          <PendingTraceNotice
+            traceId={candidateTrace.traceId}
+            isFetching={candidateFetch.isFetching}
+            onRetry={() => candidateFetch.refetch()}
+          />
+        </div>
+        {caseWithoutTrace}
+      </>
     ) : undefined;
   const override = candidateTrace.kind === "reconstructed" ? candidateTrace.trace : undefined;
   const traceId =
@@ -139,6 +216,7 @@ export function CaseInspector({
 
   const diffBaseline: TraceDiffBaseline = {
     ...diffTraceOf(baselineTrace, baselineTag),
+    root: { tags: caseTags, body: caseDetail },
     sides: {
       baseline: { label: "Baseline", tag: baselineTag, dot: dotFor(baselineId) },
       candidate: { label: "Candidate", tag: candidateTag, dot: dotFor(candidateId) },
@@ -216,8 +294,18 @@ export function CaseInspector({
               onChange={onChangePair}
             />
           }
+          spanHeaderAction={(selection) => (selection.type === "trace" ? saveMenu : null)}
           spanExtraTags={() => (override ? <ReconstructedTraceTag /> : null)}
         />
+        {save && (
+          <SaveToDatasetDrawer
+            projectId={projectId}
+            save={save}
+            onClose={() => setSave(null)}
+            trigger={saveTrigger}
+            fallback={contentRef}
+          />
+        )}
       </DrawerContent>
     </Drawer>
   );

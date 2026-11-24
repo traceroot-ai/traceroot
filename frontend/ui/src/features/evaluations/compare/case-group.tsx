@@ -77,7 +77,7 @@ export const CaseGroup = React.memo(function CaseGroup({
   // by `canonicalInputKey` (differing JSON key order, or legacy plaintext vs JSON-encoded)
   // are the "same input" and render once, while genuinely edited same-dataset inputs stay
   // split by run. The model already worked each result's key out while aligning. Expected
-  // collapses on the text a value diff reads, so key order or spacing don't split it.
+  // collapses on the text the trace panel shows, so the two never disagree on it.
   const collapsedInput = collapsed((r) => r.input, inputKeyOf);
   const collapsedExpected = collapsed((r) => r.expectedOutput, expectedKeyOf);
 

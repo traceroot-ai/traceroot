@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * How a scorer cell reads in the comparison table: the recorded value in the column's
- * format, and the marker for values the comparison would not compare (its change is
- * `cellDelta`, in `./cell-state`).
+ * How a scorer cell reads, shared by the comparison table and the trace panel's scores:
+ * the recorded value in the column's format, and the marker for values the comparison
+ * would not compare (its change is `cellDelta`, in `./cell-state`).
  */
 import * as React from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

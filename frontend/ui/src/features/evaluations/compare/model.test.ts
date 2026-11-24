@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCompareModel,
+  compareCase,
   comparePairs,
   countCellsByScorer,
   expectedKeyOf,
@@ -661,6 +662,43 @@ describe("countCellsByScorer", () => {
       unpaired: 2,
       not_comparable: 2,
     });
+  });
+});
+
+describe("compareCase", () => {
+  const model = buildCompareModel(PAIRED_FIXTURE, null);
+  const cell = (key: string, base: string, cand: string, scorer: string) =>
+    compareCase(model, key, base, cand)?.scorerCells.find((c) => c.scorerName === scorer);
+
+  it("compares a case on the table's pair exactly as the table does", () => {
+    const pairs = comparePairs(model);
+    expect(compareCase(model, "id:case-2", BASELINE_RUN.id, CANDIDATE_RUN.id)).toEqual(
+      pairs.get(CANDIDATE_RUN.id)!.byCase.get("id:case-2"),
+    );
+  });
+
+  it("compares a case on any two runs, either way round, under the table's column policy", () => {
+    // 0.85 → 0.3 is a regression; swapped, it is an improvement.
+    expect(cell("id:case-2", BASELINE_RUN.id, CANDIDATE_RUN.id, QUALITY)).toMatchObject({
+      baselineValue: 0.85,
+      candidateValue: 0.3,
+      classification: "regressed",
+    });
+    expect(cell("id:case-2", CANDIDATE_RUN.id, BASELINE_RUN.id, QUALITY)).toMatchObject({
+      baselineValue: 0.3,
+      candidateValue: 0.85,
+      classification: "improved",
+    });
+    // A count scorer stays lower-is-better whichever run is the baseline: 2 → 0 improves.
+    expect(cell("id:case-2", CANDIDATE_RUN.id, FAST_RUN.id, POLICY)).toMatchObject({
+      classification: "improved",
+    });
+  });
+
+  it("is nothing for a run that isn't compared, the same run twice, or an unknown case", () => {
+    expect(compareCase(model, "id:case-2", BASELINE_RUN.id, "run-gone")).toBeNull();
+    expect(compareCase(model, "id:case-2", BASELINE_RUN.id, BASELINE_RUN.id)).toBeNull();
+    expect(compareCase(model, "id:no-such-case", BASELINE_RUN.id, CANDIDATE_RUN.id)).toBeNull();
   });
 });
 
