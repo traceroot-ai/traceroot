@@ -73,7 +73,35 @@ vi.mock("./SpanTimelineView", () => ({
     <div data-testid="timeline" data-diff-nodes={props.diff ? props.diff.nodes.length : "none"} />
   ),
 }));
-vi.mock("./SpanInfoPanel", () => ({ SpanInfoPanel: () => <div data-testid="span-info" /> }));
+// The detail panel reports the diff it was given.
+vi.mock("./SpanInfoPanel", () => ({
+  SpanInfoPanel: (props: {
+    diff?: {
+      node: { id: string } | null;
+      layout: string;
+      onLayoutChange: (layout: string) => void;
+      root?: { body?: React.ReactNode };
+      sides?: { candidate: { label: string } };
+      reconstructed?: { baseline: boolean; candidate: boolean };
+    };
+  }) => (
+    <div
+      data-testid="span-info"
+      data-diff-node={props.diff ? (props.diff.node?.id ?? "root") : "none"}
+      data-layout={props.diff?.layout}
+      data-candidate={props.diff?.sides?.candidate.label}
+      data-reconstructed={
+        props.diff?.reconstructed &&
+        (["baseline", "candidate"] as const).filter((s) => props.diff!.reconstructed![s]).join(",")
+      }
+    >
+      {props.diff?.root?.body}
+      <button type="button" onClick={() => props.diff?.onLayoutChange("inline")}>
+        inline-layout
+      </button>
+    </div>
+  ),
+}));
 vi.mock("./TraceDetectorsTab", () => ({ TraceDetectorsTab: () => null }));
 vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
   AiAssistantPanel: () => null,
@@ -390,5 +418,61 @@ describe("TraceViewerPanel diff mode in the tree", () => {
     expect(screen.getByTestId("timeline").dataset.diffNodes).toBe("none");
     fireEvent.click(screen.getByRole("button", { name: "Diff" }));
     expect(screen.getByTestId("timeline").dataset.diffNodes).toBe("5");
+  });
+});
+
+describe("TraceViewerPanel diff mode in the details", () => {
+  const info = () => screen.getByTestId("span-info");
+
+  it("hands the details the selected span's node, and the host's case at the root", () => {
+    renderPanel({
+      diffBaseline: {
+        trace: BASELINE,
+        root: { body: <p>Case outputs</p> },
+        sides: { baseline: { label: "Baseline" }, candidate: { label: "Candidate" } },
+      },
+      defaultDiffOn: true,
+    });
+    expect(info().dataset.diffNode).toBe("root");
+    expect(screen.getByText("Case outputs")).toBeTruthy();
+    expect(info().dataset.candidate).toBe("Candidate");
+
+    fireEvent.click(screen.getByText("select-baseline-search"));
+    expect(info().dataset.diffNode).toBe("baseline:b1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+    expect(info().dataset.diffNode).toBe("none");
+  });
+
+  it("tells the details which side is a reconstruction", () => {
+    renderPanel({ diffBaseline: { trace: BASELINE }, defaultDiffOn: true });
+    expect(info().dataset.reconstructed).toBe("");
+    cleanup();
+    renderPanel({ diffBaseline: { trace: BASELINE, reconstructed: true }, defaultDiffOn: true });
+    expect(info().dataset.reconstructed).toBe("baseline");
+    cleanup();
+    renderPanel({
+      diffBaseline: { trace: BASELINE },
+      defaultDiffOn: true,
+      traceOverride: CANDIDATE,
+    });
+    expect(info().dataset.reconstructed).toBe("candidate");
+  });
+
+  it("keeps the diff layout as the selection moves", () => {
+    renderPanel({ diffBaseline: { trace: BASELINE }, defaultDiffOn: true });
+    expect(info().dataset.layout).toBe("columns");
+    fireEvent.click(screen.getByText("inline-layout"));
+    fireEvent.click(screen.getByText("select-baseline-search"));
+    expect(info().dataset.layout).toBe("inline");
+  });
+
+  it("shows the host's case at the root even with no baseline trace", () => {
+    renderPanel({
+      diffBaseline: { trace: null, unavailable: "No result", root: { body: <p>Case outputs</p> } },
+      defaultDiffOn: true,
+    });
+    expect(info().dataset.diffNode).toBe("root");
+    expect(screen.getByText("Case outputs")).toBeTruthy();
   });
 });

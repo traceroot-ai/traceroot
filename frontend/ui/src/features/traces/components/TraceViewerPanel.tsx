@@ -39,6 +39,8 @@ import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 import { traceUnion } from "@/lib/eval/union-tree";
 import { DiffToggle, DivergenceChip } from "./TraceDiffControls";
 import { findUnionNode } from "../utils/diff";
+import type { SpanInfoDiff } from "./SpanDiffDetail";
+import type { DiffLayout } from "./ValueDiff";
 
 /** A baseline trace of the same case, for the viewer's diff mode. */
 export interface TraceDiffBaseline {
@@ -49,6 +51,11 @@ export interface TraceDiffBaseline {
   reconstructed?: boolean;
   /** Why there is no baseline trace, said in place of the divergence. */
   unavailable?: ReactNode;
+  /** At the trace root in diff mode: chips and boxes of the host's own in place of the
+   *  root's figures and Input, Output and Metadata (the comparison's case). */
+  root?: SpanInfoDiff["root"];
+  /** How each side is named in a diff. */
+  sides?: SpanInfoDiff["sides"];
 }
 
 interface TraceViewerPanelProps {
@@ -274,6 +281,8 @@ export function TraceViewerPanel({
   // Diff mode is only on offer with a baseline; it then stays as left while the host moves
   // the panel from case to case.
   const [diffOn, setDiffOn] = useState(defaultDiffOn ?? false);
+  // Side by side or inline, for every box, as the selection and the case move.
+  const [diffLayout, setDiffLayout] = useState<DiffLayout>("columns");
   const diffing = !!diffBaseline && diffOn;
   // With a notice there is no trace to fetch, stream or look findings up for.
   const showsTrace = !notice;
@@ -401,6 +410,27 @@ export function TraceViewerPanel({
     deepLinkRef.current.pending = null;
     setSelection({ type: "span", span });
   }, [traceId, initialSpanId, trace]);
+  // The details compare the selected span with its counterpart; at the root, the host's
+  // own content, or the two whole traces.
+  const spanDiff = useMemo((): SpanInfoDiff | undefined => {
+    if (!diffing) return undefined;
+    const common = {
+      baseline: baselineTrace,
+      measured,
+      reconstructed: { baseline: !!diffBaseline.reconstructed, candidate: !!traceOverride },
+      root: diffBaseline.root,
+      sides: diffBaseline.sides,
+      layout: diffLayout,
+      onLayoutChange: setDiffLayout,
+    };
+    if (selection.type === "trace") {
+      return baselineTrace || diffBaseline.root ? { ...common, node: null } : undefined;
+    }
+    const node =
+      union && findUnionNode(union.nodes, selection.span, baselineTrace?.trace_id ?? null);
+    return node ? { ...common, node } : undefined;
+  }, [diffing, diffBaseline, baselineTrace, measured, traceOverride, diffLayout, selection, union]);
+
   // A span only the baseline has, picked in diff mode, isn't in this trace: once the union
   // no longer has it (diff mode off, another baseline), the selection goes back to the root.
   useEffect(() => {
@@ -831,6 +861,7 @@ export function TraceViewerPanel({
                         headerAction={spanHeaderAction?.(selection)}
                         extraTags={spanExtraTags?.(selection)}
                         isEvalShaped={!!traceOverride}
+                        diff={spanDiff}
                       />
                     ) : (
                       <SpanTimelineView

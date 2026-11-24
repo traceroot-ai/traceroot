@@ -61,3 +61,50 @@ export function stringifyMetadataEntries(entries: readonly MetadataEntry[]): str
 export function traceMetadataEntries(trace: TraceListItem): MetadataEntry[] {
   return parseMetadataEntries(trace.metadata_map);
 }
+
+/** The keys a trace's span list carries in place of each span's stored metadata. */
+const SPAN_PATH_KEYS = new Set(["traceroot.span.path", "traceroot.span.ids_path"]);
+
+/**
+ * True when a span's metadata is only the SDK's span path, as a trace's span list carries
+ * it: a stand-in from which the stored value can't be told, since that is fetched per span.
+ */
+export function isPathOnlyMetadata(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const keys = Object.keys(JSON.parse(raw) ?? {});
+    return keys.length > 0 && keys.every((k) => SPAN_PATH_KEYS.has(k));
+  } catch {
+    return false;
+  }
+}
+
+/** Set by an SDK whose redaction function ran on this span before export. */
+const REDACTED_ATTRIBUTE = "traceroot.redacted";
+
+/**
+ * Drop internal `traceroot.span.*` keys and the redaction marker (shown as a header chip) so
+ * the Metadata panel shows only user metadata. Not the whole `traceroot.` namespace: SDK
+ * helpers record user-set values such as `traceroot.llm.model_parameters` here too.
+ */
+export function splitInternalMetadata(raw: string | null | undefined): {
+  metadata: string | null;
+  redacted: boolean;
+} {
+  if (!raw) return { metadata: raw ?? null, redacted: false };
+  try {
+    const parsed = JSON.parse(raw);
+    // Only an object has keys to drop; any other JSON value is shown as stored.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { metadata: raw, redacted: false };
+    }
+    const filtered = Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([k]) => !k.startsWith("traceroot.span.") && k !== REDACTED_ATTRIBUTE,
+      ),
+    );
+    return { metadata: JSON.stringify(filtered), redacted: parsed[REDACTED_ATTRIBUTE] === true };
+  } catch {
+    return { metadata: raw, redacted: false };
+  }
+}

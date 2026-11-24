@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { TraceListItem } from "@/types/api";
 import {
+  isPathOnlyMetadata,
   parseMetadataEntries,
+  splitInternalMetadata,
   stringifyMetadataEntries,
   traceMetadataEntries,
   unstructuredMetadataText,
@@ -140,6 +142,47 @@ describe("unstructuredMetadataText", () => {
   it("returns null for absent or blank metadata", () => {
     expect(unstructuredMetadataText(null)).toBeNull();
     expect(unstructuredMetadataText("   ")).toBeNull();
+  });
+});
+
+describe("isPathOnlyMetadata", () => {
+  it("is true for the span path alone, as a trace's span list carries a span's metadata", () => {
+    expect(
+      isPathOnlyMetadata(
+        '{"traceroot.span.ids_path":["s0"],"traceroot.span.path":["agent","plan"]}',
+      ),
+    ).toBe(true);
+  });
+
+  it("is false for a stored value, or for none", () => {
+    expect(isPathOnlyMetadata('{"temperature":0,"traceroot.span.path":["agent"]}')).toBe(false);
+    expect(isPathOnlyMetadata("{}")).toBe(false);
+    expect(isPathOnlyMetadata("plain note")).toBe(false);
+    expect(isPathOnlyMetadata(null)).toBe(false);
+  });
+});
+
+describe("splitInternalMetadata", () => {
+  it("drops the SDK's span keys and reads the redaction marker", () => {
+    expect(
+      splitInternalMetadata(
+        '{"temperature":0,"traceroot.span.path":["agent"],"traceroot.redacted":true}',
+      ),
+    ).toEqual({ metadata: '{"temperature":0}', redacted: true });
+  });
+
+  it("keeps metadata that is JSON but not an object as stored", () => {
+    for (const raw of ["42", "[1,2]", '"note"', "true", "null"]) {
+      expect(splitInternalMetadata(raw)).toEqual({ metadata: raw, redacted: false });
+    }
+  });
+
+  it("keeps metadata that isn't JSON as stored", () => {
+    expect(splitInternalMetadata("plain note")).toEqual({
+      metadata: "plain note",
+      redacted: false,
+    });
+    expect(splitInternalMetadata(null)).toEqual({ metadata: null, redacted: false });
   });
 });
 
