@@ -25,8 +25,10 @@ import {
   type CellState,
   type LineFailure,
 } from "./cell-state";
+import { isShown, metricColumn, type ColumnId, type DisplayPrefs } from "./display";
 import { formatCost, formatMetricDelta, formatMs, signedWith } from "./metric-format";
 import type { ScorerColumn } from "./model";
+import { changedWords } from "./output-highlight";
 import { formatScore, MismatchMarker } from "./score-cell";
 
 /** One run's value in a scorer column: what it recorded, with the change the comparison
@@ -88,7 +90,7 @@ function MeasureValue({
 
 /** Why the line has nothing to show, said once: "No result in this run", or "Task error ·"
  *  and the task's own message (in full on hover when it is clipped). */
-function LineMessage({ failure }: { failure: LineFailure }) {
+function LineMessage({ failure, wrap }: { failure: LineFailure; wrap: boolean }) {
   if (failure.kind === "no_result") {
     return <span className="text-muted-foreground">No result in this run</span>;
   }
@@ -101,7 +103,7 @@ function LineMessage({ failure }: { failure: LineFailure }) {
             ·
           </span>
           <span className="min-w-0 flex-1">
-            <TextValue text={failure.message} />
+            <TextValue text={failure.message} wrap={wrap} />
           </span>
         </>
       )}
@@ -112,9 +114,10 @@ function LineMessage({ failure }: { failure: LineFailure }) {
 /**
  * One run's line in a case's group: its Run cell, then its output, metrics, latency and
  * cost. The baseline's line is muted and shows values only; every other line shows its
- * value and the change the comparison found against the baseline. The group's first line
- * also carries the cells spanning the group (Input before Run, Expected after Output) and
- * is the group's tab stop.
+ * value and the change the comparison found against the baseline, and marks the words of
+ * its output that differ from the reference the viewer chose (`DisplayPrefs.diff`). The
+ * group's first line also carries the cells spanning the group (Input before Run,
+ * Expected after Output) and is the group's tab stop.
  *
  * A run with nothing to show on the line says so once (`lineFailure`): no result in the
  * output's place, with one empty cell across the rest; a failed task across the metric
@@ -130,6 +133,7 @@ export function CaseLine({
   baselineResult,
   pairCase,
   scorers,
+  display,
   dot,
   tag,
   label,
@@ -138,6 +142,7 @@ export function CaseLine({
   input,
   expected,
   tabStop,
+  outputActions,
 }: {
   runId: string;
   /** The run's result for the case; absent when it has none. */
@@ -148,6 +153,7 @@ export function CaseLine({
   /** The pair's comparison of the case; absent on the baseline's own line. */
   pairCase: ResultComparison | undefined;
   scorers: readonly ScorerColumn[];
+  display: DisplayPrefs;
   dot: string;
   tag: string;
   /** The run's tag and version, for the Run cell's tooltip. */
@@ -161,23 +167,51 @@ export function CaseLine({
   /** On the first line: the group's tab stop, whether its case is open, and the text
    *  telling how to open it. */
   tabStop?: { order: number; open: boolean; describedBy?: string };
+  /** The output's own controls, while the group is in use. */
+  outputActions?: React.ReactNode;
 }) {
+  const shows = (id: ColumnId) => isShown(display, id);
+  const wrap = display.text === "wrap";
   const edge = lineEdge(last);
+  const metrics = scorers.filter((s) => shows(metricColumn(s.name)));
   const failure = lineFailure(
     result,
     scorers.map((s) => s.name),
   );
-  const message = failure && <LineMessage failure={failure} />;
+  const message = failure && <LineMessage failure={failure} wrap={wrap} />;
+  // A candidate's output marks the words that changed against the baseline's output or the
+  // expected one, as the viewer chose; the baseline's own line is never marked.
+  const recorded = result?.candidateOutput;
+  const reference =
+    isBaseline || display.diff === "off"
+      ? null
+      : display.diff === "baseline"
+        ? baselineResult?.candidateOutput
+        : result?.expectedOutput;
+  const changes = React.useMemo(
+    () => (recorded ? changedWords(recorded, reference) : null),
+    [recorded, reference],
+  );
   // What the line says where its output would be.
   const output = () => {
-    if (!result || (failure && scorers.length === 0)) return message;
+    if (!result || (failure && metrics.length === 0)) return message;
     // A failed task whose scorers recorded something keeps the failure in this column.
     const taskError = taskErrorOf(result);
     if (taskError !== null && !failure) {
       return <CellStateLabel state={{ kind: "task_error", message: taskError }} />;
     }
-    return <TextValue text={result.candidateOutput} />;
+    return (
+      <TextValue
+        text={result.candidateOutput}
+        wrap={wrap}
+        actions={outputActions}
+        changes={changes}
+      />
+    );
   };
+  // With no result, everything after Output is one empty cell (holding the message only
+  // when Output is hidden). `max-w-0` keeps a long message from widening the columns.
+  const restSpan = metrics.length + (shows("latency") ? 1 : 0) + (shows("cost") ? 1 : 0);
   const baseValue = (get: (r: ResultRow) => number | null) =>
     isBaseline ? undefined : baselineResult ? get(baselineResult) : null;
   const measure = (get: (r: ResultRow) => number | null, fmt: (n: number) => string) =>
@@ -195,7 +229,7 @@ export function CaseLine({
       aria-current={tabStop?.open || undefined}
       aria-describedby={tabStop?.describedBy}
       className={cn(
-        lineClass(first, last),
+        lineClass(display.density, first, last),
         isBaseline && "text-muted-foreground",
         tabStop &&
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
@@ -209,18 +243,20 @@ export function CaseLine({
         isBaseline={isBaseline}
         className={cn(RUN_COLUMN, PINNED_FILL, edge)}
       />
-      <Td className={cn("max-w-[320px] align-top", edge)}>{output()}</Td>
+      {shows("output") && <Td className={cn("max-w-[320px] align-top", edge)}>{output()}</Td>}
       {expected}
       {!result ? (
-        // With no result, everything after Output is one empty cell. `max-w-0` keeps it
-        // from widening the columns.
-        <Td colSpan={scorers.length + 2} className={cn("max-w-0 align-top", edge)} />
-      ) : failure && scorers.length > 0 ? (
-        <Td colSpan={scorers.length} className={cn("max-w-0 align-top", edge)}>
+        restSpan > 0 && (
+          <Td colSpan={restSpan} className={cn("max-w-0 align-top", edge)}>
+            {!shows("output") && message}
+          </Td>
+        )
+      ) : failure && metrics.length > 0 ? (
+        <Td colSpan={metrics.length} className={cn("max-w-0 align-top", edge)}>
           {message}
         </Td>
       ) : (
-        scorers.map((s) => (
+        metrics.map((s) => (
           <Td
             key={s.name}
             className={cn(
@@ -237,8 +273,8 @@ export function CaseLine({
           </Td>
         ))
       )}
-      {measure((r) => r.durationMs, formatMs)}
-      {measure((r) => r.cost, formatCost)}
+      {shows("latency") && measure((r) => r.durationMs, formatMs)}
+      {shows("cost") && measure((r) => r.cost, formatCost)}
     </tr>
   );
 }

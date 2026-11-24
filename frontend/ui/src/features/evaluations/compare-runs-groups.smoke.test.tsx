@@ -62,7 +62,10 @@ beforeEach(() => {
     })),
   );
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
 
 const mount = () => {
   const onInspect = vi.fn();
@@ -148,6 +151,13 @@ describe("CompareRunsView — one line per run", () => {
   });
 });
 
+/** Hide `columns` before mounting, as the Display menu would. */
+const hiding = (...columns: string[]) =>
+  window.localStorage.setItem(
+    "traceroot:compare-display:p1",
+    JSON.stringify({ density: "compact", text: "clip", hidden: columns }),
+  );
+
 describe("CompareRunsView — a run without values", () => {
   it("says once, across the metric columns, that a run's task failed", () => {
     mount();
@@ -195,6 +205,26 @@ describe("CompareRunsView — a run without values", () => {
       "80.0%−5.0 pp",
     ]);
   });
+
+  it("still says it when the columns it would span are hidden", () => {
+    hiding(`metric:${QUALITY}`, `metric:${POLICY}`, `metric:${ROUTE}`, "output");
+    mount();
+    // With Output and every metric hidden, a missing run is said in the one cell left,
+    // across latency and cost.
+    const missing = caseGroup("Ticket 9");
+    expect(shownText(cellAt(missing, CANDIDATE_RUN.id, "Latency"))).toBe("No result in this run");
+    expect(cellAt(missing, CANDIDATE_RUN.id, "Latency").colSpan).toBe(2);
+  });
+
+  it("says a failed task in the output's place when no metric column is shown", () => {
+    hiding(`metric:${QUALITY}`, `metric:${POLICY}`, `metric:${ROUTE}`);
+    mount();
+    const group = caseGroup("Ticket 6");
+    expect(shownText(cellAt(group, CANDIDATE_RUN.id, "Output"))).toBe(
+      "Task error·Upstream timeout",
+    );
+    expect(shownText(cellAt(group, CANDIDATE_RUN.id, "Latency"))).toBe("1.2s+200ms");
+  });
 });
 
 describe("CompareRunsView — a search that picks no case", () => {
@@ -240,9 +270,14 @@ describe("CompareRunsView — a run with no latency or cost", () => {
 });
 
 describe("CompareRunsView — a group as one target", () => {
-  it("highlights the whole group on hover", () => {
+  it("highlights the whole group on hover, and builds every line's controls", () => {
     mount();
-    expect(caseGroup("Ticket 2").className).toContain("hover:bg-muted");
+    const group = caseGroup("Ticket 2");
+    expect(group.className).toContain("hover:bg-muted");
+    expect(within(group).queryByRole("button", { name: "Copy #3 output" })).toBeNull();
+    fireEvent.mouseEnter(lineOf(group, CANDIDATE_RUN.id));
+    expect(within(group).getByRole("button", { name: "Copy #3 output" })).toBeTruthy();
+    expect(within(group).getByRole("button", { name: "Copy #1 output" })).toBeTruthy();
   });
 
   it("opens the case on the run of the line clicked, and the baseline's line on the default pair", () => {

@@ -31,6 +31,7 @@ import { SummaryGroup } from "../compare/summary-group";
 import { ComparisonHead } from "../compare/table-head";
 import { CaseToolbar } from "../compare/toolbar";
 import { useCaseAnalysis } from "../compare/use-analysis";
+import { useDisplay } from "../compare/use-display";
 
 // A run comparison is N runs (2+) lined up case-by-case, anchored on the baseline run
 // (alignment lives in `../compare/model`). Each case is a group of lines, one per run,
@@ -71,6 +72,7 @@ export function CompareRunsView({
   const place = JSON.stringify([runIds, baselineId]);
   const [analysis, setAnalysis, commitAnalysis] = useCaseAnalysis(fromUrl, onChangeAnalysis, place);
   const searchRef = React.useRef<HTMLInputElement>(null);
+  const [display, setDisplay] = useDisplay(projectId);
   // The Runs menu opens from its button, or on its picker from the empty state of runs
   // with nothing in common.
   const [runsMenu, setRunsMenu] = React.useState<RunsMenuView | null>(null);
@@ -158,7 +160,8 @@ export function CompareRunsView({
       <div className="flex h-full flex-col text-[12px]">
         <ProjectBreadcrumb projectId={projectId} current="Run Comparison" />
 
-        {/* Search, filters and sort, then the runs, whose menu also picks the baseline. */}
+        {/* Search, filters, sort, layout and the runs (whose menu also picks the
+            baseline), then export. */}
         <CaseToolbar
           projectId={projectId}
           model={model}
@@ -172,6 +175,8 @@ export function CompareRunsView({
           tagOf={tagOf}
           disabled={isLoading}
           filtersRef={filtersButton}
+          display={display}
+          onChangeDisplay={setDisplay}
           runs={
             <RunsMenu
               count={runIds.length}
@@ -271,7 +276,7 @@ export function CompareRunsView({
             <ScopeLine model={model} matching={filtering ? visible.length : null} tagOf={tagOf} />
             <div ref={inspector.tableRef} className="min-h-0 flex-1 overflow-auto">
               <Table className={COMPARISON_TABLE}>
-                <ComparisonHead model={model} />
+                <ComparisonHead model={model} display={display} />
                 <SummaryGroup
                   model={model}
                   pairs={summaryPairs}
@@ -282,6 +287,7 @@ export function CompareRunsView({
                   onToggleFilter={(f) =>
                     setAnalysis({ ...analysis, filters: toggleFilter(analysis.filters, f) })
                   }
+                  display={display}
                   filtering={filtering}
                 />
                 <ComparisonBody
@@ -292,6 +298,7 @@ export function CompareRunsView({
                   dotFor={dotFor}
                   labelOf={labelOf}
                   tagOf={tagOf}
+                  display={display}
                   rowProps={inspector.rowProps}
                   clearLabel={clearLabel(analysis)}
                   onClear={() => {

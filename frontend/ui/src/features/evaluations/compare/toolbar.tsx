@@ -5,6 +5,8 @@ import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { DisplayPrefs } from "./display";
+import { DisplayMenu } from "./display-menu";
 import { ExportMenu } from "./export-menu";
 import { FilterMenu } from "./filter-menu";
 import {
@@ -20,8 +22,8 @@ import { SortSelect } from "./sort-select";
 
 /**
  * Above the comparison table, one row under one rule: the search, the Filters menu, the
- * Sort control and `runs` (the Runs menu), left-aligned, with the Export menu at its end.
- * Active filters wrap onto a row of their own beneath it, each removable.
+ * Sort control, the Display menu and `runs` (the Runs menu), left-aligned, with the Export
+ * menu at its end. Active filters wrap onto a row of their own beneath it, each removable.
  */
 export function CaseToolbar({
   projectId,
@@ -36,6 +38,8 @@ export function CaseToolbar({
   tagOf,
   disabled = false,
   filtersRef,
+  display,
+  onChangeDisplay,
   runs,
 }: {
   projectId: string;
@@ -58,7 +62,10 @@ export function CaseToolbar({
   disabled?: boolean;
   /** The Filters button: a removed chip or Clear takes its focus with it, so it goes here. */
   filtersRef: React.RefObject<HTMLButtonElement | null>;
-  /** The Runs menu, after Sort. */
+  /** The viewer's table layout. */
+  display: DisplayPrefs;
+  onChangeDisplay: (next: DisplayPrefs) => void;
+  /** The Runs menu, after Display. */
   runs: React.ReactNode;
 }) {
   const { filters } = analysis;
@@ -99,6 +106,7 @@ export function CaseToolbar({
           disabled={disabled}
           onChange={(sort) => onChange({ ...analysis, sort })}
         />
+        <DisplayMenu scorers={model.scorers} display={display} onChange={onChangeDisplay} />
         {runs}
         <div className="ml-auto">
           <ExportMenu
