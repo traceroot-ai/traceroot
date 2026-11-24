@@ -69,6 +69,14 @@ const DAY_MS = 86_400_000;
 // rejects a range the rule's window divides into more points than this.
 export const MAX_PREVIEW_BUCKETS = 500;
 
+/**
+ * The grain the server picks once a range is past the cap. Mirrors
+ * `_pick_granularity` in backend/rest/services/widget_query.py.
+ */
+export function fallbackGrain(range: TimeRange): "hourly" | "daily" {
+  return range.end.getTime() - range.start.getTime() > 2 * DAY_MS ? "daily" : "hourly";
+}
+
 function rangeFor(
   option: DateFilterOption,
   customStart: Date | null,
@@ -305,9 +313,8 @@ export function AlertPreview({
           window, so the threshold below is not what the rule compares against. */}
       {!fitsBucket && (
         <div className="border-b border-border px-4 py-1.5 text-[11px] text-muted-foreground">
-          Showing {range.end.getTime() - range.start.getTime() > 2 * DAY_MS ? "daily" : "hourly"}{" "}
-          totals, but this rule checks every {window}. Pick a shorter range to compare with the
-          threshold.
+          Showing {fallbackGrain(range)} totals, but this rule checks every {window}. Pick a shorter
+          range to compare with the threshold.
         </div>
       )}
       <div className="min-h-0 flex-1 p-4">

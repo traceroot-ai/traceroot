@@ -35,7 +35,7 @@ vi.mock("@/features/dashboards/hooks/use-widget-data", () => ({
   useWidgetPreview: mocks.useWidgetPreview,
 }));
 
-import { AlertPreview } from "./alert-preview";
+import { AlertPreview, fallbackGrain } from "./alert-preview";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
 
 type PreviewOverrides = Partial<React.ComponentProps<typeof AlertPreview>>;
@@ -223,5 +223,13 @@ describe("AlertPreview", () => {
     // 10m over 24 hours is 144 buckets: the chart is at the rule's grain, so no note.
     const { container: fits } = renderPreview({ window: "10m", threshold: "100" });
     expect(fits.textContent).not.toContain("Showing hourly totals");
+  });
+
+  it("names the grain the server falls back to: hourly up to two days, daily past that", () => {
+    const end = new Date("2026-11-24T12:00:00Z");
+    const back = (days: number) => ({ start: new Date(end.getTime() - days * 86_400_000), end });
+    expect(fallbackGrain(back(1))).toBe("hourly");
+    expect(fallbackGrain(back(2))).toBe("hourly");
+    expect(fallbackGrain(back(7))).toBe("daily");
   });
 });
