@@ -1,7 +1,8 @@
 /**
  * processLoopRun against a real Postgres with the migrations applied: the
  * start's gates and daily cap, the run's finish and the Loop's failure streak.
- * The agent service (fetch) and the model resolver are faked. Skipped unless
+ * The agent service (fetch), the model resolver and the window's trace check
+ * are faked. Skipped unless
  * TEST_DATABASE_URL is set:
  *   TEST_DATABASE_URL=postgresql://... pnpm --filter traceroot-worker test db.test
  *
@@ -23,7 +24,7 @@ import {
   LOOP_PLAN_SKIP,
   startLoopRun,
 } from "../../loops/start.js";
-import { processLoopRun } from "../loop-run-processor.js";
+import { noTracesSkip, processLoopRun } from "../loop-run-processor.js";
 
 vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret-0123456789abcdef");
 
@@ -35,10 +36,11 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     : actual;
 });
 
-const mocks = vi.hoisted(() => ({ resolveProjectModel: vi.fn() }));
+const mocks = vi.hoisted(() => ({ resolveProjectModel: vi.fn(), windowHasTraces: vi.fn() }));
 vi.mock("../../agent/resolve-model.js", () => ({
   resolveProjectModel: mocks.resolveProjectModel,
 }));
+vi.mock("../../loops/window-traces.js", () => ({ windowHasTraces: mocks.windowHasTraces }));
 
 const url = process.env.TEST_DATABASE_URL;
 const suffix = Math.random().toString(36).slice(2, 8);
@@ -166,6 +168,7 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       providerName: "anthropic",
       source: "system",
     });
+    mocks.windowHasTraces.mockReset().mockResolvedValue(true);
     agentAnswers({});
   });
   afterEach(() => {
@@ -445,6 +448,70 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       agentAnswers({ status: "error", summary: null, error: "Provider refused\nstack..." });
       await runJob(run.id);
       expect(await runRow(run.id)).toMatchObject({ status: "failed", error: "Provider refused" });
+    });
+  });
+
+  describe("an empty window", () => {
+    it("skips the run without calling the agent", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      mocks.windowHasTraces.mockResolvedValue(false);
+      await runJob(run.id);
+
+      expect(mocks.windowHasTraces).toHaveBeenCalledWith(ids.projectId, 24);
+      expect(fetchMock).not.toHaveBeenCalled();
+      const after = await runRow(run.id);
+      expect(after).toMatchObject({
+        status: "skipped_no_traces",
+        error: noTracesSkip(24),
+        sessionId: null,
+        summary: null,
+      });
+      expect(after.startedAt).toBeInstanceOf(Date);
+      expect(after.finishedAt).toBeInstanceOf(Date);
+      // It did not run: the Loop's last run stays as it was.
+      expect((await loopRow(ids.loopId)).lastRunAt).toBeNull();
+    });
+
+    it("leaves a scheduled loop's failure streak alone", async () => {
+      const ids = await setup({ loop: { failureStreak: LOOP_LIMITS.failureStreakToPause - 1 } });
+      mocks.windowHasTraces.mockResolvedValue(false);
+      for (let i = 0; i < 3; i++) {
+        await runJob((await addRun(ids, { trigger: "schedule" })).id);
+      }
+      expect(await loopRow(ids.loopId)).toMatchObject({
+        failureStreak: LOOP_LIMITS.failureStreakToPause - 1,
+        status: "active",
+      });
+    });
+
+    it("does not count toward the daily cap", async () => {
+      const ids = await setup();
+      for (let i = 0; i < LOOP_LIMITS.runsPerProjectPerDay; i++) {
+        await addRun(ids, { status: "skipped_no_traces" });
+      }
+      const run = await addRun(ids);
+      await runJob(run.id);
+      expect((await runRow(run.id)).status).toBe("quiet");
+    });
+
+    it("still fails a run whose model cannot be resolved", async () => {
+      const ids = await setup({ loop: { model: "gpt-5", provider: "my-openai", source: "byok" } });
+      mocks.resolveProjectModel.mockResolvedValue({ error: "BYOK provider is gone" });
+      mocks.windowHasTraces.mockResolvedValue(false);
+      const run = await addRun(ids, { trigger: "schedule" });
+      await runJob(run.id);
+      expect((await runRow(run.id)).status).toBe("failed");
+      expect(mocks.windowHasTraces).not.toHaveBeenCalled();
+    });
+
+    it("calls the agent when the check itself fails", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      mocks.windowHasTraces.mockRejectedValue(new Error("Backend down"));
+      await runJob(run.id);
+      expect((await runRow(run.id)).status).toBe("quiet");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 

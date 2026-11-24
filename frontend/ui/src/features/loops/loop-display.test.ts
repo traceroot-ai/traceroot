@@ -97,5 +97,7 @@ describe("status and outcome wording", () => {
     expect(runOutcomeLabel("skipped_blocked", 0)).toBe("Skipped (plan limit)");
     expect(runOutcomeLabel("skipped_paused", 0)).toBe("Skipped (loop paused)");
     expect(runStatusShort("skipped_paused")).toBe("Skipped");
+    expect(runOutcomeLabel("skipped_no_traces", 0)).toBe("Skipped (no new traces)");
+    expect(runStatusShort("skipped_no_traces")).toBe("Skipped");
   });
 });
