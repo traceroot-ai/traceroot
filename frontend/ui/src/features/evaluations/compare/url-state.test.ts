@@ -26,7 +26,7 @@ describe("parseCompareUrl", () => {
       q: "refund",
       filters: [
         { kind: "regressed", scorer: "quality", runId: "c" },
-        { kind: "errors", scorer: "any", runId: "any" },
+        { kind: "errors", scorer: null, runId: "any" },
       ],
       sort: { kind: "regression", scorer: "quality", runId: "c" },
     });
@@ -68,7 +68,7 @@ describe("parseCompareUrl", () => {
     expect(parse("f=regressed:quality:a&f=regressed:quality:a").filters).toHaveLength(1);
     // An unmatched filter has no scorer, so two that name different ones are the same.
     expect(parse("f=unmatched:quality:a&f=unmatched:any:a").filters).toEqual([
-      { kind: "unmatched", scorer: "any", runId: "a" },
+      { kind: "unmatched", scorer: null, runId: "a" },
     ]);
   });
 });
@@ -121,7 +121,7 @@ describe("serializeCompareUrl", () => {
     for (const name of names) {
       const filters: CaseFilter[] = [
         { kind: "changed", scorer: name, runId: "run:2" },
-        { kind: "errors", scorer: "any", runId: "any" },
+        { kind: "errors", scorer: null, runId: "any" },
       ];
       const state: CompareUrlState = {
         ...EMPTY,
@@ -137,12 +137,27 @@ describe("serializeCompareUrl", () => {
   it("round-trips every filter kind", () => {
     const filters: CaseFilter[] = [
       { kind: "improved", scorer: "quality", runId: "b" },
-      { kind: "regressed", scorer: "any", runId: "c" },
+      { kind: "regressed", scorer: null, runId: "c" },
       { kind: "changed", scorer: "route", runId: "any" },
       { kind: "errors", scorer: "quality", runId: "a" },
-      { kind: "unmatched", scorer: "any", runId: "b" },
+      { kind: "unmatched", scorer: null, runId: "b" },
     ];
     expect(roundTrip({ ...EMPTY, filters }).filters).toEqual(filters);
+  });
+
+  it("tells a metric named any from any metric, and still reads `any` as any metric", () => {
+    const sort = { kind: "regression", scorer: "any", runId: "b" } as const;
+    expect(roundTrip({ ...EMPTY, sort }).sort).toEqual(sort);
+    const filters: CaseFilter[] = [
+      { kind: "regressed", scorer: "any", runId: "b" },
+      { kind: "regressed", scorer: null, runId: "b" },
+    ];
+    expect(roundTrip({ ...EMPTY, filters }).filters).toEqual(filters);
+    // Any metric is still written, and read, as it always was.
+    expect(serializeCompareUrl({ ...EMPTY, filters: [filters[1]] })).toBe("f=regressed:any:b");
+    expect(parse("f=errors:any:any").filters).toEqual([
+      { kind: "errors", scorer: null, runId: "any" },
+    ]);
   });
 
   it("keeps unknown parameters through a round trip", () => {
