@@ -115,7 +115,7 @@ export function CaseToolbar({
             const text = describeFilter(filter, tagOf);
             return (
               <Badge
-                key={`${filter.kind}:${filter.scorer}:${filter.runId}`}
+                key={JSON.stringify(filter)}
                 variant="foreground"
                 className="h-6 gap-1 py-0 pr-0.5 font-normal"
               >

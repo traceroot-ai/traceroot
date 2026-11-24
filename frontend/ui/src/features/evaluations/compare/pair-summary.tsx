@@ -216,6 +216,7 @@ export function ScorerSummary({
   if (agg.baselineMean === null || agg.candidateMean === null || agg.delta === null) {
     return <SummaryValue main="—" sub={sub} />;
   }
+  // Coloured by the pair's own direction, the one its improved and regressed counts used.
   return (
     <SummaryValue
       main={
@@ -225,7 +226,7 @@ export function ScorerSummary({
           delta={agg.delta}
           fmt={(v) => formatMetricValue(v, column.format)}
           deltaText={formatMetricDelta(agg.delta, column.format)}
-          direction={column.direction}
+          direction={agg.direction}
         />
       }
       sub={sub}

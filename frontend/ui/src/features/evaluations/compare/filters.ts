@@ -22,9 +22,10 @@ export const FILTER_KINDS: readonly FilterKind[] = [
 
 export interface CaseFilter {
   kind: FilterKind;
-  /** A scorer's name, or any scorer. */
-  scorer: string | "any";
-  /** A run's id, or any run (any candidate, for improved, regressed and changed). */
+  /** A scorer's name, or null for any scorer (a scorer may be named anything, "any" too). */
+  scorer: string | null;
+  /** A run's id, or any run (any candidate, for improved, regressed and changed). Run ids
+   *  are generated, so none is "any". */
   runId: string | "any";
 }
 
@@ -83,7 +84,7 @@ export const toggleFilter = (filters: CaseFilter[], filter: CaseFilter): CaseFil
     ? filters.filter((f) => !sameFilter(f, filter))
     : [...filters, filter];
 
-const isAny = (value: string) => value === "any";
+const isAny = (runId: string) => runId === "any";
 
 /** `analysis` without the filters and sort that pick nothing once `runIds` are compared
  *  against `baselineId`: a change against the baseline needs a candidate, and errors and
@@ -112,7 +113,7 @@ export function describeFilter(
   { kind, scorer, runId }: CaseFilter,
   tagOf: (runId: string) => string,
 ): string {
-  const metric = kind === "unmatched" ? [] : [isAny(scorer) ? "any metric" : scorer];
+  const metric = kind === "unmatched" ? [] : [scorer ?? "any metric"];
   const run = isAny(runId) ? "any run" : tagOf(runId) || "a run not in this comparison";
   return [FILTER_LABEL[kind], ...metric, run].join(" · ");
 }
@@ -153,10 +154,10 @@ const PICKS: Record<"improved" | "regressed" | "changed", ReadonlySet<Classifica
   changed: new Set(["improved", "regressed", "changed"]),
 };
 
-/** A task error, or a scorer error on `scorer` (on any scorer for "any"), as the table's
+/** A task error, or a scorer error on `scorer` (on any scorer for null), as the table's
  *  cells label them. */
-function hasError(model: CompareModel, result: ResultRow, scorer: string): boolean {
-  if (isAny(scorer)) {
+function hasError(model: CompareModel, result: ResultRow, scorer: string | null): boolean {
+  if (scorer === null) {
     return (
       taskErrorOf(result) !== null ||
       model.scorers.some((s) => scorerCellState(result, s.name).kind === "scorer_error")
@@ -189,7 +190,8 @@ export function matchesFilter(
       pair?.byCase
         .get(row.key)
         ?.scorerCells.some(
-          (cell) => (isAny(scorer) || cell.scorerName === scorer) && picks.has(cell.classification),
+          (cell) =>
+            (scorer === null || cell.scorerName === scorer) && picks.has(cell.classification),
         ) ?? false,
   );
 }

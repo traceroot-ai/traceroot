@@ -10,6 +10,7 @@ import {
   POLICY,
   QUALITY,
   ROUTE,
+  scorerManifest,
 } from "./__tests__/paired-fixture";
 import {
   buildComparisonExport,
@@ -270,6 +271,38 @@ describe("buildComparisonExport — rows", () => {
       notCompared: "Version mismatch",
     });
     expect(toCsv(exp)).toContain("\r\nid:c1,Q1,,b1 output,,passed,1000,0.01,true,,,,");
+  });
+});
+
+describe("buildComparisonExport — a scorer another run records as text", () => {
+  it("gives a numeric pair's change, as its summary and table do", () => {
+    // Bare `{ name, version }` scorers, so each value type comes from what was recorded.
+    const bundles: RunBundle[] = (
+      [
+        ["a", 1, 0.4],
+        ["b", 2, 0.8],
+        ["c", 3, "high"],
+      ] as const
+    ).map(([id, day, value]) => ({
+      run: fixtureRun(id, day, id, `2026-11-0${day}T00:00:00Z`, {
+        scorers: scorerManifest([{ name: QUALITY, version: "1" }]),
+      }),
+      results: [fixtureResult(id, "tc-1", "one", [fixtureScore(QUALITY, value)])],
+    }));
+    const mixed = buildCompareModel(bundles, "a");
+    const exp = buildComparisonExport(mixed, {
+      projectId: "p1",
+      rows: mixed.cases,
+      analysis: NO_ANALYSIS,
+      generatedAt: GENERATED_AT,
+    });
+    expect(scoreOf(exp.rows[0], "b", QUALITY)).toMatchObject({
+      value: 0.8,
+      classification: "improved",
+    });
+    expect(scoreOf(exp.rows[0], "b", QUALITY).change).toBeCloseTo(0.4);
+    // The run that recorded text isn't compared, so it has no change.
+    expect(scoreOf(exp.rows[0], "c", QUALITY)).toMatchObject({ value: "high", change: null });
   });
 });
 

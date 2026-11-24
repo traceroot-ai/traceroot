@@ -4,6 +4,7 @@ import * as React from "react";
 import { useLayout } from "@/components/layout/app-layout";
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 import { TraceViewerPanel, type TraceDiffBaseline } from "@/features/traces/components";
+import { useTraceStream } from "@/features/traces/hooks";
 import { normalizeForDiff } from "@/lib/eval/line-diff";
 import { cn } from "@/lib/utils";
 import { PendingTraceNotice } from "../../components/pending-trace-notice";
@@ -131,6 +132,10 @@ export function CaseInspector({
     candidateResult,
     candidateRun,
   );
+  // The panel streams the candidate's trace while it is ingested; stream the baseline's too,
+  // so its spans that land after the case opens reach the diff instead of reading as added.
+  const baselineLive = baselineTrace.kind === "reported";
+  useTraceStream(projectId, baselineLive ? baselineTrace.traceId : "", baselineLive);
 
   const baselineTag = tagOf(baselineId);
   const candidateTag = tagOf(candidateId);
