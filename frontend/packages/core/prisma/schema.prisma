@@ -201,6 +201,8 @@ model Project {
   alerts                Alert[]
   datasets              Dataset[]
   evaluations           Evaluation[]
+  labels                ProjectLabel[]
+  sdkLabelReceipts      SdkLabelReceipt[]
   workspace             Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   freeQuotaEligible     Boolean              @default(true) @map("free_quota_eligible")
   // When the project first received a trace; see ui/src/lib/trace-activity.ts.
@@ -214,6 +216,62 @@ model Project {
   // blocking the name's reuse.
   @@index([workspaceId], map: "ix_project_workspace_id")
   @@map("projects")
+}
+
+model ProjectLabel {
+  id          String   @id @default(cuid()) @db.VarChar
+  projectId   String   @map("project_id") @db.VarChar
+  name        String   @db.VarChar
+  description String?  @db.Text
+  createdBy   String   @map("created_by") @db.VarChar
+  createTime  DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignments Label[]
+
+  @@unique([projectId, name], map: "uq_project_label_name")
+  @@map("project_labels")
+}
+
+enum LabelSource {
+  HUMAN
+  SDK
+}
+
+model Label {
+  id         String      @id @default(cuid()) @db.VarChar
+  projectId  String      @map("project_id") @db.VarChar
+  traceId    String      @map("trace_id") @db.VarChar
+  // Empty for trace-level labels so target uniqueness can use a regular index.
+  spanId     String      @default("") @map("span_id") @db.VarChar
+  value      String      @db.VarChar
+  source     LabelSource
+  authorId   String?     @map("author_id") @db.VarChar
+  createTime DateTime    @default(now()) @map("create_time") @db.Timestamp(6)
+
+  projectLabel ProjectLabel @relation(fields: [projectId, value], references: [projectId, name], onDelete: Cascade, onUpdate: NoAction)
+
+  // The SQL migration enforces one HUMAN assignment per author, target, and value.
+  // SDK assignments are deduplicated by their project-scoped idempotency key.
+  @@index([projectId, value, traceId], map: "ix_label_project_value_trace")
+  @@index([projectId, traceId, spanId], map: "ix_label_target")
+  @@map("labels")
+}
+
+// Keep the original write result when its label and assignments are deleted.
+model SdkLabelReceipt {
+  projectId      String @map("project_id") @db.VarChar
+  idempotencyKey String @map("idempotency_key") @db.VarChar
+  labelId        String @default(cuid()) @map("label_id") @db.VarChar
+  traceId        String @map("trace_id") @db.VarChar
+  spanId         String @map("span_id") @db.VarChar
+  value          String @db.VarChar
+  authorId       String? @map("author_id") @db.VarChar
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, idempotencyKey])
+  @@map("sdk_label_receipts")
 }
 
 // Users - Authentication and identity

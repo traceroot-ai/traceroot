@@ -7716,6 +7716,73 @@
         ],
         "title": "WorkspaceRow",
         "type": "object"
+      },
+      "WriteLabelRequest": {
+        "additionalProperties": false,
+        "description": "Apply an existing project label to a user trace or span.",
+        "properties": {
+          "author_id": {
+            "description": "Project-scoped ID of the end user who applied the label.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Author Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "trace_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "author_id",
+          "value",
+          "idempotency_key"
+        ],
+        "title": "WriteLabelRequest",
+        "type": "object"
+      },
+      "WriteLabelResponse": {
+        "description": "The saved assignment ID, also returned on retries.",
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "WriteLabelResponse",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -11656,6 +11723,144 @@
           "description": "List the project's evaluations, newest first: each one's name, the key an SDK reports it under, the dataset it runs against, how many runs it has, and its latest run. Filter by a case-insensitive substring of the name. An evaluation that has never been run reports a null latest_run. Use this to find an evaluation before listing its runs.",
           "enabled": true,
           "name": "list_evaluations"
+        }
+      }
+    },
+    "/api/v1/public/labels": {
+      "post": {
+        "description": "Apply a project label to a production trace or one of its spans.\n\nUse a project API key and the same idempotency key on retry. Retrying the\nsame trace, span, author and value returns the original assignment ID.",
+        "operationId": "write_label",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteLabelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteLabelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid label request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Label target outside retention"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Project label or eligible target not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Idempotency key used for a different assignment"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Failed to verify label target"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Apply a production label",
+        "tags": [
+          "Labels"
+        ],
+        "x-tool": {
+          "enabled": false
         }
       }
     },
