@@ -1545,6 +1545,9 @@ _DOCS_USAGE_NOTES = {
     ),
 }
 
+_SDK_DRIVEN_OPERATIONS = frozenset(
+    {"ingest_traces", "register_run", "upsert_result", "complete_run"}
+)
 _SDK_NOTE = (
     "<Note>The traceroot SDKs call this endpoint for you; call it directly only "
     "where no SDK fits. It accepts a project API key only.</Note>"
@@ -1579,7 +1582,7 @@ def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
             op_id = op["operationId"]
             tool = op["x-tool"]
             parts = []
-            if not tool["enabled"] and op_id != "write_label":
+            if op_id in _SDK_DRIVEN_OPERATIONS:
                 parts.append(_SDK_NOTE + (_INGEST_NOTE if op_id == "ingest_traces" else ""))
             role = tool.get("policy", {}).get("minRole")
             if role == "MEMBER":

@@ -11,6 +11,7 @@ const filterSchema = z.strictObject({ projectId: labelTargetIdSchema, value: lab
 const sdkAssignmentSchema = filterSchema.extend({
   traceId: labelTargetIdSchema,
   spanId: labelTargetIdSchema.optional(),
+  authorId: z.string().trim().min(1).max(128),
   idempotencyKey: z.string().trim().min(1).max(128),
 });
 
@@ -43,16 +44,16 @@ export async function POST(request: Request) {
   const body = sdkAssignmentSchema.safeParse(await request.json().catch(() => undefined));
   if (!body.success) return errorResponse("Invalid SDK label payload", 400);
 
-  const { projectId, traceId, spanId = "", value, idempotencyKey } = body.data;
+  const { projectId, traceId, spanId = "", value, authorId, idempotencyKey } = body.data;
   try {
     const id = await prisma.$transaction(async (tx) => {
       // Claim the key before touching the catalog so retries still work after deletion.
       const receipt = await tx.sdkLabelReceipt.create({
-        data: { projectId, traceId, spanId, value, idempotencyKey },
+        data: { projectId, traceId, spanId, value, authorId, idempotencyKey },
         select: { labelId: true },
       });
       await tx.label.create({
-        data: { id: receipt.labelId, projectId, traceId, spanId, value, source: "SDK" },
+        data: { id: receipt.labelId, projectId, traceId, spanId, value, authorId, source: "SDK" },
         select: { id: true },
       });
       return receipt.labelId;
@@ -64,10 +65,15 @@ export async function POST(request: Request) {
 
     const existing = await prisma.sdkLabelReceipt.findUnique({
       where: { projectId_idempotencyKey: { projectId, idempotencyKey } },
-      select: { labelId: true, traceId: true, spanId: true, value: true },
+      select: { labelId: true, traceId: true, spanId: true, value: true, authorId: true },
     });
     if (!existing) throw error;
-    if (existing.traceId !== traceId || existing.spanId !== spanId || existing.value !== value) {
+    if (
+      existing.traceId !== traceId ||
+      existing.spanId !== spanId ||
+      existing.value !== value ||
+      (existing.authorId !== null && existing.authorId !== authorId)
+    ) {
       return errorResponse("That idempotency key was used for a different label assignment", 409);
     }
     return successResponse({ id: existing.labelId });

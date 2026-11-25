@@ -120,7 +120,7 @@ def _evaluation_trace_ids(
     trace row with ``is_evaluation = 0`` and a newer ``ch_update_time``. Membership hides
     the trace whatever order the writes arrived in.
 
-    Built from BOTH tables when there is a window start (see below), like the SQL
+    Built from BOTH tables when there is a window start or a specific trace ID, like the SQL
     gateway's ``VIEW_EVALUATION_EXCLUSION`` (see ``rest.services.sql.schema`` for the full
     argument). A ``traces``-only set loses a trace two ordinary ways: a background merge
     keeps only the newer, unflagged ``traces`` row of a same-day pair and physically
@@ -148,13 +148,11 @@ def _evaluation_trace_ids(
     the projection instead of reading every granule of the window's months from the
     trace_id-ordered base table.
 
-    The ``spans`` half needs a window start and is left out without one: with no lower
-    bound it would read the project's whole span history on every request (the scan
-    ``DEFAULT_SPAN_SCAN_LOOKBACK_HOURS`` keeps every other read path off), and an upper
-    bound alone prunes no partition below it. An open-ended caller gets the ``traces``
-    half alone, the set these reads used before the ``spans`` half existed. That is only
-    an all-history read on a plan with unlimited retention or over internal-secret
-    traffic: every list router clamps a missing ``start_after`` to the plan's retention
+    The ``spans`` half needs a window start or a bound trace ID. With neither it would
+    read the project's whole span history on every request, since an upper bound alone
+    prunes no partition below it. An open-ended project-wide caller gets just the
+    ``traces`` half. This reads all history only on plans with unlimited retention or over
+    internal-secret traffic. Every list router clamps a missing ``start_after`` to the plan's retention
     cutoff (``rest.retention``), the filter dropdowns default a lookback, and the widget
     and detector-chart windows are always bound. Accepted miss: such a read can show an
     evaluation trace whose flagged ``traces`` row was merged away or never written.
@@ -167,7 +165,7 @@ def _evaluation_trace_ids(
 
     Returns:
         str: A parenthesised ``SELECT trace_id ...`` sub-select, with the ``spans`` half
-        joined by ``UNION DISTINCT`` when ``start_param`` is given.
+        joined by ``UNION DISTINCT`` when ``start_param`` is given or ``target_trace`` is true.
     """
     kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
     # Table names spelled out, never templated: test_source_consumers finds a scan by its

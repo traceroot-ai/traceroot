@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const mocks = vi.hoisted(() => ({ deleteMany: vi.fn(), requireProjectAccess: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  deleteMany: vi.fn(),
+  update: vi.fn(),
+  requireProjectAccess: vi.fn(),
+}));
 
 vi.mock("@traceroot/core", () => ({
   Role: { MEMBER: "MEMBER" },
-  prisma: { projectLabel: { deleteMany: mocks.deleteMany } },
+  prisma: { projectLabel: { deleteMany: mocks.deleteMany, update: mocks.update } },
 }));
 vi.mock("@/lib/support/route-guard", () => ({
   withImpersonationPolicy: (handler: unknown) => handler,
@@ -17,7 +21,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (data: unknown) => Response.json(data),
 }));
 
-import { DELETE } from "./route";
+import { DELETE, PATCH } from "./route";
 
 function deleteLabel() {
   return DELETE(
@@ -27,6 +31,44 @@ function deleteLabel() {
 }
 
 beforeEach(() => vi.resetAllMocks());
+
+describe("PATCH project label", () => {
+  function editLabel(body: object) {
+    return PATCH(
+      new NextRequest("http://ui.test/api/projects/project-a/labels/label-a", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+      { params: Promise.resolve({ projectId: "project-a", labelId: "label-a" }) },
+    );
+  }
+
+  it("updates only the description of the requested project label", async () => {
+    const label = { id: "label-a", name: "Needs review", description: "New description" };
+    mocks.requireProjectAccess.mockResolvedValue({ project: { id: "project-a" } });
+    mocks.update.mockResolvedValue(label);
+
+    const response = await editLabel({ description: " New description " });
+
+    expect(await response.json()).toEqual({ label });
+    expect(mocks.requireProjectAccess).toHaveBeenCalledWith("member-a", "project-a", "MEMBER");
+    expect(mocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "label-a", projectId: "project-a" },
+        data: { description: "New description" },
+      }),
+    );
+  });
+
+  it("rejects a rename and returns 404 when the project label is missing", async () => {
+    mocks.requireProjectAccess.mockResolvedValue({ project: { id: "project-a" } });
+    expect((await editLabel({ name: "New name", description: null })).status).toBe(400);
+    expect(mocks.update).not.toHaveBeenCalled();
+
+    mocks.update.mockRejectedValue({ code: "P2025" });
+    expect((await editLabel({ description: null })).status).toBe(404);
+  });
+});
 
 describe("DELETE project label", () => {
   it("requires member access before touching project labels", async () => {

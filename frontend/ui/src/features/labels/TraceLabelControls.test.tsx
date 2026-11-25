@@ -39,7 +39,10 @@ it("removes only the current person's annotation and keeps a shared chip", async
   vi.mocked(getTraceLabels)
     .mockResolvedValueOnce({ values: ["Retry needed"], appliedByMe: ["Retry needed"] })
     .mockResolvedValue(remaining);
-  vi.mocked(setTraceLabel).mockResolvedValue(remaining);
+  let finishSaving!: (result: typeof remaining) => void;
+  vi.mocked(setTraceLabel).mockImplementation(
+    () => new Promise((resolve) => (finishSaving = resolve)),
+  );
 
   const target = { projectId: "proj", traceId: "trace", spanId: "span" };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -64,7 +67,13 @@ it("removes only the current person's annotation and keeps a shared chip", async
   expect(within(picker).queryByText("Internal label description")).toBeNull();
 
   fireEvent.click(applied);
+  await waitFor(() => {
+    expect((applied as HTMLInputElement).disabled).toBe(true);
+    expect(setTraceLabel).toHaveBeenCalledTimes(1);
+  });
+  finishSaving(remaining);
   await waitFor(() => expect((applied as HTMLInputElement).checked).toBe(false));
+  await waitFor(() => expect((applied as HTMLInputElement).disabled).toBe(false));
   expect(setTraceLabel).toHaveBeenCalledWith("proj", "trace", "span", "Retry needed", false);
   expect(client.getQueryState(traceListKey)?.isInvalidated).toBe(true);
   expect(

@@ -73,7 +73,7 @@ describe("trace label assignment eligibility", () => {
     mocks.read.mockReturnValue(readQuery);
     mocks.transaction.mockResolvedValue([
       { count: 1 },
-      [{ value: "Needs review", authorId: null }],
+      [{ value: "Needs review", authorId: "member-a", source: "SDK" }],
     ]);
 
     const request = new Request(url, {

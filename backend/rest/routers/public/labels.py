@@ -3,7 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from rest.rate_limit import (
     BUCKET_INGEST,
@@ -29,6 +29,9 @@ class WriteLabelRequest(BaseModel):
 
     trace_id: TargetId
     span_id: TargetId | None = None
+    author_id: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)
+    ] = Field(description="Project-scoped ID of the end user who applied the label.")
     value: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_LABEL_LENGTH)
     ]
@@ -51,7 +54,22 @@ class WriteLabelResponse(BaseModel):
         400: {"model": ErrorResponse, "description": "Invalid label request"},
         403: {"model": ErrorResponse, "description": "Label target outside retention"},
         404: {"model": ErrorResponse, "description": "Project label or eligible target not found"},
-        409: {"model": ErrorResponse, "description": "Idempotency key used for a different label"},
+        409: {
+            "model": ErrorResponse,
+            "description": "Idempotency key used for a different assignment",
+        },
+        422: {"model": ErrorResponse, "description": "Validation error"},
+        429: {
+            "model": ErrorResponse,
+            "description": "Rate limit exceeded",
+            "headers": {
+                "Retry-After": {
+                    "description": "Seconds to wait before retrying",
+                    "schema": {"type": "integer"},
+                }
+            },
+        },
+        500: {"model": ErrorResponse, "description": "Failed to verify label target"},
     },
     summary="Apply a production label",
 )
@@ -67,7 +85,7 @@ async def write_label(
     """Apply a project label to a production trace or one of its spans.
 
     Use a project API key and the same idempotency key on retry. Retrying the
-    same trace, span and value returns the original assignment ID.
+    same trace, span, author and value returns the original assignment ID.
     """
     try:
         await require_label_target(
@@ -83,6 +101,7 @@ async def write_label(
     assignment = {
         "projectId": auth.project_id,
         "traceId": payload.trace_id,
+        "authorId": payload.author_id,
         "value": payload.value,
         "idempotencyKey": payload.idempotency_key,
     }

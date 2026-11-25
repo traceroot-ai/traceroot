@@ -251,8 +251,8 @@ model Label {
 
   projectLabel ProjectLabel @relation(fields: [projectId, value], references: [projectId, name], onDelete: Cascade, onUpdate: NoAction)
 
-  // SDK rows have no author, so their receipts handle deduplication separately.
-  @@unique([projectId, traceId, spanId, authorId, value], map: "uq_label_target_author_value")
+  // The SQL migration enforces one HUMAN assignment per author, target, and value.
+  // SDK assignments are deduplicated by their project-scoped idempotency key.
   @@index([projectId, value, traceId], map: "ix_label_project_value_trace")
   @@map("labels")
 }
@@ -265,6 +265,7 @@ model SdkLabelReceipt {
   traceId        String @map("trace_id") @db.VarChar
   spanId         String @map("span_id") @db.VarChar
   value          String @db.VarChar
+  authorId       String? @map("author_id") @db.VarChar
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

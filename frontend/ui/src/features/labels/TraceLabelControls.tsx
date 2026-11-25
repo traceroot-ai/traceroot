@@ -121,7 +121,7 @@ export function TraceLabelPicker({ projectId, traceId, spanId }: TraceLabelTarge
               >
                 <Checkbox
                   checked={target.appliedByMe.includes(name)}
-                  aria-disabled={saving}
+                  disabled={saving}
                   onCheckedChange={(checked) => {
                     if (!queryClient.isMutating({ mutationKey, exact: true })) {
                       mutation.mutate({ value: name, checked });

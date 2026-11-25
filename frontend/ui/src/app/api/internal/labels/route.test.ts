@@ -29,6 +29,7 @@ const assignment = {
   traceId: "trace-a",
   spanId: "span-a",
   value: "Needs review",
+  authorId: "customer-42",
   idempotencyKey: "sdk-event-a",
 };
 
@@ -80,22 +81,37 @@ describe("internal label writes", () => {
         traceId: "trace-a",
         spanId: "span-a",
         value: "Needs review",
+        authorId: "customer-42",
         source: "SDK",
       },
       select: { id: true },
     });
   });
 
-  it.each([{ traceId: "trace-b" }, { spanId: "span-b" }, { value: "Other" }])(
-    "rejects an idempotency key reused with a changed target or value (%o)",
-    async (change) => {
-      mocks.createReceipt.mockRejectedValue({ code: "P2002" });
-      mocks.findUniqueReceipt.mockResolvedValue({ ...assignment, labelId: "winning-label" });
+  it.each([
+    { traceId: "trace-b" },
+    { spanId: "span-b" },
+    { value: "Other" },
+    { authorId: "customer-43" },
+  ])("rejects an idempotency key reused with a changed assignment (%o)", async (change) => {
+    mocks.createReceipt.mockRejectedValue({ code: "P2002" });
+    mocks.findUniqueReceipt.mockResolvedValue({ ...assignment, labelId: "winning-label" });
 
-      expect((await write({ ...assignment, ...change })).status).toBe(409);
-      expect(mocks.createLabel).not.toHaveBeenCalled();
-    },
-  );
+    expect((await write({ ...assignment, ...change })).status).toBe(409);
+    expect(mocks.createLabel).not.toHaveBeenCalled();
+  });
+
+  it("accepts separate keys for the same author and target", async () => {
+    mocks.createReceipt
+      .mockResolvedValueOnce({ labelId: "first-label" })
+      .mockResolvedValueOnce({ labelId: "second-label" });
+
+    expect(await (await write(assignment)).json()).toEqual({ id: "first-label" });
+    expect(await (await write({ ...assignment, idempotencyKey: "sdk-event-b" })).json()).toEqual({
+      id: "second-label",
+    });
+    expect(mocks.createLabel).toHaveBeenCalledTimes(2);
+  });
 
   it("replays a deleted assignment even if the catalog name is reused", async () => {
     mocks.createReceipt.mockRejectedValue({ code: "P2002" });
@@ -106,6 +122,18 @@ describe("internal label writes", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ id: "deleted-assignment" });
+    expect(mocks.createLabel).not.toHaveBeenCalled();
+  });
+
+  it("replays a legacy receipt that predates author attribution", async () => {
+    mocks.createReceipt.mockRejectedValue({ code: "P2002" });
+    mocks.findUniqueReceipt.mockResolvedValue({
+      ...assignment,
+      authorId: null,
+      labelId: "legacy-label",
+    });
+
+    expect(await (await write(assignment)).json()).toEqual({ id: "legacy-label" });
     expect(mocks.createLabel).not.toHaveBeenCalled();
   });
 

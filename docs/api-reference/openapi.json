@@ -7721,6 +7721,13 @@
         "additionalProperties": false,
         "description": "Apply an existing project label to a user trace or span.",
         "properties": {
+          "author_id": {
+            "description": "Project-scoped ID of the end user who applied the label.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Author Id",
+            "type": "string"
+          },
           "idempotency_key": {
             "maxLength": 128,
             "minLength": 1,
@@ -7755,6 +7762,7 @@
         },
         "required": [
           "trace_id",
+          "author_id",
           "value",
           "idempotency_key"
         ],
@@ -11888,7 +11896,7 @@
     },
     "/api/v1/public/labels": {
       "post": {
-        "description": "Apply a project label to a production trace or one of its spans.\n\nUse a project API key and the same idempotency key on retry. Retrying the\nsame trace, span and value returns the original assignment ID.",
+        "description": "Apply a project label to a production trace or one of its spans.\n\nUse a project API key and the same idempotency key on retry. Retrying the\nsame trace, span, author and value returns the original assignment ID.",
         "operationId": "write_label",
         "requestBody": {
           "content": {
@@ -11959,17 +11967,45 @@
                 }
               }
             },
-            "description": "Idempotency key used for a different label"
+            "description": "Idempotency key used for a different assignment"
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Failed to verify label target"
           },
           "503": {
             "content": {

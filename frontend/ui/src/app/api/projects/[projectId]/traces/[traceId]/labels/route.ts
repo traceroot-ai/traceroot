@@ -58,7 +58,7 @@ async function handleLabels(request: Request, { params }: RouteParams) {
   const authorId = access.user.id;
   const read = prisma.label.findMany({
     where: target,
-    select: { value: true, authorId: true },
+    select: { value: true, authorId: true, source: true },
     orderBy: { value: "asc" },
   });
   let assignments;
@@ -84,7 +84,7 @@ async function handleLabels(request: Request, { params }: RouteParams) {
   return successResponse({
     values: [...new Set(assignments.map(({ value }) => value))],
     appliedByMe: assignments
-      .filter((assignment) => assignment.authorId === authorId)
+      .filter((assignment) => assignment.source === "HUMAN" && assignment.authorId === authorId)
       .map(({ value }) => value),
   });
 }

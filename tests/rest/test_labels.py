@@ -6,10 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 import respx
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from httpx import Response
+from httpx import ReadTimeout, Response
 
 from rest.main import app
+from rest.routers.labels_common import find_labeled_trace_ids
 from rest.routers.public.deps import AuthResult, authenticate_api_key
 from rest.services.trace_reader import TraceReaderService
 from shared.config import settings
@@ -17,7 +19,12 @@ from shared.enums import EVALUATION_SPAN_KINDS
 
 _PUBLIC = "/api/v1/public/labels"
 _INTERNAL = "/api/v1/internal/label-target"
-_PAYLOAD = {"trace_id": "trace", "value": "incorrect", "idempotency_key": "request-1"}
+_PAYLOAD = {
+    "trace_id": "trace",
+    "value": "incorrect",
+    "author_id": "customer-42",
+    "idempotency_key": "request-1",
+}
 
 
 @pytest.fixture()
@@ -52,6 +59,7 @@ def test_write_only_gateway_forwards_validated_target_from_key(client, trace_rea
     assert json.loads(sent.content) == {
         "projectId": "project",
         "traceId": "trace",
+        "authorId": "customer-42",
         "value": "incorrect",
         "idempotencyKey": "request-1",
     }
@@ -83,6 +91,60 @@ def test_internal_target_requires_secret_and_accepts_a_valid_span(client, trace_
     headers = {"X-Internal-Secret": "test-secret"}
     assert client.get(_INTERNAL, params=params, headers=headers).status_code == 204
     trace_reader.get_label_target_start_time.assert_called_once_with("project", "trace", "span")
+
+
+def test_write_requires_an_end_user_author(client, trace_reader):
+    response = client.post(_PUBLIC, json={**_PAYLOAD, "author_id": " "})
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], str)
+    assert "author_id" in response.json()["detail"]
+    trace_reader.get_label_target_start_time.assert_not_called()
+
+
+def test_target_reader_failure_returns_fixed_error(client, trace_reader, caplog):
+    trace_reader.get_label_target_start_time.side_effect = RuntimeError("database detail")
+
+    response = client.post(_PUBLIC, json=_PAYLOAD)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Failed to verify label target"}
+    assert "Failed to verify label target in project project" in caplog.text
+
+
+@respx.mock
+async def test_label_lookup_reads_trace_ids():
+    respx.get(f"{settings.traceroot_ui_url.rstrip('/')}/api/internal/labels").mock(
+        return_value=Response(200, json={"traceIds": ["trace"], "overflow": False})
+    )
+
+    result = await find_labeled_trace_ids("project", "review")
+    assert result.trace_ids == ["trace"]
+    assert result.overflow is False
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("failure", "logged"),
+    [
+        (Response(502), "HTTPStatusError (upstream status: 502)"),
+        (Response(200, json={"invalid": "review"}), "ValidationError"),
+        (ReadTimeout("review"), "ReadTimeout"),
+    ],
+)
+async def test_label_lookup_logs_upstream_failures(failure, logged, caplog):
+    route = respx.get(f"{settings.traceroot_ui_url.rstrip('/')}/api/internal/labels")
+    if isinstance(failure, Response):
+        route.mock(return_value=failure)
+    else:
+        route.mock(side_effect=failure)
+
+    with pytest.raises(HTTPException) as exc:
+        await find_labeled_trace_ids("project", "review")
+
+    assert exc.value.status_code == 503
+    assert logged in caplog.text
+    assert "review" not in caplog.text
 
 
 def test_label_target_query_checks_source_evaluation_markers_and_span_membership():
