@@ -46,6 +46,17 @@ def _entry(detector_id, summary, data):
     return json.dumps({"detectorId": detector_id, "summary": summary, "data": data})
 
 
+def test_parse_data_returns_raw_text_past_the_parser_depth_limit(monkeypatch):
+    from rest.routers.internal.signals import _parse_data
+
+    monkeypatch.setattr(
+        "rest.routers.internal.signals.json.loads",
+        MagicMock(side_effect=RecursionError("maximum recursion depth exceeded")),
+    )
+    deep = "[" * 5000 + "]" * 5000
+    assert _parse_data(deep) == deep
+
+
 class TestWaitingHits:
     def test_returns_hits_with_their_detector_output_and_trace_start(self, client, mock_ch):
         mock_ch.query.side_effect = [
@@ -161,6 +172,36 @@ class TestWaitingHits:
             headers=HEADERS,
         ).json()
         assert body["data"][0]["summary"] == "" and body["data"][0]["data"] == {}
+
+    def test_a_too_deeply_nested_entry_does_not_fail_the_other_hits(
+        self, client, mock_ch, monkeypatch
+    ):
+        # json.loads raises RecursionError (not ValueError) past the parser's
+        # depth limit. The trigger depth varies by Python version and platform,
+        # so simulate the overflow for the pathological entry only.
+        deep = "[" * 5000 + "]" * 5000
+        real_loads = json.loads
+
+        def loads(s, *args, **kwargs):
+            if s == deep:
+                raise RecursionError("maximum recursion depth exceeded")
+            return real_loads(s, *args, **kwargs)
+
+        monkeypatch.setattr("rest.routers.internal.signals.json.loads", loads)
+        mock_ch.query.side_effect = [
+            _result([("r1", "t1", "f1", 1000), ("r2", "t2", "f2", 2000)], RUN_COLS),
+            _result([("f1", deep), ("f2", _entry("d1", "ok", {"tool": "search"}))]),
+            _result([]),
+        ]
+        resp = client.get(
+            f"{BASE}/waiting-hits",
+            params={"project_id": "p1", "detector_id": "d1", "since_ms": 0},
+            headers=HEADERS,
+        )
+        assert resp.status_code == 200
+        first, second = resp.json()["data"]
+        assert first["summary"] == "" and first["data"] == {}
+        assert second["summary"] == "ok" and second["data"] == {"tool": "search"}
 
     @pytest.mark.parametrize("params", [{"since_ms": -1}, {"since_ms": 0, "limit": 501}, {}])
     def test_rejects_bad_parameters(self, client, mock_ch, params):
