@@ -118,7 +118,10 @@ export function SaveResultToDatasetDrawer({
   } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
-  const [targetDatasetId, setTargetDatasetId] = React.useState(sourceDatasetId);
+  // A new case starts with no dataset picked: its source dataset refuses it while the
+  // source case is still there, which only the server knows.
+  const initialTargetId = action === "save_new_case" ? "" : sourceDatasetId;
+  const [targetDatasetId, setTargetDatasetId] = React.useState(initialTargetId);
   const [input, setInput] = React.useState(result.input);
   const [expected, setExpected] = React.useState(result.expectedOutput ?? "");
   const [useCandidateAsExpected, setUseCandidateAsExpected] = React.useState(false);
@@ -129,13 +132,13 @@ export function SaveResultToDatasetDrawer({
   // fresh idempotency key so a genuinely new save is never deduped against the last.
   React.useEffect(() => {
     if (!open) return;
-    setTargetDatasetId(sourceDatasetId);
+    setTargetDatasetId(initialTargetId);
     setInput(result.input);
     setExpected(result.expectedOutput ?? "");
     setUseCandidateAsExpected(false);
     setIdempotencyKey(newIdempotencyKey());
     setError(null);
-  }, [open, action, result.id, result.input, result.expectedOutput, sourceDatasetId]);
+  }, [open, action, result.id, result.input, result.expectedOutput, initialTargetId]);
 
   const save = useMutation({
     mutationFn: async () => {

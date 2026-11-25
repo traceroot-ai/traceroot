@@ -3,11 +3,11 @@
  * Keeping a finding from a comparison case: "Save to dataset", on the case's root in the
  * trace panel, acts on the candidate's result for the open case, through the evaluations'
  * own save drawer (update its source case, save it as a new case, or duplicate it as a
- * variant), starting from the candidate run's dataset. It is offered beside the case while
- * the candidate's trace is still being ingested too, since it acts on the result, not the
- * trace. With no candidate result there is nothing to save. An open save stays on the case
- * it was opened for while the trace panel moves on, and closing it puts focus back where
- * the save started.
+ * variant), starting from the candidate run's dataset, or from none for a new case. It is
+ * offered beside the case while the candidate's trace is still being ingested too, since it
+ * acts on the result, not the trace. With no candidate result there is nothing to save. An
+ * open save stays on the case it was opened for while the trace panel moves on, and closing
+ * it puts focus back where the save started.
  */
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -190,14 +190,33 @@ describe("CompareRunsView — save to dataset", () => {
     });
   });
 
-  it("saves a new case, starting from the candidate run's dataset", async () => {
+  it("saves a new case, with no dataset picked until the reader chooses one", async () => {
     mount({ caseToken: "id:case-4", pair: [BASE, FAST] });
     const drawer = within(await choose(/^Save as a new case/));
+    expect(drawer.getByRole("combobox").textContent).toBe("Choose a dataset");
+    const save = drawer.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    // The run's own dataset stays on offer: only the server knows if its case is still there.
+    fireEvent.click(drawer.getByRole("combobox"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "support-tickets",
+      "escalations",
+    ]);
+    fireEvent.click(screen.getByRole("option", { name: "escalations" }));
+    expect(save.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(posted().url).toBeDefined());
+    expect(posted().url).toBe(`/api/projects/p1/evaluations/results/${FAST}-case-4/dataset-case`);
+    expect(posted().body).toMatchObject({ action: "save_new_case", dataset_id: "ds9" });
+  });
+
+  it("duplicates as a variant, starting from the candidate run's dataset", async () => {
+    mount({ caseToken: "id:case-3", pair: [BASE, CAND] });
+    const drawer = within(await choose(/^Duplicate as a variant/));
     expect(drawer.getByRole("combobox").textContent).toBe("support-tickets");
     fireEvent.click(drawer.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(posted().url).toBeDefined());
-    expect(posted().url).toBe(`/api/projects/p1/evaluations/results/${FAST}-case-4/dataset-case`);
-    expect(posted().body).toMatchObject({ action: "save_new_case", dataset_id: "ds1" });
+    expect(posted().body).toMatchObject({ action: "duplicate_as_variant", dataset_id: "ds1" });
   });
 
   it("uses the candidate run's own dataset when the runs are on different datasets", async () => {
