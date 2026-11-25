@@ -816,6 +816,72 @@ describe("CompareRunsView — when no case is left", () => {
   });
 });
 
+describe("CompareRunsView — no matching inputs among the results loaded", () => {
+  /** Run `n` on a dataset of its own, holding `loaded` of the `declared` cases; the run read
+   *  flags it as truncated whenever it holds fewer. */
+  const runOn = (id: string, n: number, dataset: string, declared: number, loaded: number) => ({
+    run: fixtureRun(id, n, id, `2026-11-0${n}T00:00:00Z`, {
+      datasetId: `ds-${id}`,
+      datasetName: dataset,
+      caseCount: declared,
+      resultsTruncated: declared > loaded,
+    }),
+    results: Array.from({ length: loaded }, (_, i) =>
+      fixtureResult(id, `${id}-${i}`, `${dataset} ${i}`, [fixtureScore(QUALITY, 1)]),
+    ),
+  });
+  /** Each line of the empty state, once `runs` are compared. */
+  const emptyLines = (runs: ReturnType<typeof runOn>[]) => {
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: runs.find((x) => x.run.id === id),
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount({}, { runIds: runs.map((b) => b.run.id) });
+    const empty = screen.getByText("These runs have no matching inputs").parentElement!;
+    return Array.from(empty.querySelectorAll("p"), (p) => p.textContent);
+  };
+
+  it("says the comparison covers only the loaded results, naming each run cut at the limit", () => {
+    expect(
+      emptyLines([
+        runOn("a", 1, "tickets", 1240, 1000),
+        runOn("b", 2, "refunds", 1500, 1000),
+        runOn("c", 3, "billing", 300, 300),
+      ]),
+    ).toEqual([
+      "These runs have no matching inputs",
+      "These runs are on different datasets (tickets, refunds, billing) and share no inputs in common.",
+      "The comparison covers only the loaded results.",
+      "#1 has 1,240 cases; this page loaded the first 1,000.",
+      "#2 has 1,500 cases; this page loaded the first 1,000.",
+      "Remove a run from the Runs menu above, or add one that shares their inputs.",
+    ]);
+  });
+
+  it("names no run when none was cut, even one that reported fewer cases", () => {
+    // #2 declared 12 cases and reported 1, far under the limit.
+    expect(emptyLines([runOn("a", 1, "tickets", 1, 1), runOn("b", 2, "refunds", 12, 1)])).toEqual([
+      "These runs have no matching inputs",
+      "These runs are on different datasets (tickets, refunds) and share no inputs in common.",
+      "Add a run that shares inputs with one of these, then remove the other from the Runs menu above.",
+    ]);
+  });
+
+  it("says nothing of the limit when too few runs have results to pair", () => {
+    // Loading more of #1 can't pair it with #2, which has no results.
+    expect(
+      emptyLines([runOn("a", 1, "tickets", 1240, 1000), runOn("b", 2, "refunds", 12, 0)]),
+    ).toEqual([
+      "These runs have no matching inputs",
+      "#2 has no results.",
+      "Add a run that shares inputs with one of these, then remove the other from the Runs menu above.",
+    ]);
+  });
+});
+
 describe("CompareRunsView — the toolbar's controls", () => {
   it("can't filter or sort until the runs load", () => {
     hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>

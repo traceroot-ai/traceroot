@@ -36,11 +36,15 @@ export function RunsNotLoaded({
  *  a run goes (from its menu in the Runs menu) or one that shares inputs comes in. */
 export function NoSharedInputs({
   detail,
+  cutNotes,
   canRemove,
   onAddRuns,
 }: {
   /** Why, e.g. which datasets the runs are on. */
   detail: string;
+  /** The note for each run the result limit cut off (`partialRunNotes`), whose inputs past
+   *  it weren't compared. */
+  cutNotes: readonly string[];
   /** Whether a run can leave; a comparison keeps at least two. */
   canRemove: boolean;
   onAddRuns: () => void;
@@ -49,6 +53,17 @@ export function NoSharedInputs({
     <EmptyState>
       <p className="text-[13px] text-foreground">These runs have no matching inputs</p>
       <p className="mt-1">{detail}</p>
+      {cutNotes.length > 0 && (
+        <>
+          <p className="mt-1">The comparison covers only the loaded results.</p>
+          {/* By position: two runs' notes can read the same when their tags do. */}
+          {cutNotes.map((note, i) => (
+            <p key={i} className="mt-1">
+              {note}
+            </p>
+          ))}
+        </>
+      )}
       <p className="mt-1">
         {canRemove
           ? "Remove a run from the Runs menu above, or add one that shares their inputs."

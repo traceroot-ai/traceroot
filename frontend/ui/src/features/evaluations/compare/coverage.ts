@@ -37,6 +37,17 @@ export function matchingSummary({ matching, total }: { matching: number; total: 
   return `${matching} matching · ${total} total`;
 }
 
+/** Whether the page's result limit cut the run off before its last case. */
+export function cutAtLimit({ run, results }: RunBundle): boolean {
+  // The read flags a run that reported fewer cases alike; only one that filled the limit
+  // was cut off by it.
+  return (
+    run.caseCount > results.length &&
+    run.resultsTruncated &&
+    results.length >= MAX_RUN_DETAIL_RESULTS
+  );
+}
+
 /** One note per run whose results fall short of the cases it declared, each led by the
  *  run's tag and saying why: it has no results, the page stopped at its result limit, or
  *  the run itself reported fewer cases. */
@@ -44,15 +55,15 @@ export function partialRunNotes(
   runs: readonly RunBundle[],
   tagOf: (runId: string) => string,
 ): string[] {
-  return runs.flatMap(({ run, results }) => {
+  return runs.flatMap((bundle) => {
+    const { run, results } = bundle;
     if (results.length === 0) return [noResultsText([tagOf(run.id)])];
     // Negated so a run read without a case count says nothing either.
     if (!(run.caseCount > results.length)) return [];
     // Pinned so the count reads "1,240" whatever the viewer's locale.
     const declared = run.caseCount.toLocaleString("en-US");
     const loaded = results.length.toLocaleString("en-US");
-    // The read flags both causes alike; only a run that filled the limit was cut off by it.
-    return run.resultsTruncated && results.length >= MAX_RUN_DETAIL_RESULTS
+    return cutAtLimit(bundle)
       ? [`${tagOf(run.id)} has ${declared} cases; this page loaded the first ${loaded}.`]
       : [`${tagOf(run.id)} reported ${loaded} of ${declared} cases.`];
   });
