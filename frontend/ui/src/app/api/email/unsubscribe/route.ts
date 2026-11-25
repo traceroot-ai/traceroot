@@ -11,6 +11,7 @@ import {
   verifyUnsubscribeToken,
   type TopicSubscription,
 } from "@traceroot/core/email";
+import { recordUnsubscribe } from "@/lib/lifecycle/pause";
 
 const HTML_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
@@ -24,9 +25,9 @@ function page(body: string): string {
   return [
     "<!doctype html>",
     '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
-    "<title>Product emails from TraceRoot</title></head>",
+    "<title>Product emails from traceroot</title></head>",
     '<body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5;color:#222;max-width:36rem;margin:3rem auto;padding:0 1rem">',
-    '<h1 style="font-size:1.25rem">Product emails from TraceRoot</h1>',
+    '<h1 style="font-size:1.25rem">Product emails from traceroot</h1>',
     body,
     "</body></html>",
   ].join("\n");
@@ -53,7 +54,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const email = escapeHtml(check.email);
   return html(
-    `<p>Unsubscribe ${email} from product emails from TraceRoot?</p>${form(token, "opt_out", "Unsubscribe")}${NOTE}`,
+    `<p>Unsubscribe ${email} from product emails from traceroot?</p>${form(token, "opt_out", "Unsubscribe")}${NOTE}`,
   );
 }
 
@@ -85,17 +86,52 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(null, { status: 200, headers: HTML_HEADERS });
   }
 
+  // The choice is kept in two places: on the account, which the follow-up
+  // emails read, and on the provider's contact, which every product email is
+  // sent against. The more restrictive state is written first, so a failure
+  // part way leaves the person getting fewer emails, never more: an opt-out
+  // lands on the account before the provider, a "Subscribe again" on the
+  // provider before the account. Either failure answers an error, never a
+  // confirmation, and both writes can simply be repeated, so trying again
+  // finishes the job.
+  const subscribed = action === "opt_in";
+  const onAccount = () =>
+    recordUnsubscribe(check.email, subscribed).then(
+      (userId) => ({ ok: true as const, userId }),
+      (error: unknown) => {
+        console.error(`[unsubscribe] ${action} not recorded on the account: ${String(error)}`);
+        return { ok: false as const, userId: null };
+      },
+    );
   // The topic choice lives on a contact record, so make sure one exists first.
-  const contact = await ensureContact({ email: check.email });
-  const updated = contact.ok ? await setTopicSubscription(check.email, action) : { ok: false };
-  if (!updated.ok) {
-    return html(
-      "<p>Could not update your preference right now. Reply to the email and we'll do it by hand.</p>",
+  const atProvider = async () => {
+    try {
+      const contact = await ensureContact({ email: check.email });
+      return contact.ok ? await setTopicSubscription(check.email, action) : { ok: false };
+    } catch {
+      return { ok: false };
+    }
+  };
+
+  const failed = () =>
+    html(
+      "<p>Could not update your preference right now. Please try again in a moment, or reply to the email and we'll do it by hand.</p>",
       502,
     );
+  let userId: string | null;
+  if (subscribed) {
+    if (!(await atProvider()).ok) return failed();
+    const account = await onAccount();
+    if (!account.ok) return failed();
+    userId = account.userId;
+  } else {
+    const account = await onAccount();
+    if (!account.ok) return failed();
+    userId = account.userId;
+    if (!(await atProvider()).ok) return failed();
   }
-
-  console.log(`[unsubscribe] ${action} recorded for ${check.email}`);
+  // The address stays out of the log.
+  console.log(`[unsubscribe] ${action} recorded${userId ? ` for user ${userId}` : ""}`);
   const email = escapeHtml(check.email);
   const message =
     action === "opt_out"

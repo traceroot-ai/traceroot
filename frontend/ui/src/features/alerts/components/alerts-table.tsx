@@ -60,7 +60,7 @@ export function AlertsTable({
             >
               <td className={DETECTOR_TD}>
                 <AlertSeverityBadge
-                  className="justify-start"
+                  className="min-w-0 justify-start"
                   workspaceId={workspaceId}
                   status={alert.status}
                   severity={alert.severity}

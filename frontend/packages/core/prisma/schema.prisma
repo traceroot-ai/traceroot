@@ -186,22 +186,26 @@ model Project {
   deleteTime   DateTime?            @map("delete_time") @db.Timestamp(6)
   createTime   DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime   DateTime             @default(now()) @map("update_time") @db.Timestamp(6)
+  lastIngestedAt DateTime?           @map("last_ingested_at") @db.Timestamp(6)
   // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
-  rcaModel     String?              @map("rca_model") @db.VarChar
-  rcaProvider  String?              @map("rca_provider") @db.VarChar
-  rcaSource    String?              @map("rca_source") @db.VarChar
-  accessKeys   AccessKey[]
-  aiSessions   AISession[]
-  detectors    Detector[]
-  alertConfig  DetectorAlertConfig?
-  detectorRcas DetectorRca[]
-  signals      Signal[]
-  dashboards   Dashboard[]
-  alerts       Alert[]
-  datasets     Dataset[]
-  evaluations  Evaluation[]
-  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  freeQuotaEligible Boolean @default(true) @map("free_quota_eligible")
+  rcaModel              String?              @map("rca_model") @db.VarChar
+  rcaProvider           String?              @map("rca_provider") @db.VarChar
+  rcaSource             String?              @map("rca_source") @db.VarChar
+  accessKeys            AccessKey[]
+  aiSessions            AISession[]
+  detectors             Detector[]
+  alertConfig           DetectorAlertConfig?
+  detectorRcas          DetectorRca[]
+  signals               Signal[]
+  dashboards            Dashboard[]
+  alerts                Alert[]
+  datasets              Dataset[]
+  evaluations           Evaluation[]
+  workspace             Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  freeQuotaEligible     Boolean              @default(true) @map("free_quota_eligible")
+  // When the project first received a trace; see ui/src/lib/trace-activity.ts.
+  // Not first_trace_time: that name is already a session field in the API.
+  firstTraceReceiveTime DateTime?            @map("first_trace_receive_time") @db.Timestamp(6)
 
   // A partial unique index uq_project_workspace_live_name on
   // (workspace_id, name) WHERE delete_time IS NULL backs the idempotent
@@ -231,8 +235,70 @@ model User {
   accounts      Account[]
   sessions      Session[]
   emailSends    EmailSend[]
+  onboarding    UserOnboarding?
 
   @@map("users")
+}
+
+// Per-user onboarding state, one row per user, created on first use. Today it
+// counts the days in the user's first week on which their projects received
+// traces (ui/src/lib/trace-activity.ts) and when their trace_count was last
+// sent (ui/src/lib/trace-count.ts).
+model UserOnboarding {
+  userId               String     @id @map("user_id") @db.VarChar
+  // The latest UTC day counted in activeDaysFirstWeek. A receiver from before
+  // countedDays checks only this, so it is kept up to date during a rollout.
+  lastActiveDay        DateTime?  @map("last_active_day") @db.Date
+  // Every UTC day counted in activeDaysFirstWeek, so each day counts once
+  // whatever order its reports arrive in.
+  countedDays          DateTime[] @default([]) @map("counted_days") @db.Date
+  activeDaysFirstWeek  Int        @default(0) @map("active_days_first_week")
+  // Set once, when activeDaysFirstWeek first reaches the active-week threshold.
+  activeWeekAt         DateTime?  @map("active_week_at") @db.Timestamp(6)
+  // The last UTC day the user's trace_count was sent, so it is sent once a day.
+  traceCountReportedOn DateTime?  @map("trace_count_reported_on") @db.Date
+  // When a tick claimed today's send; a claim older than the lease is abandoned.
+  traceCountClaimedAt  DateTime?  @map("trace_count_claimed_at") @db.Timestamp(6)
+  // Follow-up emails paused by us (outreach started, by hand, or the person
+  // wrote to us), and why: outreach, manual or conversation. Resume clears both.
+  followUpsPausedAt    DateTime?  @map("follow_ups_paused_at") @db.Timestamp(6)
+  followUpsPauseReason String?    @map("follow_ups_pause_reason") @db.VarChar
+  // When the caller decided the latest pause or resume applied. An older
+  // decision arriving later (a retry, or a call that timed out and committed
+  // late) is ignored, so the latest intent always wins.
+  followUpsIntentAt    DateTime?  @map("follow_ups_intent_at") @db.Timestamp(3)
+  // The person unsubscribed from product email; "Subscribe again" clears it.
+  // Kept apart from the pause, so neither undoes the other.
+  unsubscribedAt       DateTime?  @map("unsubscribed_at") @db.Timestamp(6)
+  // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
+  // null for a question skipped or not asked.
+  role                 String?    @db.VarChar
+  // Asked only of a personal-email sign-up. The raw answer, and the domain read from it.
+  companyInput         String?    @map("company_input") @db.VarChar
+  companyDomain        String?    @map("company_domain") @db.VarChar
+  uses                 String[]   @default([]) @db.VarChar
+  source               String?    @db.VarChar
+  // What the person typed in "Somewhere else? Tell us". Never sent to analytics.
+  sourceOther          String?    @map("source_other") @db.VarChar
+  // When the person finished or skipped the last question. Set once: the
+  // questions are asked once per user.
+  questionsDoneAt      DateTime?  @map("questions_done_at") @db.Timestamp(6)
+  createTime           DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime           DateTime   @updatedAt @map("update_time") @db.Timestamp(6)
+  user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("user_onboarding")
+}
+
+// When the ingest worker started reporting trace activity, which it records before
+// its first report: the cutoff. A project whose earliest stored trace is older
+// already had traces then; see ui/src/lib/first-trace-backfill.ts. The first start
+// recorded is kept. At most one row (a CHECK in the migration keeps id at 1).
+model FirstTraceTracking {
+  id        Int      @id @default(1) @db.SmallInt
+  startedAt DateTime @default(now()) @map("started_at") @db.Timestamp(6)
+
+  @@map("first_trace_tracking")
 }
 
 // Accounts - OAuth provider accounts (better-auth)

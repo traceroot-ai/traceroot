@@ -6,7 +6,6 @@
 
   function cleanMount() {
     if (!mounted) return;
-    mounted.wordmarkDispose?.();
     mounted.resize.disconnect();
     mounted.events.abort();
     mounted.additions.forEach(node => node.remove());
@@ -16,32 +15,6 @@
     mounted.wrapper.style.removeProperty("margin-left");
     mounted.host.style.removeProperty("--tr-footer-divider-left");
     mounted = null;
-  }
-
-  function extraMarkup(assets) {
-    return `
-      <div class="tr-docs-footer__wordmark" aria-hidden="true">
-        <img src="${assets}footer-wordmark.svg" width="800" height="128" alt="">
-        <canvas width="800" height="128" hidden></canvas>
-      </div>`;
-  }
-
-  function mountWordmark() {
-    const record = mounted;
-    const runtime = window.TraceRootFooterWordmark;
-    if (!record || !record.node.isConnected || record.node.hidden || record.wordmarkDispose || !runtime) return;
-    const canvas = record.node.querySelector(".tr-docs-footer__wordmark canvas");
-    const fallback = canvas.previousElementSibling;
-    try {
-      if (!canvas.getContext("2d")) return;
-      for (const [property, value] of Object.entries(runtime.defaults)) canvas.style.setProperty(property, value);
-      canvas.hidden = false;
-      record.wordmarkDispose = runtime.mountFooterWordmark(canvas);
-      fallback.hidden = true;
-    } catch {
-      canvas.hidden = true;
-      fallback.hidden = false;
-    }
   }
 
   // Advanced footers sit below the sidebar. Align with the article without
@@ -99,7 +72,13 @@
       return;
     }
     const prefix = /^\/docs(?:\/|$)/.test(location.pathname) ? "/docs" : "";
-    node.innerHTML = extraMarkup(`${prefix}/brand/`);
+    const wordmark = document.createElement("img");
+    wordmark.className = "tr-docs-footer__wordmark";
+    wordmark.src = `${prefix}/brand/footer-wordmark.svg?v=2`;
+    wordmark.alt = "";
+    wordmark.width = 800;
+    wordmark.height = 128;
+    node.append(wordmark);
     const additions = [node];
     const classes = [
       [host, "tr-docs-footer"], [wrapper, "tr-docs-footer__inner"],
@@ -109,11 +88,9 @@
     mounted = { host, wrapper, node, events, additions, classes, resize: new ResizeObserver(alignFooter) };
     window.addEventListener("resize", alignFooter, { signal: events.signal });
     observeArticle();
-    mountWordmark();
   }
 
   window.addEventListener("mintlify:navigate", mount, { signal: globalEvents.signal });
-  window.addEventListener("traceroot:wordmark-ready", mountWordmark, { signal: globalEvents.signal });
   window.__trDocsFooterAdapter = {
     refresh: mount,
     dispose() {

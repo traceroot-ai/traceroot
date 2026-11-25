@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
@@ -43,6 +43,7 @@ function formatKeyHint(keyHint: string): string {
 
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
+  const formId = useId();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -101,10 +102,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const accessKeys = data?.access_keys || [];
 
   const envBlockContent = newKeyData
-    ? `TRACEROOT_API_KEY = "${newKeyData.key}"`
+    ? `TRACEROOT_API_KEY="${newKeyData.key}"`
     : accessKeys.length > 0
-      ? `TRACEROOT_API_KEY = "${formatKeyHint(accessKeys[0].key_hint)}"`
-      : `TRACEROOT_API_KEY = "tr-..."`;
+      ? `TRACEROOT_API_KEY="${formatKeyHint(accessKeys[0].key_hint)}"`
+      : `TRACEROOT_API_KEY="tr-..."`;
 
   if (error instanceof ImpersonationError) {
     return (
@@ -134,7 +135,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       <div className="border">
         <div className="flex h-9 items-center justify-between border-b px-4">
           <span className="text-[13px] font-medium">.env</span>
-          <CopyButton value={envBlockContent} className="h-7 w-7" />
+          <CopyButton
+            aria-label="Copy environment configuration"
+            value={envBlockContent}
+            className="h-7 w-7"
+          />
         </div>
         <div className="bg-muted px-4 py-2.5 font-mono text-[12px]">
           <pre className="whitespace-pre-wrap">{envBlockContent}</pre>
@@ -151,7 +156,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
                 {newKeyData.key}
               </code>
-              <CopyButton value={newKeyData.key} variant="outline" />
+              <CopyButton aria-label="Copy API key" value={newKeyData.key} variant="outline" />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
               I&apos;ve copied the key
@@ -168,24 +173,27 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               Create a new API key to authenticate with the traceroot SDK.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <label className="mb-2 block text-sm font-medium">Name (optional)</label>
+          <div>
+            <label htmlFor={`${formId}-key-name`} className="mb-2 block text-sm font-medium">
+              Name (optional)
+            </label>
             <Input
               placeholder="e.g., Production, Development"
+              id={`${formId}-key-name`}
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
           </div>
+          {createMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {createMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancel
             </Button>
-            {createMutation.error instanceof ImpersonationError && (
-              <p role="alert" className="text-sm text-destructive">
-                {createMutation.error.message}
-              </p>
-            )}
             <Button onClick={handleCreate} disabled={createMutation.isPending}>
               {createMutation.isPending ? "Creating..." : "Create"}
             </Button>
@@ -199,9 +207,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             <DialogTitle>Edit Note</DialogTitle>
             <DialogDescription>Update the note for this API key.</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div>
             <Input
               placeholder="e.g., Production, Development"
+              aria-label="Note"
               value={editingKey?.name || ""}
               onChange={(e) =>
                 setEditingKey(editingKey ? { ...editingKey, name: e.target.value } : null)
@@ -209,15 +218,15 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               onKeyDown={(e) => e.key === "Enter" && handleSaveNote()}
             />
           </div>
+          {updateMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {updateMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingKey(null)}>
               Cancel
             </Button>
-            {updateMutation.error instanceof ImpersonationError && (
-              <p role="alert" className="text-sm text-destructive">
-                {updateMutation.error.message}
-              </p>
-            )}
             <Button onClick={handleSaveNote} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "Saving..." : "Save"}
             </Button>
@@ -245,7 +254,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               &quot;.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-2">
+          <div>
             <p className="mb-2 text-sm text-muted-foreground">
               Type{" "}
               <span className="font-mono font-semibold text-foreground">
@@ -260,6 +269,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               className="h-8 text-[13px]"
             />
           </div>
+          {deleteMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setKeyToDelete(null)}>
               Cancel
@@ -277,11 +291,6 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete API Key"}
             </Button>
-            {deleteMutation.error instanceof ImpersonationError && (
-              <p role="alert" className="text-sm text-destructive">
-                {deleteMutation.error.message}
-              </p>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -333,6 +342,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   </td>
                   <td className="px-3 py-2">
                     <DeleteIconButton
+                      aria-label={`Delete API key ${key.name || formatKeyHint(key.key_hint)}`}
                       className="h-6 w-6"
                       onClick={() => {
                         deleteMutation.reset();

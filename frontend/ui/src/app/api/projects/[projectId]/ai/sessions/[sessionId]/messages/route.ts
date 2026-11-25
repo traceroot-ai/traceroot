@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
@@ -27,7 +28,7 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const res = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
-      headers: { "x-user-id": user.id },
+      headers: agentRequestHeaders({ userId: user.id }),
     },
   );
 
@@ -99,8 +100,10 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-user-id": user.id,
-        "x-workspace-id": accessResult.project.workspaceId,
+        ...agentRequestHeaders({
+          userId: user.id,
+          workspaceId: accessResult.project.workspaceId,
+        }),
       },
       body: JSON.stringify({
         message: body.message,

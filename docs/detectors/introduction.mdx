@@ -1,6 +1,7 @@
 ---
-title: Introduction
-description: Find problems in your agent's traces
+title: Detect failures in agent traces
+sidebarTitle: Introduction
+description: Describe the problem you want a model to look for, then inspect the traces it flags.
 ---
 
 A detector checks your agent's traces for one specific problem, such as a hallucination or a failed task. You hear about the problem without reading every trace. For each trace it checks, a model reads the trace and answers yes or no. A yes is a **finding**. traceroot groups findings of the same problem into a [signal](/signals/introduction), and the traceroot Agent can find the signal's root cause.
@@ -52,7 +53,7 @@ The agent drafts the detector. Nothing is saved until you click **Create detecto
   <img src="/images/detector_agent_v1.png" alt="traceroot Agent listing and reading the project's detectors, then summarizing their setup" />
 </Frame>
 
-AI coding agents can also create detectors with the [traceroot CLI](/cli/get-started) (`traceroot detectors create`) or the public API under `/api/v1/public/detectors`. Writes need a signed-in user; a project API key can only read.
+AI coding agents can also create detectors with the [traceroot CLI](/cli/detectors-and-findings) (`traceroot detectors create`) or the public API under `/api/v1/public/detectors`. Writes need a signed-in user; a project API key can only read.
 
 ## Root cause analysis
 

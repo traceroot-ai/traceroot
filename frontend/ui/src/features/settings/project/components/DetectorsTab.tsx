@@ -13,7 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
+import {
+  ALERT_WINDOWS,
+  DEFAULT_ALERT_WINDOW,
+  requiresExplicitHostedSource,
+  type AlertWindow,
+} from "@traceroot/core";
 import { updateProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
@@ -124,6 +129,10 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
               value={agentModelSelection}
               onChange={setAgentModelSelection}
               workspaceId={project?.workspace_id}
+              allowModelOnlyMatch={
+                project?.rca_source === "system" ||
+                !requiresExplicitHostedSource(project?.rca_model)
+              }
               field
             />
           </div>

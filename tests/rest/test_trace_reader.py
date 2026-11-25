@@ -648,6 +648,29 @@ class TestHasTraces:
         assert "c" in service._has_traces_cache
 
 
+class TestFirstTraceReceiveTime:
+    RECEIVED = datetime(2026, 10, 1, 8, 30)
+
+    def test_returns_the_earliest_receive_time(self):
+        service, client = _make_service(lambda *a, **kw: _rows([(self.RECEIVED,)]))
+
+        assert service.first_trace_receive_time("proj-1") == self.RECEIVED
+        query = client.query.call_args.args[0]
+        # The time the worker wrote the span, not the SDK's span start time.
+        assert "minOrNull(ch_create_time)" in query
+        assert client.query.call_args.kwargs["parameters"] == {"project_id": "proj-1"}
+
+    def test_returns_none_for_a_project_without_spans(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([(None,)]))
+        assert service.first_trace_receive_time("proj-1") is None
+
+    def test_counts_customer_spans_only(self):
+        """A project whose only rows are internal self-traces has not received a trace."""
+        service, client = _make_service(lambda *a, **kw: _rows([(None,)]))
+        service.first_trace_receive_time("proj-1")
+        assert "source = 'user'" in client.query.call_args.args[0]
+
+
 class TestTraceStartTime:
     OLD = datetime(2020, 1, 1)
 
