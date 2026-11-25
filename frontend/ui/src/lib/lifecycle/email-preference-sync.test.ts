@@ -19,10 +19,16 @@ vi.mock("@traceroot/core", () => ({
         where,
         data,
       }: {
-        where: { emailPreferenceAt: Date };
+        where: { emailPreferenceAt: Date; unsubscribedAt: Date | null };
         data: { emailPreferenceSyncedAt: Date };
       }) => {
-        if (!db.row || +db.row.emailPreferenceAt! !== +where.emailPreferenceAt) return { count: 0 };
+        const same = (a: Date | null, b: Date | null) => (a && b ? +a === +b : a === b);
+        if (
+          !db.row ||
+          !same(db.row.emailPreferenceAt, where.emailPreferenceAt) ||
+          !same(db.row.unsubscribedAt, where.unsubscribedAt)
+        )
+          return { count: 0 };
         db.row.emailPreferenceSyncedAt = data.emailPreferenceSyncedAt;
         return { count: 1 };
       },
@@ -70,6 +76,21 @@ describe("syncEmailPreference", () => {
     expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({ subscribed: true });
     expect(setTopic.mock.calls.map((c) => c[1])).toEqual(["opt_out", "opt_in"]);
     expect(db.row!.emailPreferenceSyncedAt).toEqual(T2);
+  });
+
+  it("follows an unsubscribe made in the same millisecond, which keeps the time", async () => {
+    Object.assign(db.row!, { unsubscribedAt: null });
+    setTopic.mockImplementationOnce(async (_e, choice) => {
+      provider = choice;
+      // An unsubscribe at the same instant wins and keeps emailPreferenceAt.
+      db.row!.unsubscribedAt = T1;
+      return true;
+    });
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({
+      subscribed: false,
+    });
+    expect(setTopic.mock.calls.map((c) => c[1])).toEqual(["opt_in", "opt_out"]);
+    expect(provider).toBe("opt_out");
   });
 
   it("leaves it unsynced, for the scheduled run, when the provider fails", async () => {

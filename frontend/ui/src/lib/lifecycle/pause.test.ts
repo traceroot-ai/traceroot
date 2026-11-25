@@ -9,6 +9,7 @@ type Row = {
   followUpsIntentAt: Date | null;
   unsubscribedAt: Date | null;
   emailPreferenceAt: Date | null;
+  emailPreferenceSyncedAt?: Date | null;
 };
 const db = vi.hoisted(() => ({
   users: [] as { id: string; email: string }[],
@@ -228,5 +229,15 @@ describe("the latest unsubscribe or Subscribe again wins", () => {
       subscribed: false,
     });
     expect(db.rows[0].unsubscribedAt).toEqual(T1);
+  });
+
+  it("marks every applied choice as waiting for the provider, even at the same instant", async () => {
+    await recordUnsubscribe("kai@acme.dev", true, T1);
+    db.rows[0].emailPreferenceSyncedAt = T1;
+    await recordUnsubscribe("kai@acme.dev", false, T1);
+    expect(db.rows[0].emailPreferenceSyncedAt).toBeNull();
+    db.rows[0].emailPreferenceSyncedAt = T1;
+    await recordUnsubscribe("kai@acme.dev", true, T1); // ignored: changes nothing
+    expect(db.rows[0].emailPreferenceSyncedAt).toEqual(T1);
   });
 });

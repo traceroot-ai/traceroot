@@ -44,10 +44,16 @@ export async function syncEmailPreference(
     if (!before?.emailPreferenceAt) return null;
     const subscribed = !before.unsubscribedAt;
     if (!(await setTopic(email, subscribed ? "opt_in" : "opt_out"))) return null;
-    // Synced only if no newer choice landed while the provider was being set;
-    // otherwise go round again and set it to that one.
+    // Synced only if no other choice landed while the provider was being set;
+    // otherwise go round again and set it to that one. The state is compared as
+    // well as the time: an unsubscribe made in the same millisecond as the
+    // choice read here keeps that time but changes the state.
     const { count } = await prisma.userOnboarding.updateMany({
-      where: { userId, emailPreferenceAt: before.emailPreferenceAt },
+      where: {
+        userId,
+        emailPreferenceAt: before.emailPreferenceAt,
+        unsubscribedAt: before.unsubscribedAt,
+      },
       data: { emailPreferenceSyncedAt: before.emailPreferenceAt },
     });
     if (count > 0) return { subscribed };
