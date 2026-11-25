@@ -341,6 +341,10 @@ model UserOnboarding {
   // When the person finished or skipped the last question. Set once: the
   // questions are asked once per user.
   questionsDoneAt      DateTime?  @map("questions_done_at") @db.Timestamp(6)
+  // When the welcome email falls due at the latest: set at sign-up on the cloud
+  // service for someone who gets one. The questions ending sends it sooner;
+  // otherwise the scheduled run sends it from then.
+  welcomeDueAt         DateTime?  @map("welcome_due_at") @db.Timestamp(6)
   createTime           DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime           DateTime   @updatedAt @map("update_time") @db.Timestamp(6)
   user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)

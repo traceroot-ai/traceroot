@@ -1,10 +1,12 @@
 /**
  * The four follow-up emails, word for word as approved. Each is the greeting, a few
- * paragraphs, at most one button, the founder's sign-off and the opt-out line.
+ * paragraphs, at most one button, the founder's sign-off and the opt-out line
+ * (../founder-email.ts).
  *
  * In a paragraph, `[label](url)` is a link and an indented line is a command.
  */
 import type { FollowUp } from "@/lib/lifecycle/follow-up";
+import type { FounderEmailCopy } from "../founder-email";
 
 export interface FollowUpLinks {
   /** The person's setup page: their earliest project's traces, or onboarding. */
@@ -22,14 +24,7 @@ export interface FollowUpLinks {
   openSignals?: { count: number; url: string };
 }
 
-export interface FollowUpCopy {
-  subject: string;
-  paragraphs: string[];
-  /** At most one; drawn as a black button, written out in the plain-text part. */
-  button?: { label: string; url: string };
-  /** Paragraphs after the button. */
-  after?: string[];
-}
+export type FollowUpCopy = FounderEmailCopy;
 
 export const EVALS_DOCS_URL = "https://traceroot.ai/docs/evals/get-started";
 
@@ -81,9 +76,3 @@ export function followUpCopy(campaign: FollowUp, links: FollowUpLinks): FollowUp
       };
   }
 }
-
-/** "Best," and Xinwei's signature, written as in his own email. */
-export const FOLLOW_UP_SIGNOFF = ["Best,", "Xinwei He", "TraceRoot.AI | CEO"];
-
-/** The opt-out under the signature, linked to the unsubscribe page. */
-export const PRODUCT_OPT_OUT_LABEL = "Unsubscribe from product emails";
