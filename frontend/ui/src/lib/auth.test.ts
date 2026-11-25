@@ -189,11 +189,19 @@ describe("auth options", () => {
     });
   });
 
-  it("hands every new user to the sign-up follow-up with the endpoint path", async () => {
+  it("hands every new user to the sign-up follow-up with the endpoint path and campaign", async () => {
+    signupAttributionPropertiesMock.mockReturnValue({ utm_source: "github" });
+    const createdAt = new Date("2026-11-04T08:00:00Z");
     const { after } = options.databaseHooks.user.create;
-    await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
-    const user = { id: "u1", email: "a@example.com", name: null };
-    expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+    await after(
+      { id: "u1", email: "a@example.com", name: undefined, createdAt },
+      { path: "/sign-up/email" },
+    );
+    const user = { id: "u1", email: "a@example.com", name: null, createdAt };
+    expect(onUserCreatedMock).toHaveBeenCalledWith(user, {
+      path: "/sign-up/email",
+      attribution: { utm_source: "github" },
+    });
   });
 
   it("hands a social sign-up's provider id from the callback route param", async () => {
@@ -205,10 +213,10 @@ describe("auth options", () => {
         params: { id: "agentid" },
       },
     );
-    expect(onUserCreatedMock).toHaveBeenCalledWith(expect.objectContaining({ id: "u3" }), {
-      path: "/callback/:id",
-      provider: "agentid",
-    });
+    expect(onUserCreatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u3" }),
+      expect.objectContaining({ path: "/callback/:id", provider: "agentid" }),
+    );
   });
 
   it("resolves before the follow-up settles and logs its later rejection", async () => {

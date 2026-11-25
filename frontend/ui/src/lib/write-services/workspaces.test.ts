@@ -18,9 +18,12 @@ vi.mock("@traceroot/core", () => ({
   },
   Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
 }));
+const notifyMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/signup/membership-webhook", () => ({ notifyWorkspaceMember: notifyMock }));
 import { createWorkspace } from "./workspaces";
 
 beforeEach(() => {
+  notifyMock.mockReset();
   tx.workspace.findFirst.mockReset();
   tx.workspace.create.mockReset();
   tx.workspaceMember.create.mockReset();
@@ -53,6 +56,12 @@ describe("createWorkspace", () => {
       data: expect.objectContaining({ userId: "u1", role: "ADMIN" }),
     });
     expect(root.auditLog.create).toHaveBeenCalled();
+    expect(notifyMock).toHaveBeenCalledWith({
+      userId: "u1",
+      workspaceId: "w1",
+      createdBy: "u1",
+      via: "created",
+    });
   });
 
   it("audits through the root client, not the transaction, so a failed audit cannot roll the workspace back", async () => {
@@ -88,6 +97,8 @@ describe("createWorkspace", () => {
     });
     expect(tx.workspace.create).not.toHaveBeenCalled();
     expect(root.auditLog.create).not.toHaveBeenCalled();
+    // Already a member: no new membership to report.
+    expect(notifyMock).not.toHaveBeenCalled();
   });
 
   it("stamps the creator on the row so the unique key can back the idempotency", async () => {
