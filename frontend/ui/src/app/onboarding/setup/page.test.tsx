@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The hand-back step's watch for the first trace, driven through the real page.
+ * The setup step's watch for the first trace, driven through the real page.
  *
  * Its own file because driving the wait means fake timers, and the rest of the
  * onboarding suite leans on testing-library's waitFor, which polls on real
@@ -14,9 +14,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
-  createWorkspace: vi.fn(),
-  createProject: vi.fn(),
-  getWorkspaces: vi.fn(),
+  search: "projectId=proj-1",
+  getProject: vi.fn(),
   getTraces: vi.fn(),
   session: {
     data: { user: { id: "user-1", email: "kai@example.com" } },
@@ -26,7 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: { useSession: () => mocks.session, signOut: vi.fn() },
@@ -34,11 +33,7 @@ vi.mock("@/lib/auth-client", () => ({
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHeaderContent: vi.fn() }),
 }));
-vi.mock("@/lib/api", () => ({
-  createWorkspace: mocks.createWorkspace,
-  createProject: mocks.createProject,
-  getWorkspaces: mocks.getWorkspaces,
-}));
+vi.mock("@/lib/api", () => ({ getProject: mocks.getProject }));
 vi.mock("@/lib/api/traces", () => ({
   getTraces: (projectId: string, key: string, options: unknown, user: unknown) =>
     mocks.getTraces(projectId, key, options, user),
@@ -56,16 +51,10 @@ vi.mock("@/features/traces/components/GettingStarted/ApiKeyBlock", () => ({
 vi.mock("@/features/workspaces/hooks", () => ({ useWorkspaces: () => ({ data: [] }) }));
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
 vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
-vi.mock("@/components/github/GitHubConnectButton", () => ({
-  GitHubConnectButton: () => <div data-testid="github-connect" />,
-}));
-vi.mock("@/components/slack/SlackConnectButton", () => ({
-  SlackConnectButton: () => <div data-testid="slack-connect" />,
-}));
 
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
 import { MAX_UNREADABLE_ROUNDS } from "@/features/onboarding/use-project-trace-wait";
-import OnboardingPage from "./page";
+import SetupStepPage from "./page";
 
 function trace(traceId: string, startTime: string) {
   return {
@@ -138,17 +127,19 @@ function traceLine(): HTMLElement {
   return found[0]!;
 }
 
-/** Mount, create the workspace and project, and settle on the hand-back step. */
-async function reachHandback() {
+function mount() {
   render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
-      <OnboardingPage />
+      <SetupStepPage />
     </QueryClientProvider>,
   );
-  await flush();
-  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+}
+
+/** Open the step for the project the run created, as the connect step does. */
+async function reachHandback() {
+  mount();
   await flush();
 }
 
@@ -161,9 +152,11 @@ async function reachManual() {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  mocks.getWorkspaces.mockResolvedValue([]);
-  mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
-  mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+  mocks.getProject.mockResolvedValue({
+    id: "proj-1",
+    name: "my-llm-project",
+    workspace_id: "ws-1",
+  });
   tracePage = [];
   mocks.getTraces.mockImplementation(
     async (_projectId: string, _key: string, options: { limit: number }) => ({
@@ -177,9 +170,9 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   mocks.push.mockReset();
-  mocks.createWorkspace.mockReset();
-  mocks.createProject.mockReset();
-  mocks.getWorkspaces.mockReset();
+  mocks.getProject.mockReset();
+  mocks.search = "projectId=proj-1";
+  capture.mockReset();
   mocks.getTraces.mockReset();
 });
 
@@ -324,16 +317,10 @@ describe("the hand-back step's first-trace watch", () => {
     expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
   });
 
-  it("reads nothing at all until the project exists", async () => {
-    // Nothing to watch before the form is submitted, and a page the user
-    // abandons there has cost the trace API nothing.
-    render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-      >
-        <OnboardingPage />
-      </QueryClientProvider>,
-    );
+  it("reads nothing at all until the project is known", async () => {
+    // Nothing to watch before the step knows its project.
+    mocks.getProject.mockReturnValue(new Promise(() => {}));
+    mount();
     await flush();
     await rounds(2);
 
@@ -387,16 +374,11 @@ describe("where the page says the watch stands", () => {
   });
 
   it("holds the slot open before there is anything to say in it", async () => {
-    // The line is absent until a project exists. The space it will take is
-    // reserved from the first render, so pressing Create does not step the card
-    // down — the smaller version of the complaint this layout fix is about.
-    render(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-      >
-        <OnboardingPage />
-      </QueryClientProvider>,
-    );
+    // The line is absent until the project is known. The space it will take is
+    // reserved from the first render, so the card does not step down when it
+    // appears.
+    mocks.getProject.mockReturnValue(new Promise(() => {}));
+    mount();
     await flush();
 
     expect(
@@ -476,6 +458,61 @@ describe("where the page says the watch stands", () => {
     expect(isAbove(line, screen.getByText(/Select your integration/))).toBe(true);
     expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
       "/projects/proj-1/traces",
+    );
+  });
+});
+
+describe("the setup step itself", () => {
+  it("shows the project page's setup tabs in sign-up's own words, without GitHub or Slack", async () => {
+    await reachHandback();
+
+    expect(screen.getByRole("tab", { name: "Using AI" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(
+      screen.getByText("Workspace and project created — the rest happens in your terminal"),
+    ).toBeDefined();
+    expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
+    expect(screen.getByText(/Run it where my-llm-project's code lives\./)).toBeDefined();
+    expect(document.querySelector("pre")?.textContent).toContain("--project proj-1");
+    expect(screen.queryByText(/External integrations/)).toBeNull();
+  });
+
+  it("shows the manual walkthrough with no model key, and says so in the header", async () => {
+    await reachManual();
+
+    expect(
+      screen.getByText("Workspace and project created — add tracing to your application"),
+    ).toBeDefined();
+    expect(screen.getByText(/Install SDK/)).toBeDefined();
+    expect(screen.getByText("Needs Python 3.11 or later.")).toBeDefined();
+    expect(screen.queryByText(/model key/i)).toBeNull();
+    expect(screen.queryByText(/External integrations/)).toBeNull();
+  });
+
+  it("says only a project was made when the run added one to an existing workspace", async () => {
+    mocks.search = "projectId=proj-1&created=project";
+    await reachHandback();
+    expect(screen.getByText("Project created — the rest happens in your terminal")).toBeDefined();
+  });
+
+  it("leaves a skipped account on its workspaces, and a manual one on its traces", async () => {
+    await reachHandback();
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(mocks.push).toHaveBeenCalledWith("/workspaces");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
+  });
+
+  it("says the step is unavailable for a project it cannot open", async () => {
+    mocks.getProject.mockRejectedValue(new Error("Project not found"));
+    await reachHandback();
+    expect(screen.getByText("This step isn't available")).toBeDefined();
+    expect(screen.getByRole("link", { name: "Go to your workspaces" }).getAttribute("href")).toBe(
+      "/workspaces",
     );
   });
 });

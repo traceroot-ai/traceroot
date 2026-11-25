@@ -77,6 +77,10 @@ const serverSchema = z.object({
   DEMO_WORKSPACE_ID: z.string().trim().optional(),
   // Sign-up follow-ups; unset means no Slack post.
   TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: z.string().optional(),
+  // The one credential for POST /api/internal/follow-ups/pause, which the lead
+  // service calls to pause or resume a person's follow-up emails. Deliberately
+  // not INTERNAL_API_SECRET, which can act as any user. Blank: the endpoint is off.
+  LIFECYCLE_PAUSE_SECRET: z.string().default(""),
   // Server-side read of a new user's PostHog person (city, device, referrer) for the Slack post
   POSTHOG_PERSONAL_API_KEY: z.string().optional(),
   POSTHOG_PROJECT_ID: z.string().optional(),

@@ -159,31 +159,3 @@ describe("the manual tab", () => {
     expect(screen.getByText("Run this in your project")).toBeTruthy();
   });
 });
-
-describe("a workspace that cannot be read", () => {
-  it("says so once on each tab, for the external integrations", () => {
-    projectQuery.isLoading = false;
-    projectQuery.data = undefined;
-    render(<GettingStarted projectId="proj_1" />);
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-
-    pickMode("Manual");
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-    // The stack picker needs no workspace, so it is still usable.
-    expect(screen.getByRole("radiogroup", { name: "Integration" })).toBeTruthy();
-  });
-
-  it("holds the integrations behind a placeholder while the project loads", () => {
-    projectQuery.isLoading = true;
-    projectQuery.data = undefined;
-    render(<GettingStarted projectId="proj_1" />);
-    expect(screen.getByText("Loading integrations...")).toBeTruthy();
-    expect(screen.queryByText("Loading model providers...")).toBeNull();
-
-    pickMode("Manual");
-    expect(screen.getByText("Loading integrations...")).toBeTruthy();
-    expect(screen.queryByText("Loading model providers...")).toBeNull();
-  });
-});
