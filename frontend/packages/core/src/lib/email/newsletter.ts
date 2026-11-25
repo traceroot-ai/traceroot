@@ -218,7 +218,7 @@ export interface AudienceRun {
   notRun?: "no_segment" | "no_api_key" | "no_topic" | "no_start";
 }
 
-export type AudienceClient = Pick<PrismaClient, "user" | "userOnboarding">;
+export type AudienceClient = Pick<PrismaClient, "user" | "userOnboarding" | "$queryRaw">;
 
 export async function runNewsletterAudience(
   db: AudienceClient,
@@ -433,7 +433,11 @@ async function stampTried(db: AudienceClient, userId: string, now = new Date()) 
  * made meanwhile is never overwritten; the new version makes a sync in flight
  * look again. The person is left out of the newsletter either way.
  */
-async function recordProviderOptOut(db: AudienceClient, userId: string, now = new Date()) {
+async function recordProviderOptOut(db: AudienceClient, userId: string) {
+  // Stamped by the database clock, as every other email choice is (the
+  // unsubscribe page and the scheduled run), so it orders against them
+  // whatever this process's clock says.
+  const [{ now }] = await db.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
   await db.userOnboarding.createMany({ data: [{ userId }], skipDuplicates: true });
   await db.userOnboarding.updateMany({
     where: {

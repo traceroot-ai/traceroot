@@ -97,7 +97,10 @@ const row = (userId: string) => {
   user.onboarding ??= { unsubscribedAt: null, newsletterAddedAt: null };
   return user.onboarding;
 };
+/** The database clock (SELECT clock_timestamp()); tests may set it apart from the process's. */
+let dbNow: () => Date = () => new Date();
 const db = {
+  $queryRaw: async () => [{ now: dbNow() }],
   user: {
     findMany: async ({
       where: w,
@@ -214,6 +217,7 @@ const run = (
   });
 
 beforeEach(() => {
+  dbNow = () => new Date();
   users = [];
   contacts = new Map();
   segment = new Set();
@@ -670,6 +674,18 @@ describe("adding to the segment, against a local endpoint", () => {
       expect(await run()).toMatchObject({ added: 0, excluded: { provider_unsubscribed: 1 } });
       expect(onboarding("later")).toMatchObject({ emailPreferenceVersion: 3 });
       expect(onboarding("later")?.unsubscribedAt).toBeInstanceOf(Date);
+    });
+
+    it("stamps that opt-out with the database clock, not this process's", async () => {
+      signUp("skew");
+      const dbTime = new Date("2026-12-01T10:00:00.000Z");
+      dbNow = () => dbTime; // the process clock is the real, different one
+      topicsOf.set("skew@acme.test", [{ id: "topic_product", subscription: "opt_out" }]);
+      await run();
+      expect(onboarding("skew")).toMatchObject({
+        unsubscribedAt: dbTime,
+        emailPreferenceAt: dbTime,
+      });
     });
 
     it("in a dry run, counts that opt-out and writes nothing", async () => {

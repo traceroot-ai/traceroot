@@ -52,6 +52,14 @@ const provider = {
   // Contacts whose topics do not list the product topic: their state is unknown.
   noTopic: new Set<string>(),
   slowMs: 0,
+  // Addresses whose product topic is on this page of their topics (1 = the first).
+  topicPage: new Map<string, number>(),
+  pageMs: 0, // each page of topics takes this long
+  contactMs: 0, // each contact lookup takes this long
+  // Each topic write as it arrives: the recipient's lease and the database's
+  // clock (as UTC wall time) at that moment.
+  patches: [] as { email: string; lease: Date | null; now: Date }[],
+  observe: null as null | ((email: string) => Promise<{ lease: Date | null; now: Date }>),
   writes: 0, // topic writes that reached the provider
   timeoutNext: 0, // the next topic writes get no answer: the connection drops
   applyThenDropNext: 0, // the next topic writes are applied, then the connection drops
@@ -75,6 +83,7 @@ const handle = async (
   const body = init.body ? JSON.parse(init.body) : null;
   if (parts[1] !== "contacts") return new Response("{}", { status: 404 });
   if (!parts[3]) {
+    if (provider.contactMs) await sleep(provider.contactMs);
     if (method === "GET")
       return provider.contacts.has(parts[2])
         ? Response.json({ email: parts[2], unsubscribed: false })
@@ -85,7 +94,17 @@ const handle = async (
   // The newsletter job's reads and segment adds.
   if (parts[3] === "topics" && method === "GET") {
     if (provider.noTopic.has(parts[2])) return Response.json({ data: [], has_more: false });
+    if (provider.pageMs) await sleep(provider.pageMs);
     const subscription = provider.topic.get(parts[2]) ?? "opt_in";
+    const last = provider.topicPage.get(parts[2]) ?? 1;
+    const page = Number(url.searchParams.get("after")?.split("_")[1] ?? 0) + 1;
+    if (page < last) {
+      const data = Array.from({ length: 100 }, (_, i) => ({
+        id: `other_${page}_${i}`,
+        subscription: "opt_in",
+      }));
+      return Response.json({ data, has_more: true });
+    }
     return Response.json({ data: [{ id: "topic_local", subscription }], has_more: false });
   }
   if (parts[3] === "segments" && method === "POST") {
@@ -95,6 +114,8 @@ const handle = async (
   }
   const choice = body[0].subscription as string;
   provider.writes += 1;
+  if (provider.observe)
+    provider.patches.push({ email: parts[2], ...(await provider.observe(parts[2])) });
   if (provider.slowMs) await sleep(provider.slowMs);
   if (provider.hold?.choice === choice) {
     const held = provider.hold;
@@ -160,6 +181,7 @@ let prisma: Prisma;
 let unsubscribe: typeof import("@/app/api/email/unsubscribe/route");
 let tickRoute: typeof import("@/app/api/internal/scheduled-tick/route");
 let sync: typeof import("./email-preference-sync");
+let pause: typeof import("./pause");
 let signToken: (email: string) => string;
 const TAG = `prefdb${Date.now()}`;
 const TICK_SECRET = `tick-${Math.random().toString(36).slice(2)}`;
@@ -196,7 +218,7 @@ const windowPassed = (id: string) =>
 // A lost writer's lease has run out (it does after LEASE_MS).
 const leaseExpired = (id: string) =>
   prisma.$executeRawUnsafe(
-    `update user_onboarding set email_provider_lease_until = now() - interval '1 second' where user_id = $1`,
+    `update user_onboarding set email_provider_lease_until = (clock_timestamp() AT TIME ZONE 'UTC') - interval '1 second' where user_id = $1`,
     id,
   );
 const settled = async (id: string) => {
@@ -239,6 +261,15 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     unsubscribe = await import("@/app/api/email/unsubscribe/route");
     tickRoute = await import("@/app/api/internal/scheduled-tick/route");
     sync = await import("./email-preference-sync");
+    pause = await import("./pause");
+    provider.observe = async (email) => {
+      const [row] = await prisma.$queryRaw<{ lease: Date | null; now: Date }[]>`
+        SELECT o.email_provider_lease_until AS lease,
+               (clock_timestamp() AT TIME ZONE 'UTC')::timestamp(3) AS now
+        FROM user_onboarding o JOIN users u ON u.id = o.user_id
+        WHERE u.email = ${email}`;
+      return row ?? { lease: null, now: new Date(NaN) };
+    };
   });
 
   beforeEach(() => {
@@ -247,6 +278,10 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     provider.hold = null;
     provider.slowMs = 0;
     provider.noTopic.clear();
+    provider.topicPage.clear();
+    provider.pageMs = 0;
+    provider.contactMs = 0;
+    provider.patches = [];
     provider.timeoutNext = 0;
     provider.applyThenDropNext = 0;
     Object.assign(jobs, { traceCountsFail: false, newsletterFail: false, newsletterRuns: 0 });
@@ -535,6 +570,30 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
       subscribed: false,
     });
     expect(await unsubscribed(p.id)).toBe(true);
+  });
+
+  it("lets a genuinely later Subscribe again through after a provider opt-out was recorded", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    expect((await post(p.email, "opt_in")).status).toBe(200); // acknowledged
+    // The person opts out at the provider; the run records it.
+    provider.topic.set(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    expect(await unsubscribed(p.id)).toBe(true);
+    // Later, they choose Subscribe again on the page: it goes through.
+    await sleep(20);
+    const again = await post(p.email, "opt_in");
+    expect(again.text).toContain("You're subscribed again.");
+    expect(await unsubscribed(p.id)).toBe(false);
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    // And the times the database wrote are UTC, as the app's are.
+    const row = await account(p.id);
+    expect(Math.abs(+row!.emailPreferenceAt! - Date.now())).toBeLessThan(60_000);
+    expect(Math.abs(+row!.emailProviderWriteAt! - Date.now())).toBeLessThan(60_000);
   });
 
   it("still sends a Subscribe again at once when nothing else is on its way", async () => {
@@ -915,6 +974,126 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     expect(provider.segments.get(p.email)?.has("seg_local") ?? false).toBe(false);
     expect(await settled(p.id)).toBe(true);
   });
+
+  // A person whose opt-out the provider refused: the run sends it again, after
+  // reading the provider's topics (the product topic on their seventh page).
+  const refusedOptOut = async () => {
+    const p = await person();
+    provider.failNext = 1;
+    await post(p.email, "opt_out");
+    expect(provider.topic.get(p.email)).not.toBe("opt_out");
+    await windowPassed(p.id);
+    provider.topicPage.set(p.email, 7);
+    provider.patches = [];
+    return p;
+  };
+  const patchesOf = (email: string) => provider.patches.filter((x) => x.email === email);
+
+  it("sends no write after the lease when a scheduled repair's reads are slow (the default lease)", async () => {
+    const p = await refusedOptOut();
+    // Seven pages of 9 s each (each inside the 10 s request timeout): 63 s,
+    // past the 60 s lease.
+    provider.pageMs = 9_000;
+    await tick();
+    expect(patchesOf(p.email)).toEqual([]); // the budget ran out during the reads
+    expect((await account(p.id))?.emailProviderLeaseUntil).toBeNull(); // given back
+    await sleep(500);
+    expect(patchesOf(p.email)).toEqual([]);
+    // Once the provider is quick again, the next run sends it, inside the lease.
+    provider.pageMs = 0;
+    await windowPassed(p.id);
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    const [patch] = patchesOf(p.email);
+    expect(+patch.now).toBeLessThan(+patch.lease!);
+    expect(await settled(p.id)).toBe(true);
+  }, 120_000);
+
+  it.each([
+    ["the pages", { pageMs: 300, contactMs: 0 }],
+    ["the contact lookup after the pages", { pageMs: 120, contactMs: 400 }],
+  ])(
+    "ends a short lease's repair without a write when %s use up its budget",
+    async (_case, slow) => {
+      const timing = { leaseMs: 2_000, holdBudgetMs: 1_000 };
+      const p = await refusedOptOut();
+      Object.assign(provider, slow);
+      await sync.syncPendingEmailPreferences({ settleAfterMs: 0, timing });
+      await sleep(timing.leaseMs + 500); // past the lease: nothing arrives late
+      for (const patch of patchesOf(p.email)) expect(+patch.now).toBeLessThan(+patch.lease!);
+      expect(provider.topic.get(p.email)).not.toBe("opt_out");
+      expect((await account(p.id))?.emailProviderLeaseUntil).toBeNull();
+      // With a quick provider, the same short lease delivers it, inside the lease.
+      Object.assign(provider, { pageMs: 20, contactMs: 0 });
+      await sync.syncPendingEmailPreferences({ settleAfterMs: 0, timing });
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      const sent = patchesOf(p.email);
+      expect(sent.length).toBeGreaterThan(0);
+      for (const patch of sent) expect(+patch.now).toBeLessThan(+patch.lease!);
+      expect(await settled(p.id)).toBe(true);
+    },
+    30_000,
+  );
+
+  it("delivers a choice on the page inside its lease", async () => {
+    const p = await person();
+    provider.patches = [];
+    await post(p.email, "opt_out");
+    const [patch] = patchesOf(p.email);
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    expect(+patch.now).toBeLessThan(+patch.lease!);
+  });
+
+  it.each([
+    ["behind", -3],
+    ["ahead of", 3],
+  ])(
+    "orders the newsletter's provider opt-out by the database clock with this process %s it",
+    async (_case, hours) => {
+      const newsletterOn = {
+        NEWSLETTER_SEGMENT_ENABLED: "true",
+        RESEND_NEWSLETTER_SEGMENT_ID: "seg_local",
+        NEWSLETTER_START_AT: "2020-01-01T00:00:00Z",
+        TRACEROOT_CLOUD_ENV: "staging",
+      };
+      const p = await person(new Date(Date.now() - 20 * 24 * 60 * 60 * 1000));
+      await post(p.email, "opt_in");
+      await windowPassed(p.id);
+      await tick();
+      expect(await settled(p.id)).toBe(true);
+      // A Subscribe again arrives (stamped now) and is held up...
+      const earlier = await pause.emailChoiceTime();
+      await sleep(20);
+      // ...meanwhile the person opts out at the provider, and the newsletter,
+      // on a process whose clock is off by hours, records it.
+      provider.topic.set(p.email, "opt_out");
+      const saved = { ...process.env };
+      Object.assign(process.env, newsletterOn);
+      vi.useFakeTimers({
+        toFake: ["Date"],
+        now: Date.now() + hours * 60 * 60 * 1000,
+        shouldAdvanceTime: true,
+      });
+      try {
+        await tick();
+      } finally {
+        vi.useRealTimers();
+        for (const key of Object.keys(newsletterOn)) {
+          if (saved[key] === undefined) delete process.env[key];
+          else process.env[key] = saved[key];
+        }
+      }
+      expect(await unsubscribed(p.id)).toBe(true);
+      // The held-up Subscribe again lands: it is older, so it changes nothing.
+      expect((await pause.recordUnsubscribe(p.email, true, earlier))?.applied).toBe(false);
+      expect(await unsubscribed(p.id)).toBe(true);
+      // A genuinely later Subscribe again on the page goes through.
+      await sleep(20);
+      expect((await post(p.email, "opt_in")).text).toContain("You're subscribed again.");
+      expect(await unsubscribed(p.id)).toBe(false);
+      expect(provider.topic.get(p.email)).toBe("opt_in");
+    },
+  );
 
   it("leaves the newsletter its turn within the worker's timeout when the provider is slow", async () => {
     const { WEB_TICK_TIMEOUT_MS } = { WEB_TICK_TIMEOUT_MS: 60_000 }; // worker/src/web-tick

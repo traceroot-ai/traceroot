@@ -7,10 +7,12 @@
  * - One write per person at a time. A writer takes a lease
  *   (emailProviderLeaseUntil) with a short conditional update before sending,
  *   and gives it back when the answer comes; no database connection is held
- *   while it waits. A writer stops waiting for the provider after
- *   PROVIDER_DEADLINE_MS, well inside the lease, and one whose lease ran out
- *   before its answer came acknowledges nothing. A crashed writer's lease runs
- *   out after LEASE_MS. So a write never lands after one that started later.
+ *   while it waits. Everything a writer asks the provider under the lease (the
+ *   scheduled run's reads, the contact lookup and create, the write) shares one
+ *   budget, HOLD_BUDGET_MS from taking it, well inside LEASE_MS: no request
+ *   starts after it, a write starts only while the lease is held for the rest
+ *   of it, and a writer whose lease ran out before its answer came
+ *   acknowledges nothing. So a write never lands after one that started later.
  * - A choice made while another write holds the lease is not sent alongside
  *   it: it is marked as racing that write (emailProviderContendedVersion), and
  *   when the write in flight comes back the writer sends a newer opt-out at
@@ -56,10 +58,15 @@ export type SetProviderTopic = (
   deadline?: AbortSignal,
 ) => Promise<WriteOutcome>;
 /** Reads the provider's topic for one address; null when it cannot be read. */
-export type ReadProviderTopic = (email: string) => Promise<TopicSubscription | "missing" | null>;
+export type ReadProviderTopic = (
+  email: string,
+  /** Ends every provider request of the read (all its pages). */
+  deadline?: AbortSignal,
+) => Promise<TopicSubscription | "missing" | null>;
 
-export const setProviderTopic: SetProviderTopic = async (email, choice, deadline) => {
-  const fetchImpl: typeof fetch = (input, init) =>
+/** A fetch whose every request also ends at `deadline`. */
+function fetchUntil(deadline?: AbortSignal): typeof fetch {
+  return (input, init) =>
     fetch(input, {
       ...init,
       signal: deadline
@@ -68,9 +75,15 @@ export const setProviderTopic: SetProviderTopic = async (email, choice, deadline
           : deadline
         : init?.signal,
     });
+}
+
+export const setProviderTopic: SetProviderTopic = async (email, choice, deadline) => {
+  const fetchImpl = fetchUntil(deadline);
   try {
     // No contact, no topic write: nothing was applied.
     if (!(await ensureContact({ email }, { fetchImpl })).ok) return "rejected";
+    // Out of time before the write: it is not sent.
+    if (deadline?.aborted) return "rejected";
     const result = await setTopicSubscription(email, choice, { fetchImpl });
     if (result.ok) return "ok";
     return result.rejected ? "rejected" : "unknown";
@@ -79,14 +92,14 @@ export const setProviderTopic: SetProviderTopic = async (email, choice, deadline
   }
 };
 
-export const readProviderTopic: ReadProviderTopic = async (email) => {
+export const readProviderTopic: ReadProviderTopic = async (email, deadline) => {
   const config = resendConfig();
   if (!config.apiKey) return null;
   try {
     const state = await providerState(email, {
       apiKey: config.apiKey,
       productTopicId: config.productTopicId,
-      fetchImpl: fetch,
+      fetchImpl: fetchUntil(deadline),
     });
     if (state === "subscribed") return "opt_in";
     if (state === "unsubscribed") return "opt_out";
@@ -96,16 +109,29 @@ export const readProviderTopic: ReadProviderTopic = async (email) => {
   }
 };
 
+// Wherever the database writes or compares a time here, it reads its clock as
+// UTC wall time (clock_timestamp() AT TIME ZONE 'UTC'): the columns hold UTC
+// wall time, as the application's own writes store it, whatever the session's
+// time zone.
+
 /** How long after the latest provider write the scheduled run looks at it. */
 export const SETTLE_AFTER_MS = 10 * 60 * 1000;
-/** How long a writer may hold the lease; longer than any provider request. */
+/** How long a writer holds the lease. */
 export const LEASE_MS = 60_000;
 /**
- * How long one write's provider requests may take in all (a contact lookup,
- * maybe a create, and the topic write), well inside the lease, so a writer
- * gives up waiting before anyone else can take the lease.
+ * One budget for everything a writer asks the provider while it holds the
+ * lease, counted from when it took it: the scheduled run's reads (every page),
+ * the contact lookup and create, and the write. Well inside the lease, so no
+ * request starts, and none is still waited on, once anyone else could take it.
  */
-export const PROVIDER_DEADLINE_MS = 20_000;
+export const HOLD_BUDGET_MS = 30_000;
+
+/** The lease and budget lengths; shorter ones only in tests. */
+export type Timing = { leaseMs: number; holdBudgetMs: number };
+const DEFAULT_TIMING: Timing = { leaseMs: LEASE_MS, holdBudgetMs: HOLD_BUDGET_MS };
+
+/** A lease this writer holds: its token, and the budget counted from taking it. */
+type Hold = { lease: Date; deadline: AbortSignal; endsAt: number };
 /** Per scheduled tick: at most this many people, and no new one after this long. */
 export const PER_TICK = 20;
 export const TICK_BUDGET_MS = 15_000;
@@ -144,14 +170,19 @@ const choiceOf = (row: Choice): TopicSubscription => (row.unsubscribedAt ? "opt_
  * it. Answers the lease's end, which is its token, or null when another write
  * is on its way.
  */
-async function takeLease(userId: string): Promise<Date | null> {
+async function takeLease(userId: string, timing: Timing): Promise<Hold | null> {
   const [row] = await prisma.$queryRaw<{ until: Date }[]>`
     UPDATE user_onboarding
-    SET email_provider_lease_until = clock_timestamp() + ${LEASE_MS} * interval '1 millisecond'
+    SET email_provider_lease_until = (clock_timestamp() AT TIME ZONE 'UTC') + ${timing.leaseMs} * interval '1 millisecond'
     WHERE user_id = ${userId}
-      AND (email_provider_lease_until IS NULL OR email_provider_lease_until < clock_timestamp())
+      AND (email_provider_lease_until IS NULL OR email_provider_lease_until < (clock_timestamp() AT TIME ZONE 'UTC'))
     RETURNING email_provider_lease_until AS until`;
-  return row?.until ?? null;
+  if (!row) return null;
+  return {
+    lease: row.until,
+    deadline: AbortSignal.timeout(timing.holdBudgetMs),
+    endsAt: Date.now() + timing.holdBudgetMs,
+  };
 }
 
 /**
@@ -159,15 +190,20 @@ async function takeLease(userId: string): Promise<Date | null> {
  * attempt supersedes the previous one's refusal in the same statement, so a
  * refusal only ever describes the latest attempt.
  */
-async function startWrite(userId: string, lease: Date, version: number): Promise<Date | null> {
-  const at = lease.toISOString().replace("Z", "");
+async function startWrite(userId: string, hold: Hold, version: number): Promise<Date | null> {
+  // Out of budget: nothing more is sent under this lease.
+  const left = hold.endsAt - Date.now();
+  if (hold.deadline.aborted || left <= 0) return null;
+  const at = hold.lease.toISOString().replace("Z", "");
   const [row] = await prisma.$queryRaw<{ at: Date }[]>`
     UPDATE user_onboarding
-    SET email_provider_write_at = clock_timestamp(),
+    SET email_provider_write_at = (clock_timestamp() AT TIME ZONE 'UTC'),
         email_provider_write_version = ${version},
         email_provider_rejected_version = NULL
     WHERE user_id = ${userId} AND email_provider_lease_until = ${at}::timestamp(3)
       AND email_preference_version = ${version}
+      -- Still held for at least the rest of the budget.
+      AND email_provider_lease_until > (clock_timestamp() AT TIME ZONE 'UTC') + ${left} * interval '1 millisecond'
     RETURNING email_provider_write_at AS at`;
   return row?.at ?? null;
 }
@@ -218,18 +254,21 @@ async function markContended(userId: string, version: number) {
 async function sendUnderLease(
   userId: string,
   email: string,
-  lease: Date,
+  hold: Hold,
   choice: TopicSubscription,
   version: number,
   setTopic: SetProviderTopic,
 ): Promise<{ outcome: WriteOutcome | "stale"; current: Choice | null }> {
-  const started = await startWrite(userId, lease, version);
+  const lease = hold.lease;
+  const started = await startWrite(userId, hold, version);
   if (!started) {
-    // The choice changed after it was read: nothing is sent.
+    // The choice changed after it was read, or the budget is spent: nothing is sent.
     await giveBack(userId, lease, null);
-    return { outcome: "stale", current: await readChoice(userId) };
+    const current = await readChoice(userId);
+    if (current?.emailPreferenceVersion === version) return { outcome: "rejected", current };
+    return { outcome: "stale", current };
   }
-  let outcome = await setTopic(email, choice, AbortSignal.timeout(PROVIDER_DEADLINE_MS));
+  let outcome = await setTopic(email, choice, hold.deadline);
   if (outcome === "rejected") await recordRejected(userId, version, started);
   const current = await readChoice(userId);
   const stillInForce = !!current && current.emailPreferenceVersion === version;
@@ -263,17 +302,19 @@ export async function syncEmailPreference(
   userId: string,
   email: string,
   setTopic: SetProviderTopic = setProviderTopic,
+  timing: Timing = DEFAULT_TIMING,
 ): Promise<SyncResult> {
   let row = await readChoice(userId);
   if (!row?.emailPreferenceAt) return { state: "rejected" };
   for (;;) {
     const version: number = row.emailPreferenceVersion;
     const choice = choiceOf(row);
-    const lease = await takeLease(userId);
-    if (!lease) {
+    const hold = await takeLease(userId, timing);
+    if (!hold) {
       await markContended(userId, version);
       return { state: "queued" };
     }
+    const lease = hold.lease;
     // Read again under the lease: a newer choice may have been made, and even
     // sent, since this one was read. A stale choice is never sent.
     const fresh = await readChoice(userId);
@@ -289,7 +330,7 @@ export async function syncEmailPreference(
     const { outcome, current } = await sendUnderLease(
       userId,
       email,
-      lease,
+      hold,
       choice,
       version,
       setTopic,
@@ -311,7 +352,7 @@ export async function syncEmailPreference(
   }
 }
 
-type Settle = { setTopic: SetProviderTopic; readTopic: ReadProviderTopic };
+type Settle = { setTopic: SetProviderTopic; readTopic: ReadProviderTopic; timing: Timing };
 
 /**
  * Looks at one preference for the scheduled run (see the top of this file).
@@ -319,15 +360,16 @@ type Settle = { setTopic: SetProviderTopic; readTopic: ReadProviderTopic };
  * later run looks again.
  */
 async function settleEmailPreference(userId: string, email: string, io: Settle): Promise<boolean> {
-  const lease = await takeLease(userId);
-  if (!lease) return false; // a write is on its way; a later run looks again
+  const hold = await takeLease(userId, io.timing);
+  if (!hold) return false; // a write is on its way; a later run looks again
+  const lease = hold.lease;
   let ackVersion: number | null = null;
   try {
     const row = await readChoice(userId);
     if (!row?.emailPreferenceAt) return false;
     const version = row.emailPreferenceVersion;
     const want = choiceOf(row);
-    const held = await io.readTopic(email);
+    const held = await io.readTopic(email, hold.deadline);
     if (!held) return false;
 
     // Settled at the latest write, if the choice is still the one looked at.
@@ -357,8 +399,8 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
       // choice made meanwhile is not overwritten.
       const recorded = await prisma.$executeRaw`
         UPDATE user_onboarding
-        SET unsubscribed_at = COALESCE(unsubscribed_at, clock_timestamp()::timestamp(3)),
-            email_preference_at = clock_timestamp()::timestamp(3),
+        SET unsubscribed_at = COALESCE(unsubscribed_at, (clock_timestamp() AT TIME ZONE 'UTC')::timestamp(3)),
+            email_preference_at = (clock_timestamp() AT TIME ZONE 'UTC')::timestamp(3),
             email_preference_version = email_preference_version + 1,
             email_provider_ack_version = email_preference_version + 1,
             email_provider_settled_at = COALESCE(email_provider_write_at, 'epoch'::timestamp)
@@ -367,9 +409,9 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
     }
     // A refused or never-sent write of the account's choice is finished; an
     // opt-in at the provider under an account opt-out is set back (the opt-out wins).
-    const writeAt = await startWrite(userId, lease, version);
+    const writeAt = await startWrite(userId, hold, version);
     if (!writeAt) return false;
-    const outcome = await io.setTopic(email, want, AbortSignal.timeout(PROVIDER_DEADLINE_MS));
+    const outcome = await io.setTopic(email, want, hold.deadline);
     if (outcome === "rejected") await recordRejected(userId, version, writeAt);
     if (outcome !== "ok") return false;
     return await settle(writeAt);
@@ -395,6 +437,7 @@ export async function syncPendingEmailPreferences(
     settleAfterMs?: number;
     setTopic?: SetProviderTopic;
     readTopic?: ReadProviderTopic;
+    timing?: Timing;
   } = {},
 ): Promise<{ synced: number; pending: number; remaining: number }> {
   const limit = options.limit ?? PER_TICK;
@@ -403,6 +446,7 @@ export async function syncPendingEmailPreferences(
   const io = {
     setTopic: options.setTopic ?? setProviderTopic,
     readTopic: options.readTopic ?? readProviderTopic,
+    timing: options.timing ?? DEFAULT_TIMING,
   };
   const rows = await prisma.$queryRaw<{ user_id: string; email: string }[]>`
     SELECT o.user_id, u.email
@@ -411,7 +455,7 @@ export async function syncPendingEmailPreferences(
       AND (o.email_provider_settled_at IS NULL
            OR o.email_provider_write_at > o.email_provider_settled_at)
       AND (o.email_provider_write_at IS NULL
-           OR o.email_provider_write_at <= clock_timestamp() - ${settleAfterMs} * interval '1 millisecond')
+           OR o.email_provider_write_at <= (clock_timestamp() AT TIME ZONE 'UTC') - ${settleAfterMs} * interval '1 millisecond')
     ORDER BY o.email_provider_checked_at NULLS FIRST, o.email_provider_write_at, o.user_id
     LIMIT ${limit}`;
   const started = Date.now();

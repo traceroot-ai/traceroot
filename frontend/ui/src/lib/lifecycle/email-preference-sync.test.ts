@@ -97,7 +97,7 @@ vi.mock("@traceroot/core/email", () => ({
 import { ensureContact, setTopicSubscription } from "@traceroot/core/email";
 import {
   LEASE_MS,
-  PROVIDER_DEADLINE_MS,
+  HOLD_BUDGET_MS,
   setProviderTopic,
   syncEmailPreference,
   syncPendingEmailPreferences,
@@ -218,7 +218,7 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
   });
 
   it("gives the provider a deadline well inside the lease", async () => {
-    expect(PROVIDER_DEADLINE_MS).toBeLessThan(LEASE_MS / 2);
+    expect(HOLD_BUDGET_MS).toBeLessThanOrEqual(LEASE_MS / 2);
     const signals: (AbortSignal | undefined)[] = [];
     setTopic.mockImplementationOnce(async (_e, choice, deadline) => {
       signals.push(deadline);
@@ -313,6 +313,45 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
     expect(db.row!.emailPreferenceVersion).toBe(2);
   });
 
+  it("reads and writes the provider under the one budget taken with the lease", async () => {
+    Object.assign(db.row!, { unsubscribedAt: null });
+    provider = "opt_out";
+    const signals: (AbortSignal | undefined)[] = [];
+    readTopic.mockImplementationOnce((async (_e: string, deadline?: AbortSignal) => {
+      signals.push(deadline);
+      return "opt_out";
+    }) as never);
+    setTopic.mockImplementationOnce(async (_e, choice, deadline) => {
+      signals.push(deadline);
+      provider = choice;
+      return "ok";
+    });
+    expect(await runOnce()).toEqual({ synced: 1, pending: 0, remaining: 0 });
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBe(signals[0]);
+  });
+
+  it("sends nothing, and gives the lease back, when the reads used up the budget", async () => {
+    Object.assign(db.row!, { unsubscribedAt: null });
+    provider = "opt_out";
+    readTopic.mockImplementationOnce((async () => {
+      await new Promise((r) => setTimeout(r, 80));
+      return "opt_out";
+    }) as never);
+    expect(
+      await syncPendingEmailPreferences({
+        setTopic,
+        readTopic,
+        settleAfterMs: 0,
+        timing: { leaseMs: 60_000, holdBudgetMs: 40 },
+      }),
+    ).toEqual({ synced: 0, pending: 1, remaining: 0 });
+    expect(setTopic).not.toHaveBeenCalled();
+    expect(db.row!.emailProviderWriteVersion ?? null).toBeNull();
+    expect(db.row!.emailProviderLeaseUntil).toBeNull();
+  });
+
   it("lets a new attempt supersede an earlier refusal, so its lost answer counts as unknown", async () => {
     Object.assign(db.row!, {
       unsubscribedAt: null,
@@ -381,7 +420,7 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
       "ORDER BY o.email_provider_checked_at NULLS FIRST, o.email_provider_write_at",
     );
     expect(select).toContain(
-      "email_provider_write_at <= clock_timestamp() - ? * interval '1 millisecond'",
+      "email_provider_write_at <= (clock_timestamp() AT TIME ZONE 'UTC') - ? * interval '1 millisecond'",
     );
     expect(select).toContain("LIMIT ?");
   });
