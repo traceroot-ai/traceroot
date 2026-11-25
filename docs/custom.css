@@ -393,6 +393,19 @@ html[data-current-path$="/getting-started/introduction"] #content > :last-child 
     padding-left: 32px;
     width: 304px;
   }
+
+  /* Pass the native side panel's top offset through the in-flow TOC column. */
+  div:has(+ #footer.tr-docs-footer) > #content-container #content-side-layout > #table-of-contents-layout {
+    top: inherit;
+  }
+
+  div:has(+ #footer.tr-docs-footer) > #content-container
+    #content-side-layout > #table-of-contents-layout > #table-of-contents {
+    /* Override the ScrollArea's inline positioning. */
+    position: fixed !important;
+    top: inherit;
+    bottom: 0;
+  }
 }
 
 @media (max-width: 1023px) {
