@@ -19,9 +19,15 @@ import { Button } from "@/components/ui/button";
 
 interface Props {
   workspaceId: string;
+  /**
+   * Where Slack's authorization comes back to, as a same-site path. Defaults to
+   * the current page's path; pass one with its query when the page needs it to
+   * pick up where it was, as the sign-up connect step does with its project.
+   */
+  returnTo?: string;
 }
 
-export function SlackConnectButton({ workspaceId }: Props) {
+export function SlackConnectButton({ workspaceId, returnTo }: Props) {
   const queryClient = useQueryClient();
   const { data: workspace } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -54,7 +60,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
   const disconnect = useDisconnectSlack(workspaceId);
   const testMessage = useSendSlackTest(workspaceId);
 
-  const installHref = `/api/workspaces/${encodeURIComponent(workspaceId)}/slack/install?returnTo=${encodeURIComponent(pathname || "/")}`;
+  const installHref = `/api/workspaces/${encodeURIComponent(workspaceId)}/slack/install?returnTo=${encodeURIComponent(returnTo ?? (pathname || "/"))}`;
 
   const sorted = useMemo(() => {
     if (!channelData?.channels) return [];
