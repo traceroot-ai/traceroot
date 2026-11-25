@@ -1,6 +1,6 @@
 # @traceroot/slack
 
-Workspace-level Slack integration for TraceRoot — OAuth installer, encrypted bot-token store, Block Kit alert builder, and a `WebClient` factory shared between the web app (route handlers) and worker (alert delivery).
+Workspace-level Slack integration for traceroot — OAuth installer, encrypted bot-token store, Block Kit alert builder, and a `WebClient` factory shared between the web app (route handlers) and worker (alert delivery).
 
 ## Local development setup
 

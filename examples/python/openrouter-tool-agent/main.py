@@ -1,8 +1,8 @@
 """
-OpenRouter ReAct agent with tool use, streaming, and TraceRoot observability.
+OpenRouter ReAct agent with tool use, streaming, and traceroot observability.
 
 OpenRouter provides a unified API to 200+ models from a single endpoint.
-Since OpenRouter is OpenAI-compatible, TraceRoot's OpenAI integration
+Since OpenRouter is OpenAI-compatible, traceroot's OpenAI integration
 captures all calls automatically — no extra configuration needed.
 
 Usage:

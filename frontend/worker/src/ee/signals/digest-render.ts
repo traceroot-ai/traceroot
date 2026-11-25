@@ -156,7 +156,7 @@ ${htmlSections.join("\n")}
       </tr>`,
     buttonLabel: "View signals",
     buttonUrl: `${APP_BASE_URL}/projects/${encodeURIComponent(params.projectId)}/signals`,
-    footerText: `You are receiving this because detector alerts are enabled for the ${safeProject} project on TraceRoot.`,
+    footerText: `You are receiving this because detector alerts are enabled for the ${safeProject} project on traceroot.`,
   });
-  return { subject: `[TraceRoot] ${headline}`, text: text.join("\n"), html };
+  return { subject: `[traceroot] ${headline}`, text: text.join("\n"), html };
 }
