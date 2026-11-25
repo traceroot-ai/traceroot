@@ -75,11 +75,18 @@ const serverSchema = z.object({
   // The public demo workspace: every user joins it as a VIEWER. Unset means no
   // demo workspace (self-hosted). See lib/demo-workspace.ts.
   DEMO_WORKSPACE_ID: z.string().trim().optional(),
-  // Sign-up follow-ups; unset means no Slack post.
+  // Slack incoming webhook for the "new user registered" notice; unset means no post.
   TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: z.string().optional(),
-  // The one credential for POST /api/internal/follow-ups/pause, which the lead
-  // service calls to pause or resume a person's follow-up emails. Deliberately
-  // not INTERNAL_API_SECRET, which can act as any user. Blank: the endpoint is off.
+  // Not Slack: receives a signed JSON event per sign-up (lib/signup/signup-webhook.ts).
+  // Nothing is sent unless the secret below is set too.
+  TRACEROOT_SIGNUP_WEBHOOK_URL: z.string().optional(),
+  // HMAC-SHA256 key for that event's X-TraceRoot-Signature, used exactly as set.
+  TRACEROOT_SIGNUP_WEBHOOK_SECRET: z.string().optional(),
+  // The lead service's one credential, for the internal endpoints it calls:
+  // POST /api/internal/follow-ups/pause (pause or resume a person's follow-up
+  // emails) and POST /api/internal/workspace-members/check (whether someone is
+  // still a workspace member). Deliberately not INTERNAL_API_SECRET, which can
+  // act as any user. Blank: those endpoints are off.
   LIFECYCLE_PAUSE_SECRET: z.string().default(""),
   // Server-side read of a new user's PostHog person (city, device, referrer) for the Slack post
   POSTHOG_PERSONAL_API_KEY: z.string().optional(),
