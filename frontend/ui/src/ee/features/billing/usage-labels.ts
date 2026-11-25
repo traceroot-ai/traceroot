@@ -2,6 +2,7 @@
 // Extracted from BillingTab so the logic is unit-testable without rendering React.
 
 import { RCA_RUN_QUOTAS } from "@traceroot/core";
+import type { Translate } from "@/lib/i18n/translate";
 
 export interface QuotaConfig {
   included: number;
@@ -10,9 +11,10 @@ export interface QuotaConfig {
 
 export { RCA_RUN_QUOTAS };
 
-export function formatRcaQuotaLabel(quota: QuotaConfig, runsUsed: number): string {
+/** `t` puts the label in the visitor's language; without it the label is English. */
+export function formatRcaQuotaLabel(quota: QuotaConfig, runsUsed: number, t?: Translate): string {
   if (quota.included === Infinity) {
-    return `${runsUsed} (Unlimited)`;
+    return t ? t("billing.unlimitedCount", { count: runsUsed }) : `${runsUsed} (Unlimited)`;
   }
   return `${runsUsed} / ${quota.included}`;
 }

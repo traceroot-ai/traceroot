@@ -13,17 +13,31 @@ import {
   pickDefaultModel,
 } from "@/features/ai-assistant/lib/resolve-model";
 import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
-import { DEMO_AGENT_SEND_DENIED } from "@/features/ai-assistant/constants";
+import { DEMO_AGENT_SEND_DENIED_KEY } from "@/features/ai-assistant/constants";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import { NextStepsChecklist } from "@/features/onboarding/components/next-steps-checklist";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 // Starter prompts shown while the current session has no messages. Clicking
 // one sends it immediately through the same send path as the message input;
 // for a read-only demo visitor, it shows the read-only message instead.
-const STARTER_PROMPTS = [
-  { icon: TriangleAlert, text: "Investigate the most recent errored trace" },
-  { icon: MessagesSquare, text: "Summarize today's sessions" },
-  { icon: Radar, text: "What did detector findings flag this week?" },
+const STARTER_PROMPTS: { icon: typeof TriangleAlert; text: string; textKey: MessageKey }[] = [
+  {
+    icon: TriangleAlert,
+    text: "Investigate the most recent errored trace",
+    textKey: "projectHome.promptErroredTrace",
+  },
+  {
+    icon: MessagesSquare,
+    text: "Summarize today's sessions",
+    textKey: "projectHome.promptSessions",
+  },
+  {
+    icon: Radar,
+    text: "What did detector findings flag this week?",
+    textKey: "projectHome.promptFindings",
+  },
 ];
 
 /**
@@ -35,6 +49,7 @@ const STARTER_PROMPTS = [
 export default function HomePage() {
   const params = useParams();
   const projectId = params.projectId as string;
+  const t = useT();
   const { registerAiHost, aiContext, setAiContext, aiInitialSessionId } = useLayout();
   const { readOnly, loading: accessLoading } = useDemoAgentAccess(projectId);
   const { handleSend } = useAiChatContext();
@@ -89,12 +104,10 @@ export default function HomePage() {
   const greeting =
     aiInitialSessionId || accessLoading ? undefined : (
       <div className="w-full text-left">
-        <h1 className="text-[15px] font-medium">How can I help?</h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
-          Ask about this project&apos;s traces, sessions, errors, and detector findings.
-        </p>
+        <h1 className="text-[15px] font-medium">{t("projectHome.greeting")}</h1>
+        <p className="mt-1 text-[13px] text-muted-foreground">{t("projectHome.greetingText")}</p>
         <div className="mt-6 divide-y divide-border border-y border-border">
-          {STARTER_PROMPTS.map(({ icon: Icon, text }) => (
+          {STARTER_PROMPTS.map(({ icon: Icon, text, textKey }) => (
             <button
               key={text}
               type="button"
@@ -105,7 +118,8 @@ export default function HomePage() {
                   return;
                 }
                 if (!defaultModel) return;
-                void handleSend(text, {
+                // The prompt is sent as the visitor reads it.
+                void handleSend(t(textKey), {
                   model: defaultModel.id,
                   provider: defaultModel.provider,
                   source: defaultModel.source,
@@ -115,14 +129,14 @@ export default function HomePage() {
               className="group flex w-full items-center gap-3 px-1 py-3 text-left text-[13px] text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="flex-1">{text}</span>
+              <span className="flex-1">{t(textKey)}</span>
               <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           ))}
         </div>
         {readOnly && sendBlocked && (
           <p role="alert" className="mt-3 text-[12px] text-destructive">
-            {DEMO_AGENT_SEND_DENIED}
+            {t(DEMO_AGENT_SEND_DENIED_KEY)}
           </p>
         )}
       </div>

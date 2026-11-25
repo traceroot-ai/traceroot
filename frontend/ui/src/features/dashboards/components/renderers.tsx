@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useEffect, useMemo, useState } from "react";
 import {
   Area,
@@ -352,6 +353,7 @@ function TimeSeries({
     () => pivotRows(result.columns, result.rows, additive ? 0 : null),
     [result, additive],
   );
+  const t = useT();
   const Chart = area ? AreaChart : LineChart;
   const granularity = result.meta.granularity;
 
@@ -361,7 +363,7 @@ function TimeSeries({
   if (seriesKeys.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
-        No data in range
+        {t("dashboardsWidget.noData")}
       </div>
     );
   }
@@ -650,6 +652,7 @@ export function QueryWidgetRenderer({
   /** Aggregation from the widget spec; decides how empty buckets render. */
   agg?: (typeof AGGS)[number];
 }) {
+  const t = useT();
   const additive = isAdditiveAgg(agg);
   const summable = isSummableAgg(agg);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
@@ -675,7 +678,7 @@ export function QueryWidgetRenderer({
   if (result.rows.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
-        No data in range
+        {t("dashboardsWidget.noData")}
       </div>
     );
   }

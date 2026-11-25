@@ -2,6 +2,7 @@
 
 import { X, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/lib/i18n/provider";
 
 interface AlertChannelsEditorProps {
   emailAddresses: string[];
@@ -9,6 +10,7 @@ interface AlertChannelsEditorProps {
 }
 
 export function AlertChannelsEditor({ emailAddresses, onChange }: AlertChannelsEditorProps) {
+  const t = useT();
   const add = () => onChange([...emailAddresses, ""]);
   const remove = (i: number) => onChange(emailAddresses.filter((_, idx) => idx !== i));
   const update = (i: number, value: string) =>
@@ -29,7 +31,7 @@ export function AlertChannelsEditor({ emailAddresses, onChange }: AlertChannelsE
             type="button"
             onClick={() => remove(i)}
             className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Remove recipient"
+            aria-label={t("detectorsForm.removeRecipient")}
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -41,7 +43,7 @@ export function AlertChannelsEditor({ emailAddresses, onChange }: AlertChannelsE
         className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
       >
         <Plus className="h-3 w-3" />
-        Add recipient
+        {t("detectorsForm.addRecipient")}
       </button>
     </div>
   );

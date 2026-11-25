@@ -16,7 +16,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Predicate } from "@/types/api";
 import { useFilterValues } from "./hooks";
-import type { FilterFieldDef } from "./registry";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import { filterFieldLabel, type FilterFieldDef } from "./registry";
 import { buildInPredicate, buildNumericPredicate, buildTextPredicate } from "./predicate-ui";
 import {
   Dropdown,
@@ -41,6 +43,11 @@ const OP_LABEL: Record<UiOp, string> = {
   lt: "<",
   lte: "≤",
   contains: "contains",
+};
+// The operators that are words have a translatable copy; the symbols read the same everywhere.
+const OP_LABEL_KEY: Partial<Record<UiOp, MessageKey>> = {
+  is: "componentsFilters.opIs",
+  contains: "componentsFilters.opContains",
 };
 // The UI operators ARE the registry field's `operators` whitelist (the backend op names)
 // mapped to their UI labels — categorical `in` reads as "is". Deriving from the registry
@@ -78,6 +85,11 @@ export function FilterBuilder({
   endBefore,
   onSubmit,
 }: FilterBuilderProps) {
+  const t = useT();
+  const opLabel = (o: UiOp) => {
+    const key = OP_LABEL_KEY[o];
+    return key ? t(key) : OP_LABEL[o];
+  };
   const [field, setField] = useState<FilterFieldDef | null>(null);
   const [op, setOp] = useState<UiOp>("is");
   const [value, setValue] = useState("");
@@ -142,7 +154,11 @@ export function FilterBuilder({
   return (
     <div className="flex items-center gap-1 p-1.5">
       <FieldDropdown
-        options={fields.map((f) => ({ key: f.field, label: f.label, icon: FIELD_ICONS[f.field] }))}
+        options={fields.map((f) => ({
+          key: f.field,
+          label: filterFieldLabel(f, t),
+          icon: FIELD_ICONS[f.field],
+        }))}
         valueKey={field?.field ?? null}
         onPick={(key) => {
           const f = fields.find((x) => x.field === key);
@@ -161,7 +177,7 @@ export function FilterBuilder({
       )}
       <Dropdown
         disabled={!field}
-        trigger={<span className="whitespace-nowrap">{field ? OP_LABEL[op] : "is"}</span>}
+        trigger={<span className="whitespace-nowrap">{field ? opLabel(op) : opLabel("is")}</span>}
         // Size to the operator label with a floor for the short symbols, so a wide label
         // (e.g. "contains") sits comfortably instead of truncating in a fixed cell.
         triggerClassName="min-w-[3.5rem] shrink-0"
@@ -177,7 +193,7 @@ export function FilterBuilder({
                 close();
               }}
             >
-              {OP_LABEL[o]}
+              {opLabel(o)}
             </DropdownItem>
           ))
         }
@@ -197,7 +213,7 @@ export function FilterBuilder({
         disabled={!built}
         onClick={submit}
       >
-        Add filter
+        {t("componentsFilters.addFilter")}
       </Button>
     </div>
   );
@@ -220,6 +236,7 @@ function ValueControl({
   onValue: (v: string) => void;
   onEnter: () => void;
 }) {
+  const t = useT();
   if (!field) {
     return <ParkedValueField />;
   }
@@ -238,8 +255,8 @@ function ValueControl({
   if (field.type === "text") {
     return (
       <TextField
-        ariaLabel="value"
-        placeholder="Enter value"
+        ariaLabel={t("componentsFilters.value")}
+        placeholder={t("componentsFilters.enterValue")}
         value={value}
         onChange={onValue}
         onEnter={onEnter}
@@ -248,8 +265,8 @@ function ValueControl({
   }
   return (
     <NumberField
-      ariaLabel="value"
-      placeholder="Enter value"
+      ariaLabel={t("componentsFilters.value")}
+      placeholder={t("componentsFilters.enterValue")}
       value={value}
       onChange={onValue}
       onEnter={onEnter}

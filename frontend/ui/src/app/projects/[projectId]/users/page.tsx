@@ -4,6 +4,7 @@ import { useMemo, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
+import type { LucideIcon } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -26,17 +27,39 @@ import type { UserQueryOptions } from "@/lib/api/users";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
-const tabs = [
-  { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
-  { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
-  { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
-];
+const tabs: { id: string; label: string; labelKey: MessageKey; icon: LucideIcon; href: string }[] =
+  [
+    {
+      id: "traces",
+      label: "Traces",
+      labelKey: "tracesTabs.traces",
+      icon: DOMAIN_ICONS.trace,
+      href: "traces",
+    },
+    {
+      id: "users",
+      label: "Users",
+      labelKey: "tracesTabs.users",
+      icon: DOMAIN_ICONS.user,
+      href: "users",
+    },
+    {
+      id: "sessions",
+      label: "Sessions",
+      labelKey: "tracesTabs.sessions",
+      icon: DOMAIN_ICONS.session,
+      href: "sessions",
+    },
+  ];
 
 export default function UsersPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
+  const t = useT();
   const { setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
 
@@ -118,7 +141,7 @@ export default function UsersPage() {
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
+                  {t(tab.labelKey)}
                 </Link>
               );
             })}
@@ -129,7 +152,7 @@ export default function UsersPage() {
         <SearchFilterBar
           searchValue={state.keyword}
           onSearchChange={updateKeyword}
-          searchPlaceholder="Search..."
+          searchPlaceholder={t("usersList.searchPlaceholder")}
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
@@ -143,22 +166,18 @@ export default function UsersPage() {
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
             <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading users..." />
+              <LoadingState label={t("usersList.loading")} />
             </div>
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading users</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running.
-              </p>
+              <p className="text-[13px] text-destructive">{t("usersList.errorTitle")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("usersList.errorText")}</p>
             </div>
           ) : users.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <DOMAIN_ICONS.user className="h-10 w-10 text-muted-foreground" />
-              <p className="text-[13px] text-muted-foreground">No users found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Users will appear here when traces include user_id.
-              </p>
+              <p className="text-[13px] text-muted-foreground">{t("usersList.empty")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("usersList.emptyHint")}</p>
             </div>
           ) : (
             <div className="flex h-full flex-col">
@@ -167,19 +186,19 @@ export default function UsersPage() {
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border">
                       <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        User ID
+                        {t("usersList.userId")}
                       </th>
                       <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Traces
+                        {t("usersList.traces")}
                       </th>
                       <th className="w-[110px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Tokens
+                        {t("usersList.tokens")}
                       </th>
                       <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Cost
+                        {t("usersList.cost")}
                       </th>
                       <th className="w-[160px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Last Activity
+                        {t("usersList.lastActivity")}
                       </th>
                     </tr>
                   </thead>

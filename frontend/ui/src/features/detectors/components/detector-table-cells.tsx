@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+
 /**
  * Shared table primitives for the two detector tables — the detector page's
  * runs/findings table (`DetectorRunsTable`) and the trace viewer's detectors
@@ -21,10 +23,11 @@ export const DETECTOR_TD = "whitespace-nowrap border-r border-border px-3 py-1.5
 
 /** "Yes" (red) when a run produced a finding, else a muted "No". */
 export function IdentifiedBadge({ identified }: { identified: boolean }) {
+  const t = useT();
   return identified ? (
-    <span className="text-destructive">Yes</span>
+    <span className="text-destructive">{t("detectorsDetail.yes")}</span>
   ) : (
-    <span className="text-muted-foreground">No</span>
+    <span className="text-muted-foreground">{t("detectorsDetail.no")}</span>
   );
 }
 

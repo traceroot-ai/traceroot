@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useT } from "@/lib/i18n/provider";
 import { proposalDeclined } from "../utils/proposal-declined";
 import type { AIMessage, PendingConfirmation } from "../types";
 
@@ -100,6 +101,10 @@ export function useAIStream(options?: UseAIStreamOptions) {
   // Ref so the stream loop always sees the latest callback without resubscribing.
   const onToolResultRef = useRef(options?.onToolResult);
   onToolResultRef.current = options?.onToolResult;
+  // Ref for the same reason: an error bubble is worded in the visitor's language.
+  const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const updateBucket = useCallback(
     (sessionId: string, updater: (prev: AIMessage[]) => AIMessage[]) => {
@@ -352,6 +357,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
         const targetId = currentTextId ?? openTextBubble();
+        const errorLine = tRef.current("assistantMessages.errorLine", { message: errorMessage });
         safeUpdate((prev) =>
           prev.map((m) =>
             m.id === targetId
@@ -360,9 +366,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
                   // Append rather than replace: the persisted transcript keeps
                   // whatever the assistant already said, so a bubble that drops
                   // it would not survive a reload of the same session.
-                  content: m.content
-                    ? `${m.content}\n\nError: ${errorMessage}`
-                    : `Error: ${errorMessage}`,
+                  content: m.content ? `${m.content}\n\n${errorLine}` : errorLine,
                   isStreaming: false,
                 }
               : m,
@@ -396,7 +400,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
           showError(errorBody?.error || `HTTP ${response.status}`);
           return;
         }
-        if (!response.body) throw new Error("No response body");
+        if (!response.body) throw new Error(tRef.current("assistantMessages.noResponseBody"));
 
         const reader = response.body.getReader();
         run.reader = reader;
@@ -614,7 +618,9 @@ export function useAIStream(options?: UseAIStreamOptions) {
 
                 if (eventData.type === "error") {
                   const errorMsg =
-                    eventData.message || eventData.error?.errorMessage || "Unknown error";
+                    eventData.message ||
+                    eventData.error?.errorMessage ||
+                    tRef.current("assistantMessages.unknownError");
                   showError(errorMsg);
                   // The run is dead: the server released its parked call as
                   // a skip before sending this, so the card goes with it.
@@ -629,7 +635,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("[AI Stream] Error:", error);
-          showError((error as Error).message || "Failed to get response.");
+          showError((error as Error).message || tRef.current("assistantMessages.noResponse"));
         }
       } finally {
         // Freeze the last open bubble (if streaming was cut short) and

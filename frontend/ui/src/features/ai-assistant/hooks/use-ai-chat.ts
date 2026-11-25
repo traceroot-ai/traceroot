@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { resolveSiteWindow } from "@/features/dashboards/range-presets";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
+import { useT } from "@/lib/i18n/provider";
 import { useAIStream, type LiveToolResult } from "./use-ai-stream";
 import { useStableToolSteps } from "./use-stable-tool-steps";
 import { mapDbMessages } from "../utils/map-db-messages";
@@ -65,6 +66,11 @@ export function useAiChat({
   demoReadOnly = false,
 }: UseAiChatOptions) {
   const queryClient = useQueryClient();
+  // Ref so history loads word a persisted run error in the visitor's language without
+  // re-binding the callbacks that load them.
+  const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
 
   // The session the panel is currently displaying. Streams for OTHER sessions
   // keep running into their own buckets; only this one is rendered.
@@ -200,7 +206,11 @@ export function useAiChat({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (ac.signal.aborted || !data) return;
-        setSessionMessages(initialSessionId, mapDbMessages(data.messages || []), asOf);
+        setSessionMessages(
+          initialSessionId,
+          mapDbMessages(data.messages || [], tRef.current),
+          asOf,
+        );
       })
       .catch((err) => {
         if (err?.name !== "AbortError")
@@ -564,7 +574,7 @@ export function useAiChat({
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`);
         if (res.ok) {
           const data = await res.json();
-          setSessionMessages(session.id, mapDbMessages(data.messages || []), asOf);
+          setSessionMessages(session.id, mapDbMessages(data.messages || [], tRef.current), asOf);
         }
       } catch (err) {
         console.error("[AI Chat] Failed to load session messages:", err);

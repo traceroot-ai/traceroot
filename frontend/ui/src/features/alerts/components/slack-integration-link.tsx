@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { FaSlack } from "react-icons/fa";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 interface SlackIntegrationLinkProps {
   href: string;
@@ -25,6 +26,7 @@ export function SlackIntegrationLink({
   channelName,
   className,
 }: SlackIntegrationLinkProps) {
+  const t = useT();
   return (
     <Link
       href={href}
@@ -37,20 +39,20 @@ export function SlackIntegrationLink({
         <FaSlack className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         {isConnected ? (
           <span className="min-w-0 truncate">
-            Connected to <span className="font-medium">{teamName}</span>
+            {t("alertsSlack.connectedTo")} <span className="font-medium">{teamName}</span>
             {channelName ? (
               <span className="text-muted-foreground"> · #{channelName}</span>
             ) : (
-              <span className="text-muted-foreground"> · No channel selected</span>
+              <span className="text-muted-foreground"> · {t("alertsSlack.noChannel")}</span>
             )}
           </span>
         ) : (
-          <span>Connect Slack</span>
+          <span>{t("alertsSlack.connect")}</span>
         )}
       </span>
       {isConnected ? (
         <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
-          Manage
+          {t("alertsSlack.manage")}
           <ArrowUpRight className="h-3 w-3" />
         </span>
       ) : (

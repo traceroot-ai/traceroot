@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { FormCard } from "@/features/offline-eval/components";
 import { HighlightedCode } from "@/features/offline-eval/components/syntax";
+import { useT } from "@/lib/i18n/provider";
 import { useDatasets } from "../hooks";
 import type { DatasetRow } from "../types";
 
@@ -139,6 +140,7 @@ export function RunEvaluationDrawer({
   /** Prefills and hides the picker when opened from a dataset. */
   datasetId?: string;
 }) {
+  const t = useT();
   const { data, isLoading, isError } = useDatasets(projectId, { limit: 200 });
   const datasets = data?.data ?? [];
   const [lang, setLang] = React.useState<Lang>("python");
@@ -170,16 +172,15 @@ export function RunEvaluationDrawer({
     <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div>
-          <h2 className="text-[13px] font-semibold">Copy starter code</h2>
+          <h2 className="text-[13px] font-semibold">{t("evalsRunDrawer.title")}</h2>
           <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-            The evaluation runs in your application or CI environment. Its results are reported back
-            to traceroot and appear on this page.
+            {t("evalsRunDrawer.intro")}
           </p>
         </div>
         <button
           type="button"
           onClick={() => onOpenChange(false)}
-          aria-label="Close"
+          aria-label={t("evalsShared.close")}
           className="mt-0.5 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
         >
           <X className="h-4 w-4" />
@@ -187,7 +188,7 @@ export function RunEvaluationDrawer({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 pb-6 pt-3 text-[12px]">
-        <FormCard label="Dataset">
+        <FormCard label={t("evalsShared.dataset")}>
           {datasetId ? (
             <p className="text-[13px] font-medium">{dataset?.name ?? chosen}</p>
           ) : (
@@ -196,12 +197,12 @@ export function RunEvaluationDrawer({
                 <SelectValue
                   placeholder={
                     isLoading
-                      ? "Loading datasets…"
+                      ? t("evalsSave.loadingDatasets")
                       : isError
-                        ? "Couldn't load datasets"
+                        ? t("evalsSave.loadDatasetsFailed")
                         : datasets.length
-                          ? "Select dataset"
-                          : "No datasets found"
+                          ? t("evalsSave.selectDataset")
+                          : t("evalsSave.noDatasets")
                   }
                 />
               </SelectTrigger>
@@ -215,10 +216,10 @@ export function RunEvaluationDrawer({
                 ) : (
                   <SelectEmpty>
                     {isLoading
-                      ? "Loading datasets…"
+                      ? t("evalsSave.loadingDatasets")
                       : isError
-                        ? "Couldn't load datasets"
-                        : "No datasets found"}
+                        ? t("evalsSave.loadDatasetsFailed")
+                        : t("evalsSave.noDatasets")}
                   </SelectEmpty>
                 )}
               </SelectContent>
@@ -248,7 +249,7 @@ export function RunEvaluationDrawer({
             <CopyButton
               value={code}
               className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              title="Copy"
+              title={t("evalsShared.copy")}
             />
           </div>
           {/* Self-contained scroll box: the code scrolls WITHIN a bounded height
@@ -263,28 +264,27 @@ export function RunEvaluationDrawer({
         <div className="border border-border">
           <div className="flex h-9 items-center border-b border-border px-4">
             <span className="text-[13px] font-medium text-foreground">
-              Change these for your application
+              {t("evalsRunDrawer.changeHeading")}
             </span>
           </div>
           <ul className="flex list-disc flex-col gap-1 py-2 pl-7 pr-3 text-[12px] leading-relaxed text-muted-foreground">
-            <li>Import the function that runs your application.</li>
-            <li>Map the test-case input into that function.</li>
-            <li>Import or define the scorers you want to use.</li>
+            <li>{t("evalsRunDrawer.changeImport")}</li>
+            <li>{t("evalsRunDrawer.changeMap")}</li>
+            <li>{t("evalsRunDrawer.changeScorers")}</li>
           </ul>
           <p className="border-t border-border px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
-            The dataset id and snapshot id are already filled in.
+            {t("evalsRunDrawer.filledIn")}
           </p>
         </div>
 
         <p className="text-[12px] leading-relaxed text-muted-foreground">
-          The task function and the scorers stay in your code. traceroot records the run, its
-          results, and the traces they produced.
+          {t("evalsRunDrawer.staysInCode")}
         </p>
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-3">
-        <span className="text-[12px] text-muted-foreground">Nothing runs from this panel.</span>
-        <Button onClick={() => onOpenChange(false)}>Done</Button>
+        <span className="text-[12px] text-muted-foreground">{t("evalsRunDrawer.nothingRuns")}</span>
+        <Button onClick={() => onOpenChange(false)}>{t("evalsRunDrawer.done")}</Button>
       </div>
     </div>
   );

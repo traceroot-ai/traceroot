@@ -25,6 +25,9 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
 import { encodeEditedText } from "@/lib/eval/json-value";
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 import { useDatasets } from "../hooks";
 
 /** Read-only fields never edit, so onChange is a no-op. */
@@ -43,24 +46,21 @@ export interface ResultForDataset {
 
 const ACTION_META: Record<
   ResultDatasetAction,
-  { title: string; blurb: string; picksDataset: boolean }
+  { titleKey: MessageKey; blurbKey: MessageKey; picksDataset: boolean }
 > = {
   update_existing_case: {
-    title: "Update source case",
-    blurb:
-      "Publishes a new immutable version of this run's dataset with this case updated. Runs already recorded keep pointing at the version they used.",
+    titleKey: "evalsSaveResult.updateTitle",
+    blurbKey: "evalsSaveResult.updateBlurb",
     picksDataset: false,
   },
   save_new_case: {
-    title: "Save as a new case",
-    blurb:
-      "Adds a brand-new case to the chosen dataset. Blocked if it would just recreate this result's own source case — use “Update source case” for that.",
+    titleKey: "evalsSaveResult.saveNewTitle",
+    blurbKey: "evalsSaveResult.saveNewBlurb",
     picksDataset: true,
   },
   duplicate_as_variant: {
-    title: "Duplicate as a variant",
-    blurb:
-      "Adds a new case tagged as a variant of the source case. Always allowed — useful for exploring a tweak without touching the original.",
+    titleKey: "evalsSaveResult.duplicateTitle",
+    blurbKey: "evalsSaveResult.duplicateBlurb",
     picksDataset: true,
   },
 };
@@ -104,6 +104,7 @@ export function SaveResultToDatasetDrawer({
   sourceDatasetId: string;
   sourceDatasetName: string;
 }) {
+  const t = useT();
   const meta = ACTION_META[action];
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -155,23 +156,26 @@ export function SaveResultToDatasetDrawer({
         },
       );
       const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(payload.error || "Could not save to the dataset.");
+      if (!res.ok) throw new Error(payload.error || t("evalsSaveResult.saveFailed"));
       return payload;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["datasets"] });
       toast({
-        title: action === "update_existing_case" ? "Dataset updated" : "Case added",
+        title:
+          action === "update_existing_case"
+            ? t("evalsSaveResult.toastUpdatedTitle")
+            : t("evalsSaveResult.toastAddedTitle"),
         description:
           action === "update_existing_case"
-            ? "A new dataset version was published."
-            : "The case was added and a new dataset version was published.",
+            ? t("evalsSaveResult.toastUpdatedText")
+            : t("evalsSaveResult.toastAddedText"),
         tone: "success",
       });
       onOpenChange(false);
     },
     onError: (e: unknown) => {
-      setError(e instanceof Error ? e.message : "Could not save to the dataset.");
+      setError(e instanceof Error ? e.message : t("evalsSaveResult.saveFailed"));
     },
   });
 
@@ -204,22 +208,24 @@ export function SaveResultToDatasetDrawer({
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
             <Database className="h-4 w-4 text-muted-foreground" aria-hidden />
-            {meta.title}
+            {t(meta.titleKey)}
           </DrawerTitle>
-          <DrawerDescription className="mt-2">{meta.blurb}</DrawerDescription>
+          <DrawerDescription className="mt-2">{t(meta.blurbKey)}</DrawerDescription>
         </DrawerHeader>
 
         <DrawerBody className="space-y-4">
           {/* Target dataset — fixed for update, chosen for save/duplicate. */}
           <div className="space-y-1.5">
-            <div className="text-[12px] font-medium text-muted-foreground">Dataset</div>
+            <div className="text-[12px] font-medium text-muted-foreground">
+              {t("evalsShared.dataset")}
+            </div>
             {meta.picksDataset ? (
               <Select
                 value={datasets.some((d) => d.id === targetDatasetId) ? targetDatasetId : ""}
                 onValueChange={setTargetDatasetId}
               >
                 <SelectTrigger className="h-8 text-[13px]">
-                  <SelectValue placeholder="Choose a dataset" />
+                  <SelectValue placeholder={t("evalsSaveResult.chooseDataset")} />
                 </SelectTrigger>
                 <SelectContent>
                   {datasets.length ? (
@@ -231,10 +237,10 @@ export function SaveResultToDatasetDrawer({
                   ) : (
                     <SelectEmpty>
                       {datasetsLoading
-                        ? "Loading datasets…"
+                        ? t("evalsSave.loadingDatasets")
                         : datasetsError
-                          ? "Couldn't load datasets"
-                          : "No datasets found"}
+                          ? t("evalsSave.loadDatasetsFailed")
+                          : t("evalsSave.noDatasets")}
                     </SelectEmpty>
                   )}
                 </SelectContent>
@@ -244,7 +250,10 @@ export function SaveResultToDatasetDrawer({
                 <span className="font-medium">{sourceDatasetName}</span>
                 <span className="text-muted-foreground">
                   {" "}
-                  · case <span className="font-mono">{result.testCaseId}</span>
+                  <Slots
+                    text={t("evalsSaveResult.caseRef")}
+                    slots={{ id: <span className="font-mono">{result.testCaseId}</span> }}
+                  />
                 </span>
               </div>
             )}
@@ -252,10 +261,10 @@ export function SaveResultToDatasetDrawer({
 
           {/* Input — the stable scenario this case tests. */}
           <EditableValueBlock
-            label="Input"
+            label={t("evalsShared.input")}
             text={input}
             onChange={setInput}
-            ariaLabel="Input"
+            ariaLabel={t("evalsShared.input")}
             boxed
             copyable
             seedJson="expanded"
@@ -266,12 +275,9 @@ export function SaveResultToDatasetDrawer({
           <div className="space-y-2 rounded-md border border-border p-2.5">
             <label className="flex items-start justify-between gap-3">
               <span className="min-w-0">
-                <span className="text-[12px] font-medium">
-                  Use this candidate output as the expected answer
-                </span>
+                <span className="text-[12px] font-medium">{t("evalsSaveResult.useCandidate")}</span>
                 <span className="mt-0.5 block text-[12px] text-muted-foreground">
-                  Off by default — a candidate&rsquo;s output never becomes the expected answer
-                  unless you say so.
+                  {t("evalsSaveResult.useCandidateHint")}
                 </span>
               </span>
               <Switch
@@ -282,8 +288,8 @@ export function SaveResultToDatasetDrawer({
 
             {useCandidateAsExpected ? (
               <EditableValueBlock
-                label="Expected (from candidate output)"
-                text={result.candidateOutput ?? "(this result produced no output)"}
+                label={t("evalsSaveResult.expectedFromCandidate")}
+                text={result.candidateOutput ?? t("evalsSaveResult.noCandidateOutput")}
                 onChange={noop}
                 readOnly
                 boxed
@@ -293,10 +299,10 @@ export function SaveResultToDatasetDrawer({
               />
             ) : (
               <EditableValueBlock
-                label="Expected answer (optional)"
+                label={t("evalsSaveResult.expectedOptional")}
                 text={expected}
                 onChange={setExpected}
-                ariaLabel="Expected answer"
+                ariaLabel={t("evalsSaveResult.expectedAria")}
                 boxed
                 copyable
                 seedJson="expanded"
@@ -317,10 +323,10 @@ export function SaveResultToDatasetDrawer({
 
         <DrawerFooter>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : "Save"}
+            {save.isPending ? t("evalsShared.saving") : t("common.save")}
           </Button>
         </DrawerFooter>
       </DrawerContent>

@@ -8,6 +8,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { isDecisionAdapter } from "@traceroot/core";
 import { getAvailableLLMModels } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
@@ -50,6 +52,7 @@ export function ModelSelector({
   allowDecisionModels = false,
   field = false,
 }: ModelSelectorProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   const { data, isPending } = useQuery({
@@ -156,7 +159,7 @@ export function ModelSelector({
             {selectedModel?.label ||
               value.model ||
               (showsDefault ? defaultModelId : "") ||
-              "Select model"}
+              t("assistantModel.select")}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
@@ -197,7 +200,9 @@ export function ModelSelector({
                   {isSelected && <span className="text-[12px]">&#10003;</span>}
                   {m.label}
                   {m.source === "byok" && !m.supported && (
-                    <span className="text-[12px] text-muted-foreground">(unsupported)</span>
+                    <span className="text-[12px] text-muted-foreground">
+                      {t("assistantModel.unsupported")}
+                    </span>
                   )}
                 </span>
                 {showProvider && (
@@ -208,17 +213,22 @@ export function ModelSelector({
           })}
           {models.length === 0 && (
             <div className="px-2.5 py-3 text-center text-[12px] text-muted-foreground">
-              No models available
-              {workspaceId && (
-                <>
-                  {" — "}
-                  <a
-                    href={`/workspaces/${workspaceId}/settings/model-providers`}
-                    className="font-medium underline"
-                  >
-                    configure one
-                  </a>
-                </>
+              {workspaceId ? (
+                <Slots
+                  text={t("assistantModel.emptyConfigure")}
+                  slots={{
+                    link: (
+                      <a
+                        href={`/workspaces/${workspaceId}/settings/model-providers`}
+                        className="font-medium underline"
+                      >
+                        {t("assistantModel.configureOne")}
+                      </a>
+                    ),
+                  }}
+                />
+              ) : (
+                t("assistantModel.empty")
               )}
             </div>
           )}

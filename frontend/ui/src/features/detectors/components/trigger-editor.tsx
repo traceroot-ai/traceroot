@@ -17,10 +17,12 @@ import {
 } from "@/features/filters/filter-controls";
 import { useFilterValues } from "@/features/filters/hooks";
 import { MAX_FILTERS } from "@/features/filters/predicate";
+import { useT } from "@/lib/i18n/provider";
 import {
   TRIGGER_FIELD_DEFS,
   defaultTriggerCondition,
   normalizeTriggerConditions,
+  translateTriggerError,
   triggerFieldDef,
   triggerOpLabel,
   validateTriggerConditions,
@@ -53,6 +55,7 @@ function ConditionRow({
   onPatch: (patch: Partial<TriggerCondition>) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   const def = triggerFieldDef(condition.field);
   const enumerable = def?.valueKind === "enum";
 
@@ -82,7 +85,7 @@ function ConditionRow({
       <FieldDropdown
         options={TRIGGER_FIELD_DEFS.map((d) => ({
           key: d.field,
-          label: d.label,
+          label: t(d.labelKey),
           icon: FIELD_ICONS[d.field],
         }))}
         valueKey={condition.field || null}
@@ -103,7 +106,7 @@ function ConditionRow({
         disabled={!def}
         trigger={
           <span className="whitespace-nowrap">
-            {def && condition.op ? triggerOpLabel(def, condition.op) : "is"}
+            {def && condition.op ? triggerOpLabel(def, condition.op, t) : t("detectorsFilter.opIs")}
           </span>
         }
         triggerClassName="min-w-[3.5rem] shrink-0"
@@ -119,7 +122,7 @@ function ConditionRow({
                 close();
               }}
             >
-              {triggerOpLabel(def, op)}
+              {triggerOpLabel(def, op, t)}
             </DropdownItem>
           ))
         }
@@ -130,12 +133,12 @@ function ConditionRow({
           value={String(condition.value ?? "")}
           options={options}
           onValue={(v) => onPatch({ value: v })}
-          placeholder={isLoading ? "Loading…" : undefined}
+          placeholder={isLoading ? t("detectorsFilter.valueLoading") : undefined}
         />
       ) : isNumeric ? (
         <NumberField
-          ariaLabel="value"
-          placeholder="Enter value"
+          ariaLabel={t("detectorsFilter.valueLabel")}
+          placeholder={t("detectorsFilter.enterValue")}
           value={String(condition.value ?? "")}
           // Held as typed and coerced once on the way out: Number() here would
           // round-trip a long entry back into the field as "1e+21".
@@ -145,8 +148,8 @@ function ConditionRow({
         />
       ) : (
         <TextField
-          ariaLabel="value"
-          placeholder="Enter value"
+          ariaLabel={t("detectorsFilter.valueLabel")}
+          placeholder={t("detectorsFilter.enterValue")}
           value={String(condition.value ?? "")}
           onChange={(v) => onPatch({ value: v })}
         />
@@ -156,7 +159,7 @@ function ConditionRow({
         type="button"
         onClick={onRemove}
         className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-        aria-label="Remove condition"
+        aria-label={t("detectorsFilter.removeCondition")}
       >
         <X className="h-3.5 w-3.5" />
       </button>
@@ -172,6 +175,7 @@ export function TriggerEditor({
   isSaving,
   asCard,
 }: TriggerEditorProps) {
+  const t = useT();
   const [conditions, setConditions] = useState<TriggerCondition[]>(initialConditions);
   const [dirty, setDirty] = useState(false);
 
@@ -239,7 +243,9 @@ export function TriggerEditor({
       <>
         {/* Card header */}
         <div className="flex h-9 items-center justify-between border-b border-border px-4">
-          <span className="text-[13px] font-medium text-foreground">Filter</span>
+          <span className="text-[13px] font-medium text-foreground">
+            {t("detectorsFilter.title")}
+          </span>
           <button
             type="button"
             onClick={addCondition}
@@ -247,16 +253,18 @@ export function TriggerEditor({
             className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 disabled:hover:text-muted-foreground"
           >
             <Plus className="h-3 w-3" />
-            Add condition
+            {t("detectorsFilter.addCondition")}
           </button>
         </div>
         {/* Card body */}
         <div className="p-4">
           {conditions.length === 0 ? (
-            <p className="text-[12px] text-muted-foreground">Runs on all completed traces.</p>
+            <p className="text-[12px] text-muted-foreground">{t("detectorsFilter.runsOnAll")}</p>
           ) : (
             <>
-              <p className="mb-2 text-[12px] text-muted-foreground">All conditions must match.</p>
+              <p className="mb-2 text-[12px] text-muted-foreground">
+                {t("detectorsFilter.allMustMatch")}
+              </p>
               {conditionRows}
             </>
           )}
@@ -269,22 +277,26 @@ export function TriggerEditor({
     <div>
       {/* Header row */}
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-[12px] font-medium text-muted-foreground">Filter</p>
+        <p className="text-[12px] font-medium text-muted-foreground">
+          {t("detectorsFilter.title")}
+        </p>
         <button
           type="button"
           onClick={addCondition}
           className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
           <Plus className="h-3 w-3" />
-          Add condition
+          {t("detectorsFilter.addCondition")}
         </button>
       </div>
 
       {conditions.length === 0 ? (
-        <p className="text-[12px] text-muted-foreground">Runs on all completed traces.</p>
+        <p className="text-[12px] text-muted-foreground">{t("detectorsFilter.runsOnAll")}</p>
       ) : (
         <>
-          <p className="mb-2 text-[12px] text-muted-foreground">All conditions must match.</p>
+          <p className="mb-2 text-[12px] text-muted-foreground">
+            {t("detectorsFilter.allMustMatch")}
+          </p>
           {conditionRows}
         </>
       )}
@@ -293,7 +305,9 @@ export function TriggerEditor({
       {!onChange && dirty && onSave && (
         <div className="mt-3 flex items-center justify-end gap-2">
           {validationError && (
-            <span className="text-[12px] text-destructive">{validationError}</span>
+            <span className="text-[12px] text-destructive">
+              {translateTriggerError(t, validationError)}
+            </span>
           )}
           <Button
             size="sm"
@@ -301,7 +315,7 @@ export function TriggerEditor({
             onClick={() => onSave(normalized)}
             disabled={isSaving || validationError !== null}
           >
-            {isSaving ? "Saving..." : "Save"}
+            {isSaving ? t("common.saving") : t("common.save")}
           </Button>
         </div>
       )}

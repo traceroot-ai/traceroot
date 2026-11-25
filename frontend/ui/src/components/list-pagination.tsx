@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ export function ListPagination({
   itemsPerPageOptions = DEFAULT_OPTIONS,
   onPrefetchPage,
 }: ListPaginationProps) {
+  const t = useT();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
 
   // Defend against invalid `limit` propagating from URL/state (0, negative,
@@ -81,11 +83,13 @@ export function ListPagination({
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border bg-background px-4 py-2">
       <div className="text-[12px] text-muted-foreground">
-        {hasRange && `Showing ${from}–${to} of ${total}`}
+        {hasRange && t("componentsPagination.showing", { from, to, total })}
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <div className="flex items-center gap-2">
-          <span className="text-[12px] text-muted-foreground">Items per page</span>
+          <span className="text-[12px] text-muted-foreground">
+            {t("componentsPagination.itemsPerPage")}
+          </span>
           <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -117,7 +121,9 @@ export function ListPagination({
           </Popover>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[12px] text-muted-foreground">Page</span>
+          <span className="text-[12px] text-muted-foreground">
+            {t("componentsPagination.page")}
+          </span>
           <input
             type="number"
             min={1}
@@ -132,13 +138,15 @@ export function ListPagination({
             }}
             className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
-          <span className="min-w-[3.25rem] text-[12px] text-muted-foreground">of {totalPages}</span>
+          <span className="min-w-[3.25rem] text-[12px] text-muted-foreground">
+            {t("componentsPagination.ofPages", { total: totalPages })}
+          </span>
         </div>
         <div className="flex items-center gap-0.5">
           <Button
             variant="outline"
             size="sm"
-            aria-label="First page"
+            aria-label={t("componentsPagination.firstPage")}
             onClick={() => onPageChange(0)}
             disabled={page === 0}
             className="h-7 w-7 p-0"
@@ -149,7 +157,7 @@ export function ListPagination({
           <Button
             variant="outline"
             size="sm"
-            aria-label="Previous page"
+            aria-label={t("componentsPagination.previousPage")}
             onClick={() => onPageChange(Math.max(0, page - 1))}
             onMouseEnter={() => prefetchPage(page - 1)}
             onFocus={() => prefetchPage(page - 1)}
@@ -161,7 +169,7 @@ export function ListPagination({
           <Button
             variant="outline"
             size="sm"
-            aria-label="Next page"
+            aria-label={t("componentsPagination.nextPage")}
             onClick={() => onPageChange(page + 1)}
             onMouseEnter={() => prefetchPage(page + 1)}
             onFocus={() => prefetchPage(page + 1)}
@@ -173,7 +181,7 @@ export function ListPagination({
           <Button
             variant="outline"
             size="sm"
-            aria-label="Last page"
+            aria-label={t("componentsPagination.lastPage")}
             onClick={() => onPageChange(totalPages - 1)}
             disabled={page >= totalPages - 1}
             className="h-7 w-7 p-0"

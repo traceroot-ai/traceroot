@@ -13,6 +13,7 @@ import { setupCommand } from "./commands";
 import { SectionLink } from "./SectionLink";
 import { useSetupCommandCopied, type SetupCommandSurface } from "./use-setup-command-copied";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * The automatic route: one command, and what it will do.
@@ -110,6 +111,7 @@ export function AITab({
   const onCommandCopied = useSetupCommandCopied(projectId, surface);
   const demoWorkspace = useDemoWorkspace();
   const hasActions = !!demoWorkspace || !!actions;
+  const t = useT();
 
   return (
     <div className="space-y-6">
@@ -119,7 +121,7 @@ export function AITab({
             <div className="flex items-center justify-between gap-3">
               <p className="text-[13px] font-medium text-foreground">{copy.title}</p>
               <SectionLink href="https://traceroot.ai/docs/tracing/get-started">
-                View the tracing docs
+                {t("tracesSetup.viewDocs")}
               </SectionLink>
             </div>
             {copy.intro && <p className="mt-1 text-[12px] text-muted-foreground">{copy.intro}</p>}
@@ -128,22 +130,20 @@ export function AITab({
           {copy.note && <p className="text-[12px] text-muted-foreground">{copy.note}</p>}
           {/* What the person gets for running it. Copying shows nothing new: the
               page keeps waiting until the trace itself arrives. */}
-          <p className="text-[12px] text-muted-foreground">
-            When your first trace arrives, you can open it and see every step your agent took.
-          </p>
+          <p className="text-[12px] text-muted-foreground">{t("tracesSetup.firstTraceNote")}</p>
         </div>
       ) : (
         <div className="space-y-2">
           <p className="text-[13px] font-medium text-foreground">
-            The setup command cannot be shown for this deployment
+            {t("tracesSetup.cannotShowTitle")}
           </p>
           <p className="text-[12px] text-muted-foreground">
-            <code className="font-mono">{setup.variable}</code> is set to{" "}
-            <code className="font-mono">{setup.value}</code>, which isn&apos;t a usable origin, so
-            the command would sign you in and send traces to traceroot Cloud instead. Correct that
-            value and rebuild the web app. Meanwhile, the manual tab works once you set{" "}
-            <code className="font-mono">TRACEROOT_HOST_URL</code> to this deployment&apos;s API
-            address.
+            <code className="font-mono">{setup.variable}</code>
+            {t("tracesSetup.cannotShowIsSetTo")}
+            <code className="font-mono">{setup.value}</code>
+            {t("tracesSetup.cannotShowWhy")}
+            <code className="font-mono">TRACEROOT_HOST_URL</code>
+            {t("tracesSetup.cannotShowEnd")}
           </p>
         </div>
       )}
@@ -164,7 +164,7 @@ export function AITab({
                 "h-7 px-4 text-[12px]",
               )}
             >
-              See the demo project
+              {t("tracesSetup.demoProject")}
             </Link>
           )}
           {actions}
@@ -173,9 +173,11 @@ export function AITab({
 
       {showExternalIntegrations && (
         <div className="space-y-2">
-          <p className="text-[13px] font-medium text-foreground">External integrations</p>
+          <p className="text-[13px] font-medium text-foreground">
+            {t("tracesSetup.externalIntegrations")}
+          </p>
           {projectLoading ? (
-            <LoadingState label="Loading integrations..." />
+            <LoadingState label={t("tracesSetup.loadingIntegrations")} />
           ) : workspaceId ? (
             <ExternalIntegrations workspaceId={workspaceId} />
           ) : (

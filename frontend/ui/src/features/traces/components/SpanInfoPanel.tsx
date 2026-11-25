@@ -21,6 +21,7 @@ import {
 import { SpanKindIcon } from "./SpanKindIcon";
 import { TraceIOSection } from "./TraceIOValue";
 import { useSpanIO } from "../hooks";
+import { useT } from "@/lib/i18n/provider";
 
 interface SpanInfoPanelProps {
   projectId: string;
@@ -99,6 +100,7 @@ export function SpanInfoPanel({
   extraTags,
 }: SpanInfoPanelProps) {
   const router = useRouter();
+  const t = useT();
 
   const buildUrl = (basePath: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(basePath, { dateFilter, customStartDate, customEndDate, extraParams });
@@ -176,7 +178,7 @@ export function SpanInfoPanel({
               <CopyButton
                 value={isTrace ? trace.trace_id : selection.span.span_id}
                 className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                title="Copy ID"
+                title={t("tracesSpan.copyId")}
               />
             </div>
             <div className="text-xs text-muted-foreground">{formatDate(timestamp)}</div>
@@ -186,7 +188,7 @@ export function SpanInfoPanel({
         {/* Row 1: LLM related badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-            <span className="text-muted-foreground">Span kind:</span>
+            <span className="text-muted-foreground">{t("tracesSpan.spanKind")}</span>
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
           {extraTags}
@@ -196,19 +198,19 @@ export function SpanInfoPanel({
           {!isEvalShaped && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Latency:</span>
+              <span className="text-muted-foreground">{t("tracesSpan.latency")}</span>
               <span className="font-medium">{formatDuration(duration)}</span>
             </div>
           )}
           {hasError && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-danger-soft px-2.5 py-1 text-xs font-medium text-danger">
               <DOMAIN_ICONS.error className="h-3 w-3" />
-              ERROR
+              {t("tracesSpan.errorBadge")}
             </div>
           )}
           {isTrace && trace.environment && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <span className="text-muted-foreground">Env:</span>
+              <span className="text-muted-foreground">{t("tracesSpan.env")}</span>
               <span className="font-medium">{trace.environment}</span>
             </div>
           )}
@@ -237,10 +239,10 @@ export function SpanInfoPanel({
           {!isTrace && redacted && (
             <div
               className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs"
-              title="Your app ran its redaction function on this span before sending it. Anything it removed never reached traceroot."
+              title={t("tracesSpan.redactedTitle")}
             >
               <EyeOff className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">Redacted by your app</span>
+              <span className="font-medium">{t("tracesSpan.redacted")}</span>
             </div>
           )}
           {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (
@@ -271,7 +273,7 @@ export function SpanInfoPanel({
                 className="inline-flex min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
               >
                 <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="shrink-0 text-muted-foreground">Repo:</span>
+                <span className="shrink-0 text-muted-foreground">{t("tracesSpan.repo")}</span>
                 <span className="min-w-0 break-all font-mono font-medium">{trace.git_repo}</span>
               </a>
             )}
@@ -290,7 +292,7 @@ export function SpanInfoPanel({
                 title={trace.git_ref}
               >
                 <GitCommitHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="shrink-0 text-muted-foreground">Ref:</span>
+                <span className="shrink-0 text-muted-foreground">{t("tracesSpan.ref")}</span>
                 <span className="font-mono font-medium">{trace.git_ref.substring(0, 7)}</span>
               </a>
             )}
@@ -314,7 +316,7 @@ export function SpanInfoPanel({
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] border bg-background py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">User:</span>
+                <span className="text-muted-foreground">{t("tracesSpan.user")}</span>
                 <span className="font-medium">{trace.user_id}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
               </button>
@@ -333,7 +335,7 @@ export function SpanInfoPanel({
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] border bg-background py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <DOMAIN_ICONS.session className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Session:</span>
+                <span className="text-muted-foreground">{t("tracesSpan.session")}</span>
                 <span className="font-medium">{trace.session_id}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
               </button>
@@ -356,7 +358,7 @@ export function SpanInfoPanel({
           <div className="rounded-md border border-danger-border bg-danger-soft p-3">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-danger">
               <DOMAIN_ICONS.error className="h-3 w-3" />
-              Error
+              {t("tracesSpan.error")}
             </div>
             {/* Source location info */}
             {!isTrace &&
@@ -410,7 +412,7 @@ export function SpanInfoPanel({
             selected. */}
         <TraceIOSection
           key={`${selectionId}:input`}
-          title="Input"
+          title={t("tracesSpan.input")}
           content={input}
           loading={ioLoading}
           onCopy={input ? () => copyToClipboard(input) : undefined}
@@ -418,7 +420,7 @@ export function SpanInfoPanel({
         />
         <TraceIOSection
           key={`${selectionId}:output`}
-          title="Output"
+          title={t("tracesSpan.output")}
           content={output}
           loading={ioLoading}
           onCopy={output ? () => copyToClipboard(output) : undefined}
@@ -426,7 +428,7 @@ export function SpanInfoPanel({
         />
         <TraceIOSection
           key={`${selectionId}:metadata`}
-          title="Metadata"
+          title={t("tracesSpan.metadata")}
           content={metadata}
           loading={ioLoading}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}

@@ -7,6 +7,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { dateFilterLabel } from "@/lib/date-filter-labels";
+import { useT } from "@/lib/i18n/provider";
 import { RANGE_PRESETS, findRangePreset } from "../range-presets";
 
 // The preview-window picker. Extracted from the widget builder so the alert
@@ -18,17 +20,18 @@ export function PreviewRangeSelect({
   rangeId: string;
   onRangeChange: (id: string) => void;
 }) {
+  const t = useT();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="h-8 text-[13px]">
-          {findRangePreset(rangeId).label}
+          {dateFilterLabel(t, findRangePreset(rangeId))}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {RANGE_PRESETS.map((preset) => (
           <DropdownMenuItem key={preset.id} onClick={() => onRangeChange(preset.id)}>
-            {preset.label}
+            {dateFilterLabel(t, preset)}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

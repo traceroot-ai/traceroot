@@ -13,6 +13,8 @@ import {
   isOptionLocked,
   type DateFilterOption,
 } from "@/lib/date-filter";
+import { useT } from "@/lib/i18n/provider";
+import { dateFilterLabel } from "@/lib/date-filter-labels";
 
 // The one date-filter control: preset list + custom range picker in a popover.
 // Extracted from SearchFilterBar so every windowed surface (trace list,
@@ -36,14 +38,17 @@ export function DateFilterSelect({
   onUpgradeClick?: () => void;
   className?: string;
 }) {
+  const t = useT();
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+
+  const optionLabel = (option: DateFilterOption) => dateFilterLabel(t, option);
 
   const getDateFilterLabel = () => {
     if (dateFilter.isCustom && customStartDate && customEndDate) {
       return formatDateRange(customStartDate, customEndDate);
     }
-    return dateFilter.label;
+    return optionLabel(dateFilter);
   };
 
   const handleCustomDateApply = (startDate: Date | null, endDate: Date | null) => {
@@ -117,7 +122,7 @@ export function DateFilterSelect({
                     {option.isCustom && !locked && (
                       <Calendar className="h-3 w-3 text-muted-foreground" />
                     )}
-                    <span className="flex-1">{option.label}</span>
+                    <span className="flex-1">{optionLabel(option)}</span>
                     {locked && <Lock className="h-3 w-3 text-muted-foreground" />}
                   </button>
                 );
@@ -130,7 +135,7 @@ export function DateFilterSelect({
                   <Tooltip key={option.id}>
                     <TooltipTrigger asChild>{row}</TooltipTrigger>
                     <TooltipContent side="left" sideOffset={8}>
-                      {retentionDays}-day retention limit · click to upgrade
+                      {t("componentsDateFilter.retentionLimit", { days: retentionDays ?? "" })}
                     </TooltipContent>
                   </Tooltip>
                 );

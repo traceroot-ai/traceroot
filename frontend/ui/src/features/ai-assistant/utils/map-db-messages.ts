@@ -1,3 +1,5 @@
+import { DEFAULT_LOCALE } from "@/lib/i18n/locales";
+import { createTranslator, type Translate } from "@/lib/i18n/translate";
 import { proposalDeclined } from "./proposal-declined";
 import type { AIMessage } from "../types";
 import type { TraceStatus } from "@traceroot/core";
@@ -49,13 +51,16 @@ interface AssistantMetadata {
   traceStatus?: TraceStatus;
 }
 
+// A caller without a translator (a unit test) gets English, the text this always returned.
+const ENGLISH = createTranslator(DEFAULT_LOCALE);
+
 /**
  * Convert persisted AIMessage rows into the bubble shapes the live stream
  * produces, so reloaded history renders identically: tool_step rows become
  * expandable tool bubbles (args/result from metadata), assistant rows pick
  * their thinking up from metadata.
  */
-export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
+export function mapDbMessages(rows: DbAiMessageRow[], t: Translate = ENGLISH): AIMessage[] {
   const out: AIMessage[] = [];
   for (const m of rows) {
     if (m.role === "tool_step") {
@@ -118,7 +123,7 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
     }
     // A persisted run failure renders like the live stream's error bubble,
     // after whatever partial text the run produced before failing.
-    const errorLine = runError ? `Error: ${runError}` : "";
+    const errorLine = runError ? t("assistantMessages.errorLine", { message: runError }) : "";
     const content = errorLine
       ? m.content
         ? `${m.content}\n\n${errorLine}`

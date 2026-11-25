@@ -16,8 +16,34 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { AccountLine } from "@/components/account-line";
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import type { Translate } from "@/lib/i18n/translate";
 
-const FALLBACK_CLIENT_NAME = "A command-line application";
+// The messages this page shows about a code, mapped to keys when they are shown. The English text
+// is what `mapDeviceErrorMessage` and the handlers below produce; anything else (a description
+// from the server) is shown as it arrived.
+const DEVICE_MESSAGE_KEYS: Record<string, MessageKey> = {
+  "Enter the code shown in your terminal.": "device.errEnterCode",
+  "Could not load this account's workspaces, so nothing was approved. Check your connection and reload this page.":
+    "device.errWorkspaces",
+  "Could not sign out, so you are still signed in and nothing was approved. Check your connection and try again.":
+    "device.errSignOut",
+  "This code has expired. Go back to your terminal and run the command again.": "device.errExpired",
+  "This code was already opened by a different account and is locked to it. Go back to your terminal and run the command again to get a fresh code.":
+    "device.errLocked",
+  "You need to sign in again before continuing.": "device.errUnauthorized",
+  "This code has already been used.": "device.errUsed",
+  "This code hasn't been verified yet. Go back and re-enter it.": "device.errNotVerified",
+  "That code doesn't match a pending request. Double-check it and try again.": "device.errNoMatch",
+  "Something went wrong. Go back to your terminal and run the command again.": "device.errGeneric",
+};
+
+function translateDeviceMessage(t: Translate, message: string): string {
+  const key = DEVICE_MESSAGE_KEYS[message];
+  return key ? t(key) : message;
+}
 
 // Only the plugin's own record of a device code is authoritative on who's
 // asking. The `client_id` query param arrives on an unauthenticated GET
@@ -27,9 +53,9 @@ const FALLBACK_CLIENT_NAME = "A command-line application";
 // resolve a display name for ids in the known allowlist; anything else falls
 // back to a generic label instead of parroting unverified text back to the
 // user.
-function resolveClientDisplayName(clientId: string | null): string {
+function resolveClientDisplayName(clientId: string | null, t: Translate): string {
   if (!clientId || !DEVICE_CLIENT_IDS.has(clientId)) {
-    return FALLBACK_CLIENT_NAME;
+    return t("device.fallbackClient");
   }
   return DEVICE_CLIENT_NAMES[clientId] ?? clientId;
 }
@@ -127,6 +153,7 @@ async function claimActiveCode(code: string): Promise<Phase | null> {
 
 function DeviceContent() {
   const router = useRouter();
+  const t = useT();
   const searchParams = useSearchParams();
   const { data: sessionData, isPending: sessionPending } = authClient.useSession();
 
@@ -328,7 +355,7 @@ function DeviceContent() {
           <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
-          <CardTitle className="text-[15px] font-medium">Device sign-in</CardTitle>
+          <CardTitle className="text-[15px] font-medium">{t("device.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {phase.kind === "entry" && (
@@ -343,13 +370,13 @@ function DeviceContent() {
           {phase.kind === "verifying" && (
             <div className="flex flex-col items-center gap-2 py-6 text-[13px] text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
-              <p>Checking your code...</p>
+              <p>{t("device.checking")}</p>
             </div>
           )}
 
           {phase.kind === "setup" && activeCode && (
             <SetupRequired
-              clientName={resolveClientDisplayName(clientId)}
+              clientName={resolveClientDisplayName(clientId, t)}
               email={sessionData?.user?.email ?? null}
               code={activeCode}
               needsWorkspace={phase.need.kind === "workspace"}
@@ -362,7 +389,7 @@ function DeviceContent() {
 
           {phase.kind === "consent" && activeCode && (
             <Consent
-              clientName={resolveClientDisplayName(clientId)}
+              clientName={resolveClientDisplayName(clientId, t)}
               email={sessionData?.user?.email ?? null}
               code={activeCode}
               pending={actionPending}
@@ -397,11 +424,10 @@ type CodeEntryProps = {
 };
 
 function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
+  const t = useT();
   return (
     <div className="space-y-4">
-      <p className="text-center text-[13px] text-muted-foreground">
-        Enter the code shown in your terminal to sign in on this device.
-      </p>
+      <p className="text-center text-[13px] text-muted-foreground">{t("device.entryHint")}</p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -411,7 +437,7 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
       >
         <div>
           <label htmlFor="device-code" className="mb-1 block text-[13px] font-medium">
-            Device code
+            {t("device.codeLabel")}
           </label>
           <Input
             id="device-code"
@@ -421,10 +447,12 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
             className="h-9 text-center text-[15px] tracking-widest"
             autoFocus
           />
-          {error && <p className="mt-1 text-[12px] text-danger">{error}</p>}
+          {error && (
+            <p className="mt-1 text-[12px] text-danger">{translateDeviceMessage(t, error)}</p>
+          )}
         </div>
         <Button type="submit" size="sm" className="h-8 w-full text-[13px]">
-          Continue
+          {t("device.continue")}
         </Button>
       </form>
     </div>
@@ -432,9 +460,10 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
 }
 
 function CodeConfirm({ code }: { code: string }) {
+  const t = useT();
   return (
     <div className="border bg-muted px-3 py-2 text-center">
-      <p className="text-[12px] uppercase text-muted-foreground">Confirm this code</p>
+      <p className="text-[12px] uppercase text-muted-foreground">{t("device.confirmCode")}</p>
       <p className="text-[18px] font-semibold tracking-widest">{formatUserCode(code)}</p>
     </div>
   );
@@ -459,11 +488,13 @@ function Consent({
   onDeny,
   onSwitchAccount,
 }: ConsentProps) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <div className="space-y-1 text-center">
         <p className="text-[13px]">
-          <span className="font-medium">{clientName}</span> wants to sign in
+          <span className="font-medium">{clientName}</span>
+          {t("device.wantsToSignIn")}
         </p>
         <AccountLine email={email} pending={pending} onSwitchAccount={onSwitchAccount} />
       </div>
@@ -471,18 +502,20 @@ function Consent({
       <CodeConfirm code={code} />
 
       <p className="text-[12px] text-muted-foreground">
-        Approving signs {clientName} in to your traceroot account. It stays signed in while you use
-        it and signs out within seven days of its last use. Signing out in this browser doesn&apos;t
-        sign {clientName} out, but you can revoke it from{" "}
-        <Link href="/account/settings/sessions" className="underline hover:text-foreground">
-          Active Sessions
-        </Link>{" "}
-        in your account settings.
+        <Slots
+          text={t("device.consentText", { client: clientName })}
+          slots={{
+            link: (
+              <Link href="/account/settings/sessions" className="underline hover:text-foreground">
+                {t("device.activeSessionsLink")}
+              </Link>
+            ),
+          }}
+        />
       </p>
 
       <p className="border border-warning-border bg-warning-soft p-2 text-[12px] text-warning">
-        Only approve a code you generated yourself just now. If you didn&apos;t just run a traceroot
-        command in your terminal, deny this.
+        {t("device.approveWarning")}
       </p>
 
       <div className="flex gap-2">
@@ -493,10 +526,10 @@ function Consent({
           onClick={onDeny}
           disabled={pending}
         >
-          Deny
+          {t("device.deny")}
         </Button>
         <Button size="sm" className="h-8 flex-1 text-[13px]" onClick={onApprove} disabled={pending}>
-          {pending ? "Working..." : "Approve"}
+          {pending ? t("device.working") : t("device.approve")}
         </Button>
       </div>
     </div>
@@ -529,11 +562,13 @@ function SetupRequired({
   onDeny,
   onSwitchAccount,
 }: SetupRequiredProps) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <div className="space-y-1 text-center">
         <p className="text-[13px]">
-          <span className="font-medium">{clientName}</span> wants to sign in
+          <span className="font-medium">{clientName}</span>
+          {t("device.wantsToSignIn")}
         </p>
         <AccountLine email={email} pending={pending} onSwitchAccount={onSwitchAccount} />
       </div>
@@ -542,15 +577,12 @@ function SetupRequired({
 
       <p className="text-[12px] text-muted-foreground">
         {needsWorkspace
-          ? "This account has no workspace yet, so there is nowhere for traces to go."
-          : "This account has no project yet, so there is nowhere for traces to go."}{" "}
-        Finish setting up first — {clientName} asks for a project the moment it is signed in, and
-        the terminal is waiting on this page.
+          ? t("device.setupNoWorkspace", { client: clientName })
+          : t("device.setupNoProject", { client: clientName })}
       </p>
 
       <p className="border border-warning-border bg-warning-soft p-2 text-[12px] text-warning">
-        Only continue for a code you generated yourself just now. If you didn&apos;t just run a
-        traceroot command in your terminal, deny this.
+        {t("device.continueWarning")}
       </p>
 
       <div className="flex gap-2">
@@ -561,7 +593,7 @@ function SetupRequired({
           onClick={onDeny}
           disabled={pending}
         >
-          Deny
+          {t("device.deny")}
         </Button>
         <Button
           size="sm"
@@ -569,7 +601,7 @@ function SetupRequired({
           onClick={onContinue}
           disabled={pending}
         >
-          Continue setup
+          {t("device.continueSetup")}
         </Button>
       </div>
     </div>
@@ -579,21 +611,21 @@ function SetupRequired({
 // The end of this page. Everything after approval happens in the terminal,
 // which reports its own outcome, so there is nothing left to watch or open here.
 function Approved() {
+  const t = useT();
   return (
     <div className="py-4 text-center">
-      <p className="text-[14px] font-medium">Device approved</p>
-      <p className="mt-1 text-[13px] text-muted-foreground">You can close this window now.</p>
+      <p className="text-[14px] font-medium">{t("device.approved")}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">{t("device.closeWindow")}</p>
     </div>
   );
 }
 
 function Denied() {
+  const t = useT();
   return (
     <div className="py-4 text-center">
-      <p className="text-[14px] font-medium">Denied</p>
-      <p className="mt-1 text-[13px] text-muted-foreground">
-        This sign-in request was denied. You can close this page.
-      </p>
+      <p className="text-[14px] font-medium">{t("device.denied")}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">{t("device.deniedText")}</p>
     </div>
   );
 }
@@ -605,12 +637,13 @@ type ErrorStateProps = {
 };
 
 function ErrorState({ message, recoverable, onStartOver }: ErrorStateProps) {
+  const t = useT();
   return (
     <div className="space-y-3 py-2 text-center">
-      <p className="text-[13px] text-danger">{message}</p>
+      <p className="text-[13px] text-danger">{translateDeviceMessage(t, message)}</p>
       {recoverable && (
         <Button variant="outline" size="sm" className="h-8 text-[13px]" onClick={onStartOver}>
-          Try again
+          {t("device.tryAgain")}
         </Button>
       )}
     </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -30,6 +32,7 @@ export function NewDatasetPanel({
   onOpenChange: (open: boolean) => void;
 }) {
   const { toast } = useToast();
+  const t = useT();
   const router = useRouter();
   const create = useCreateDataset(projectId);
   const [state, setState] = React.useState<DatasetFormState>(emptyDatasetForm());
@@ -62,7 +65,7 @@ export function NewDatasetPanel({
           // Creating a name that already resolves to a dataset opens it instead of
           // erroring (same name = same dataset), so the toast reflects which happened.
           toast({
-            title: data.created ? "Dataset created" : "Opened existing dataset",
+            title: data.created ? t("datasetsForm.created") : t("datasetsForm.openedExisting"),
             tone: "success",
           });
           onOpenChange(false);
@@ -70,7 +73,11 @@ export function NewDatasetPanel({
           router.push(`/projects/${projectId}/datasets/${data.dataset.id}`);
         },
         onError: (e) =>
-          toast({ title: "Could not create dataset", description: String(e), tone: "warning" }),
+          toast({
+            title: t("datasetsForm.createFailed"),
+            description: translateClientError(t, String(e)),
+            tone: "warning",
+          }),
       },
     );
   };
@@ -92,12 +99,12 @@ export function NewDatasetPanel({
       >
         <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4 py-2">
           <h2 id="new-dataset-title" className="text-[15px] font-medium">
-            New dataset
+            {t("datasetsList.newDataset")}
           </h2>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            aria-label="Close"
+            aria-label={t("evalsShared.close")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
@@ -110,10 +117,10 @@ export function NewDatasetPanel({
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleCreate} disabled={!canCreate || create.isPending}>
-            {create.isPending ? "Creating…" : "Create"}
+            {create.isPending ? t("evalsShared.creating") : t("common.create")}
           </Button>
         </div>
       </div>
@@ -132,6 +139,7 @@ export function DatasetEditPanel({
   onClose: () => void;
 }) {
   const { toast } = useToast();
+  const t = useT();
   const update = useUpdateDataset(projectId, dataset.id);
   const [state, setState] = React.useState<DatasetFormState>(() =>
     emptyDatasetForm({ name: dataset.name, description: dataset.description ?? "" }),
@@ -152,11 +160,15 @@ export function DatasetEditPanel({
       { name: state.name.trim(), description: state.description.trim() || null },
       {
         onSuccess: () => {
-          toast({ title: "Dataset saved", tone: "success" });
+          toast({ title: t("datasetsForm.saved"), tone: "success" });
           onClose();
         },
         onError: (e) =>
-          toast({ title: "Could not save dataset", description: String(e), tone: "warning" }),
+          toast({
+            title: t("datasetsForm.saveFailed"),
+            description: translateClientError(t, String(e)),
+            tone: "warning",
+          }),
       },
     );
   };
@@ -174,12 +186,12 @@ export function DatasetEditPanel({
       >
         <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4 py-2">
           <h2 id="edit-dataset-title" className="text-[15px] font-medium">
-            Edit dataset
+            {t("datasetsForm.editTitle")}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("evalsShared.close")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
@@ -192,10 +204,10 @@ export function DatasetEditPanel({
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleSave} disabled={!canSave || update.isPending}>
-            {update.isPending ? "Saving…" : "Save"}
+            {update.isPending ? t("evalsShared.saving") : t("common.save")}
           </Button>
         </div>
       </div>

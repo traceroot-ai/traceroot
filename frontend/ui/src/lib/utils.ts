@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { Translate } from "@/lib/i18n/translate";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -129,8 +130,10 @@ export function parseAsUTC(date: string | Date): Date {
 /**
  * Format date to relative time string.
  * e.g., "2 minutes ago", "3 hours ago", "yesterday"
+ *
+ * `t` puts the text in the visitor's language; without it the text is English.
  */
-export function formatRelativeTime(date: string | Date | null | undefined): string {
+export function formatRelativeTime(date: string | Date | null | undefined, t?: Translate): string {
   if (!date) return "-";
 
   const now = new Date();
@@ -142,23 +145,29 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
   const diffDays = Math.floor(diffHours / 24);
 
   if (diffSeconds < 60) {
-    return "just now";
+    return t ? t("relativeTime.justNow") : "just now";
   }
 
   if (diffMinutes < 60) {
-    return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+    if (!t) return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+    return t(diffMinutes === 1 ? "relativeTime.minuteAgo" : "relativeTime.minutesAgo", {
+      count: diffMinutes,
+    });
   }
 
   if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+    if (!t) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+    return t(diffHours === 1 ? "relativeTime.hourAgo" : "relativeTime.hoursAgo", {
+      count: diffHours,
+    });
   }
 
   if (diffDays === 1) {
-    return "yesterday";
+    return t ? t("relativeTime.yesterday") : "yesterday";
   }
 
   if (diffDays < 7) {
-    return `${diffDays} days ago`;
+    return t ? t("relativeTime.daysAgo", { count: diffDays }) : `${diffDays} days ago`;
   }
 
   // For older dates, show the actual date

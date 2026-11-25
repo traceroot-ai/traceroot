@@ -12,6 +12,8 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { EditableValueBlock } from "./code";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 import type { ReviewStatus } from "../types";
 
 /** Read-only fields never edit, so onChange is a no-op. */
@@ -35,12 +37,12 @@ export interface TestCaseReviewTarget {
   currentReview: ReviewStatus;
 }
 
-const CHECKS = [
-  "The input is sufficient and rerunnable.",
-  "The case belongs in this dataset.",
-  "The expected outcome is correct, or intentionally not required.",
-  "Sensitive or irrelevant production data has been removed.",
-  "The source span provides the intended test boundary.",
+const CHECKS: MessageKey[] = [
+  "offlineEvalReview.checkInput",
+  "offlineEvalReview.checkBelongs",
+  "offlineEvalReview.checkExpected",
+  "offlineEvalReview.checkSensitive",
+  "offlineEvalReview.checkBoundary",
 ];
 
 export function TestCaseReviewDrawer({
@@ -54,6 +56,7 @@ export function TestCaseReviewDrawer({
   onOpenChange: (open: boolean) => void;
   onSubmit: (result: { review: ReviewStatus; correctedExpected?: string }) => void | Promise<void>;
 }) {
+  const t = useT();
   const [checked, setChecked] = React.useState<boolean[]>(() => CHECKS.map(() => false));
   const [corrected, setCorrected] = React.useState("");
 
@@ -79,19 +82,16 @@ export function TestCaseReviewDrawer({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent width="w-[560px]">
         <DrawerHeader className="pr-10">
-          <DrawerTitle>Review test case</DrawerTitle>
+          <DrawerTitle>{t("offlineEvalReview.title")}</DrawerTitle>
           <p className="mt-1 text-[12px] text-muted-foreground">{target.contextLabel}</p>
         </DrawerHeader>
 
         <DrawerBody className="flex flex-col gap-4 text-[12px]">
-          <p className="leading-relaxed text-muted-foreground">
-            Confirm this is a good, reusable test case — not whether one run passed. Output scoring
-            (Pass / Fail / quality) happens elsewhere.
-          </p>
+          <p className="leading-relaxed text-muted-foreground">{t("offlineEvalReview.intro")}</p>
 
           {target.input ? (
             <EditableValueBlock
-              label="Input"
+              label={t("evalsShared.input")}
               text={target.input}
               onChange={noop}
               readOnly
@@ -102,7 +102,7 @@ export function TestCaseReviewDrawer({
             />
           ) : (
             <div>
-              <p className="mb-1 text-[12px] text-muted-foreground">Input</p>
+              <p className="mb-1 text-[12px] text-muted-foreground">{t("evalsShared.input")}</p>
               <div className="rounded border border-border bg-muted px-2.5 py-2 leading-relaxed">
                 <span className="text-muted-foreground">—</span>
               </div>
@@ -111,7 +111,7 @@ export function TestCaseReviewDrawer({
 
           {target.expected ? (
             <EditableValueBlock
-              label="Expected outcome"
+              label={t("offlineEvalReview.expectedOutcome")}
               text={target.expected}
               onChange={noop}
               readOnly
@@ -122,11 +122,11 @@ export function TestCaseReviewDrawer({
             />
           ) : (
             <div>
-              <p className="mb-1 text-[12px] text-muted-foreground">Expected outcome</p>
+              <p className="mb-1 text-[12px] text-muted-foreground">
+                {t("offlineEvalReview.expectedOutcome")}
+              </p>
               <div className="rounded border border-border bg-muted px-2.5 py-2 leading-relaxed">
-                <span className="text-muted-foreground">
-                  Not required — a scorer judges the output directly.
-                </span>
+                <span className="text-muted-foreground">{t("offlineEvalReview.notRequired")}</span>
               </div>
             </div>
           )}
@@ -134,10 +134,10 @@ export function TestCaseReviewDrawer({
           <div className="h-px bg-border" />
 
           <div>
-            <p className="mb-2 font-medium">Verify</p>
+            <p className="mb-2 font-medium">{t("offlineEvalReview.verify")}</p>
             <ul className="flex flex-col gap-2">
-              {CHECKS.map((label, i) => (
-                <li key={label}>
+              {CHECKS.map((labelKey, i) => (
+                <li key={labelKey}>
                   <label className="flex cursor-pointer items-start gap-2 leading-relaxed">
                     <input
                       type="checkbox"
@@ -147,7 +147,7 @@ export function TestCaseReviewDrawer({
                       }
                       className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-foreground"
                     />
-                    <span>{label}</span>
+                    <span>{t(labelKey)}</span>
                   </label>
                 </li>
               ))}
@@ -156,26 +156,27 @@ export function TestCaseReviewDrawer({
 
           <div>
             <label htmlFor="tc-corrected-expected" className="mb-1.5 block font-medium">
-              Correct the expected outcome{" "}
-              <span className="font-normal text-muted-foreground">optional</span>
+              {t("offlineEvalReview.correctExpected")}{" "}
+              <span className="font-normal text-muted-foreground">
+                {t("offlineEvalReview.optional")}
+              </span>
             </label>
             <Input
               id="tc-corrected-expected"
               value={corrected}
               onChange={(event) => setCorrected(event.target.value)}
-              placeholder={target.expected ?? "e.g. billing"}
+              placeholder={target.expected ?? t("offlineEvalReview.correctedPlaceholder")}
               className="h-7 text-[12px]"
             />
             <p className="mt-1.5 text-[12px] text-muted-foreground">
-              Changing this publishes a new dataset version — it changes what future runs are
-              evaluated against.
+              {t("offlineEvalReview.versionHint")}
             </p>
           </div>
         </DrawerBody>
 
         <DrawerFooter>
           <span className="text-[12px] text-muted-foreground">
-            Ready is advisory — it never blocks the case from an evaluation.
+            {t("offlineEvalReview.readyAdvisory")}
           </span>
           <span className="flex gap-2">
             <Button
@@ -184,16 +185,16 @@ export function TestCaseReviewDrawer({
               className="h-7 text-[12px]"
               onClick={() => submit("needs_review")}
             >
-              Needs work
+              {t("offlineEvalReview.needsWork")}
             </Button>
             <Button
               size="sm"
               className="h-7 text-[12px]"
               onClick={() => submit("ready")}
               disabled={!allChecked}
-              title={allChecked ? undefined : "Check every item above before marking ready"}
+              title={allChecked ? undefined : t("offlineEvalReview.checkAll")}
             >
-              Mark ready
+              {t("offlineEvalReview.markReady")}
             </Button>
           </span>
         </DrawerFooter>

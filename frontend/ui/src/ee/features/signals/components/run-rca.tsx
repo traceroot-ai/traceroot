@@ -3,6 +3,7 @@
 import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
 import { Button } from "@/components/ui/button";
 import { rcaInProgress, useRequestSignalRca } from "../hooks";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * A signal without an analysis: run it by hand (its detector's RCA is Manual,
@@ -26,34 +27,31 @@ export function RunRca({
 }) {
   const { readOnly, loading } = useDemoAgentAccess(projectId);
   const request = useRequestSignalRca(projectId, signalId);
+  const t = useT();
   if (loading) return null;
   if (!available) {
-    return (
-      <p className="text-[12px] text-muted-foreground">
-        No root cause analysis: this deployment has no OpenAI API key, which signals need.
-      </p>
-    );
+    return <p className="text-[12px] text-muted-foreground">{t("eeRunRca.unavailable")}</p>;
   }
   const running = rcaInProgress(state) || request.isPending;
   return (
     <div className="space-y-3" aria-live="polite">
       {request.isError && (
         <p role="alert" className="text-[12px] text-destructive">
-          Analysis could not start. Please try again.
+          {t("eeRunRca.startFailed")}
         </p>
       )}
       {/* A request just sent outruns the caller's state: say it is running. */}
       {(showState || request.isPending) &&
         (running ? (
-          <p className="text-[12px] text-muted-foreground">Analyzing affected traces…</p>
+          <p className="text-[12px] text-muted-foreground">{t("eeRunRca.analyzing")}</p>
         ) : (
           state === "failed" && (
-            <p className="text-[12px] text-muted-foreground">The last analysis failed.</p>
+            <p className="text-[12px] text-muted-foreground">{t("eeRunRca.lastFailed")}</p>
           )
         ))}
       {/* A demo visitor still sees the state above, but cannot start a run. */}
       {readOnly ? (
-        <p className="text-[12px] text-muted-foreground">Demo analyses are read-only.</p>
+        <p className="text-[12px] text-muted-foreground">{t("eeRunRca.demoReadOnly")}</p>
       ) : (
         <Button
           size="sm"
@@ -61,7 +59,7 @@ export function RunRca({
           disabled={running}
           onClick={() => request.mutate()}
         >
-          {running ? "Running…" : "Run root cause analysis"}
+          {running ? t("eeRunRca.running") : t("eeRunRca.run")}
         </Button>
       )}
     </div>

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MetadataJson } from "./MetadataJson";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { formatContentPreview } from "../utils";
 import { stringifyMetadataEntries, type MetadataEntry } from "../utils/metadata";
 
@@ -23,6 +24,7 @@ interface TraceMetadataCellProps {
 }
 
 export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCellProps) {
+  const t = useT();
   const [isOpen, setIsOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -118,7 +120,7 @@ export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCel
         <PopoverContent
           ref={contentRef}
           align="start"
-          aria-label="Metadata"
+          aria-label={t("tracesSpan.metadata")}
           // Portaled and fixed, so it cannot widen the table; these keep it in the viewport.
           collisionPadding={8}
           className="w-[22rem] max-w-[calc(100vw-2rem)] p-0"

@@ -18,7 +18,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { formatContentPreview } from "../utils";
 import { traceMetadataEntries } from "../utils/metadata";
 import { TraceMetadataCell } from "./TraceMetadataCell";
-import { fixedColumnLabel, isDefaultOnColumn, type FixedColumnId } from "@/features/traces/columns";
+import {
+  fixedColumnLabel,
+  fixedColumnLabelKey,
+  isDefaultOnColumn,
+  type FixedColumnId,
+} from "@/features/traces/columns";
+import { useT } from "@/lib/i18n/provider";
 
 // Below this the default columns crush each other once any column is added, so the table
 // scrolls horizontally in its container instead of squeezing Input/Output to nothing.
@@ -68,6 +74,7 @@ export function TraceListTable({
 }: TraceListTableProps) {
   const hasAddedColumns = visibleColumns.some((id) => !isDefaultOnColumn(id));
   const hasColumns = visibleColumns.length > 0;
+  const t = useT();
 
   return (
     <table className={cn("data-table w-full", hasAddedColumns && ADDED_COLUMN_TABLE_MIN_WIDTH)}>
@@ -98,7 +105,7 @@ export function TraceListTable({
         ) : (
           <tr>
             <td className="px-3 py-6 text-center text-muted-foreground">
-              No columns selected. Choose one from the Columns menu.
+              {t("tracesList.noColumns")}
             </td>
           </tr>
         )}
@@ -108,7 +115,9 @@ export function TraceListTable({
 }
 
 function ColumnHeader({ id, isLast }: { id: FixedColumnId; isLast: boolean }) {
-  const label = fixedColumnLabel(id);
+  const t = useT();
+  const labelKey = fixedColumnLabelKey(id);
+  const label = labelKey ? t(labelKey) : fixedColumnLabel(id);
   const isDefaultOn = isDefaultOnColumn(id);
   const className = cn(
     HEADER_CELL,
@@ -246,52 +255,7 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
   session_id: ({ trace, borderClassName }) => (
     <FixedFieldCell value={trace.session_id} borderClassName={borderClassName} />
   ),
-  signal_ids: ({ projectId, signalIds, signalIdsFailed, borderClassName }) =>
-    signalIds?.length ? (
-      <td className={cn("max-w-[130px]", borderClassName, "px-3 py-1.5")}>
-        {/* One line per row, always: the first signal id, then a count that opens the rest. */}
-        <span className="flex items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
-          <SignalLink projectId={projectId} signalId={signalIds[0]} />
-          {signalIds.length > 1 && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  // The row opens the trace; the count opens the other signals instead.
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`Show ${signalIds.length - 1} more signals`}
-                  className="shrink-0 rounded-[2px] px-0.5 transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  +{signalIds.length - 1}
-                </button>
-              </PopoverTrigger>
-              {/* Portaled, but React events still bubble to the row, so stop them here. */}
-              <PopoverContent
-                align="start"
-                aria-label="More signals"
-                onClick={(e) => e.stopPropagation()}
-                className="flex w-auto max-w-[20rem] flex-col gap-1 p-2 font-mono text-[12px] text-muted-foreground"
-              >
-                {signalIds.slice(1).map((signalId) => (
-                  <SignalLink key={signalId} projectId={projectId} signalId={signalId} />
-                ))}
-              </PopoverContent>
-            </Popover>
-          )}
-        </span>
-      </td>
-    ) : (
-      // A dash once read with none, blank while loading, and a mark if the read failed.
-      <td className={cn(borderClassName, "px-3 py-1.5 text-muted-foreground")}>
-        {signalIds ? (
-          "-"
-        ) : signalIdsFailed ? (
-          <span title="Signal IDs could not be loaded">?</span>
-        ) : (
-          ""
-        )}
-      </td>
-    ),
+  signal_ids: (props) => <SignalIdsCell {...props} />,
   // The three quantities the Tokens chip compresses into `in → out (total)`, each exact.
   input_usage: ({ trace, borderClassName }) => (
     <UsageCell value={trace.total_input_tokens} borderClassName={borderClassName} />
@@ -347,13 +311,64 @@ function traceTotalTokens(trace: TraceListItem): number | null {
   return (input ?? 0) + (output ?? 0);
 }
 
+// A component of its own, so the cell can read the translator.
+function SignalIdsCell({ projectId, signalIds, signalIdsFailed, borderClassName }: FixedCellProps) {
+  const t = useT();
+  return signalIds?.length ? (
+    <td className={cn("max-w-[130px]", borderClassName, "px-3 py-1.5")}>
+      {/* One line per row, always: the first signal id, then a count that opens the rest. */}
+      <span className="flex items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
+        <SignalLink projectId={projectId} signalId={signalIds[0]} />
+        {signalIds.length > 1 && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                // The row opens the trace; the count opens the other signals instead.
+                onClick={(e) => e.stopPropagation()}
+                aria-label={t("tracesList.showMoreSignals", { count: signalIds.length - 1 })}
+                className="shrink-0 rounded-[2px] px-0.5 transition-colors hover:bg-muted hover:text-foreground"
+              >
+                +{signalIds.length - 1}
+              </button>
+            </PopoverTrigger>
+            {/* Portaled, but React events still bubble to the row, so stop them here. */}
+            <PopoverContent
+              align="start"
+              aria-label={t("tracesList.moreSignals")}
+              onClick={(e) => e.stopPropagation()}
+              className="flex w-auto max-w-[20rem] flex-col gap-1 p-2 font-mono text-[12px] text-muted-foreground"
+            >
+              {signalIds.slice(1).map((signalId) => (
+                <SignalLink key={signalId} projectId={projectId} signalId={signalId} />
+              ))}
+            </PopoverContent>
+          </Popover>
+        )}
+      </span>
+    </td>
+  ) : (
+    // A dash once read with none, blank while loading, and a mark if the read failed.
+    <td className={cn(borderClassName, "px-3 py-1.5 text-muted-foreground")}>
+      {signalIds ? (
+        "-"
+      ) : signalIdsFailed ? (
+        <span title={t("tracesList.signalIdsFailed")}>?</span>
+      ) : (
+        ""
+      )}
+    </td>
+  );
+}
+
 function SignalLink({ projectId, signalId }: { projectId: string; signalId: string }) {
+  const t = useT();
   return (
     <Link
       href={signalDeepLinkPath(projectId, signalId)}
       // The row opens the trace; a signal id opens the signal instead.
       onClick={(e) => e.stopPropagation()}
-      title={`${signalId} — open the signal`}
+      title={t("tracesList.openSignal", { id: signalId })}
       className="block min-w-0 truncate transition-colors hover:text-foreground hover:underline"
     >
       {signalId}

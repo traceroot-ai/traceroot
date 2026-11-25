@@ -25,8 +25,11 @@ import {
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 export default function AlertsPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
@@ -91,13 +94,13 @@ export default function AlertsPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <PageHeader
-          title="Alerts"
+          title={t("nav.alerts")}
           actions={
             showListChrome ? (
               <>
                 {capacity && isAlertCapacityLow(capacity) && (
                   <span className="text-[12px] text-muted-foreground">
-                    {capacity.used} of {capacity.max} alerts used
+                    {t("alertsList.usage", { used: capacity.used, max: capacity.max })}
                   </span>
                 )}
                 <Button
@@ -105,7 +108,7 @@ export default function AlertsPage() {
                   disabled={isAtAlertCapacity(capacity)}
                   onClick={() => router.push(`/projects/${projectId}/alerts/new`)}
                 >
-                  New alert
+                  {t("alertsList.newAlert")}
                 </Button>
               </>
             ) : undefined
@@ -128,13 +131,13 @@ export default function AlertsPage() {
         <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading alerts..." />
+              <LoadingState label={t("alertsList.loading")} />
             </div>
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading alerts</p>
+              <p className="text-[13px] text-destructive">{t("alertsList.loadError")}</p>
               <p className="max-w-md text-center text-[12px] text-muted-foreground">
-                {error instanceof Error ? error.message : String(error)}
+                {error instanceof Error ? translateClientError(t, error.message) : String(error)}
               </p>
             </div>
           ) : isEmptyProject ? (
@@ -142,7 +145,7 @@ export default function AlertsPage() {
           ) : isEmptySearch ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">
-                No alerts match &ldquo;{state.keyword}&rdquo;
+                {t("alertsList.noMatch", { keyword: state.keyword })}
               </p>
               <Button
                 size="sm"
@@ -150,14 +153,14 @@ export default function AlertsPage() {
                 className="h-7 text-[12px]"
                 onClick={() => updateKeyword("")}
               >
-                Clear search
+                {t("alertsList.clearSearch")}
               </Button>
             </div>
           ) : (
             <>
               {statusMutation.error && (
                 <p className="border-b border-border px-4 py-2 text-[12px] text-destructive">
-                  {statusMutation.error.message}
+                  {translateClientError(t, statusMutation.error.message)}
                 </p>
               )}
               <AlertsTable

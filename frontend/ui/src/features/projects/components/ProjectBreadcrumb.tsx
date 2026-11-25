@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { useT } from "@/lib/i18n/provider";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, type BreadcrumbItem } from "@/components/layout/breadcrumb";
 import { useProject } from "../hooks";
@@ -40,6 +41,7 @@ interface ProjectBreadcrumbProps {
  * ```
  */
 export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcrumbProps) {
+  const t = useT();
   const { setHeaderContent } = useLayout();
   const pathname = usePathname();
   const { data: project } = useProject(projectId);
@@ -63,8 +65,11 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
           isCurrent: ws.id === project?.workspace_id,
           settingsHref: `/workspaces/${ws.id}/settings`,
         })),
-        menuHeader: { label: "Workspaces", href: "/workspaces" },
-        createNew: { label: "New workspace", onSelect: () => setCreateWorkspaceOpen(true) },
+        menuHeader: { label: t("workspaces.title"), href: "/workspaces" },
+        createNew: {
+          label: t("workspaces.newWorkspace"),
+          onSelect: () => setCreateWorkspaceOpen(true),
+        },
       },
       {
         label: project?.name || "...",
@@ -77,10 +82,10 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
           settingsHref: `/projects/${p.id}/settings`,
         })),
         menuHeader: {
-          label: "Projects",
+          label: t("projects.title"),
           href: `/workspaces/${project?.workspace_id}/projects`,
         },
-        createNew: { label: "New project", onSelect: () => setCreateProjectOpen(true) },
+        createNew: { label: t("projects.newProject"), onSelect: () => setCreateProjectOpen(true) },
       },
     ];
 
@@ -96,7 +101,7 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
     return () => setHeaderContent(null);
     // trailKey encodes `trail`'s content (see above); listing trail itself would churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setHeaderContent, project, workspace, workspaces, projectId, current, trailKey, pathname]);
+  }, [setHeaderContent, project, workspace, workspaces, projectId, current, trailKey, pathname, t]);
 
   return (
     <>

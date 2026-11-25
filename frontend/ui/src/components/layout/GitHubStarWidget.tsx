@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState, useEffect } from "react";
 import { X, Github } from "lucide-react";
 import { clientEnv } from "@/env.client";
@@ -14,6 +15,7 @@ function formatStarCount(n: number): string {
 }
 
 export function GitHubStarWidget() {
+  const t = useT();
   const [dismissed, setDismissed] = useState(true); // true initially to avoid flash
   const [starCount, setStarCount] = useState<number | null>(null);
 
@@ -53,22 +55,22 @@ export function GitHubStarWidget() {
   return (
     <div className="border-b px-4 py-3">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium">Star traceroot</span>
+        <span className="text-[13px] font-medium">{t("componentsGitHubStar.title")}</span>
         <button
           className="-mr-1 flex h-5 w-5 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           onClick={() => {
             localStorage.setItem(DISMISSED_KEY, "true");
             setDismissed(true);
           }}
-          aria-label="Dismiss"
+          aria-label={t("componentsGitHubStar.dismiss")}
         >
           <X className="h-3 w-3" />
         </button>
       </div>
       <p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">
-        Open source and shipping fast.
+        {t("componentsGitHubStar.lineOne")}
         <br />
-        Made with ❤️ by contributors.
+        {t("componentsGitHubStar.lineTwo")}
       </p>
       <a
         href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}

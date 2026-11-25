@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -111,6 +113,15 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
   };
 
   const roleOptions: Role[] = [Role.ADMIN, Role.MEMBER, Role.VIEWER];
+  const t = useT();
+  const roleLabels: Record<string, string> = {
+    [Role.ADMIN]: t("members.roleAdmin"),
+    [Role.MEMBER]: t("members.roleMember"),
+    [Role.VIEWER]: t("members.roleViewer"),
+  };
+  // A role this build does not know keeps the capitalised name it had before.
+  const roleLabel = (role: string) =>
+    roleLabels[role] ?? role.charAt(0) + role.slice(1).toLowerCase();
   const canManageMembers = workspace?.role === Role.ADMIN;
   const adminCount = members.filter((m: Member) => m.role === Role.ADMIN).length;
   const isLastAdmin = workspace?.role === Role.ADMIN && adminCount <= 1;
@@ -119,10 +130,8 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
     <div className="space-y-6">
       <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-3">
-          <h2 className="text-[15px] font-medium">Members</h2>
-          <p className="text-[13px] text-muted-foreground">
-            Manage workspace members and invitations
-          </p>
+          <h2 className="text-[15px] font-medium">{t("members.title")}</h2>
+          <p className="text-[13px] text-muted-foreground">{t("members.subtitle")}</p>
         </div>
         {canManageMembers && (
           <AddButton
@@ -131,7 +140,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               setShowInviteMember(true);
             }}
           >
-            Invite member
+            {t("members.invite")}
           </AddButton>
         )}
       </div>
@@ -139,15 +148,13 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
       <Dialog open={showInviteMember} onOpenChange={setShowInviteMember}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite New Member</DialogTitle>
-            <DialogDescription>
-              Send an invitation to a new member. They will receive an email to join this workspace.
-            </DialogDescription>
+            <DialogTitle>{t("members.inviteTitle")}</DialogTitle>
+            <DialogDescription>{t("members.inviteDescription")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <label htmlFor={`${formId}-invite-email`} className="mb-2 block text-sm font-medium">
-                Email
+                {t("members.email")}
               </label>
               <Input
                 placeholder="member@example.com"
@@ -159,7 +166,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             </div>
             <div>
               <label htmlFor={`${formId}-invite-role`} className="mb-2 block text-sm font-medium">
-                Role
+                {t("members.role")}
               </label>
               <Select
                 value={newMemberRole}
@@ -171,7 +178,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                 <SelectContent>
                   {roleOptions.map((role) => (
                     <SelectItem key={role} value={role}>
-                      {role.charAt(0) + role.slice(1).toLowerCase()}
+                      {roleLabel(role)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -179,7 +186,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             </div>
             {inviteMutation.isError && (
               <p role="alert" className="text-sm text-destructive">
-                {inviteMutation.error.message}
+                {translateClientError(t, inviteMutation.error.message)}
               </p>
             )}
           </div>
@@ -190,13 +197,13 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               onClick={() => setShowInviteMember(false)}
               disabled={inviteMutation.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleInviteMember}
               disabled={!newMemberEmail.trim() || inviteMutation.isPending}
             >
-              {inviteMutation.isPending ? "Sending..." : "Send Invitation"}
+              {inviteMutation.isPending ? t("members.sending") : t("members.sendInvitation")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -205,12 +212,12 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
       <Dialog open={!!editingMember} onOpenChange={(open) => !open && setEditingMember(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Change Role</DialogTitle>
-            <DialogDescription>Update the member&apos;s role in this workspace.</DialogDescription>
+            <DialogTitle>{t("members.changeRoleTitle")}</DialogTitle>
+            <DialogDescription>{t("members.changeRoleDescription")}</DialogDescription>
           </DialogHeader>
           <div>
             <label htmlFor={`${formId}-member-role`} className="mb-2 block text-sm font-medium">
-              Role
+              {t("members.role")}
             </label>
             <Select
               value={editingMember?.role || Role.MEMBER}
@@ -224,14 +231,14 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               <SelectContent>
                 {roleOptions.map((role) => (
                   <SelectItem key={role} value={role}>
-                    {role.charAt(0) + role.slice(1).toLowerCase()}
+                    {roleLabel(role)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {updateRoleMutation.isError && (
               <p role="alert" className="mt-4 text-sm text-destructive">
-                {updateRoleMutation.error.message}
+                {translateClientError(t, updateRoleMutation.error.message)}
               </p>
             )}
           </div>
@@ -242,10 +249,10 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               onClick={() => setEditingMember(null)}
               disabled={updateRoleMutation.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleUpdateRole} disabled={updateRoleMutation.isPending}>
-              {updateRoleMutation.isPending ? "Saving..." : "Save"}
+              {updateRoleMutation.isPending ? t("common.saving") : t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -254,14 +261,18 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
       {!invitesLoading && invites.length > 0 && (
         <div className="border">
           <div className="flex h-9 items-center border-b border-border px-4">
-            <h3 className="text-[13px] font-medium">Pending Invitations</h3>
+            <h3 className="text-[13px] font-medium">{t("members.pendingTitle")}</h3>
           </div>
           <table className="data-table w-full">
             <thead>
               <tr className="border-b text-left">
-                <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
-                <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
-                <th className="px-4 py-2 font-medium text-muted-foreground">Invited By</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">
+                  {t("members.email")}
+                </th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">{t("members.role")}</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">
+                  {t("members.invitedBy")}
+                </th>
                 {canManageMembers && (
                   <th className="w-20 px-4 py-2 font-medium text-muted-foreground"></th>
                 )}
@@ -271,16 +282,14 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               {invites.map((invite: Invite) => (
                 <tr key={invite.id} className="border-b last:border-b-0 hover:bg-muted">
                   <td className="px-4 py-2">{invite.email}</td>
-                  <td className="px-4 py-2">
-                    {invite.role.charAt(0) + invite.role.slice(1).toLowerCase()}
-                  </td>
+                  <td className="px-4 py-2">{roleLabel(invite.role)}</td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {invite.invited_by?.name || invite.invited_by?.email || "-"}
                   </td>
                   {canManageMembers && (
                     <td className="px-4 py-2">
                       <DeleteIconButton
-                        aria-label={`Cancel invitation for ${invite.email}`}
+                        aria-label={t("members.cancelInvitationFor", { email: invite.email })}
                         onClick={() => cancelInviteMutation.mutate(invite.id)}
                         disabled={cancelInviteMutation.isPending}
                       />
@@ -295,19 +304,21 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
 
       <div className="border">
         <div className="flex h-9 items-center border-b border-border px-4">
-          <h3 className="text-[13px] font-medium">Members</h3>
+          <h3 className="text-[13px] font-medium">{t("members.title")}</h3>
         </div>
         {membersLoading ? (
-          <div className="px-4 py-4 text-sm text-muted-foreground">Loading members...</div>
+          <div className="px-4 py-4 text-sm text-muted-foreground">{t("members.loading")}</div>
         ) : members.length === 0 ? (
-          <div className="px-4 py-4 text-sm text-muted-foreground">No members found.</div>
+          <div className="px-4 py-4 text-sm text-muted-foreground">{t("members.empty")}</div>
         ) : (
           <table className="data-table w-full">
             <thead>
               <tr className="border-b text-left">
-                <th className="px-4 py-2 font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
-                <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">{t("common.name")}</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">
+                  {t("members.email")}
+                </th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">{t("members.role")}</th>
                 {canManageMembers && (
                   <th className="w-20 px-4 py-2 font-medium text-muted-foreground"></th>
                 )}
@@ -329,17 +340,19 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                         }}
                         className="cursor-pointer hover:underline"
                       >
-                        {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
+                        {roleLabel(member.role)}
                       </button>
                     ) : (
-                      <span>{member.role.charAt(0) + member.role.slice(1).toLowerCase()}</span>
+                      <span>{roleLabel(member.role)}</span>
                     )}
                   </td>
                   {canManageMembers && (
                     <td className="px-4 py-2">
                       {(member.user_id !== session?.user?.id || !isLastAdmin) && (
                         <DeleteIconButton
-                          aria-label={`Remove member ${member.name || member.email || ""}`}
+                          aria-label={t("members.removeMember", {
+                            name: member.name || member.email || "",
+                          })}
                           onClick={() => removeMemberMutation.mutate(member.user_id)}
                           disabled={removeMemberMutation.isPending}
                         />

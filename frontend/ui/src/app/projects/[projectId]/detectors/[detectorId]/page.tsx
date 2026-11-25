@@ -21,6 +21,7 @@ import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 import type { Predicate } from "@/types/api";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
@@ -54,6 +55,7 @@ const isIdentifiedFilter = (p: Predicate) =>
   p.field === "identified" && p.op === "in" && p.value.includes("Yes");
 
 export default function DetectorDetailPage() {
+  const t = useT();
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
@@ -204,7 +206,7 @@ export default function DetectorDetailPage() {
         {/* Page header */}
         <PageBackHeader
           backHref={listHref}
-          backLabel="Detectors"
+          backLabel={t("nav.detectors")}
           title={detector?.name ?? detectorId}
         />
 
@@ -212,7 +214,7 @@ export default function DetectorDetailPage() {
         <SearchFilterBar
           searchValue={state.keyword}
           onSearchChange={updateKeyword}
-          searchPlaceholder="Search..."
+          searchPlaceholder={t("detectorsList.searchPlaceholder")}
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
@@ -226,9 +228,9 @@ export default function DetectorDetailPage() {
               type="button"
               onClick={() => updateFilters(state.filters.filter((p) => !isIdentifiedFilter(p)))}
               className="flex h-7 items-center gap-1 rounded-[2px] border border-border bg-background px-2 text-[12px] text-foreground hover:bg-muted hover:bg-muted/70"
-              aria-label="Remove filter Identified is Yes"
+              aria-label={t("detectorsDetail.removeIdentifiedFilter")}
             >
-              Identified: Yes
+              {t("detectorsDetail.identifiedChip")}
               <X className="h-3 w-3 text-muted-foreground" />
             </button>
           )}
@@ -236,28 +238,38 @@ export default function DetectorDetailPage() {
 
         <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {(() => {
-            const noun = identifiedOnly ? "findings" : "runs";
+            const text = identifiedOnly
+              ? {
+                  loading: t("detectorsDetail.loadingFindings"),
+                  error: t("detectorsDetail.errorFindings"),
+                  empty: t("detectorsDetail.emptyFindings"),
+                }
+              : {
+                  loading: t("detectorsDetail.loadingRuns"),
+                  error: t("detectorsDetail.errorRuns"),
+                  empty: t("detectorsDetail.emptyRuns"),
+                };
 
             if (isLoading) {
               return (
                 <div className="flex h-64 items-center justify-center">
-                  <LoadingState label={`Loading ${noun}...`} />
+                  <LoadingState label={text.loading} />
                 </div>
               );
             }
             if (error) {
               return (
                 <div className="flex h-64 flex-col items-center justify-center gap-3">
-                  <p className="text-[13px] text-destructive">Error loading {noun}</p>
+                  <p className="text-[13px] text-destructive">{text.error}</p>
                 </div>
               );
             }
             if (runs.length === 0) {
               return (
                 <div className="flex h-64 flex-col items-center justify-center gap-3">
-                  <p className="text-[13px] text-muted-foreground">No {noun} found</p>
+                  <p className="text-[13px] text-muted-foreground">{text.empty}</p>
                   <p className="text-[12px] text-muted-foreground">
-                    Try adjusting your filters or date range.
+                    {t("detectorsDetail.adjustFilters")}
                   </p>
                 </div>
               );

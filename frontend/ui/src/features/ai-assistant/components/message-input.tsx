@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useT } from "@/lib/i18n/provider";
 import { ModelSelector, type ModelSelection } from "./model-selector";
 
 interface MessageInputProps {
@@ -32,6 +33,7 @@ export function MessageInput({
   actions,
   placeholder,
 }: MessageInputProps) {
+  const t = useT();
   const [sendBlocked, setSendBlocked] = useState(false);
   const [input, setInput] = useState("");
 
@@ -70,7 +72,7 @@ export function MessageInput({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder ?? "Ask me about your traces, errors, or performance."}
+        placeholder={placeholder ?? t("assistantPanel.inputPlaceholder")}
         disabled={disabled || noModelSelected}
         rows={3}
         className="w-full resize-none rounded-[2px] border border-input bg-transparent px-3 py-2 text-[13px] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -89,7 +91,7 @@ export function MessageInput({
             onClick={handleSend}
             disabled={!input.trim() || disabled || noModelSelected}
           >
-            Send
+            {t("assistantPanel.send")}
           </Button>
         </div>
       </div>

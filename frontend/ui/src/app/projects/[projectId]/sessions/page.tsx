@@ -4,6 +4,7 @@ import { useMemo, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
+import type { LucideIcon } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -26,12 +27,33 @@ import {
   buildUrlWithFilters,
 } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
-const tabs = [
-  { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
-  { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
-  { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
-];
+const tabs: { id: string; label: string; labelKey: MessageKey; icon: LucideIcon; href: string }[] =
+  [
+    {
+      id: "traces",
+      label: "Traces",
+      labelKey: "tracesTabs.traces",
+      icon: DOMAIN_ICONS.trace,
+      href: "traces",
+    },
+    {
+      id: "users",
+      label: "Users",
+      labelKey: "tracesTabs.users",
+      icon: DOMAIN_ICONS.user,
+      href: "users",
+    },
+    {
+      id: "sessions",
+      label: "Sessions",
+      labelKey: "tracesTabs.sessions",
+      icon: DOMAIN_ICONS.session,
+      href: "sessions",
+    },
+  ];
 
 function getTotalCost(session: SessionListItem): number | null {
   return session.total_cost ?? null;
@@ -41,6 +63,7 @@ export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
+  const t = useT();
   const { setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const sessionIdFromUrl = searchParams.get("sessionId");
@@ -117,7 +140,7 @@ export default function SessionsPage() {
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
+                  {t(tab.labelKey)}
                 </Link>
               );
             })}
@@ -128,7 +151,7 @@ export default function SessionsPage() {
         <SearchFilterBar
           searchValue={state.keyword}
           onSearchChange={updateKeyword}
-          searchPlaceholder="Search..."
+          searchPlaceholder={t("sessionsList.searchPlaceholder")}
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
@@ -142,22 +165,18 @@ export default function SessionsPage() {
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
             <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading sessions..." />
+              <LoadingState label={t("sessionsList.loading")} />
             </div>
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading sessions</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running.
-              </p>
+              <p className="text-[13px] text-destructive">{t("sessionsList.errorTitle")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("sessionsList.errorText")}</p>
             </div>
           ) : sessions.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <DOMAIN_ICONS.session className="h-10 w-10 text-muted-foreground" />
-              <p className="text-[13px] text-muted-foreground">No sessions found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Sessions will appear here when traces include session_id.
-              </p>
+              <p className="text-[13px] text-muted-foreground">{t("sessionsList.empty")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("sessionsList.emptyHint")}</p>
             </div>
           ) : (
             <div className="flex h-full flex-col">
@@ -166,22 +185,22 @@ export default function SessionsPage() {
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border">
                       <th className="w-[140px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Timestamp
+                        {t("sessionsList.timestamp")}
                       </th>
                       <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Session ID
+                        {t("sessionsList.sessionId")}
                       </th>
                       <th className="w-[140px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        User ID
+                        {t("sessionsList.userId")}
                       </th>
                       <th className="w-[110px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Tokens
+                        {t("sessionsList.tokens")}
                       </th>
                       <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Cost
+                        {t("sessionsList.cost")}
                       </th>
                       <th className="w-[70px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Traces
+                        {t("sessionsList.traces")}
                       </th>
                     </tr>
                   </thead>

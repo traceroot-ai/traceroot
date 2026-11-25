@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, Info, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * Small toast system.
@@ -53,6 +54,7 @@ const TONE_GLYPH: Record<ToastTone, string> = {
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const t = useT();
   const [toasts, setToasts] = React.useState<ToastRecord[]>([]);
   const nextId = React.useRef(0);
   const timers = React.useRef(new Map<number, ReturnType<typeof setTimeout>>());
@@ -92,7 +94,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div
         role="region"
-        aria-label="Notifications"
+        aria-label={t("componentsUi.notifications")}
         className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[340px] flex-col gap-2"
       >
         {toasts.map((item) => {
@@ -117,7 +119,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => dismiss(item.id)}
-                aria-label="Dismiss notification"
+                aria-label={t("componentsUi.dismissNotification")}
                 className="shrink-0 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <X className="h-3 w-3" />

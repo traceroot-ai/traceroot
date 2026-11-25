@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
@@ -84,6 +86,7 @@ export function DatasetDetailView({
   datasetId: string;
 }) {
   const { toast } = useToast();
+  const t = useT();
   const searchParams = useSearchParams();
   const datasetsListHref = useListReturnHref(
     `datasets:${projectId}`,
@@ -156,7 +159,7 @@ export function DatasetDetailView({
     const target = deleteRow;
     del.mutate(target.testCaseId, {
       onSuccess: () => {
-        toast({ title: "Row deleted", tone: "success" });
+        toast({ title: t("datasetsDetail.rowDeleted"), tone: "success" });
         setDeleteRow(null);
         // The delete published a NEW current version with the row dropped, so drop
         // any pinned selection and follow it — exactly what the editor's `onSaved`
@@ -168,7 +171,11 @@ export function DatasetDetailView({
         if (openCaseId === target.testCaseId) setOpenCaseId(null);
       },
       onError: (e) =>
-        toast({ title: "Could not delete the row", description: String(e), tone: "warning" }),
+        toast({
+          title: t("datasetsDetail.rowDeleteFailed"),
+          description: translateClientError(t, String(e)),
+          tone: "warning",
+        }),
     });
   };
 
@@ -177,7 +184,7 @@ export function DatasetDetailView({
       <>
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex h-64 items-center justify-center text-[13px] text-muted-foreground">
-          Loading dataset...
+          {t("datasetsDetail.loading")}
         </div>
       </>
     );
@@ -194,27 +201,29 @@ export function DatasetDetailView({
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex h-full flex-col text-[13px]">
           <EvalPageHeader
-            parent={{ label: "Datasets", href: datasetsListHref }}
-            title={notFound ? "Dataset not found" : "Couldn't load dataset"}
+            parent={{ label: t("datasetsList.title"), href: datasetsListHref }}
+            title={
+              notFound ? t("datasetsDetail.notFoundTitle") : t("datasetsDetail.loadFailedTitle")
+            }
           />
           <EvalBody>
             <EmptyState>
               {notFound ? (
                 <>
-                  No dataset with the id {datasetId}.{" "}
+                  {t("datasetsDetail.notFoundText", { id: datasetId })}{" "}
                   <Link href={datasetsListHref} className="underline underline-offset-2">
-                    Back to datasets
+                    {t("datasetsDetail.backToDatasets")}
                   </Link>
                 </>
               ) : (
                 <>
-                  Something went wrong loading this dataset.{" "}
+                  {t("datasetsDetail.loadFailedText")}{" "}
                   <button
                     type="button"
                     onClick={() => refetch()}
                     className="underline underline-offset-2"
                   >
-                    Try again
+                    {t("evalsShared.tryAgain")}
                   </button>
                 </>
               )}
@@ -231,7 +240,11 @@ export function DatasetDetailView({
           Datasets / <name>) rather than a separate title row, so the page starts
           straight at the toolbar. */}
       <ProjectBreadcrumb projectId={projectId} />
-      <PageBackHeader backHref={datasetsListHref} backLabel="Datasets" title={dataset.name} />
+      <PageBackHeader
+        backHref={datasetsListHref}
+        backLabel={t("datasetsList.title")}
+        title={dataset.name}
+      />
       <div className="flex min-h-0 flex-1 flex-col text-[13px]">
         <div className="flex min-h-0 flex-1 flex-col">
           {/* Single toolbar row: search on the left; the Row action and the
@@ -241,18 +254,20 @@ export function DatasetDetailView({
           <SearchFilterBar
             searchValue={keyword}
             onSearchChange={setKeyword}
-            searchPlaceholder="Search..."
+            searchPlaceholder={t("evalsShared.search")}
           >
             <div className="ml-auto flex items-center gap-2">
               <Button
                 onClick={() => setEditorMode({ kind: "create" })}
                 disabled={!isCurrentVersion}
               >
-                Add row
+                {t("datasetsDetail.addRow")}
               </Button>
               {hasVersions && (
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[12px] text-muted-foreground">Version</span>
+                  <span className="text-[12px] text-muted-foreground">
+                    {t("evalsShared.version")}
+                  </span>
                   <Select
                     value={selectedVersion?.id ?? ""}
                     onValueChange={(v) => setSelectedVersionId(v)}
@@ -262,9 +277,12 @@ export function DatasetDetailView({
                           ordering and the exact id are visible. w-auto hugs the id (no
                           dead gap before the chevron); the dropdown grows to fit its
                           wider "<n>  <snowflake>" rows on its own. */}
-                    <SelectTrigger className="h-8 w-auto gap-2 text-[13px]" title="Dataset version">
+                    <SelectTrigger
+                      className="h-8 w-auto gap-2 text-[13px]"
+                      title={t("datasetsDetail.versionTitle")}
+                    >
                       <span className="whitespace-nowrap font-mono text-[12px]">
-                        {selectedVersion ? selectedVersion.id : "Current version"}
+                        {selectedVersion ? selectedVersion.id : t("datasetsDetail.currentVersion")}
                       </span>
                     </SelectTrigger>
                     <SelectContent align="end">
@@ -289,21 +307,19 @@ export function DatasetDetailView({
           <div className="min-h-0 flex-1 overflow-auto">
             {cases.length === 0 ? (
               <EmptyState>
-                {keyword
-                  ? "No cases match your search."
-                  : "To populate this dataset, manually create a row or insert data programmatically."}
+                {keyword ? t("datasetsDetail.emptySearch") : t("datasetsDetail.empty")}
               </EmptyState>
             ) : (
               <Table>
                 <THead>
                   <TRHead>
-                    <Th className="w-[150px]">Created</Th>
-                    <Th>Input</Th>
-                    <Th>Expected</Th>
-                    <Th>Metadata</Th>
+                    <Th className="w-[150px]">{t("common.created")}</Th>
+                    <Th>{t("evalsShared.input")}</Th>
+                    <Th>{t("evalsShared.expected")}</Th>
+                    <Th>{t("tracesSpan.metadata")}</Th>
                     {isCurrentVersion && (
                       <Th className="w-[70px] text-right">
-                        <span className="sr-only">Actions</span>
+                        <span className="sr-only">{t("evalsShared.actions")}</span>
                       </Th>
                     )}
                   </TRHead>
@@ -311,10 +327,7 @@ export function DatasetDetailView({
                 <TBody>
                   {cases.map((tc) => {
                     const openThisCase = () => {
-                      if (
-                        dirtyRef.current &&
-                        !window.confirm("Discard unsaved changes to this case?")
-                      ) {
+                      if (dirtyRef.current && !window.confirm(t("datasetsDetail.discardConfirm"))) {
                         return;
                       }
                       setOpenCaseId(tc.testCaseId);
@@ -442,6 +455,7 @@ function CasePanel({
   canNavigateDown: boolean;
 }) {
   const router = useRouter();
+  const t = useT();
   const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
     useLayout();
   const caseRuns = useTestCaseRuns(projectId, datasetId, testCase.testCaseId);
@@ -508,7 +522,7 @@ function CasePanel({
       ref={panelRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`Test case ${testCase.testCaseId}`}
+      aria-label={t("datasetsDetail.caseAria", { id: testCase.testCaseId })}
       tabIndex={-1}
       className={cn(
         "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200 focus:outline-none",
@@ -521,7 +535,7 @@ function CasePanel({
       <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-[13px] font-medium">Row</span>
+          <span className="text-[13px] font-medium">{t("datasetsDetail.row")}</span>
           {/* The real, content-addressed testCaseId — byte-identical to the SDK's
               stable_case_id and pull_dataset output. CSS truncates for overflow;
               the title carries the full id and the copy button copies it verbatim. */}
@@ -534,7 +548,7 @@ function CasePanel({
           <CopyButton
             value={testCase.testCaseId}
             className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            title="Copy ID"
+            title={t("datasetsDetail.copyId")}
           />
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -544,7 +558,7 @@ function CasePanel({
             onClick={() => onNavigate("up")}
             disabled={!canNavigateUp}
             className="h-7 w-7 p-0"
-            title="Previous row"
+            title={t("datasetsDetail.prevRow")}
           >
             <ArrowUp className="h-4 w-4" />
           </Button>
@@ -554,7 +568,7 @@ function CasePanel({
             onClick={() => onNavigate("down")}
             disabled={!canNavigateDown}
             className="h-7 w-7 p-0"
-            title="Next row"
+            title={t("datasetsDetail.nextRow")}
           >
             <ArrowDown className="h-4 w-4" />
           </Button>
@@ -563,7 +577,7 @@ function CasePanel({
             size="sm"
             onClick={() => setFullscreen((v) => !v)}
             className="h-7 w-7 p-0"
-            title={fullscreen ? "Restore default size" : "Expand to full screen"}
+            title={fullscreen ? t("datasetsDetail.restoreSize") : t("datasetsDetail.expandFull")}
           >
             {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
           </Button>
@@ -572,7 +586,7 @@ function CasePanel({
             size="sm"
             onClick={() => window.open(`/projects/${projectId}/datasets/${datasetId}`, "_blank")}
             className="h-7 w-7 p-0"
-            title="Open in new tab"
+            title={t("datasetsDetail.openNewTab")}
           >
             <SquareArrowOutUpRight className="h-4 w-4" />
           </Button>
@@ -588,7 +602,7 @@ function CasePanel({
               setAiPanelOpen(!aiPanelOpen);
             }}
             className="h-7 w-7 p-0"
-            title="AI Assistant"
+            title={t("datasetsDetail.aiAssistant")}
           >
             <DOMAIN_ICONS.assistant className="h-4 w-4" />
           </Button>
@@ -597,7 +611,7 @@ function CasePanel({
             size="sm"
             className="h-7 w-7 p-0"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("evalsShared.close")}
           >
             <X className="h-4 w-4" />
           </Button>
@@ -617,7 +631,7 @@ function CasePanel({
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <FileText className="h-3.5 w-3.5" /> Row
+          <FileText className="h-3.5 w-3.5" /> {t("datasetsDetail.row")}
         </button>
         <button
           type="button"
@@ -629,7 +643,7 @@ function CasePanel({
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <History className="h-3.5 w-3.5" /> Evaluations
+          <History className="h-3.5 w-3.5" /> {t("nav.evaluations")}
           {runs.length > 0 && (
             <span className="rounded bg-muted px-1 text-[12px] tabular-nums text-muted-foreground">
               {runs.length}
@@ -650,26 +664,26 @@ function CasePanel({
               <div className="h-full space-y-3 overflow-y-auto p-4">
                 <TraceIOSection
                   key={`input-${testCase.id}`}
-                  title="Input"
+                  title={t("evalsShared.input")}
                   content={testCase.input}
                   onCopy={testCase.input ? () => copyToClipboard(testCase.input) : undefined}
                 />
                 <TraceIOSection
                   key={`expected-${testCase.id}`}
-                  title="Expected"
+                  title={t("evalsShared.expected")}
                   content={testCase.expected}
                   onCopy={testCase.expected ? () => copyToClipboard(testCase.expected!) : undefined}
                 />
                 <TraceIOSection
                   key={`metadata-${testCase.id}`}
-                  title="Metadata"
+                  title={t("tracesSpan.metadata")}
                   content={metadataJson || null}
                   onCopy={metadataJson ? () => copyToClipboard(metadataJson) : undefined}
                 />
               </div>
             ) : runs.length === 0 ? (
               <div className="h-full overflow-auto p-4">
-                <EmptyState>No evaluation has measured this test case yet.</EmptyState>
+                <EmptyState>{t("datasetsDetail.noRuns")}</EmptyState>
               </div>
             ) : (
               // Edge-to-edge table (no inset padding), so it reads like the Evaluations
@@ -678,13 +692,13 @@ function CasePanel({
                 <Table>
                   <THead>
                     <TRHead>
-                      <Th className="w-[150px]">Timestamp</Th>
-                      <Th>Evaluation name</Th>
-                      <Th>Run name</Th>
-                      <Th className="w-[90px] text-right">Cost</Th>
-                      <Th className="w-[90px] text-right">Avg cost</Th>
-                      <Th className="w-[90px] text-right">Duration</Th>
-                      <Th className="w-[100px] text-right">Avg duration</Th>
+                      <Th className="w-[150px]">{t("evalsShared.timestamp")}</Th>
+                      <Th>{t("evalsShared.evaluationName")}</Th>
+                      <Th>{t("evalsShared.runName")}</Th>
+                      <Th className="w-[90px] text-right">{t("evalsShared.cost")}</Th>
+                      <Th className="w-[90px] text-right">{t("evalsShared.avgCost")}</Th>
+                      <Th className="w-[90px] text-right">{t("evalsShared.duration")}</Th>
+                      <Th className="w-[100px] text-right">{t("evalsShared.avgDuration")}</Th>
                     </TRHead>
                   </THead>
                   <TBody>

@@ -20,6 +20,7 @@ import {
   type DetectorSignalSetting,
   type TraceSignalHit,
 } from "@/ee/features/signals/hooks";
+import { useT } from "@/lib/i18n/provider";
 
 /** A run is "identified" when it produced a finding. */
 function isIdentified(run: BackendRun): boolean {
@@ -88,6 +89,7 @@ interface TraceDetectorsTabProps {
  * data by traceId, independent of the trace fetch in the parent panel.
  */
 export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps) {
+  const t = useT();
   const { data, isLoading, error } = useTraceDetectorRuns(projectId, traceId);
   const {
     data: signalsData,
@@ -106,7 +108,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <LoadingState label="Loading detectors..." />
+        <LoadingState label={t("tracesDetectors.loading")} />
       </div>
     );
   }
@@ -114,7 +116,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
   if (error) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <p className="text-[13px] text-destructive">Error loading detectors</p>
+        <p className="text-[13px] text-destructive">{t("tracesDetectors.error")}</p>
       </div>
     );
   }
@@ -126,21 +128,26 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
   if (runs.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <p className="text-[13px] text-muted-foreground">No detectors ran on this trace</p>
+        <p className="text-[13px] text-muted-foreground">{t("tracesDetectors.empty")}</p>
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-auto bg-background">
-      <table aria-label="Trace detectors" className="data-table w-full min-w-[820px] table-fixed">
+      <table
+        aria-label={t("tracesDetectors.tableLabel")}
+        className="data-table w-full min-w-[820px] table-fixed"
+      >
         <thead className="sticky top-0 bg-background">
           <tr className="border-b border-border">
-            <th className={cn(DETECTOR_TH, "w-[150px]")}>Name</th>
-            <th className={cn(DETECTOR_TH, "w-[150px]")}>Timestamp</th>
-            <th className={cn(DETECTOR_TH, "w-[80px]")}>Identified</th>
-            <th className={DETECTOR_TH}>Summary</th>
-            <th className={cn(DETECTOR_TH, "w-[220px] border-r-0")}>Signal</th>
+            <th className={cn(DETECTOR_TH, "w-[150px]")}>{t("tracesDetectors.name")}</th>
+            <th className={cn(DETECTOR_TH, "w-[150px]")}>{t("tracesDetectors.timestamp")}</th>
+            <th className={cn(DETECTOR_TH, "w-[80px]")}>{t("tracesDetectors.identified")}</th>
+            <th className={DETECTOR_TH}>{t("tracesDetectors.summary")}</th>
+            <th className={cn(DETECTOR_TH, "w-[220px] border-r-0")}>
+              {t("tracesDetectors.signal")}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -196,19 +203,25 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                       {signal.hit.signalTitle}
                     </Link>
                   ) : signalsPending && isIdentified(r) ? null : signalsError && isIdentified(r) ? (
-                    <span className="text-muted-foreground" title="Signals could not be loaded">
-                      Unavailable
+                    <span
+                      className="text-muted-foreground"
+                      title={t("tracesDetectors.unavailableTitle")}
+                    >
+                      {t("tracesDetectors.unavailable")}
                     </span>
                   ) : signal.kind === "pending" ? (
-                    <span className="text-muted-foreground" title="Not grouped into a signal yet">
-                      Pending
+                    <span
+                      className="text-muted-foreground"
+                      title={t("tracesDetectors.pendingTitle")}
+                    >
+                      {t("tracesDetectors.pending")}
                     </span>
                   ) : signal.kind === "disabled" ? (
                     <span
                       className="text-muted-foreground"
-                      title="Signal generation was disabled for this evaluation"
+                      title={t("tracesDetectors.disabledTitle")}
                     >
-                      Disabled
+                      {t("tracesDetectors.disabled")}
                     </span>
                   ) : (
                     <span className="text-muted-foreground">—</span>

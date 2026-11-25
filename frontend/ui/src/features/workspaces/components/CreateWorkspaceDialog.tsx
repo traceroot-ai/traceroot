@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -50,6 +52,8 @@ export function CreateWorkspaceDialog({
     },
   });
 
+  const t = useT();
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim()) {
@@ -60,34 +64,36 @@ export function CreateWorkspaceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {!isControlled && (
-        <DialogTrigger asChild>{trigger || <AddButton>New workspace</AddButton>}</DialogTrigger>
+        <DialogTrigger asChild>
+          {trigger || <AddButton>{t("workspaces.newWorkspace")}</AddButton>}
+        </DialogTrigger>
       )}
       <DialogContent>
         <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>New workspace</DialogTitle>
-            <DialogDescription>
-              Create a new workspace to manage your projects and team members.
-            </DialogDescription>
+            <DialogTitle>{t("workspaces.newWorkspace")}</DialogTitle>
+            <DialogDescription>{t("workspaces.newDescription")}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="workspace-name"
               className="text-[12px] font-medium text-muted-foreground"
             >
-              Name
+              {t("common.name")}
             </label>
             <Input
               id="workspace-name"
               className="h-8 text-[13px]"
               autoFocus
-              placeholder="Workspace name"
+              placeholder={t("workspaces.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={createMutation.isPending}
             />
             {createMutation.isError && (
-              <p className="text-[12px] text-destructive">{createMutation.error.message}</p>
+              <p className="text-[12px] text-destructive">
+                {translateClientError(t, createMutation.error.message)}
+              </p>
             )}
           </div>
           <DialogFooter>
@@ -97,10 +103,10 @@ export function CreateWorkspaceDialog({
               onClick={() => setOpen(false)}
               disabled={createMutation.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!name.trim() || createMutation.isPending}>
-              {createMutation.isPending ? "Creating..." : "Create"}
+              {createMutation.isPending ? t("common.creating") : t("common.create")}
             </Button>
           </DialogFooter>
         </form>

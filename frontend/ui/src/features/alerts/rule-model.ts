@@ -3,6 +3,7 @@
 // `ALERT_THRESHOLD_OPERATORS`, renamed now that no filter operator is in scope.
 
 import type { AlertFilter, AlertNoDataMode } from "@traceroot/core";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 export {
   ALERT_AGGREGATIONS,
@@ -58,6 +59,13 @@ export const ALERT_NO_DATA_MODE_LABELS: Readonly<Record<AlertNoDataMode, string>
   NOTIFY: "Notify when data stops",
 };
 
+/** The same labels in the visitor's language. */
+export const ALERT_NO_DATA_MODE_LABEL_KEYS: Readonly<Record<AlertNoDataMode, MessageKey>> = {
+  HOLD: "alertsForm.noDataHold",
+  ZERO: "alertsForm.noDataZero",
+  NOTIFY: "alertsForm.noDataNotify",
+};
+
 /**
  * The consequence of each mode, shown under the select. Without this the modes
  * read as three flavours of the same thing, and NOTIFY's debounce — it pages only
@@ -69,6 +77,13 @@ export const ALERT_NO_DATA_MODE_HINTS: Readonly<Record<AlertNoDataMode, string>>
   ZERO: "An empty window counts as 0, so the threshold still decides and NO_DATA never arises.",
   NOTIFY:
     "Pages when the gap has lasted the shorter of the rule's window or 10 minutes, and pages again when data returns.",
+};
+
+/** The same hints in the visitor's language. */
+export const ALERT_NO_DATA_MODE_HINT_KEYS: Readonly<Record<AlertNoDataMode, MessageKey>> = {
+  HOLD: "alertsForm.noDataHoldHint",
+  ZERO: "alertsForm.noDataZeroHint",
+  NOTIFY: "alertsForm.noDataNotifyHint",
 };
 
 /** A fresh row: a field has to be picked before it can be a predicate. */

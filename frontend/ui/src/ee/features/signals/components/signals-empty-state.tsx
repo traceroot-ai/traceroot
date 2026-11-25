@@ -5,31 +5,33 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SignalSetup } from "../hooks";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * What the Signals page shows for a project with no signals at all: the next
  * step its detectors need before a signal can appear.
  */
 export function SignalsEmptyState({ projectId, setup }: { projectId: string; setup: SignalSetup }) {
+  const t = useT();
   const needsDetector = setup.detectorCount === 0;
   const needsSignals = !needsDetector && setup.signalDetectorCount === 0;
   const needsSampling = setup.signalDetectorCount > 0 && setup.sampledSignalDetectorCount === 0;
   const needsAction = needsDetector || needsSignals || needsSampling;
 
   const title = needsSignals
-    ? "Enable signal generation"
+    ? t("eeSignalsEmpty.enableTitle")
     : needsSampling
-      ? "Finish detector setup"
-      : "No signals yet";
+      ? t("eeSignalsEmpty.finishTitle")
+      : t("eeSignalsEmpty.emptyTitle");
   const description = needsDetector
-    ? "Signals cluster related judge outputs into issues you can investigate to improve agent performance. Create a detector and turn on Generate signals in its Signals section."
+    ? t("eeSignalsEmpty.needsDetector")
     : needsSignals
-      ? "Turn on Generate signals in a detector’s Signals section to group related findings into issues."
+      ? t("eeSignalsEmpty.needsSignals")
       : needsSampling
-        ? "Signal generation is enabled. Make sure the detector is on and its sampling is above 0% so it can evaluate incoming traces."
+        ? t("eeSignalsEmpty.needsSampling")
         : setup.grouping
-          ? "Signal generation is enabled. Signals appear here when a detector groups related findings from your traces."
-          : "Signal generation is enabled, but this deployment has no OpenAI API key, which grouping needs.";
+          ? t("eeSignalsEmpty.enabled")
+          : t("eeSignalsEmpty.noKey");
 
   return (
     <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
@@ -44,10 +46,10 @@ export function SignalsEmptyState({ projectId, setup }: { projectId: string; set
         )}
       >
         {needsDetector
-          ? "Create detector"
+          ? t("eeSignalsEmpty.createDetector")
           : needsSignals || needsSampling
-            ? "Configure detectors"
-            : "View detectors"}
+            ? t("eeSignalsEmpty.configureDetectors")
+            : t("eeSignalsEmpty.viewDetectors")}
       </Link>
     </div>
   );

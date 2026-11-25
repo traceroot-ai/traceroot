@@ -24,10 +24,13 @@ import {
   type IntegrationSetup,
   type Lang,
 } from "./integrations";
+import { useT } from "@/lib/i18n/provider";
 
 // The traces page keeps the "Frameworks" label it has always shown.
 const OWN_PICKER_GROUPS = INTEGRATION_GROUPS.map((group) =>
-  group.category === "framework" ? { ...group, label: "Frameworks" } : group,
+  group.category === "framework"
+    ? { ...group, label: "Frameworks", labelKey: "tracesManual.groupFrameworks" as const }
+    : group,
 );
 
 /** A step's heading. The stack's docs link sits under the picker. */
@@ -95,19 +98,22 @@ function OwnStackPicker({
   step: number;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const t = useT();
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] font-medium text-foreground">{step}. Select your integration</p>
+        <p className="text-[13px] font-medium text-foreground">
+          {step}. {t("tracesManual.selectIntegration")}
+        </p>
         <SectionLink href="https://github.com/traceroot-ai/traceroot/issues/new">
-          Don&apos;t see yours? Request one
+          {t("tracesManual.requestOne")}
         </SectionLink>
       </div>
 
       {/* One group for the one choice: the headings
           split the cards visually, and a group per heading would be announced
           as two separate choices. */}
-      <div role="radiogroup" aria-label="Integration" className="space-y-3">
+      <div role="radiogroup" aria-label={t("tracesManual.integrationLabel")} className="space-y-3">
         {OWN_PICKER_GROUPS.map((group) => {
           const inGroup = INTEGRATIONS.filter(
             (integration) => integration.category === group.category,
@@ -122,7 +128,7 @@ function OwnStackPicker({
 
           return (
             <div key={group.category} className="space-y-1.5">
-              <p className="text-[12px] font-medium text-muted-foreground">{group.label}</p>
+              <p className="text-[12px] font-medium text-muted-foreground">{t(group.labelKey)}</p>
               <div className="flex flex-wrap gap-2">
                 {items.map((integration) => (
                   <IntegrationPickerCard
@@ -144,7 +150,9 @@ function OwnStackPicker({
         onClick={() => setExpanded((open) => !open)}
         className="block text-[12px] font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
       >
-        {expanded ? "Show fewer" : `Show ${FOLDED_COUNT} more`}
+        {expanded
+          ? t("tracesManual.showFewer")
+          : t("tracesManual.showMore", { count: FOLDED_COUNT })}
       </button>
 
       <a
@@ -153,22 +161,25 @@ function OwnStackPicker({
         rel="noopener noreferrer"
         className="inline-block text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
       >
-        View {selected.name} docs
+        {t("tracesManual.viewDocs", { name: selected.name })}
       </a>
     </div>
   );
 }
 
 function UnresolvedHostWarning({ variable, value }: { variable: string; value: string }) {
+  const t = useT();
   return (
     <p className="text-[12px] text-muted-foreground">
-      This page cannot work out this deployment&apos;s API address, because{" "}
-      <code className="font-mono">{variable}</code> is set to{" "}
-      <code className="font-mono">{value}</code>. Set{" "}
-      <code className="font-mono">TRACEROOT_HOST_URL</code> to the API&apos;s origin yourself, or
-      your traces go to traceroot Cloud. Once <code className="font-mono">{variable}</code> is
-      corrected and the web app rebuilt, the address appears here: the value is built into the app
-      rather than read at startup.
+      {t("tracesManual.hostBecause")}
+      <code className="font-mono">{variable}</code>
+      {t("tracesManual.hostIsSetTo")}
+      <code className="font-mono">{value}</code>
+      {t("tracesManual.hostSet")}
+      <code className="font-mono">TRACEROOT_HOST_URL</code>
+      {t("tracesManual.hostYourself")}
+      <code className="font-mono">{variable}</code>
+      {t("tracesManual.hostCorrected")}
     </p>
   );
 }
@@ -201,6 +212,7 @@ function EnvironmentStep({
   lang: Lang;
   onCopy: (snippet: SetupSnippet) => void;
 }) {
+  const t = useT();
   const host = sdkHostUrl();
   const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
   const lines = ['export TRACEROOT_API_KEY="your_key_here"'];
@@ -208,30 +220,35 @@ function EnvironmentStep({
 
   return (
     <div className="space-y-2">
-      <StepHeading n={n} title="Set environment variables" />
+      <StepHeading n={n} title={t("tracesManual.stepSetEnv")} />
       <CodeBlock label="bash" value={lines.join("\n")} onCopy={() => onCopy("env")} />
       {host.kind === "unresolved" ? (
         <UnresolvedHostWarning variable={host.variable} value={host.value} />
       ) : hostUrl !== null ? (
         <p className="text-[12px] text-muted-foreground">
-          <code className="font-mono">TRACEROOT_HOST_URL</code> points the SDK at this deployment;
-          without it, your traces go to traceroot Cloud.
+          <code className="font-mono">TRACEROOT_HOST_URL</code>
+          {t("tracesManual.hostUrlNote")}
         </p>
       ) : null}
       <p className="text-[12px] text-muted-foreground">
-        Use the key from step 1. Neither SDK loads a <code className="font-mono">.env</code> file by
-        itself, so export {lines.length > 1 ? "these" : "it"} in the shell that runs your
-        application, or put {lines.length > 1 ? "them" : "it"} in{" "}
-        <code className="font-mono">.env</code> and load that before traceroot is initialized:{" "}
+        {t("tracesManual.envKey")}
+        <code className="font-mono">.env</code>
+        {lines.length > 1 ? t("tracesManual.envExportMany") : t("tracesManual.envExportOne")}
+        <code className="font-mono">.env</code>
+        {t("tracesManual.envLoad")}
         {lang === "python" ? (
           <>
-            <code className="font-mono">from dotenv import load_dotenv; load_dotenv()</code>, from
-            the <code className="font-mono">python-dotenv</code> package.
+            <code className="font-mono">from dotenv import load_dotenv; load_dotenv()</code>
+            {t("tracesManual.envFromThe")}
+            <code className="font-mono">python-dotenv</code>
+            {t("tracesManual.envPackage")}
           </>
         ) : (
           <>
-            <code className="font-mono">config()</code>, from the{" "}
-            <code className="font-mono">dotenv</code> package.
+            <code className="font-mono">config()</code>
+            {t("tracesManual.envFromThe")}
+            <code className="font-mono">dotenv</code>
+            {t("tracesManual.envPackage")}
           </>
         )}
       </p>
@@ -261,6 +278,7 @@ function PluginWalkthrough({
   onCopy,
 }: WalkthroughProps & { setup: Extract<IntegrationSetup, { kind: "plugin" }> }) {
   // Point the plugin at this deployment the same way EnvironmentStep does for the SDKs.
+  const t = useT();
   const host = sdkHostUrl();
   const hostUrl = host.kind === "resolved" ? host.hostUrl : null;
   const config = setup.config(hostUrl);
@@ -268,7 +286,7 @@ function PluginWalkthrough({
   return numbered([
     (n) => (
       <div className="space-y-2">
-        <StepHeading n={n} title="Install the plugin" />
+        <StepHeading n={n} title={t("tracesManual.stepInstallPlugin")} />
         <CodeBlock
           label="bash"
           value={setup.install(hostUrl)}
@@ -279,7 +297,7 @@ function PluginWalkthrough({
     (n) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />,
     (n) => (
       <div className="space-y-2">
-        <StepHeading n={n} title="Configure" />
+        <StepHeading n={n} title={t("tracesManual.stepConfigure")} />
         <CodeBlock
           label={config.label}
           value={config.value}
@@ -292,9 +310,9 @@ function PluginWalkthrough({
     ),
     (n) => (
       <div className="space-y-2">
-        <StepHeading n={n} title={`Use ${integration.name} as usual`} />
+        <StepHeading n={n} title={t("tracesManual.stepUseAsUsual", { name: integration.name })} />
         <p className="text-[12px] text-muted-foreground">
-          Send a prompt in {integration.name} to send your first trace.
+          {t("tracesManual.sendPrompt", { name: integration.name })}
         </p>
       </div>
     ),
@@ -313,6 +331,7 @@ function SdkWalkthrough({
   lang: Lang;
   onLangChange: (lang: Lang) => void;
 }) {
+  const t = useT();
   const availableLangs = ALL_LANGS.filter((l) => setup.languages[l]);
   const resolvedLang = availableLangs.includes(lang) ? lang : availableLangs[0];
   const example = resolvedLang !== undefined ? setup.languages[resolvedLang] : undefined;
@@ -333,7 +352,7 @@ function SdkWalkthrough({
   return numbered([
     (n) => (
       <div className="space-y-2">
-        <StepHeading n={n} title="Install SDK" />
+        <StepHeading n={n} title={t("tracesManual.stepInstallSdk")} />
         {langTabs}
         <CodeBlock
           label="bash"
@@ -343,7 +362,7 @@ function SdkWalkthrough({
         {/* PyPI still holds versions before 0.1.0, and pip on Python 3.10 or older
             quietly picks one of them, after which every step below fails. */}
         {resolvedLang === "python" && (
-          <p className="text-[12px] text-muted-foreground">Needs Python 3.11 or later.</p>
+          <p className="text-[12px] text-muted-foreground">{t("tracesManual.needsPython")}</p>
         )}
       </div>
     ),
@@ -351,7 +370,7 @@ function SdkWalkthrough({
     (n) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />,
     (n) => (
       <div className="space-y-2">
-        <StepHeading n={n} title={`Initialize traceroot for ${integration.name}`} />
+        <StepHeading n={n} title={t("tracesManual.stepInitialize", { name: integration.name })} />
         {langTabs}
         <CodeBlock
           label={resolvedLang}
@@ -363,10 +382,8 @@ function SdkWalkthrough({
     ),
     (n) => (
       <div className="space-y-2">
-        <StepHeading n={n} title="Run your application" />
-        <p className="text-[12px] text-muted-foreground">
-          Make an LLM request through the code you instrumented to send your first trace.
-        </p>
+        <StepHeading n={n} title={t("tracesManual.stepRun")} />
+        <p className="text-[12px] text-muted-foreground">{t("tracesManual.makeRequest")}</p>
       </div>
     ),
   ]);
@@ -392,6 +409,7 @@ export function ManualTab({
   surface = "project",
   showExternalIntegrations = true,
 }: ManualTabProps) {
+  const t = useT();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
@@ -407,7 +425,7 @@ export function ManualTab({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <StepHeading n={1} title="Create an API key" />
+        <StepHeading n={1} title={t("tracesManual.stepCreateKey")} />
         <ApiKeyBlock projectId={projectId} />
       </div>
 
@@ -431,9 +449,11 @@ export function ManualTab({
 
       {showExternalIntegrations && (
         <div className="space-y-2">
-          <p className="text-[13px] font-medium text-foreground">External integrations</p>
+          <p className="text-[13px] font-medium text-foreground">
+            {t("tracesSetup.externalIntegrations")}
+          </p>
           {projectLoading ? (
-            <LoadingState label="Loading integrations..." />
+            <LoadingState label={t("tracesSetup.loadingIntegrations")} />
           ) : workspaceId ? (
             <ExternalIntegrations workspaceId={workspaceId} />
           ) : (

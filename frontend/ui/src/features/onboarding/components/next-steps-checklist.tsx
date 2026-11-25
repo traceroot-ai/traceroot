@@ -7,20 +7,29 @@ import { buttonVariants } from "@/components/ui/button";
 import { getProjectNextSteps, type ProjectNextSteps } from "@/lib/api";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 type StepId = keyof ProjectNextSteps;
 
 interface Step {
   id: StepId;
   title: string;
+  titleKey: MessageKey;
   /** Optional steps can be skipped. */
   optional?: boolean;
   description?: string;
+  descriptionKey?: MessageKey;
   /** Where the title leads while the step is still to do. */
   href?: (projectId: string) => string;
   /** The title still leads there once the step is done. */
   linkWhenDone?: boolean;
-  action?: { label: string; href: (projectId: string) => string; external?: boolean };
+  action?: {
+    label: string;
+    labelKey: MessageKey;
+    href: (projectId: string) => string;
+    external?: boolean;
+  };
 }
 
 /** Where evals start: they are written in code with the SDK, with nothing to click here. */
@@ -30,21 +39,30 @@ export const NEXT_STEPS: readonly Step[] = [
   {
     id: "first_trace",
     title: "Send your first trace",
+    titleKey: "onboardingChecklist.firstTrace",
     // The traces page shows the setup instructions until a trace arrives.
     href: (projectId) => `/projects/${projectId}/traces`,
   },
   {
     id: "detector",
     title: "Create your first detector",
+    titleKey: "onboardingChecklist.detector",
     optional: true,
     description: "Flag runs that miss the mark",
-    action: { label: "Create", href: (projectId) => `/projects/${projectId}/detectors/new` },
+    descriptionKey: "onboardingChecklist.detectorHint",
+    action: {
+      label: "Create",
+      labelKey: "common.create",
+      href: (projectId) => `/projects/${projectId}/detectors/new`,
+    },
   },
   {
     id: "signal",
     title: "Receive your first signal",
+    titleKey: "onboardingChecklist.signal",
     optional: true,
     description: "Shows up once a detector finds a pattern",
+    descriptionKey: "onboardingChecklist.signalHint",
     href: (projectId) => `/projects/${projectId}/signals`,
     // Once one has arrived, it is the thing to go and read.
     linkWhenDone: true,
@@ -52,8 +70,15 @@ export const NEXT_STEPS: readonly Step[] = [
   {
     id: "eval_run",
     title: "Run your first eval",
+    titleKey: "onboardingChecklist.evalRun",
     description: "Check a change against real cases",
-    action: { label: "Get started", href: () => EVALS_DOCS_URL, external: true },
+    descriptionKey: "onboardingChecklist.evalRunHint",
+    action: {
+      label: "Get started",
+      labelKey: "onboardingChecklist.getStarted",
+      href: () => EVALS_DOCS_URL,
+      external: true,
+    },
   },
 ];
 
@@ -96,6 +121,7 @@ export function NextStepsChecklist({
   /** A read-only visitor of the demo workspace. */
   readOnly: boolean;
 }) {
+  const t = useT();
   const { data: done } = useQuery({
     queryKey: ["project-next-steps", projectId],
     queryFn: () => getProjectNextSteps(projectId),
@@ -135,11 +161,14 @@ export function NextStepsChecklist({
     setChoices({ ...choices, skipped: choices.skipped.filter((other) => other !== id) });
 
   return (
-    <section aria-label="Next steps" className="rounded-[4px] border border-border text-[13px]">
+    <section
+      aria-label={t("onboardingChecklist.title")}
+      className="rounded-[4px] border border-border text-[13px]"
+    >
       <div className={cn("flex items-center gap-2 px-3 py-2", !folded && "border-b border-border")}>
-        <h2 className="font-medium text-foreground">Next steps</h2>
+        <h2 className="font-medium text-foreground">{t("onboardingChecklist.title")}</h2>
         <span className="text-[12px] text-muted-foreground">
-          {doneCount} of {NEXT_STEPS.length} done
+          {t("onboardingChecklist.progress", { done: doneCount, total: NEXT_STEPS.length })}
         </span>
         <button
           type="button"
@@ -147,7 +176,7 @@ export function NextStepsChecklist({
           onClick={toggle}
           className="ml-auto text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
-          {folded ? "Show" : "Hide"}
+          {folded ? t("onboardingChecklist.show") : t("onboardingChecklist.hide")}
         </button>
       </div>
 
@@ -182,6 +211,8 @@ function StepRow({
   onSkip: () => void;
   onUndo: () => void;
 }) {
+  const t = useT();
+  const stepTitle = t(step.titleKey);
   const title =
     step.href && (state === "todo" || (state === "done" && step.linkWhenDone)) ? (
       <Link
@@ -193,7 +224,7 @@ function StepRow({
             : "text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground",
         )}
       >
-        {step.title}
+        {stepTitle}
       </Link>
     ) : (
       <span
@@ -203,7 +234,7 @@ function StepRow({
           state === "skipped" && "text-muted-foreground/70",
         )}
       >
-        {step.title}
+        {stepTitle}
       </span>
     );
 
@@ -222,7 +253,7 @@ function StepRow({
             state === "skipped" && "opacity-70",
           )}
         >
-          Optional
+          {t("onboardingChecklist.optional")}
         </span>
       )}
       {step.description && state !== "done" && (
@@ -232,22 +263,24 @@ function StepRow({
             state === "skipped" && "opacity-70",
           )}
         >
-          {step.description}
+          {step.descriptionKey ? t(step.descriptionKey) : step.description}
         </span>
       )}
 
       <span className="ml-auto flex shrink-0 items-center gap-2.5 text-[12px]">
-        {state === "done" && <span className="text-muted-foreground">Done</span>}
+        {state === "done" && (
+          <span className="text-muted-foreground">{t("onboardingChecklist.done")}</span>
+        )}
         {state === "skipped" && (
           <>
-            <span className="text-muted-foreground">Skipped</span>
+            <span className="text-muted-foreground">{t("onboardingChecklist.skipped")}</span>
             <button
               type="button"
               onClick={onUndo}
-              aria-label={`Undo skipping "${step.title}"`}
+              aria-label={t("onboardingChecklist.undoSkipping", { title: stepTitle })}
               className="text-foreground underline underline-offset-4"
             >
-              Undo
+              {t("onboardingChecklist.undo")}
             </button>
           </>
         )}
@@ -255,10 +288,10 @@ function StepRow({
           <button
             type="button"
             onClick={onSkip}
-            aria-label={`Skip "${step.title}"`}
+            aria-label={t("onboardingChecklist.skipStep", { title: stepTitle })}
             className="text-muted-foreground transition-colors hover:text-foreground"
           >
-            Skip
+            {t("onboardingChecklist.skip")}
           </button>
         )}
         {state === "todo" && step.action && (
@@ -276,6 +309,7 @@ function ActionLink({
   action: NonNullable<Step["action"]>;
   projectId: string;
 }) {
+  const t = useT();
   const className = cn(
     buttonVariants({ variant: "outline", size: "sm" }),
     "h-6 px-2.5 text-[12px] font-medium",
@@ -288,22 +322,23 @@ function ActionLink({
         rel="noopener noreferrer"
         className={className}
       >
-        {action.label}
+        {t(action.labelKey)}
       </a>
     );
   }
   return (
     <Link href={action.href(projectId)} className={className}>
-      {action.label}
+      {t(action.labelKey)}
     </Link>
   );
 }
 
 function StateIcon({ state }: { state: "done" | "skipped" | "todo" }) {
+  const t = useT();
   if (state === "done") {
     return (
       <span
-        aria-label="Done"
+        aria-label={t("onboardingChecklist.done")}
         className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary"
       >
         <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
@@ -312,8 +347,16 @@ function StateIcon({ state }: { state: "done" | "skipped" | "todo" }) {
   }
   if (state === "skipped") {
     return (
-      <CircleDashed aria-label="Skipped" className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+      <CircleDashed
+        aria-label={t("onboardingChecklist.skipped")}
+        className="h-4 w-4 shrink-0 text-muted-foreground/60"
+      />
     );
   }
-  return <Circle aria-label="To do" className="h-4 w-4 shrink-0 text-muted-foreground/60" />;
+  return (
+    <Circle
+      aria-label={t("onboardingChecklist.todo")}
+      className="h-4 w-4 shrink-0 text-muted-foreground/60"
+    />
+  );
 }

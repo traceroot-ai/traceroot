@@ -11,6 +11,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
+import { Slots } from "@/lib/i18n/slots";
 
 interface DeleteAlertDialogProps {
   alertName: string;
@@ -32,6 +35,7 @@ export function DeleteAlertDialog({
   isDeleting,
   error,
 }: DeleteAlertDialogProps) {
+  const t = useT();
   const [typed, setTyped] = useState("");
 
   const handleClose = () => {
@@ -43,33 +47,37 @@ export function DeleteAlertDialog({
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="max-w-[420px] gap-3">
         <DialogHeader>
-          <DialogTitle>Delete alert</DialogTitle>
+          <DialogTitle>{t("alertsDelete.title")}</DialogTitle>
           <DialogDescription className="text-[12px]">
-            Permanently delete <span className="font-medium text-foreground">{alertName}</span>?
-            Evaluation and notifications stop immediately, and its recorded state is removed. This
-            cannot be undone.
+            <Slots
+              text={t("alertsDelete.text")}
+              slots={{ name: <span className="font-medium text-foreground">{alertName}</span> }}
+            />
           </DialogDescription>
         </DialogHeader>
 
         {hasOpenPage && (
-          <p className="text-[12px] text-muted-foreground">
-            This alert is open. Deleting it will close it and post an [OK] to Slack.
-          </p>
+          <p className="text-[12px] text-muted-foreground">{t("alertsDelete.openWarning")}</p>
         )}
 
         <p className="text-[12px] text-muted-foreground">
-          Type <span className="font-medium text-foreground">{alertName}</span> to confirm.
+          <Slots
+            text={t("alertsDelete.typeToConfirm")}
+            slots={{ name: <span className="font-medium text-foreground">{alertName}</span> }}
+          />
         </p>
         <Input
           className="h-8 text-[12px]"
           placeholder={alertName}
-          aria-label="confirm alert name"
+          aria-label={t("alertsDelete.confirmLabel")}
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
           autoFocus
         />
 
-        {error && <p className="text-[12px] text-destructive">{error.message}</p>}
+        {error && (
+          <p className="text-[12px] text-destructive">{translateClientError(t, error.message)}</p>
+        )}
 
         <DialogFooter>
           <Button
@@ -79,7 +87,7 @@ export function DeleteAlertDialog({
             className="h-7 text-[12px]"
             onClick={handleClose}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -89,7 +97,7 @@ export function DeleteAlertDialog({
             disabled={typed !== alertName || isDeleting}
             onClick={onConfirm}
           >
-            {isDeleting ? "Deleting..." : "Delete"}
+            {isDeleting ? t("alertsDelete.deleting") : t("common.delete")}
           </Button>
         </DialogFooter>
       </DialogContent>

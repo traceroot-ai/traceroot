@@ -27,6 +27,9 @@ import { AlertsCapacityNotice } from "./alerts-capacity-notice";
 import { ConditionSection } from "./condition-section";
 import { NotificationsSection } from "./notifications-section";
 import { ScopeSection } from "./scope-section";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
+import { MEASURE_LABEL_KEY } from "../measure-docs";
 
 interface AlertFormProps {
   projectId: string;
@@ -72,6 +75,7 @@ const INITIAL_DRAFT: AlertDraft = {
  * previews the right metric.
  */
 export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: AlertFormProps) {
+  const t = useT();
   const router = useRouter();
   const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const [draft, setDraft] = useState<AlertDraft>(initialDraft ?? INITIAL_DRAFT);
@@ -112,6 +116,15 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
     threshold === null || measure === undefined || !changesCondition
       ? null
       : alertThresholdProblem(measure, draft.operator, threshold);
+  // The check's own message is English (the API returns it too). Shown in the visitor's
+  // language here: the two cases are the two the check has.
+  const measureLabelKey = measure ? MEASURE_LABEL_KEY[measure.id] : undefined;
+  const thresholdProblemText =
+    thresholdProblem === null || threshold === null || measure === undefined
+      ? thresholdProblem
+      : t(threshold < 0 ? "alertsForm.thresholdNegative" : "alertsForm.thresholdAlwaysFires", {
+          measure: (measureLabelKey ? t(measureLabelKey) : measure.label).toLowerCase(),
+        });
   const isNameValid = draft.name.trim() !== "";
   // The same predicate the preview panel reports unavailable through, and the
   // one the API gates on.
@@ -188,7 +201,7 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
             aggregation={draft.aggregation}
             operator={draft.operator}
             threshold={draft.threshold}
-            thresholdProblem={thresholdProblem}
+            thresholdProblem={thresholdProblemText}
             window={draft.window}
             onMeasureChange={handleMeasureChange}
             onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}
@@ -214,20 +227,21 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
               <AlertsCapacityNotice capacity={capacity} className="mr-auto text-muted-foreground" />
             )}
             {submitError && (
-              <p className="mr-auto text-[12px] text-destructive">{submitError.message}</p>
+              <p className="mr-auto text-[12px] text-destructive">
+                {translateClientError(t, submitError.message)}
+              </p>
             )}
             {/* A hint, not a gate: the save stays one click, and a rename closes nothing. */}
             {isEdit && hasOpenPage && !submitError && (
               <p className="mr-auto text-[12px] text-muted-foreground">
-                This alert is open. Saving a change to its conditions will close it and post an [OK]
-                to Slack.
+                {t("alertsForm.openHint")}
               </p>
             )}
             <Button type="button" variant="outline" onClick={() => router.push(listHref)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={!canSubmit}>
-              {isEdit ? "Save alert" : "Create alert"}
+              {isEdit ? t("alertsForm.saveAlert") : t("alertsForm.createAlert")}
             </Button>
           </div>
         </div>

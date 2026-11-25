@@ -36,6 +36,7 @@ import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-finding
 import { TraceDetectorsTab } from "./TraceDetectorsTab";
 import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
 import { RetentionGateBanner } from "@/components/RetentionGateBanner";
+import { useT } from "@/lib/i18n/provider";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -203,6 +204,7 @@ export function TraceViewerPanel({
   source,
   runTimestamp,
 }: TraceViewerPanelProps) {
+  const t = useT();
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   // Emit selection changes to the parent (kept in a ref so an inline callback
   // doesn't retrigger the effect — it fires only when `selection` actually changes).
@@ -424,7 +426,7 @@ export function TraceViewerPanel({
           <div className="flex min-w-0 items-center gap-1.5">
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="shrink-0 text-[13px] font-medium">
-              {headerIdentity?.label ?? "Trace"}
+              {headerIdentity?.label ?? t("tracesDetail.trace")}
             </span>
             <span className="truncate text-xs text-muted-foreground">
               {headerIdentity?.value ?? traceId}
@@ -436,7 +438,9 @@ export function TraceViewerPanel({
               <CopyButton
                 value={headerIdentity.value}
                 className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
+                title={t("tracesDetail.copyHeaderId", {
+                  label: headerIdentity.label.toLowerCase(),
+                })}
               />
             )}
           </div>
@@ -448,7 +452,7 @@ export function TraceViewerPanel({
               onClick={() => onNavigate("up")}
               disabled={!canNavigateUp}
               className="h-7 w-7 p-0"
-              title="Previous trace"
+              title={t("tracesDetail.previous")}
             >
               <ArrowUp className="h-4 w-4" />
             </Button>
@@ -458,7 +462,7 @@ export function TraceViewerPanel({
               onClick={() => onNavigate("down")}
               disabled={!canNavigateDown}
               className="h-7 w-7 p-0"
-              title="Next trace"
+              title={t("tracesDetail.next")}
             >
               <ArrowDown className="h-4 w-4" />
             </Button>
@@ -467,7 +471,7 @@ export function TraceViewerPanel({
               size="sm"
               onClick={() => setIsFullscreen((v) => !v)}
               className="h-7 w-7 p-0"
-              title={isFullscreen ? "Restore default size" : "Expand to full screen"}
+              title={isFullscreen ? t("tracesDetail.restoreSize") : t("tracesDetail.expandFull")}
             >
               {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             </Button>
@@ -494,7 +498,7 @@ export function TraceViewerPanel({
                   )
                 }
                 className="h-7 w-7 p-0"
-                title="Open in new tab"
+                title={t("tracesDetail.openNewTab")}
               >
                 <SquareArrowOutUpRight className="h-4 w-4" />
               </Button>
@@ -520,7 +524,7 @@ export function TraceViewerPanel({
                   setAiPanelOpen(!aiPanelOpen);
                 }}
                 className="h-7 w-7 p-0"
-                title="AI Assistant"
+                title={t("tracesDetail.aiAssistant")}
               >
                 <DOMAIN_ICONS.assistant className="h-4 w-4" />
               </Button>
@@ -543,7 +547,7 @@ export function TraceViewerPanel({
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
-              <ListTree className="h-3.5 w-3.5" /> Trace
+              <ListTree className="h-3.5 w-3.5" /> {t("tracesDetail.tabTrace")}
             </button>
             <button
               onClick={() => setViewMode("timeline")}
@@ -554,7 +558,7 @@ export function TraceViewerPanel({
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
-              <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
+              <SquareGanttChart className="h-3.5 w-3.5" /> {t("tracesDetail.tabTimeline")}
             </button>
             {!detectorsHidden && (
               <button
@@ -566,7 +570,7 @@ export function TraceViewerPanel({
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
-                <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
+                <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> {t("tracesDetail.tabDetectors")}
               </button>
             )}
           </div>
@@ -593,7 +597,7 @@ export function TraceViewerPanel({
                     style={{ height: TREE_LAYOUT.HEADER_HEIGHT }}
                   >
                     <span className="text-[12px] font-medium text-muted-foreground">
-                      Trace Tree
+                      {t("tracesDetail.traceTree")}
                     </span>
                   </div>
                   <div
@@ -634,7 +638,7 @@ export function TraceViewerPanel({
                     <TraceDetectorsTab projectId={projectId} traceId={traceId} />
                   ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">
-                      <LoadingState label="Loading trace..." />
+                      <LoadingState label={t("tracesDetail.loading")} />
                     </div>
                   ) : error && isRetentionError(error) ? (
                     <RetentionGateBanner
@@ -654,8 +658,7 @@ export function TraceViewerPanel({
                           // says nothing about it: the analysis starts after the run and
                           // takes minutes.
                           <p className="text-sm text-muted-foreground">
-                            This analysis trace has been exported but isn&rsquo;t ingested yet.
-                            Check back in a moment.
+                            {t("tracesDetail.agentNotIngested")}
                           </p>
                         ) : source === "detector" ? (
                           // self_traced is set optimistically at emit time, and the SDK
@@ -667,23 +670,21 @@ export function TraceViewerPanel({
                           // waiting.
                           isSelfTracePending(runTimestamp) ? (
                             <p className="text-sm text-muted-foreground">
-                              This detector run&rsquo;s trace is still being recorded. Check back in
-                              a moment.
+                              {t("tracesDetail.detectorPending")}
                             </p>
                           ) : (
                             <p className="text-sm text-muted-foreground">
-                              No trace was recorded for this run — the self-trace export
-                              didn&rsquo;t reach the backend.
+                              {t("tracesDetail.detectorMissing")}
                             </p>
                           )
                         ) : (
                           // Only the internal kinds above know why their trace can be
                           // missing; any other internal source gets the plain error
                           // rather than borrowing a detector run's copy.
-                          <p className="text-sm text-destructive">Error loading trace</p>
+                          <p className="text-sm text-destructive">{t("tracesDetail.error")}</p>
                         )
                       ) : (
-                        <p className="text-sm text-destructive">Error loading trace</p>
+                        <p className="text-sm text-destructive">{t("tracesDetail.error")}</p>
                       )}
                     </div>
                   ) : viewMode === "tree" ? (

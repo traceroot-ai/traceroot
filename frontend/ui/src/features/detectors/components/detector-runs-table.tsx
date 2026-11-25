@@ -4,6 +4,7 @@ import Link from "next/link";
 import { cn, formatDate } from "@/lib/utils";
 import type { BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DETECTOR_TH, DETECTOR_TD, IdentifiedBadge, SummaryText } from "./detector-table-cells";
+import { useT } from "@/lib/i18n/provider";
 
 interface DetectorRunsTableProps {
   rows: BackendRun[];
@@ -73,18 +74,21 @@ export function DetectorRunsTable({
   onAgentRunClick,
   signalHref,
 }: DetectorRunsTableProps) {
+  const t = useT();
   return (
     <table className="data-table w-full">
       <thead className="sticky top-0 bg-background">
         <tr className="border-b border-border">
-          <th className={cn(DETECTOR_TH, "w-[160px]")}>Timestamp</th>
-          <th className={cn(DETECTOR_TH, "w-[9rem]")}>Judge run ID</th>
-          <th className={DETECTOR_TH}>Trace ID</th>
-          <th className={DETECTOR_TH}>Signal ID</th>
-          <th className={DETECTOR_TH}>Agent run ID</th>
-          <th className={cn(DETECTOR_TH, "w-[80px]")}>Identified</th>
-          <th className={DETECTOR_TH}>Summary</th>
-          <th className={cn(DETECTOR_TH, "w-[90px] border-r-0")}>Status</th>
+          <th className={cn(DETECTOR_TH, "w-[160px]")}>{t("detectorsDetail.colTimestamp")}</th>
+          <th className={cn(DETECTOR_TH, "w-[9rem]")}>{t("detectorsDetail.colJudgeRunId")}</th>
+          <th className={DETECTOR_TH}>{t("detectorsDetail.colTraceId")}</th>
+          <th className={DETECTOR_TH}>{t("detectorsDetail.colSignalId")}</th>
+          <th className={DETECTOR_TH}>{t("detectorsDetail.colAgentRunId")}</th>
+          <th className={cn(DETECTOR_TH, "w-[80px]")}>{t("detectorsDetail.colIdentified")}</th>
+          <th className={DETECTOR_TH}>{t("detectorsDetail.colSummary")}</th>
+          <th className={cn(DETECTOR_TH, "w-[90px] border-r-0")}>
+            {t("detectorsDetail.colStatus")}
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -103,7 +107,7 @@ export function DetectorRunsTable({
               <td className={cn(DETECTOR_TD, "max-w-[9rem] truncate text-muted-foreground")}>
                 <Link
                   href={signalHref(run.signal_id)}
-                  title={`${run.signal_id} — open the signal`}
+                  title={t("detectorsDetail.openSignal", { id: run.signal_id })}
                   className="block max-w-full truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
                 >
                   {run.signal_id}
@@ -111,11 +115,8 @@ export function DetectorRunsTable({
               </td>
             ) : run.signal_gave_up ? (
               <td className={cn(DETECTOR_TD, "whitespace-nowrap text-[12px]")}>
-                <span
-                  className="text-muted-foreground"
-                  title="Grouping gave up on this hit: the model's answers about it stayed unusable. An admin can replay it."
-                >
-                  Not grouped
+                <span className="text-muted-foreground" title={t("detectorsDetail.notGroupedHint")}>
+                  {t("detectorsDetail.notGrouped")}
                 </span>
               </td>
             ) : (
@@ -124,7 +125,7 @@ export function DetectorRunsTable({
             {run.agent_trace_id ? (
               <IdCell
                 id={run.agent_trace_id}
-                title={`${run.agent_trace_id} — open the root cause analysis of this trace`}
+                title={t("detectorsDetail.openRca", { id: run.agent_trace_id })}
                 onOpen={() => onAgentRunClick(run)}
               />
             ) : (

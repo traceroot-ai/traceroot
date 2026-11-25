@@ -8,6 +8,7 @@ import type { WidgetSchemaField } from "@/features/dashboards/types";
 import { ALERT_FILTER_OPERATORS_BY_FIELD } from "@traceroot/core";
 import { ALERT_FILTER_FIELDS, EMPTY_ALERT_FILTER, type AlertFilter } from "../rule-model";
 import { FILTER_VALUE_LOOKBACK_MS } from "../preview";
+import { useT } from "@/lib/i18n/provider";
 
 interface AlertFiltersProps {
   projectId: string;
@@ -22,6 +23,7 @@ interface AlertFiltersProps {
  * will not filter on would chart a different query from the one the alert runs.
  */
 export function AlertFilters({ projectId, filters, onFiltersChange }: AlertFiltersProps) {
+  const t = useT();
   const {
     data: schema,
     isPending: isSchemaPending,
@@ -104,7 +106,7 @@ export function AlertFilters({ projectId, filters, onFiltersChange }: AlertFilte
         className="mt-0.5 flex items-center gap-1 self-start text-[12px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Plus className="h-3.5 w-3.5" />
-        Add filter
+        {t("alertsForm.addFilter")}
       </button>
     </div>
   );

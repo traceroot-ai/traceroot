@@ -4,6 +4,13 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+
+// A component of its own so the label can use the translation hook.
+function CloseLabel() {
+  const t = useT();
+  return <span className="sr-only">{t("componentsUi.close")}</span>;
+}
 
 const Dialog = DialogPrimitive.Root;
 
@@ -45,7 +52,7 @@ const DialogContent = React.forwardRef<
       <div className="grid min-h-0 gap-[inherit] overflow-y-auto p-4">{children}</div>
       <DialogPrimitive.Close className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-[2px] bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none">
         <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
+        <CloseLabel />
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>

@@ -8,8 +8,7 @@ import { Check, Columns3 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FIXED_COLUMNS, type FixedColumnId } from "@/features/traces/columns";
 import { cn } from "@/lib/utils";
-
-const LAST_COLUMN_TITLE = "The list needs at least one column";
+import { useT } from "@/lib/i18n/provider";
 
 interface ColumnPickerProps {
   /** Fixed columns currently shown, in registry order. */
@@ -27,27 +26,32 @@ export function ColumnPicker({
   // more to turn on.
   const shownCount = visibleColumns.length;
   const totalCount = FIXED_COLUMNS.length;
+  const t = useT();
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="Choose which fields appear as columns"
+          title={t("tracesColumns.pickerTitle")}
           // Sits beside the date filter in the filter bar, so it matches that control's
           // width and height (h-8) exactly rather than reading as a smaller sibling.
           className="flex h-8 min-w-[140px] items-center justify-between gap-2 rounded-[2px] bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
         >
           <span className="flex items-center gap-1.5">
             <Columns3 className="h-3.5 w-3.5 text-muted-foreground" />
-            Columns
+            {t("tracesColumns.columns")}
           </span>
           <span className="rounded-[2px] bg-muted px-1 text-[12px] text-muted-foreground">
             {shownCount}/{totalCount}
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" aria-label="Choose columns" className="w-[18rem] p-1">
+      <PopoverContent
+        align="end"
+        aria-label={t("tracesColumns.chooseColumns")}
+        className="w-[18rem] p-1"
+      >
         <div className="flex flex-col">
           {FIXED_COLUMNS.map((column) => {
             const isVisible = visibleColumns.includes(column.id);
@@ -60,7 +64,7 @@ export function ColumnPicker({
                 // `aria-pressed` carries the state; the check mark alone is invisible to AT.
                 aria-pressed={isVisible}
                 disabled={isLastVisible}
-                title={isLastVisible ? LAST_COLUMN_TITLE : undefined}
+                title={isLastVisible ? t("tracesColumns.lastColumn") : undefined}
                 onClick={() => onToggleField(column.id)}
                 className={cn(
                   "flex h-7 items-center gap-2 rounded-[2px] px-2 text-left text-[13px] transition-colors",
@@ -74,8 +78,8 @@ export function ColumnPicker({
                     isVisible ? "text-foreground" : "text-transparent",
                   )}
                 />
-                <span className="flex-1 truncate" title={column.label}>
-                  {column.label}
+                <span className="flex-1 truncate" title={t(column.labelKey)}>
+                  {t(column.labelKey)}
                 </span>
               </button>
             );
@@ -87,7 +91,7 @@ export function ColumnPicker({
             onClick={onReset}
             className="h-8 w-full rounded-[2px] px-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            Reset to default
+            {t("tracesColumns.reset")}
           </button>
         </div>
       </PopoverContent>

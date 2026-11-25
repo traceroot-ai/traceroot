@@ -16,12 +16,14 @@ import {
 } from "@/features/integrations/hooks/useSlackIntegration";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n/provider";
 
 interface Props {
   workspaceId: string;
 }
 
 export function SlackConnectButton({ workspaceId }: Props) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: workspace } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -111,7 +113,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
     return (
       <div className="flex items-center justify-between">
         <Row>
-          <span className="text-[12px] text-muted-foreground">Loading…</span>
+          <span className="text-[12px] text-muted-foreground">{t("componentsSlack.loading")}</span>
         </Row>
       </div>
     );
@@ -124,10 +126,13 @@ export function SlackConnectButton({ workspaceId }: Props) {
         <Row>
           <div>
             <div className="text-sm font-medium">Slack</div>
-            <div className="text-sm text-muted-foreground">Post detector alerts to a channel.</div>
+            <div className="text-sm text-muted-foreground">
+              {t("componentsSlack.connectedDescription")}
+            </div>
             <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
               <span>
-                Connected to <span className="font-medium text-foreground">{data.teamName}</span>
+                {t("componentsIntegrations.connectedTo")}{" "}
+                <span className="font-medium text-foreground">{data.teamName}</span>
                 {channelLabel && (
                   <>
                     {" · "}
@@ -142,24 +147,26 @@ export function SlackConnectButton({ workspaceId }: Props) {
                   size="sm"
                   onClick={() =>
                     testMessage.mutate(undefined, {
-                      onSuccess: () => flashTestFeedback("ok", "Sent ✓"),
+                      onSuccess: () => flashTestFeedback("ok", t("componentsSlack.testSent")),
                       onError: (err) =>
                         flashTestFeedback(
                           "err",
-                          err instanceof Error ? err.message : "Failed to send test message",
+                          err instanceof Error ? err.message : t("componentsSlack.testFailed"),
                         ),
                     })
                   }
                   disabled={testMessage.isPending}
                   className="ml-1 gap-1.5 px-2.5"
-                  title="Send a test message to this channel"
+                  title={t("componentsSlack.testTitle")}
                 >
                   {testMessage.isPending ? (
                     <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
                   ) : (
                     <Send className="h-3.5 w-3.5 shrink-0" />
                   )}
-                  {testMessage.isPending ? "Testing…" : "Test Connection"}
+                  {testMessage.isPending
+                    ? t("componentsSlack.testing")
+                    : t("componentsSlack.testConnection")}
                 </Button>
               )}
               {testFeedback && (
@@ -189,7 +196,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
           >
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1">
-                Manage
+                {t("componentsIntegrations.manage")}
                 <ChevronDown className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
@@ -208,19 +215,21 @@ export function SlackConnectButton({ workspaceId }: Props) {
                     className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] transition-colors hover:bg-muted"
                   >
                     <Settings className="h-3.5 w-3.5 shrink-0" />
-                    Configure
+                    {t("componentsIntegrations.configure")}
                   </button>
                 </PopoverTrigger>
                 <PopoverContent side="right" align="start" sideOffset={4} className="w-72 p-2">
                   {/* Selected channel summary */}
                   <div className="px-2 pb-2 text-[12px] text-muted-foreground">
-                    {channelLabel ? `Posting alerts to ${channelLabel}` : "No channel selected"}
+                    {channelLabel
+                      ? t("componentsSlack.postingTo", { channel: channelLabel })
+                      : t("componentsSlack.noChannel")}
                   </div>
 
                   {/* Search input */}
                   <input
                     type="text"
-                    placeholder="Search or enter #channel-name"
+                    placeholder={t("componentsSlack.searchPlaceholder")}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="mb-1 w-full rounded-md border bg-transparent px-2 py-1 text-[12px] outline-none focus:ring-1 focus:ring-ring"
@@ -231,12 +240,12 @@ export function SlackConnectButton({ workspaceId }: Props) {
                   <div className="max-h-72 overflow-y-auto rounded-md py-0.5">
                     {channelsLoading && (
                       <div className="px-2 py-1 text-[12px] text-muted-foreground">
-                        Loading channels…
+                        {t("componentsSlack.loadingChannels")}
                       </div>
                     )}
                     {!channelsLoading && filtered.length === 0 && !showManualEntry && (
                       <div className="px-2 py-1 text-[12px] text-muted-foreground">
-                        No channels found.
+                        {t("componentsSlack.noChannels")}
                       </div>
                     )}
                     {filtered.map((ch) => (
@@ -263,7 +272,8 @@ export function SlackConnectButton({ workspaceId }: Props) {
                         onClick={() => handleSelectChannel({ id: search, name: search.slice(1) })}
                         className="flex h-8 w-full select-none items-center rounded-[2px] px-2 text-left text-[13px] transition-colors hover:bg-muted"
                       >
-                        Use <span className="ml-1 font-mono">{search}</span>
+                        {t("componentsSlack.useChannel")}{" "}
+                        <span className="ml-1 font-mono">{search}</span>
                       </button>
                     )}
                   </div>
@@ -271,7 +281,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
                   {/* Private channel re-auth hint */}
                   {showPrivateScopeHint && (
                     <p className="mt-1 px-2 text-[12px] italic text-muted-foreground">
-                      Re-authenticate to grant private-channel access.
+                      {t("componentsSlack.privateHint")}
                     </p>
                   )}
                 </PopoverContent>
@@ -288,7 +298,9 @@ export function SlackConnectButton({ workspaceId }: Props) {
                 className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive transition-colors hover:bg-muted disabled:opacity-50"
               >
                 <Unlink className="h-3.5 w-3.5" />
-                {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+                {disconnect.isPending
+                  ? t("componentsSlack.disconnecting")
+                  : t("componentsIntegrations.disconnect")}
               </button>
             </PopoverContent>
           </Popover>
@@ -303,9 +315,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
         <div>
           <div className="text-sm font-medium">Slack</div>
           <div className="text-sm text-muted-foreground">
-            {canManage
-              ? "Post detector alerts to a Slack channel."
-              : "Slack is not connected. Ask a workspace admin to set it up."}
+            {canManage ? t("componentsSlack.description") : t("componentsSlack.notConnected")}
           </div>
         </div>
       </Row>
@@ -314,7 +324,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
           href={installHref}
           className="inline-flex h-7 items-center gap-2 rounded-[2px] bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-foreground hover:text-background"
         >
-          Connect
+          {t("componentsIntegrations.connect")}
           <ExternalLink className="h-3 w-3" />
         </a>
       )}

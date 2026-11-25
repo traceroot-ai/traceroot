@@ -5,6 +5,7 @@ import { Copy, Check } from "lucide-react";
 import { Button, type ButtonProps } from "./button";
 import { Popover, PopoverAnchor, PopoverContent } from "./popover";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 export interface CopyButtonProps extends Omit<ButtonProps, "onClick"> {
   value: string;
@@ -17,6 +18,7 @@ export interface CopyButtonProps extends Omit<ButtonProps, "onClick"> {
  */
 const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
   ({ value, onCopy, className, iconClassName, variant = "ghost", size = "sm", ...props }, ref) => {
+    const t = useT();
     const [copied, setCopied] = React.useState(false);
     const [copyError, setCopyError] = React.useState(false);
     const errorId = React.useId();
@@ -58,8 +60,8 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
             className={cn("h-7 w-7 p-0", className)}
             onClick={handleCopy}
             {...props}
-            aria-label={props["aria-label"] ?? props.title ?? "Copy"}
-            title={props.title ?? props["aria-label"] ?? "Copy"}
+            aria-label={props["aria-label"] ?? props.title ?? t("componentsUi.copy")}
+            title={props.title ?? props["aria-label"] ?? t("componentsUi.copy")}
             aria-describedby={
               copyError
                 ? [props["aria-describedby"], errorId].filter(Boolean).join(" ")
@@ -80,7 +82,7 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          Could not copy to clipboard. Try again.
+          {t("componentsUi.copyFailed")}
         </PopoverContent>
       </Popover>
     );

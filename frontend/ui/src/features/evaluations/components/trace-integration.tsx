@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import * as React from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -66,6 +67,7 @@ export function SaveTestCaseDrawer({
   onOpenChange: (open: boolean) => void;
 }) {
   const qc = useQueryClient();
+  const t = useT();
   const {
     data: datasetsData,
     isLoading: datasetsLoading,
@@ -235,9 +237,9 @@ export function SaveTestCaseDrawer({
     try {
       const parsed = JSON.parse(trimmed);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return null;
-      return 'Metadata must be a JSON object, e.g. {"key": "value"}.';
+      return t("evalsShared.metadataMustBeObject");
     } catch {
-      return "Metadata isn't valid JSON.";
+      return t("evalsShared.metadataInvalidJson");
     }
   })();
 
@@ -276,10 +278,10 @@ export function SaveTestCaseDrawer({
         setDuplicate({ datasetId });
         return;
       }
-      setFeedback({ tone: "success", text: "Saved — published as a new dataset version." });
+      setFeedback({ tone: "success", text: t("evalsSave.saved") });
       setTimeout(() => onOpenChange(false), 700);
     } catch {
-      setFeedback({ tone: "error", text: "Could not save test case." });
+      setFeedback({ tone: "error", text: t("evalsSave.saveFailed") });
     }
   };
 
@@ -307,12 +309,12 @@ export function SaveTestCaseDrawer({
             tabIndex={-1}
             className="text-[15px] font-medium focus:outline-none"
           >
-            Add to datasets
+            {t("evalsShared.addToDatasets")}
           </h2>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            aria-label="Close"
+            aria-label={t("evalsShared.close")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
@@ -320,7 +322,7 @@ export function SaveTestCaseDrawer({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
-          <FormCard label="Dataset">
+          <FormCard label={t("evalsShared.dataset")}>
             <Select
               value={datasets.some((d) => d.id === datasetId) ? datasetId : ""}
               onValueChange={(value) => {
@@ -329,7 +331,7 @@ export function SaveTestCaseDrawer({
               }}
             >
               <SelectTrigger className="h-8 text-[13px]">
-                <SelectValue placeholder="Select dataset" />
+                <SelectValue placeholder={t("evalsSave.selectDataset")} />
               </SelectTrigger>
               <SelectContent>
                 {datasets.length ? (
@@ -341,19 +343,16 @@ export function SaveTestCaseDrawer({
                 ) : (
                   <SelectEmpty>
                     {datasetsLoading
-                      ? "Loading datasets…"
+                      ? t("evalsSave.loadingDatasets")
                       : datasetsError
-                        ? "Couldn't load datasets"
-                        : "No datasets found"}
+                        ? t("evalsSave.loadDatasetsFailed")
+                        : t("evalsSave.noDatasets")}
                   </SelectEmpty>
                 )}
               </SelectContent>
             </Select>
             {duplicate && (
-              <p className="mt-1.5 text-[12px] text-muted-foreground">
-                This span is already a test case in this dataset. Open it instead of adding another
-                row.
-              </p>
+              <p className="mt-1.5 text-[12px] text-muted-foreground">{t("evalsSave.duplicate")}</p>
             )}
           </FormCard>
 
@@ -361,7 +360,7 @@ export function SaveTestCaseDrawer({
               panel this modal is launched from); each field is only as tall as its
               content, so a short input never leaves a tall empty box. */}
           <EditableValueBlock
-            label="Input"
+            label={t("evalsShared.input")}
             text={input}
             onChange={setInput}
             copyable
@@ -375,7 +374,7 @@ export function SaveTestCaseDrawer({
           />
 
           <EditableValueBlock
-            label="Output"
+            label={t("evalsShared.output")}
             text={output}
             onChange={setOutput}
             copyable
@@ -390,7 +389,7 @@ export function SaveTestCaseDrawer({
 
           <div>
             <EditableValueBlock
-              label="Metadata"
+              label={t("tracesSpan.metadata")}
               text={metadata}
               onChange={setMetadata}
               copyable
@@ -419,7 +418,7 @@ export function SaveTestCaseDrawer({
             </span>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           {duplicate ? (
             <Link
@@ -427,11 +426,11 @@ export function SaveTestCaseDrawer({
               className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
-              Open existing test case
+              {t("evalsSave.openExisting")}
             </Link>
           ) : (
             <Button onClick={handleSave} disabled={!canSave}>
-              Save
+              {t("common.save")}
             </Button>
           )}
         </div>
@@ -451,6 +450,7 @@ export function TraceEvaluationChip({
   projectId: string;
   traceId: string;
 }) {
+  const t = useT();
   const { data } = useTraceEvaluationResults(projectId, traceId);
   const results = data?.data ?? [];
   if (results.length === 0) return null;
@@ -459,13 +459,13 @@ export function TraceEvaluationChip({
     <Link
       href={`/projects/${projectId}/evaluations/${run.id}`}
       className="inline-flex items-center gap-1.5 rounded-[2px] border bg-background px-2.5 py-1 text-xs transition-colors hover:bg-muted"
-      title="This trace was produced by an evaluation run"
+      title={t("evalsSave.chipTitle")}
     >
       <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
-      <span className="text-muted-foreground">Evaluation:</span>
+      <span className="text-muted-foreground">{t("evalsMisc.chipLabel")}</span>
       <span className="font-medium">{run.evaluation.name}</span>
       <span className="text-muted-foreground">
-        Run #{run.runNumber} · {run.candidateVersion}
+        {t("evalsSave.chipRun", { number: run.runNumber, version: run.candidateVersion })}
       </span>
     </Link>
   );
@@ -497,6 +497,7 @@ function DatasetSdkSnippet({
   datasetId: string;
   version: string;
 }) {
+  const t = useT();
   const [lang, setLang] = React.useState<Lang>("python");
   const code = sdkSnippet(lang, projectName, datasetId, version);
   return (
@@ -519,7 +520,12 @@ function DatasetSdkSnippet({
             </button>
           ))}
         </div>
-        <CopyButton value={code} className="h-6 w-6" iconClassName="h-3.5 w-3.5" title="Copy" />
+        <CopyButton
+          value={code}
+          className="h-6 w-6"
+          iconClassName="h-3.5 w-3.5"
+          title={t("evalsShared.copy")}
+        />
       </div>
       {/* pb-6 so the horizontal scrollbar at the pre's bottom doesn't overlap the
           last line (it scrolls in both axes with a small max height). */}
@@ -550,6 +556,7 @@ export function SpanDatasetChip({
   traceId: string;
   spanId: string;
 }) {
+  const t = useT();
   const { data } = useTraceTestCases(projectId, traceId);
   const { data: project } = useProject(projectId);
   const projectName = project?.name ?? "your-project";
@@ -569,10 +576,10 @@ export function SpanDatasetChip({
             <button
               type="button"
               className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
-              title={`In dataset ${c.datasetName}`}
+              title={t("evalsSave.inDataset", { name: c.datasetName })}
             >
               <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
-              <span className="text-muted-foreground">Dataset:</span>
+              <span className="text-muted-foreground">{t("evalsSave.datasetLabel")}</span>
               <span className="font-medium">{c.datasetName}</span>
             </button>
           </PopoverTrigger>
@@ -585,13 +592,16 @@ export function SpanDatasetChip({
                 <div className="font-semibold">{c.datasetName}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-muted-foreground">
                   <span>
-                    Version <span className="font-mono">{c.datasetVersionLabel}</span>
+                    {t("evalsShared.version")}{" "}
+                    <span className="font-mono">{c.datasetVersionLabel}</span>
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    Updated <Timestamp iso={c.datasetUpdatedAt} />
+                    {t("evalsSave.updated")} <Timestamp iso={c.datasetUpdatedAt} />
                   </span>
                   <span>
-                    {c.caseCount} {c.caseCount === 1 ? "case" : "cases"}
+                    {c.caseCount === 1
+                      ? t("evalsSave.caseCountOne", { count: c.caseCount })
+                      : t("evalsSave.caseCountOther", { count: c.caseCount })}
                   </span>
                 </div>
               </div>
@@ -599,7 +609,7 @@ export function SpanDatasetChip({
                 href={`/projects/${projectId}/datasets/${c.datasetId}`}
                 className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                Open
+                {t("evalsSave.open")}
                 <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
               </Link>
             </div>

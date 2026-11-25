@@ -12,8 +12,11 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { PLANS, PlanType } from "@traceroot/core";
+import { displayPlanText } from "./plan-display";
 import { createCheckoutSession, changePlan } from "./api";
 import { getPlanButtonText, resolvePlanAction } from "./plan-actions";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 interface PricingDialogProps {
   open: boolean;
@@ -30,6 +33,7 @@ export function PricingDialog({
   currentPlan = PlanType.FREE,
   hasSubscription = false,
 }: PricingDialogProps) {
+  const t = useT();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +63,9 @@ export function PricingDialog({
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to change plan");
+      setError(
+        err instanceof Error ? translateClientError(t, err.message) : t("billing.failedChange"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -69,10 +75,8 @@ export function PricingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Choose a plan</DialogTitle>
-          <DialogDescription>
-            Start free. Bring your own model keys on every plan, or use hosted models.
-          </DialogDescription>
+          <DialogTitle>{t("billing.choosePlan")}</DialogTitle>
+          <DialogDescription>{t("billing.choosePlanDescription")}</DialogDescription>
         </DialogHeader>
         {error && (
           <div className="border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
@@ -100,7 +104,7 @@ export function PricingDialog({
                       <h3 className="font-medium">{plan.name}</h3>
                       {plan.badge && (
                         <span className="rounded-[2px] border border-brand-border bg-background px-1.5 py-0.5 text-brand">
-                          {plan.badge}
+                          {displayPlanText(t, plan.badge)}
                         </span>
                       )}
                     </div>
@@ -111,19 +115,26 @@ export function PricingDialog({
                           <span className="text-[32px] font-normal leading-10 tracking-tight">
                             ${plan.price}
                           </span>
-                          <span className="text-[12px] text-muted-foreground">per month</span>
+                          <span className="text-[12px] text-muted-foreground">
+                            {t("billing.perMonth")}
+                          </span>
                         </>
                       ) : (
                         <span className="text-[32px] font-normal leading-10 tracking-tight">
-                          Custom
+                          {t("billing.custom")}
                         </span>
                       )}
                     </div>
 
-                    <p className="mt-2 text-[13px] text-muted-foreground">{plan.description}</p>
+                    <p className="mt-2 text-[13px] text-muted-foreground">
+                      {displayPlanText(t, plan.description)}
+                    </p>
 
                     <ul className="mb-5 mt-3 flex-1 space-y-1">
-                      {[...plan.features, `${plan.support} support`].map((feature) => (
+                      {[
+                        ...plan.features.map((feature) => displayPlanText(t, feature)),
+                        t("billingPlans.supportVia", { channels: plan.support }),
+                      ].map((feature) => (
                         <li
                           key={feature}
                           className="flex items-start gap-2 py-0.5 text-[13px] text-muted-foreground"
@@ -140,7 +151,7 @@ export function PricingDialog({
                       disabled={isCurrentPlan || (isLoading && !isEnterprise)}
                       onClick={() => handlePlanSelect(planId)}
                     >
-                      {getPlanButtonText(currentPlan, planId)}
+                      {getPlanButtonText(currentPlan, planId, t)}
                       {!isCurrentPlan && <ArrowRight className="h-3.5 w-3.5" />}
                     </Button>
                   </div>

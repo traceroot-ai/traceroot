@@ -5,6 +5,7 @@ import { Sparkles } from "lucide-react";
 import { PlanType } from "@traceroot/core";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
@@ -20,6 +21,7 @@ export function SidebarUpgradeButton({
   workspaceId: propWorkspaceId,
   collapsed,
 }: SidebarUpgradeButtonProps) {
+  const t = useT();
   const [showPricingDialog, setShowPricingDialog] = useState(false);
 
   // Resolve the workspace so the pricing dialog can act on its plan
@@ -43,12 +45,12 @@ export function SidebarUpgradeButton({
             onClick={() => setShowPricingDialog(true)}
           >
             <Sparkles className="h-3.5 w-3.5 shrink-0" />
-            {!collapsed && "Upgrade"}
+            {!collapsed && t("componentsLayout.upgrade")}
           </button>
         </TooltipTrigger>
         {collapsed && (
           <TooltipContent side="right" sideOffset={16}>
-            Upgrade
+            {t("componentsLayout.upgrade")}
           </TooltipContent>
         )}
       </Tooltip>

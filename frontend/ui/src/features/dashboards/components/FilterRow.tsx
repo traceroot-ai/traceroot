@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useMemo } from "react";
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import {
@@ -16,6 +17,7 @@ import {
   ValueDropdown,
 } from "@/features/filters/filter-controls";
 import { fieldIcon } from "./field-icons";
+import { displayFieldLabel } from "../seed-display";
 import { useWidgetFieldValues } from "../hooks/use-widget-data";
 import {
   filterOpLabel,
@@ -24,8 +26,15 @@ import {
   type WidgetFilterValue,
   type WidgetSchemaField,
 } from "../types";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 type FilterValue = WidgetFilterValue | "";
+
+// filterOpLabel returns the English operator words; the ones that are words get a translation.
+const OP_LABEL_KEY: Record<string, MessageKey> = {
+  is: "dashboardsFilter.opIs",
+  "is any of": "dashboardsFilter.opIn",
+};
 
 export type FilterRowPatch = Partial<{
   field: string;
@@ -71,6 +80,8 @@ export function FilterRow({
    */
   fieldsUnavailable?: boolean;
 }) {
+  const t = useT();
+  const opLabel = (label: string) => (OP_LABEL_KEY[label] ? t(OP_LABEL_KEY[label]) : label);
   const fieldMeta = fieldsMap[filter.field];
   const isNumeric = fieldMeta?.type === "number";
 
@@ -100,12 +111,12 @@ export function FilterRow({
     return (
       <div
         role="status"
-        aria-label="Loading filter fields"
+        aria-label={t("dashboardsFilter.loadingFieldsAria")}
         className="flex h-7 items-center gap-2 rounded-md border border-dashed border-border px-2 text-[12px] text-muted-foreground"
       >
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
         <span className="truncate font-mono">{predicateText}</span>
-        <span className="ml-auto shrink-0">Loading fields…</span>
+        <span className="ml-auto shrink-0">{t("dashboardsFilter.loadingFields")}</span>
       </div>
     );
   }
@@ -117,11 +128,17 @@ export function FilterRow({
   // knows the field no better than a populated one. A failed registry request
   // takes the same row under its own label: the field may well be fine.
   if (!fieldsLoading && filter.field && (fieldsUnavailable || !fieldMeta)) {
-    const label = fieldsUnavailable ? "Fields unavailable" : "Unknown field";
+    const label = fieldsUnavailable
+      ? t("dashboardsFilter.fieldsUnavailable")
+      : t("dashboardsFilter.unknownField");
     return (
       <div
         role="alert"
-        aria-label={fieldsUnavailable ? "Filter fields unavailable" : "Unknown filter field"}
+        aria-label={
+          fieldsUnavailable
+            ? t("dashboardsFilter.fieldsUnavailableAria")
+            : t("dashboardsFilter.unknownFieldAria")
+        }
         className="flex h-7 items-center gap-2 rounded-md border border-dashed border-destructive/60 px-2 text-[12px] text-muted-foreground"
       >
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
@@ -131,7 +148,7 @@ export function FilterRow({
           type="button"
           onClick={() => onRemove(index)}
           className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-          aria-label="Remove filter"
+          aria-label={t("dashboardsFilter.remove")}
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -147,7 +164,7 @@ export function FilterRow({
         <FieldDropdown
           options={filterableFields.map(([key, meta]) => ({
             key,
-            label: meta.label,
+            label: displayFieldLabel(t, meta.label),
             icon: fieldIcon(key),
           }))}
           valueKey={filter.field || null}
@@ -179,7 +196,9 @@ export function FilterRow({
           disabled={!fieldMeta}
           trigger={
             <span className="whitespace-nowrap">
-              {fieldMeta && filter.op ? filterOpLabel(fieldMeta, filter.op) : "is"}
+              {fieldMeta && filter.op
+                ? opLabel(filterOpLabel(fieldMeta, filter.op))
+                : t("dashboardsFilter.opIs")}
             </span>
           }
           triggerClassName="min-w-[3.5rem] shrink-0"
@@ -198,7 +217,7 @@ export function FilterRow({
                   close();
                 }}
               >
-                {filterOpLabel(fieldMeta, op)}
+                {opLabel(filterOpLabel(fieldMeta, op))}
               </DropdownItem>
             ))
           }
@@ -212,27 +231,27 @@ export function FilterRow({
             values={Array.isArray(filter.value) ? filter.value : []}
             options={options}
             onValues={(v) => onChange(index, { value: v })}
-            placeholder={isLoading ? "Loading…" : undefined}
+            placeholder={isLoading ? t("dashboardsFilter.loadingValues") : undefined}
           />
         ) : enumerable ? (
           <ValueDropdown
             value={String(filter.value)}
             options={options}
             onValue={(v) => onChange(index, { value: v })}
-            placeholder={isLoading ? "Loading…" : undefined}
+            placeholder={isLoading ? t("dashboardsFilter.loadingValues") : undefined}
           />
         ) : isNumeric ? (
           <NumberField
-            ariaLabel="value"
-            placeholder="Enter value"
+            ariaLabel={t("dashboardsFilter.valueAria")}
+            placeholder={t("dashboardsFilter.enterValue")}
             value={String(filter.value)}
             onChange={(v) => onChange(index, { value: v === "" ? "" : Number(v) })}
             unit={FIELD_UNIT[filter.field]}
           />
         ) : (
           <TextField
-            ariaLabel="value"
-            placeholder="Enter value"
+            ariaLabel={t("dashboardsFilter.valueAria")}
+            placeholder={t("dashboardsFilter.enterValue")}
             value={String(filter.value)}
             onChange={(v) => onChange(index, { value: v })}
           />
@@ -243,7 +262,7 @@ export function FilterRow({
           type="button"
           onClick={() => onRemove(index)}
           className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-          aria-label="Remove filter"
+          aria-label={t("dashboardsFilter.remove")}
         >
           <X className="h-3.5 w-3.5" />
         </button>

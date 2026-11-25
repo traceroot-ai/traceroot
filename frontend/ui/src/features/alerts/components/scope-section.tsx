@@ -3,6 +3,7 @@
 import { FieldLabel, SectionBox } from "@/features/dashboards/components/SectionBox";
 import type { AlertFilter } from "../rule-model";
 import { AlertFilters } from "./alert-filters";
+import { useT } from "@/lib/i18n/provider";
 
 interface ScopeSectionProps {
   projectId: string;
@@ -17,10 +18,11 @@ interface ScopeSectionProps {
  * would be noise.
  */
 export function ScopeSection({ projectId, filters, onFiltersChange }: ScopeSectionProps) {
+  const t = useT();
   return (
-    <SectionBox label="Scope">
+    <SectionBox label={t("alertsForm.scope")}>
       <div className="p-4">
-        <FieldLabel>Filter</FieldLabel>
+        <FieldLabel>{t("alertsForm.filter")}</FieldLabel>
         <AlertFilters projectId={projectId} filters={filters} onFiltersChange={onFiltersChange} />
       </div>
     </SectionBox>

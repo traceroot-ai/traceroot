@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
@@ -173,6 +175,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
  * reconstructed eval-shaped trace built from the result + its scores.
  */
 export function RunDetailView({ projectId, runId }: { projectId: string; runId: string }) {
+  const t = useT();
   const { data, isLoading, error } = useEvaluationRun(projectId, runId);
   const runsListHref = useListReturnHref(
     `evaluations:${projectId}`,
@@ -235,19 +238,19 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
       <ProjectBreadcrumb projectId={projectId} />
       <PageBackHeader
         backHref={runsListHref}
-        backLabel="Evaluations"
-        title={data?.run.evaluationName ?? "Run"}
+        backLabel={t("nav.evaluations")}
+        title={data?.run.evaluationName ?? t("evalsRun.runFallback")}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
-            <p className="text-[13px] text-muted-foreground">Loading run...</p>
+            <p className="text-[13px] text-muted-foreground">{t("evalsRun.loading")}</p>
           </div>
         ) : error || !data ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2">
-            <p className="text-[13px] text-destructive">Evaluation run not found</p>
+            <p className="text-[13px] text-destructive">{t("evalsRun.notFound")}</p>
             <Link href={runsListHref} className="text-[12px] text-muted-foreground underline">
-              Back to evaluations
+              {t("evalsRun.back")}
             </Link>
           </div>
         ) : (
@@ -317,7 +320,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                     }}
                   >
                     <Plus className="h-3.5 w-3.5" aria-hidden />
-                    Add to datasets
+                    {t("evalsShared.addToDatasets")}
                   </Button>
                 )
               : undefined
@@ -326,7 +329,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             <>
               {!useRealTrace && (
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-warning-border bg-warning-soft px-2.5 py-1 text-xs text-warning">
-                  Reconstructed — no telemetry was emitted for this result
+                  {t("evalsRun.reconstructed")}
                 </span>
               )}
             </>
@@ -358,26 +361,29 @@ function PendingTracePanel({
   onRetry: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[45%] min-w-[520px] max-w-[94vw] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <span className="text-sm font-medium">Evaluation trace</span>
+        <span className="text-sm font-medium">{t("evalsMisc.evaluationTrace")}</span>
         <Button
           variant="ghost"
           size="sm"
           className="h-7 w-7 p-0"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t("evalsShared.close")}
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-[12px]">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
-        <p className="text-[13px] font-medium">Trace is still being ingested</p>
+        <p className="text-[13px] font-medium">{t("evalsRun.pendingHeading")}</p>
         <p className="max-w-[360px] leading-relaxed text-muted-foreground">
-          This result reported a trace (<span className="font-mono">{traceId.slice(0, 12)}…</span>),
-          but its telemetry hasn&apos;t finished ingesting yet. It will appear here once it lands.
+          <Slots
+            text={t("evalsRun.pendingText")}
+            slots={{ traceId: <span className="font-mono">{traceId.slice(0, 12)}…</span> }}
+          />
         </p>
         <Button
           variant="outline"
@@ -386,7 +392,7 @@ function PendingTracePanel({
           onClick={onRetry}
         >
           <Loader2 className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} aria-hidden />
-          Retry
+          {t("evalsShared.retry")}
         </Button>
       </div>
     </div>
@@ -402,6 +408,7 @@ function ResultsSection({
   onOpen: (id: string) => void;
   openResultId: string | null;
 }) {
+  const t = useT();
   const [keyword, setKeyword] = React.useState("");
 
   const visible = React.useMemo(() => {
@@ -440,7 +447,7 @@ function ResultsSection({
             <Input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="Search..."
+              placeholder={t("evalsShared.search")}
               className="h-8 pl-8 text-[13px]"
             />
           </div>
@@ -451,17 +458,17 @@ function ResultsSection({
         <Table>
           <THead>
             <TRHead>
-              <Th className="min-w-[200px]">Input</Th>
-              <Th className="min-w-[200px]">Output</Th>
-              <Th className="min-w-[180px]">Expected</Th>
+              <Th className="min-w-[200px]">{t("evalsShared.input")}</Th>
+              <Th className="min-w-[200px]">{t("evalsShared.output")}</Th>
+              <Th className="min-w-[180px]">{t("evalsShared.expected")}</Th>
               {/* One column per scorer (e.g. no_conclusion, covers_both_cities). */}
               {scorerNames.map((name) => (
                 <Th key={name} className="w-[130px] whitespace-nowrap text-right capitalize">
                   {name}
                 </Th>
               ))}
-              <Th className="w-[90px] text-right">Duration</Th>
-              <Th className="w-[90px] text-right">Cost</Th>
+              <Th className="w-[90px] text-right">{t("evalsShared.duration")}</Th>
+              <Th className="w-[90px] text-right">{t("evalsShared.cost")}</Th>
             </TRHead>
           </THead>
           <TBody>
@@ -469,9 +476,7 @@ function ResultsSection({
               <tr>
                 <td colSpan={columnCount}>
                   <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
-                    {results.length === 0
-                      ? "No per-case results reported for this run yet."
-                      : "No results match this filter."}
+                    {results.length === 0 ? t("evalsRun.emptyNone") : t("evalsRun.emptyFiltered")}
                   </p>
                 </td>
               </tr>
@@ -487,7 +492,7 @@ function ResultsSection({
                   <Td className="max-w-[260px]">
                     <span className="block truncate">
                       {result.candidateOutput ?? (
-                        <span className="text-muted-foreground">No output</span>
+                        <span className="text-muted-foreground">{t("evalsRun.noOutput")}</span>
                       )}
                     </span>
                   </Td>
@@ -506,7 +511,9 @@ function ResultsSection({
                     );
                   })}
                   <Td className="whitespace-nowrap text-right text-[12px] tabular-nums text-muted-foreground">
-                    {fmtDurationMs(result.durationMs)}
+                    {result.durationMs === null || result.durationMs === undefined
+                      ? t("evalsRun.unknown")
+                      : fmtDurationMs(result.durationMs)}
                   </Td>
                   <Td className="whitespace-nowrap text-right text-[12px] tabular-nums text-muted-foreground">
                     {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}

@@ -1,0 +1,170 @@
+import { componentsEn } from "./areas/components";
+import { shellEn } from "./areas/shell";
+import { tracesEn } from "./areas/traces";
+import { detectEn } from "./areas/detect";
+import { verifyEn } from "./areas/verify";
+import { assistantEn } from "./areas/assistant";
+import { supportEn } from "./areas/support";
+import { sweepEn } from "./areas/sweep";
+import type { PartialGroups } from "./types";
+
+// English is the source of truth: every key lives here and other languages fall back to it.
+// Keys are grouped by where the text appears; `{name}` marks a value filled in at render time.
+const core = {
+  common: {
+    save: "Save",
+    saving: "Saving...",
+    delete: "Delete",
+    cancel: "Cancel",
+    create: "Create",
+    creating: "Creating...",
+    name: "Name",
+    created: "Created",
+    updated: "Updated",
+    settings: "Settings",
+    settingsFor: "Settings for {name}",
+    viewOnly: "View only",
+  },
+  settings: {
+    general: "General",
+    members: "Members",
+    modelProviders: "Model providers",
+    integrations: "Integrations",
+    billing: "Billing",
+    apiKeys: "API keys",
+    detectors: "Detectors",
+    activeSessions: "Active sessions",
+    workspaceLink: "Workspace",
+  },
+  workspaceSettings: {
+    loading: "Loading workspace...",
+    subtitle: "Manage your workspace settings",
+    renameTitle: "Rename workspace",
+    renameText: "Update the name of your workspace. Changes will take effect immediately.",
+    deleteTitle: "Delete workspace",
+    deleteText:
+      "Permanently delete this workspace and all of its projects and data. This action cannot be undone.",
+    deleteDialogTitle: "Delete Workspace",
+    deleteDialogText:
+      'This action cannot be undone. This will permanently delete the workspace "{name}" and all associated projects and data.',
+    typeToConfirm: "Type {name} to confirm:",
+    deleting: "Deleting...",
+    integrationsSubtitle: "Connect third-party services to enhance your workspace",
+    connectedServices: "Connected services",
+  },
+  members: {
+    title: "Members",
+    subtitle: "Manage workspace members and invitations",
+    invite: "Invite member",
+    inviteTitle: "Invite New Member",
+    inviteDescription:
+      "Send an invitation to a new member. They will receive an email to join this workspace.",
+    email: "Email",
+    role: "Role",
+    sending: "Sending...",
+    sendInvitation: "Send Invitation",
+    changeRoleTitle: "Change Role",
+    changeRoleDescription: "Update the member's role in this workspace.",
+    pendingTitle: "Pending Invitations",
+    invitedBy: "Invited By",
+    cancelInvitationFor: "Cancel invitation for {email}",
+    loading: "Loading members...",
+    empty: "No members found.",
+    removeMember: "Remove member {name}",
+    roleAdmin: "Admin",
+    roleMember: "Member",
+    roleViewer: "Viewer",
+  },
+  auth: {
+    signInTitle: "Sign in to traceroot",
+    signUpTitle: "Create your account",
+    name: "Name",
+    email: "Email",
+    password: "Password",
+    confirmPassword: "Confirm Password",
+    signIn: "Sign in",
+    signingIn: "Signing in...",
+    signUp: "Sign up",
+    creatingAccount: "Creating account...",
+    noAccount: "Don't have an account?",
+    haveAccount: "Already have an account?",
+    orContinueWith: "Or continue with",
+    redirecting: "Redirecting...",
+    errorInvalidEmail: "Invalid email",
+    errorPasswordRequired: "Password is required",
+    errorNameRequired: "Name is required",
+    errorPasswordLength: "Password must be at least 8 characters",
+    errorPasswordMismatch: "Passwords don't match",
+    errorInvalidCredentials: "Invalid credentials",
+    errorUnexpected: "An unexpected error occurred",
+    errorCreateFailed: "Failed to create account",
+    errorStartFailed: "Could not start sign-in. Please try again.",
+  },
+  nav: {
+    home: "Home",
+    observe: "Observe",
+    traces: "Tracing",
+    dashboard: "Dashboard",
+    detect: "Detect",
+    detectors: "Detectors",
+    signals: "Signals",
+    alerts: "Alerts",
+    verify: "Verify",
+    datasets: "Datasets",
+    evaluations: "Evaluations",
+    workspaces: "Workspaces",
+    support: "Support",
+    homeLabel: "traceroot home",
+  },
+  account: {
+    menu: "Account menu",
+    fallbackName: "User",
+    theme: "Theme",
+    themeLight: "Light",
+    themeDark: "Dark",
+    themeSystem: "System",
+    language: "Language",
+    supportConsole: "Support console",
+    activeSessions: "Active sessions",
+    logOut: "Log out",
+    exitImpersonation: "Exit impersonation",
+  },
+  workspaces: {
+    title: "Workspaces",
+    loading: "Loading workspaces...",
+    emptyTitle: "No workspaces yet",
+    emptyText: "Create your first workspace to get started",
+    newWorkspace: "New workspace",
+    newDescription: "Create a new workspace to manage your projects and team members.",
+    namePlaceholder: "Workspace name",
+  },
+  projects: {
+    title: "Projects",
+    loading: "Loading projects...",
+    emptyTitle: "No projects yet",
+    emptyText: "Create your first project to start tracking traces",
+    newProject: "New project",
+    createTitle: "Create Project",
+    createDescription: "Create a new project to start tracking your AI agent traces.",
+    namePlaceholder: "Project name",
+  },
+};
+
+// Larger areas keep their groups in ./areas so they can be worked on independently.
+export const en = {
+  ...core,
+  ...componentsEn,
+  ...shellEn,
+  ...tracesEn,
+  ...detectEn,
+  ...verifyEn,
+  ...assistantEn,
+  ...supportEn,
+  ...sweepEn,
+};
+
+export type Messages = typeof en;
+export type PartialMessages = PartialGroups<Messages>;
+export type MessageKey = {
+  [Group in keyof Messages]: `${Group}.${Extract<keyof Messages[Group], string>}`;
+}[keyof Messages];

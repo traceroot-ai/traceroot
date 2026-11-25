@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+
 type AccountLineProps = {
   email: string | null;
   pending: boolean;
@@ -34,19 +36,20 @@ type AccountLineProps = {
  * allowed to wrap.
  */
 export function AccountLine({ email, pending, onSwitchAccount }: AccountLineProps) {
+  const t = useT();
   if (!email) {
     return null;
   }
   return (
     <div className="space-y-0.5 break-words text-center text-[12px] text-muted-foreground">
-      <p>as {email}</p>
+      <p>{t("componentsAccountLine.signedInAs", { email })}</p>
       <button
         type="button"
         onClick={onSwitchAccount}
         disabled={pending}
         className="underline hover:text-foreground disabled:opacity-50"
       >
-        Not you? Sign out
+        {t("componentsAccountLine.switchAccount")}
       </button>
     </div>
   );

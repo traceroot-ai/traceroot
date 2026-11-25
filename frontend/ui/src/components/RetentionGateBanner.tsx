@@ -8,6 +8,7 @@ import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import type { RetentionErrorDetail } from "@/lib/api/retention";
+import { useT } from "@/lib/i18n/provider";
 
 interface RetentionGateBannerProps {
   projectId: string;
@@ -18,6 +19,7 @@ interface RetentionGateBannerProps {
 // retention window. List pages don't use this — they silently clamp the query
 // window instead — so there is only this one "detail" form.
 export function RetentionGateBanner({ projectId, detail }: RetentionGateBannerProps) {
+  const t = useT();
   const [showPricing, setShowPricing] = useState(false);
   const { data: project } = useProject(projectId);
   const workspaceId = project?.workspace_id ?? "";
@@ -31,12 +33,9 @@ export function RetentionGateBanner({ projectId, detail }: RetentionGateBannerPr
     <>
       <div className="flex h-64 flex-col items-center justify-center gap-3 px-6 text-center">
         <Lock className="h-8 w-8 text-muted-foreground" />
-        <p className="text-[13px] font-medium text-foreground">
-          This trace is outside your retention window
-        </p>
+        <p className="text-[13px] font-medium text-foreground">{t("componentsRetention.title")}</p>
         <p className="text-[12px] text-muted-foreground">
-          Your {planLabel} plan retains the last {detail.retention_days} days of data. Upgrade to
-          access this trace.
+          {t("componentsRetention.text", { plan: planLabel, days: detail.retention_days })}
         </p>
         <Button
           variant="default"
@@ -45,7 +44,7 @@ export function RetentionGateBanner({ projectId, detail }: RetentionGateBannerPr
           disabled={!workspace}
           onClick={() => setShowPricing(true)}
         >
-          Upgrade Plan
+          {t("componentsRetention.upgradePlan")}
         </Button>
       </div>
 

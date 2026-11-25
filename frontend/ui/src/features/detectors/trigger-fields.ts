@@ -17,6 +17,8 @@
  */
 
 import { MAX_FILTERS, MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "@/features/filters/predicate";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import type { Translate } from "@/lib/i18n/translate";
 
 export interface TriggerCondition {
   field: string;
@@ -29,6 +31,8 @@ export interface TriggerCondition {
 export interface TriggerFieldDef {
   field: string;
   label: string;
+  /** The label in the visitor's language; `label` stays English for API error messages. */
+  labelKey: MessageKey;
   ops: readonly string[];
   /** enum: observed-values dropdown; number: numeric input; text: free text. */
   valueKind: "enum" | "number" | "text";
@@ -41,15 +45,55 @@ const NUMERIC_OPS = [">", ">=", "<", "<=", "="] as const;
 const METADATA_OPS = ["=", "contains"] as const;
 
 export const TRIGGER_FIELD_DEFS: readonly TriggerFieldDef[] = [
-  { field: "model_name", label: "Model", ops: STRING_OPS, valueKind: "enum" },
-  { field: "environment", label: "Environment", ops: STRING_OPS, valueKind: "enum" },
-  { field: "cost", label: "Cost", ops: NUMERIC_OPS, valueKind: "number" },
-  { field: "total_tokens", label: "Tokens", ops: NUMERIC_OPS, valueKind: "number", integer: true },
-  { field: "duration_ms", label: "Latency", ops: NUMERIC_OPS, valueKind: "number", integer: true },
-  { field: "errors", label: "Errors", ops: NUMERIC_OPS, valueKind: "number", integer: true },
+  {
+    field: "model_name",
+    label: "Model",
+    labelKey: "detectorsFilter.fieldModel",
+    ops: STRING_OPS,
+    valueKind: "enum",
+  },
+  {
+    field: "environment",
+    label: "Environment",
+    labelKey: "detectorsFilter.fieldEnvironment",
+    ops: STRING_OPS,
+    valueKind: "enum",
+  },
+  {
+    field: "cost",
+    label: "Cost",
+    labelKey: "detectorsFilter.fieldCost",
+    ops: NUMERIC_OPS,
+    valueKind: "number",
+  },
+  {
+    field: "total_tokens",
+    label: "Tokens",
+    labelKey: "detectorsFilter.fieldTokens",
+    ops: NUMERIC_OPS,
+    valueKind: "number",
+    integer: true,
+  },
+  {
+    field: "duration_ms",
+    label: "Latency",
+    labelKey: "detectorsFilter.fieldLatency",
+    ops: NUMERIC_OPS,
+    valueKind: "number",
+    integer: true,
+  },
+  {
+    field: "errors",
+    label: "Errors",
+    labelKey: "detectorsFilter.fieldErrors",
+    ops: NUMERIC_OPS,
+    valueKind: "number",
+    integer: true,
+  },
   {
     field: "metadata",
     label: "Metadata",
+    labelKey: "detectorsFilter.fieldMetadata",
     ops: METADATA_OPS,
     valueKind: "text",
     requiresKey: true,
@@ -92,10 +136,24 @@ export function normalizeTriggerConditions(conditions: TriggerCondition[]): Trig
 
 const NUMERIC_OP_SYMBOL: Record<string, string> = { ">=": "≥", "<=": "≤" };
 const STRING_OP_LABEL: Record<string, string> = { "=": "is", "!=": "is not" };
+const STRING_OP_LABEL_KEY: Record<string, MessageKey> = {
+  "=": "detectorsFilter.opIs",
+  "!=": "detectorsFilter.opIsNot",
+  contains: "detectorsFilter.opContains",
+};
 
-/** Display label for an operator, matching the shared filter builders' vocabulary. */
-export function triggerOpLabel(def: TriggerFieldDef | undefined, op: string): string {
+/**
+ * Display label for an operator, matching the shared filter builders' vocabulary.
+ * With `t` the label is in the visitor's language; without it, English.
+ */
+export function triggerOpLabel(
+  def: TriggerFieldDef | undefined,
+  op: string,
+  t?: Translate,
+): string {
   if (def?.valueKind === "number") return NUMERIC_OP_SYMBOL[op] ?? op;
+  const key = STRING_OP_LABEL_KEY[op];
+  if (t && key) return t(key);
   return STRING_OP_LABEL[op] ?? op;
 }
 
@@ -146,4 +204,33 @@ export function validateTriggerConditions(conditions: unknown): string | null {
     if (error) return error;
   }
   return null;
+}
+
+// The validation messages are written once in English, because the API routes return them too.
+// The form maps the ones a filter row can produce to keys when it shows them.
+const CONDITION_ERROR_KEYS: Record<string, MessageKey> = {
+  "has an unknown field": "detectorsFilter.errUnknownField",
+  "requires a metadata key": "detectorsFilter.errNeedsKey",
+  "key is too long": "detectorsFilter.errKeyTooLong",
+  "does not take a key": "detectorsFilter.errNoKey",
+  "requires a non-negative number": "detectorsFilter.errNeedsNumber",
+  "requires a whole number": "detectorsFilter.errNeedsInteger",
+  "requires a non-empty value": "detectorsFilter.errNeedsValue",
+  "value is too long": "detectorsFilter.errValueTooLong",
+};
+const INVALID_OPERATOR = "has an invalid operator for ";
+
+/** A `validateTriggerConditions` message in the visitor's language; unknown ones pass through. */
+export function translateTriggerError(t: Translate, message: string | null): string | null {
+  if (!message) return message;
+  const match = /^condition (\d+) (.+)$/.exec(message);
+  if (!match) return message;
+  const [, n, problem] = match;
+  if (problem.startsWith(INVALID_OPERATOR)) {
+    const label = problem.slice(INVALID_OPERATOR.length);
+    const def = TRIGGER_FIELD_DEFS.find((d) => d.label === label);
+    return t("detectorsFilter.errInvalidOperator", { n, field: def ? t(def.labelKey) : label });
+  }
+  const key = CONDITION_ERROR_KEYS[problem];
+  return key ? t(key, { n }) : message;
 }

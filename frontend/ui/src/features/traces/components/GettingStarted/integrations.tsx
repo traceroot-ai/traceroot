@@ -1,4 +1,5 @@
 import { LLMAdapter } from "@traceroot/core";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 export type Lang = "python" | "typescript";
 
@@ -81,10 +82,23 @@ export const ALL_LANGS: Lang[] = ["python", "typescript"];
  * CrewAI and LangGraph next to the Claude Agent SDK, the Vercel AI SDK and
  * LlamaIndex. Naming only half of it is what made splitting it look necessary.
  */
-export const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "provider", label: "Model providers" },
-  { category: "framework", label: "Frameworks & SDKs" },
-  { category: "coding-agent", label: "Coding agents" },
+export const INTEGRATION_GROUPS: {
+  category: IntegrationCategory;
+  label: string;
+  /** The label's translation key. `label` stays as the English text. */
+  labelKey: MessageKey;
+}[] = [
+  { category: "provider", label: "Model providers", labelKey: "tracesManual.groupProviders" },
+  {
+    category: "framework",
+    label: "Frameworks & SDKs",
+    labelKey: "tracesManual.groupFrameworksAndSdks",
+  },
+  {
+    category: "coding-agent",
+    label: "Coding agents",
+    labelKey: "tracesManual.groupCodingAgents",
+  },
 ];
 
 const PYTHON_INSTALL_COMMAND = "pip install traceroot";

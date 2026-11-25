@@ -1,13 +1,17 @@
+import type { Translate } from "@/lib/i18n/translate";
+
 /**
  * Human-friendly label for a session row's client, derived from its raw
  * user-agent string. The CLI sends a fixed `traceroot-cli/<version>`
  * user-agent on every request (unrelated to DEVICE_CLIENT_IDS, which only
  * labels the device-consent screen); everything else is a browser session
  * and gets a best-effort browser/OS summary instead of the raw string.
+ *
+ * `t` puts the label in the visitor's language; without it the label is English.
  */
-export function formatSessionAgent(userAgent: string | null | undefined): string {
+export function formatSessionAgent(userAgent: string | null | undefined, t?: Translate): string {
   if (!userAgent) {
-    return "Unknown device";
+    return t ? t("activeSessions.unknownDevice") : "Unknown device";
   }
 
   if (userAgent.startsWith("traceroot-cli")) {
@@ -18,7 +22,7 @@ export function formatSessionAgent(userAgent: string | null | undefined): string
   const os = detectOS(userAgent);
 
   if (browser && os) {
-    return `${browser} on ${os}`;
+    return t ? t("activeSessions.browserOnOs", { browser, os }) : `${browser} on ${os}`;
   }
   // Fall back to whichever half we found, or the raw string as a last
   // resort so an unrecognized user-agent is still visible, not hidden.

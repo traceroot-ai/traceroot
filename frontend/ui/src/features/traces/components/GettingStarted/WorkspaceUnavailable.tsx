@@ -1,3 +1,7 @@
+"use client";
+
+import { useT } from "@/lib/i18n/provider";
+
 /**
  * Stands in for a workspace-scoped step when there is no workspace to scope it
  * to.
@@ -13,10 +17,8 @@
  * different files: the external integrations on each of the setup tabs.
  */
 export function WorkspaceUnavailable() {
+  const t = useT();
   return (
-    <p className="text-[12px] text-muted-foreground">
-      This project&apos;s workspace could not be loaded, so this step is unavailable. Reload the
-      page to try again.
-    </p>
+    <p className="text-[12px] text-muted-foreground">{t("tracesSetup.workspaceUnavailable")}</p>
   );
 }

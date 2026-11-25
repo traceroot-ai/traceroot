@@ -12,6 +12,7 @@
 
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanKind } from "@traceroot/core";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 export type { Span, TraceDetail };
 export type { SpanKind };
@@ -45,9 +46,21 @@ export const RESULT_STATUS_LABEL: Record<ResultStatus, string> = {
   needs_review: "Needs review",
 };
 
+/** The same labels as message keys, for showing a status in the visitor's language. */
+export const RESULT_STATUS_LABEL_KEY: Record<ResultStatus, MessageKey> = {
+  passed: "offlineEvalStatus.passed",
+  failed: "offlineEvalStatus.failed",
+  needs_review: "offlineEvalStatus.needsReview",
+};
+
 export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
   needs_review: "Needs review",
   ready: "Ready",
+};
+
+export const REVIEW_STATUS_LABEL_KEY: Record<ReviewStatus, MessageKey> = {
+  needs_review: "offlineEvalStatus.needsReview",
+  ready: "offlineEvalStatus.ready",
 };
 
 export const REVIEW_STATUS_HELP: Record<ReviewStatus, string> = {
@@ -191,6 +204,13 @@ export const EVAL_RESULT_STATUS_LABEL: Record<EvalResultStatus, string> = {
   failed: "Did not pass",
   errored: "Errored",
   not_scored: "Not scored",
+};
+
+export const EVAL_RESULT_STATUS_LABEL_KEY: Record<EvalResultStatus, MessageKey> = {
+  passed: "offlineEvalStatus.passed",
+  failed: "offlineEvalStatus.didNotPass",
+  errored: "offlineEvalStatus.errored",
+  not_scored: "offlineEvalStatus.notScored",
 };
 
 /** Per-run totals reported by the SDK, shown low on the run detail page. */

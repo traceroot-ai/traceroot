@@ -10,6 +10,7 @@ import {
   type AlertDisplayInput,
   type AlertTone,
 } from "./alert-display";
+import { useT } from "@/lib/i18n/provider";
 
 const TONE_STYLES: Record<AlertTone, string> = {
   ok: "bg-success-soft text-success",
@@ -28,14 +29,15 @@ export interface AlertSeverityBadgeProps extends AlertDisplayInput {
 }
 
 export function AlertSeverityBadge({ workspaceId, className, ...alert }: AlertSeverityBadgeProps) {
-  const { label, tone, detail } = resolveAlertDisplayState(alert);
+  const t = useT();
+  const { label, tone, detail } = resolveAlertDisplayState(alert, t);
   const badgeClassName = cn(BADGE, TONE_STYLES[tone], className);
 
   if (detail === undefined) {
     return <span className={badgeClassName}>{label}</span>;
   }
 
-  const fix = resolveAlertDeliveryFix(alert);
+  const fix = resolveAlertDeliveryFix(alert, t);
   const fixHref =
     fix && workspaceId ? `/workspaces/${workspaceId}/settings/${fix.settingsPage}` : null;
 

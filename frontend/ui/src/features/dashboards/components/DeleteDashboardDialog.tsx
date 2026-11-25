@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useDashboardMutations } from "../hooks/use-dashboards";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +26,7 @@ export function DeleteDashboardDialog({
   target: { id: string; name: string } | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const { removeDashboard } = useDashboardMutations(projectId);
 
   const handleOpenChange = (next: boolean) => {
@@ -52,13 +55,15 @@ export function DeleteDashboardDialog({
     <Dialog open={target !== null} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete Dashboard</DialogTitle>
+          <DialogTitle>{t("dashboardsList.deleteTitle")}</DialogTitle>
           <DialogDescription>
-            Permanently delete “{target?.name}” and all of its widgets? This cannot be undone.
+            {t("dashboardsList.deleteText", { name: target?.name ?? "" })}
           </DialogDescription>
         </DialogHeader>
         {removeDashboard.isError && (
-          <p className="text-sm text-destructive">{removeDashboard.error.message}</p>
+          <p className="text-sm text-destructive">
+            {translateClientError(t, removeDashboard.error.message)}
+          </p>
         )}
         <DialogFooter>
           <Button
@@ -66,10 +71,10 @@ export function DeleteDashboardDialog({
             onClick={() => handleOpenChange(false)}
             disabled={removeDashboard.isPending}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button variant="destructive" onClick={handleDelete} disabled={removeDashboard.isPending}>
-            {removeDashboard.isPending ? "Deleting..." : "Delete"}
+            {removeDashboard.isPending ? t("dashboardsList.deleting") : t("common.delete")}
           </Button>
         </DialogFooter>
       </DialogContent>

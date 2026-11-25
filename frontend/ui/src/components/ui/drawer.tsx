@@ -4,6 +4,20 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+
+// A component of its own so the label can use the translation hook.
+function DrawerCloseButton() {
+  const t = useT();
+  return (
+    <DialogPrimitive.Close
+      className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      aria-label={t("componentsUi.close")}
+    >
+      <X className="h-4 w-4" />
+    </DialogPrimitive.Close>
+  );
+}
 
 /**
  * Right-anchored (or `side="left"`), NON-MODAL slide-in panel for multi-step flows.
@@ -66,14 +80,7 @@ const DrawerContent = React.forwardRef<
         {...props}
       >
         {children}
-        {!hideClose && (
-          <DialogPrimitive.Close
-            className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </DialogPrimitive.Close>
-        )}
+        {!hideClose && <DrawerCloseButton />}
       </DialogPrimitive.Content>
     </DrawerPortal>
   ),

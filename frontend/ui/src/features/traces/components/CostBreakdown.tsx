@@ -1,4 +1,7 @@
+"use client";
+
 import { formatCost } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { summarizeCostDetails } from "../utils";
 import { MetricDelta } from "./MetricDelta";
 
@@ -50,6 +53,7 @@ function Row({
  * In trace diff mode `baselineDetails` is supplied and each row gains a ± delta.
  */
 export function CostBreakdown({ details, baselineDetails }: CostBreakdownProps) {
+  const t = useT();
   const c = summarizeCostDetails(details);
   // `baselineDetails` is `null` (not just `undefined`) whenever the baseline trace/span
   // has no cost breakdown (e.g. it predates pricing data) — treat that the same as
@@ -59,23 +63,50 @@ export function CostBreakdown({ details, baselineDetails }: CostBreakdownProps) 
 
   return (
     <div className="min-w-[220px] text-xs">
-      <div className="mb-2 font-semibold">Cost breakdown</div>
+      <div className="mb-2 font-semibold">{t("tracesBreakdown.costTitle")}</div>
 
-      <Row label="Input cost" value={c.inputCost} baseline={b?.inputCost} emphasis="section" />
+      <Row
+        label={t("tracesBreakdown.inputCost")}
+        value={c.inputCost}
+        baseline={b?.inputCost}
+        emphasis="section"
+      />
       <div className="mt-1 space-y-0.5">
-        <Row label="uncached" value={c.inputUncachedCost} baseline={b?.inputUncachedCost} />
-        <Row label="cache read" value={c.cacheReadCost} baseline={b?.cacheReadCost} />
-        <Row label="cache write" value={c.cacheWriteCost} baseline={b?.cacheWriteCost} />
+        <Row
+          label={t("tracesBreakdown.uncached")}
+          value={c.inputUncachedCost}
+          baseline={b?.inputUncachedCost}
+        />
+        <Row
+          label={t("tracesBreakdown.cacheRead")}
+          value={c.cacheReadCost}
+          baseline={b?.cacheReadCost}
+        />
+        <Row
+          label={t("tracesBreakdown.cacheWrite")}
+          value={c.cacheWriteCost}
+          baseline={b?.cacheWriteCost}
+        />
       </div>
 
       <div className="mt-2">
-        <Row label="Output cost" value={c.outputCost} baseline={b?.outputCost} emphasis="section" />
+        <Row
+          label={t("tracesBreakdown.outputCost")}
+          value={c.outputCost}
+          baseline={b?.outputCost}
+          emphasis="section"
+        />
       </div>
       <div className="mt-1 space-y-0.5">
-        <Row label="output" value={c.outputCost} baseline={b?.outputCost} />
+        <Row label={t("tracesBreakdown.output")} value={c.outputCost} baseline={b?.outputCost} />
       </div>
 
-      <Row label="Total cost" value={c.total} baseline={b?.total} emphasis="total" />
+      <Row
+        label={t("tracesBreakdown.totalCost")}
+        value={c.total}
+        baseline={b?.total}
+        emphasis="total"
+      />
     </div>
   );
 }

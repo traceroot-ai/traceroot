@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import type { TraceSource } from "@/lib/api/traces";
-import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
+import { X, Inbox, AlertTriangle, Plus, type LucideIcon } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Switch } from "@/components/ui/switch";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -41,13 +41,34 @@ import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { useT } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 // Tab definitions
-const tabs = [
-  { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
-  { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
-  { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
-];
+const tabs: { id: string; label: string; labelKey: MessageKey; icon: LucideIcon; href: string }[] =
+  [
+    {
+      id: "traces",
+      label: "Traces",
+      labelKey: "tracesTabs.traces",
+      icon: DOMAIN_ICONS.trace,
+      href: "traces",
+    },
+    {
+      id: "users",
+      label: "Users",
+      labelKey: "tracesTabs.users",
+      icon: DOMAIN_ICONS.user,
+      href: "users",
+    },
+    {
+      id: "sessions",
+      label: "Sessions",
+      labelKey: "tracesTabs.sessions",
+      icon: DOMAIN_ICONS.session,
+      href: "sessions",
+    },
+  ];
 
 /** How long "Your first trace arrived. Opening it…" shows before the trace opens. */
 const FIRST_TRACE_OPEN_DELAY_MS = 1500;
@@ -57,6 +78,7 @@ export default function TracesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = params.projectId as string;
+  const t = useT();
   const queryClient = useQueryClient();
   const { setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
@@ -278,7 +300,7 @@ export default function TracesPage() {
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
-                    {tab.label}
+                    {t(tab.labelKey)}
                   </Link>
                 );
               })}
@@ -309,14 +331,10 @@ export default function TracesPage() {
               <>
                 <div
                   className="flex h-8 items-center gap-2 bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
-                  title={
-                    autoRefresh
-                      ? "Live list refresh on (every 5s) — click to disable"
-                      : "Enable live list refresh"
-                  }
+                  title={autoRefresh ? t("tracesList.liveOnTitle") : t("tracesList.liveOffTitle")}
                 >
                   <label htmlFor="traces-live-refresh" className="cursor-pointer">
-                    Live
+                    {t("tracesList.live")}
                   </label>
                   <Switch
                     id="traces-live-refresh"
@@ -335,7 +353,9 @@ export default function TracesPage() {
             {userId && (
               <div className="flex items-center gap-1.5 rounded-[2px] border border-border bg-background py-1 pl-2.5 pr-1.5 hover:bg-muted">
                 <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[12px] text-muted-foreground">User:</span>
+                <span className="text-[12px] text-muted-foreground">
+                  {t("tracesList.userFilter")}
+                </span>
                 <span className="text-[12px] font-medium text-foreground">{userId}</span>
                 <button
                   type="button"
@@ -353,15 +373,13 @@ export default function TracesPage() {
         <div className="flex-1 overflow-auto bg-background">
           {isLoading || checking ? (
             <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading traces..." />
+              <LoadingState label={t("tracesList.loading")} />
             </div>
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
               <AlertTriangle className="h-8 w-8 text-destructive/50" />
-              <p className="text-[13px] text-destructive">Error loading traces</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running and you have API keys configured.
-              </p>
+              <p className="text-[13px] text-destructive">{t("tracesList.errorTitle")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("tracesList.errorText")}</p>
             </div>
           ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} wait={firstTraceWait} />
@@ -370,12 +388,10 @@ export default function TracesPage() {
               <Inbox className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-[13px] text-muted-foreground">
                 {firstTrace.kind === "hidden"
-                  ? "Your first trace arrived, but the current filters hide it"
-                  : "No traces found"}
+                  ? t("tracesList.firstTraceHidden")
+                  : t("tracesList.empty")}
               </p>
-              <p className="text-[12px] text-muted-foreground">
-                Try adjusting your filters or date range.
-              </p>
+              <p className="text-[12px] text-muted-foreground">{t("tracesList.emptyHint")}</p>
             </div>
           ) : (
             <div className="flex h-full flex-col">
@@ -449,7 +465,7 @@ export default function TracesPage() {
               }}
             >
               <Plus className="h-3.5 w-3.5" aria-hidden />
-              Add to datasets
+              {t("tracesList.addToDatasets")}
             </Button>
           )}
           // Offline eval: while the "Save as test case" drawer is open, clicking a

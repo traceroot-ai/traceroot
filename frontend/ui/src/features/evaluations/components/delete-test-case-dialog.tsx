@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -21,24 +23,26 @@ export function DeleteTestCaseDialog({
   onConfirm: () => void;
   isDeleting?: boolean;
 }) {
+  const t = useT();
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
-          <DialogTitle>Delete row</DialogTitle>
+          <DialogTitle>{t("datasetsDelete.rowTitle")}</DialogTitle>
         </DialogHeader>
         <div className="mt-1 space-y-4">
           <p className="text-[12px] text-muted-foreground">
-            This removes <span className="font-medium text-foreground">{rowLabel}</span> from the
-            current version by publishing a new one. Earlier versions still contain it, so any run
-            that scored it is unaffected.
+            <Slots
+              text={t("datasetsDelete.rowText")}
+              slots={{ name: <span className="font-medium text-foreground">{rowLabel}</span> }}
+            />
           </p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="button" variant="destructive" disabled={isDeleting} onClick={onConfirm}>
-              {isDeleting ? "Deleting…" : "Delete"}
+              {isDeleting ? t("evalsShared.deleting") : t("common.delete")}
             </Button>
           </div>
         </div>

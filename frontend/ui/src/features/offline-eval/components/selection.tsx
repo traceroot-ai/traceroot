@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * Row selection, the way the reference tables do it: a checkbox
@@ -83,13 +84,16 @@ export function SelectAllHeaderCell({
   indeterminate: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   return (
     <th className="w-8 border-r border-border px-3 py-1.5 text-left">
       <Checkbox
         checked={checked}
         indeterminate={indeterminate}
         onCheckedChange={onToggle}
-        aria-label={checked ? "Deselect all" : "Select all"}
+        aria-label={
+          checked ? t("offlineEvalSelection.deselectAll") : t("offlineEvalSelection.selectAll")
+        }
       />
     </th>
   );
@@ -148,6 +152,7 @@ export function BulkActionBar({
   extra?: React.ReactNode;
   className?: string;
 }) {
+  const t = useT();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
 
@@ -174,7 +179,9 @@ export function BulkActionBar({
     >
       {count > 0 && (
         <>
-          <span className="text-[12px] font-medium tabular-nums">{count} selected</span>
+          <span className="text-[12px] font-medium tabular-nums">
+            {t("offlineEvalSelection.selected", { count })}
+          </span>
           {(onDelete || extra) && <span className="h-4 w-px bg-border" aria-hidden />}
           {onDelete && (
             <>
@@ -184,18 +191,20 @@ export function BulkActionBar({
                 className="h-6 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => setConfirmOpen(true)}
                 disabled={pending}
-                aria-label={`Delete ${count} selected`}
+                aria-label={t("offlineEvalSelection.deleteSelected", { count })}
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                Delete
+                {t("common.delete")}
               </Button>
               <Dialog open={confirmOpen} onOpenChange={(open) => !pending && setConfirmOpen(open)}>
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
                     <DialogTitle>
-                      Delete {count} run{count === 1 ? "" : "s"}?
+                      {count === 1
+                        ? t("offlineEvalSelection.deleteRunsOne", { count })
+                        : t("offlineEvalSelection.deleteRunsOther", { count })}
                     </DialogTitle>
-                    <DialogDescription>This cannot be undone.</DialogDescription>
+                    <DialogDescription>{t("offlineEvalSelection.cannotUndo")}</DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
                     <Button
@@ -204,7 +213,7 @@ export function BulkActionBar({
                       onClick={() => setConfirmOpen(false)}
                       disabled={pending}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                     <Button
                       variant="outline"
@@ -213,7 +222,9 @@ export function BulkActionBar({
                       onClick={handleConfirm}
                       disabled={pending}
                     >
-                      {pending ? "Deleting…" : `Delete ${count} selected`}
+                      {pending
+                        ? t("evalsShared.deleting")
+                        : t("offlineEvalSelection.deleteSelected", { count })}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -228,7 +239,7 @@ export function BulkActionBar({
             onClick={onClear}
             disabled={pending}
           >
-            Clear
+            {t("offlineEvalSelection.clear")}
           </Button>
         </>
       )}

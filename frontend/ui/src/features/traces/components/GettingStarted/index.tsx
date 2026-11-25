@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FirstTraceLine } from "@/components/first-trace-line";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 import { SetupTabs, type SetupTab } from "./SetupTabs";
+import { useT } from "@/lib/i18n/provider";
 
 interface GettingStartedProps {
   projectId: string;
@@ -24,14 +25,13 @@ interface GettingStartedProps {
  */
 export function GettingStarted({ projectId, wait }: GettingStartedProps) {
   const [tab, setTab] = useState<SetupTab>("ai");
+  const t = useT();
 
   return (
     <div className="w-full p-4">
       <div className="w-full max-w-4xl">
-        <h2 className="text-[15px] font-medium">Get started with tracing</h2>
-        <p className="mt-1 text-[13px] text-muted-foreground">
-          No traces in this project yet. Get started in a few minutes with the command below.
-        </p>
+        <h2 className="text-[15px] font-medium">{t("tracesSetup.title")}</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">{t("tracesSetup.intro")}</p>
         <div className="mt-2">
           <FirstTraceLine wait={wait} align="start" />
         </div>
@@ -43,9 +43,9 @@ export function GettingStarted({ projectId, wait }: GettingStartedProps) {
             tab={tab}
             onTabChange={setTab}
             commandCopy={{
-              title: "Run this in your project",
+              title: t("tracesSetup.commandTitle"),
               label: "bash",
-              note: "It asks before editing your code. Needs Node.js 20.12 or later.",
+              note: t("tracesSetup.commandNote"),
             }}
           />
         </div>

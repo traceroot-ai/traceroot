@@ -15,8 +15,8 @@ import { FieldLabel, SectionBox } from "@/features/dashboards/components/Section
 import {
   ALERT_NAME_MAX,
   ALERT_NO_DATA_MODES,
-  ALERT_NO_DATA_MODE_HINTS,
-  ALERT_NO_DATA_MODE_LABELS,
+  ALERT_NO_DATA_MODE_HINT_KEYS,
+  ALERT_NO_DATA_MODE_LABEL_KEYS,
   ALERT_RENOTIFY_MAX_MINUTES,
   ALERT_RENOTIFY_MIN_MINUTES,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
@@ -26,6 +26,7 @@ import {
 } from "../rule-model";
 import { CONTROL_SIZE } from "./form-controls";
 import { SlackIntegrationLink } from "./slack-integration-link";
+import { useT } from "@/lib/i18n/provider";
 
 interface RenotifyIntervalFieldProps {
   intervalMinutes: number;
@@ -41,6 +42,7 @@ interface RenotifyIntervalFieldProps {
  * needs to reset it must remount it (key it by the rule's identity).
  */
 function RenotifyIntervalField({ intervalMinutes, onIntervalChange }: RenotifyIntervalFieldProps) {
+  const t = useT();
   const [draft, setDraft] = useState(String(intervalMinutes));
 
   const handleChange = (value: string) => {
@@ -63,13 +65,13 @@ function RenotifyIntervalField({ intervalMinutes, onIntervalChange }: RenotifyIn
 
   return (
     <div>
-      <FieldLabel>Re-alert every (minutes)</FieldLabel>
+      <FieldLabel>{t("alertsForm.renotifyInterval")}</FieldLabel>
       <Input
         type="number"
         value={draft}
         onChange={(e) => handleChange(e.target.value)}
         onBlur={handleBlur}
-        aria-label="renotify interval"
+        aria-label={t("alertsForm.renotifyIntervalLabel")}
         required
         min={ALERT_RENOTIFY_MIN_MINUTES}
         max={ALERT_RENOTIFY_MAX_MINUTES}
@@ -109,6 +111,7 @@ export function NotificationsSection({
   onRenotifyChange,
   onNameChange,
 }: NotificationsSectionProps) {
+  const t = useT();
   const { data: project, isError: isProjectError } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   // isLoading, not isPending: this query is disabled until the workspace is
@@ -119,32 +122,32 @@ export function NotificationsSection({
   const integrationsHref = workspaceId ? `/workspaces/${workspaceId}/settings/integrations` : null;
 
   return (
-    <SectionBox label="Notify">
+    <SectionBox label={t("alertsForm.notify")}>
       <div className="p-4">
-        <FieldLabel>When a window has no data</FieldLabel>
+        <FieldLabel>{t("alertsForm.noDataField")}</FieldLabel>
         <Select
           value={noDataMode}
           onValueChange={(mode) => onNoDataModeChange(mode as AlertNoDataMode)}
         >
-          <SelectTrigger className={CONTROL_SIZE} aria-label="no data mode">
+          <SelectTrigger className={CONTROL_SIZE} aria-label={t("alertsForm.noDataLabel")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {ALERT_NO_DATA_MODES.map((mode) => (
               <SelectItem key={mode} value={mode}>
-                {ALERT_NO_DATA_MODE_LABELS[mode]}
+                {t(ALERT_NO_DATA_MODE_LABEL_KEYS[mode])}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
-          {ALERT_NO_DATA_MODE_HINTS[noDataMode]}
+          {t(ALERT_NO_DATA_MODE_HINT_KEYS[noDataMode])}
         </p>
       </div>
       <div className="p-4">
         <div className="flex flex-col gap-4">
           <div>
-            <FieldLabel>Renotify</FieldLabel>
+            <FieldLabel>{t("alertsForm.renotify")}</FieldLabel>
             <Select
               value={renotify.mode}
               // A mode change builds a new renotify rather than editing one,
@@ -160,12 +163,12 @@ export function NotificationsSection({
                 )
               }
             >
-              <SelectTrigger className={CONTROL_SIZE} aria-label="renotify">
+              <SelectTrigger className={CONTROL_SIZE} aria-label={t("alertsForm.renotifyLabel")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="OFF">Off (alert only on transitions)</SelectItem>
-                <SelectItem value="EVERY">Re-alert at a regular interval</SelectItem>
+                <SelectItem value="OFF">{t("alertsForm.renotifyOff")}</SelectItem>
+                <SelectItem value="EVERY">{t("alertsForm.renotifyEvery")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -181,25 +184,23 @@ export function NotificationsSection({
       </div>
       {/* The name is how the alert identifies itself in the Slack message. */}
       <div className="p-4">
-        <FieldLabel>Name</FieldLabel>
+        <FieldLabel>{t("common.name")}</FieldLabel>
         <Input
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
-          placeholder="e.g. p95 latency"
-          aria-label="name"
+          placeholder={t("alertsForm.namePlaceholder")}
+          aria-label={t("alertsForm.nameLabel")}
           required
           maxLength={ALERT_NAME_MAX}
           className={CONTROL_SIZE}
         />
       </div>
       <div className="p-4">
-        <FieldLabel>Integration</FieldLabel>
+        <FieldLabel>{t("alertsForm.integration")}</FieldLabel>
         {isProjectError ? (
-          <p className="text-[12px] text-destructive">
-            The workspace could not be loaded. Reload the page to try again.
-          </p>
+          <p className="text-[12px] text-destructive">{t("alertsForm.workspaceLoadError")}</p>
         ) : !integrationsHref || isSlackStatusLoading ? (
-          <p className="text-[12px] text-muted-foreground">Loading workspace...</p>
+          <p className="text-[12px] text-muted-foreground">{t("workspaceSettings.loading")}</p>
         ) : (
           <SlackIntegrationLink
             href={integrationsHref}
@@ -209,13 +210,9 @@ export function NotificationsSection({
             className="max-w-md"
           />
         )}
-        <p className="mt-2 text-[12px] text-muted-foreground">
-          Alerts post to the Slack channel connected to this workspace.
-        </p>
+        <p className="mt-2 text-[12px] text-muted-foreground">{t("alertsSlack.postsToChannel")}</p>
         {isSlackConnected && !slack?.channel && (
-          <p className="mt-1 text-[12px] text-muted-foreground">
-            Alerts need a channel. Select one in workspace settings.
-          </p>
+          <p className="mt-1 text-[12px] text-muted-foreground">{t("alertsSlack.needChannel")}</p>
         )}
       </div>
     </SectionBox>

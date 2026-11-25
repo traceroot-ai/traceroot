@@ -17,6 +17,7 @@ import { AlertPreviewChart, MAX_PREVIEW_BUCKETS } from "@/features/alerts/compon
 import { buildPreviewSpec } from "@/features/alerts/preview";
 import { useWidgetPreview } from "@/features/dashboards/hooks/use-widget-data";
 import { makeRange } from "@/features/dashboards/range-presets";
+import { useT } from "@/lib/i18n/provider";
 import type { AlertChart } from "../lib/resource-card";
 import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS } from "./preview-constants";
 
@@ -29,6 +30,7 @@ function Note({ children, title }: { children: React.ReactNode; title?: string }
 }
 
 function Plot({ chart }: { chart: AlertChart }) {
+  const t = useT();
   const spec = useMemo(
     () => buildPreviewSpec(chart.view, chart.measure, chart.aggregation, chart.filters),
     [chart.view, chart.measure, chart.aggregation, chart.filters],
@@ -49,12 +51,12 @@ function Plot({ chart }: { chart: AlertChart }) {
 
   // A combination the engine cannot run has no chart; the alert form says
   // the same. The write would refuse the rule, so the card says so too.
-  if (spec === null) return <Note>No preview available for this metric.</Note>;
-  if (preview.isPending) return <Note>Loading…</Note>;
+  if (spec === null) return <Note>{t("assistantCards.noPreview")}</Note>;
+  if (preview.isPending) return <Note>{t("assistantCards.loading")}</Note>;
   if (preview.error) {
     return (
       <Note title={preview.error instanceof Error ? preview.error.message : undefined}>
-        Couldn&apos;t load this preview
+        {t("assistantCards.previewError")}
       </Note>
     );
   }

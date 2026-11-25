@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 function tryParseJson(value: unknown): unknown {
   if (typeof value === "string") {
@@ -152,6 +153,7 @@ interface IOSectionProps {
 }
 
 export function IOSection({ label, value }: IOSectionProps) {
+  const t = useT();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
   const parsed = useMemo(() => (value ? deepParseJson(tryParseJson(value)) : null), [value]);
@@ -182,7 +184,7 @@ export function IOSection({ label, value }: IOSectionProps) {
         <button
           onClick={handleCopy}
           className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          title="Copy"
+          title={t("componentsUi.copy")}
         >
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
         </button>

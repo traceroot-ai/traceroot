@@ -2,6 +2,7 @@
 
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
+import { useT } from "@/lib/i18n/provider";
 
 interface ExternalIntegrationsProps {
   workspaceId: string;
@@ -13,22 +14,17 @@ interface ExternalIntegrationsProps {
  * (icon + text + action) with a short description below.
  */
 export function ExternalIntegrations({ workspaceId }: ExternalIntegrationsProps) {
+  const t = useT();
   return (
     <div className="divide-y divide-border rounded-md border border-border">
       <div className="space-y-2 px-4 py-3">
         <GitHubConnectButton workspaceId={workspaceId} />
-        <p className="text-[12px] text-muted-foreground">
-          Install the GitHub App for repository linking and code-level tracing during root cause
-          analysis.
-        </p>
+        <p className="text-[12px] text-muted-foreground">{t("tracesSetup.githubText")}</p>
       </div>
 
       <div className="space-y-2 px-4 py-3">
         <SlackConnectButton workspaceId={workspaceId} />
-        <p className="text-[12px] text-muted-foreground">
-          Connect Slack to get detector alerts posted to a channel so your team is notified about
-          issues.
-        </p>
+        <p className="text-[12px] text-muted-foreground">{t("tracesSetup.slackText")}</p>
       </div>
     </div>
   );

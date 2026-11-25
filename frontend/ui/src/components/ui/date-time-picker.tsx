@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 interface DateRangePickerProps {
   startDate?: Date | null;
@@ -242,6 +243,7 @@ export function DateRangePicker({
   className,
   minDate,
 }: DateRangePickerProps) {
+  const t = useT();
   const [start, setStart] = useState<Date | null>(() => startDate || getDefaultStart());
   const [end, setEnd] = useState<Date | null>(() => endDate || getDefaultEnd());
 
@@ -262,10 +264,10 @@ export function DateRangePicker({
 
   return (
     <div className={cn("p-4", className)}>
-      <TimeInput label="Start time" date={start} onChange={setStart} />
-      <TimeInput label="End time" date={end} onChange={setEnd} />
+      <TimeInput label={t("componentsDateFilter.startTime")} date={start} onChange={setStart} />
+      <TimeInput label={t("componentsDateFilter.endTime")} date={end} onChange={setEnd} />
       <div className="-mx-4 -mb-4 mt-4 flex justify-end border-t border-border px-4 py-3">
-        <Button onClick={handleApply}>Apply</Button>
+        <Button onClick={handleApply}>{t("componentsDateFilter.apply")}</Button>
       </div>
     </div>
   );

@@ -5,9 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 function ConfirmContent() {
   const router = useRouter();
+  const t = useT();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -21,18 +24,18 @@ function ConfirmContent() {
       <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-[15px] font-medium text-danger">Invalid Link</CardTitle>
+            <CardTitle className="text-[15px] font-medium text-danger">
+              {t("githubConfirm.invalidTitle")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5 text-center">
-            <p className="text-[13px] text-muted-foreground">
-              This confirmation link is missing required parameters or has expired.
-            </p>
+            <p className="text-[13px] text-muted-foreground">{t("githubConfirm.invalidText")}</p>
             <Button
               variant="outline"
               className="h-8 w-full text-[13px]"
               onClick={() => router.push("/")}
             >
-              Return to Dashboard
+              {t("githubConfirm.returnToDashboard")}
             </Button>
           </CardContent>
         </Card>
@@ -52,7 +55,7 @@ function ConfirmContent() {
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || "Failed to link account");
+        throw new Error(data.error || t("githubConfirm.failed"));
       }
 
       if (data.redirectUrl) {
@@ -74,7 +77,7 @@ function ConfirmContent() {
         router.push("/");
       }
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred");
+      setError(translateClientError(t, err.message) || t("auth.errorUnexpected"));
       setIsLoading(false);
     }
   }
@@ -90,13 +93,10 @@ function ConfirmContent() {
             height={48}
             className="mx-auto mb-4"
           />
-          <CardTitle className="text-[15px] font-medium">Confirm Account Link</CardTitle>
+          <CardTitle className="text-[15px] font-medium">{t("githubConfirm.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-          <p className="text-center text-[13px] text-muted-foreground">
-            You are about to link a GitHub account provided by a direct installation to your
-            traceroot account. Do you want to proceed?
-          </p>
+          <p className="text-center text-[13px] text-muted-foreground">{t("githubConfirm.text")}</p>
 
           {error && (
             <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
@@ -111,7 +111,7 @@ function ConfirmContent() {
               onClick={handleConfirm}
               disabled={isLoading}
             >
-              {isLoading ? "Linking Account..." : "Confirm"}
+              {isLoading ? t("githubConfirm.linking") : t("shellCommon.confirm")}
             </Button>
             <Button
               variant="outline"
@@ -120,7 +120,7 @@ function ConfirmContent() {
               onClick={() => router.push("/")}
               disabled={isLoading}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
           </div>
         </CardContent>

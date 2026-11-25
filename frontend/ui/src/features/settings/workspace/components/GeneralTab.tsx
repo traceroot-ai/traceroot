@@ -1,5 +1,8 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
+import { Slots } from "@/lib/i18n/slots";
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -25,6 +28,7 @@ interface GeneralTabProps {
 export function GeneralTab({ workspaceId }: GeneralTabProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const t = useT();
 
   const { data: workspace, isLoading } = useWorkspace(workspaceId);
 
@@ -67,7 +71,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
   };
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading workspace...</div>;
+    return <div className="text-sm text-muted-foreground">{t("workspaceSettings.loading")}</div>;
   }
 
   const isAdmin = workspace?.role === Role.ADMIN;
@@ -75,23 +79,23 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
   return (
     <div className="space-y-4">
       <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
-        <h2 className="text-[15px] font-medium">General</h2>
-        <p className="text-[13px] text-muted-foreground">Manage your workspace settings</p>
+        <h2 className="text-[15px] font-medium">{t("settings.general")}</h2>
+        <p className="text-[13px] text-muted-foreground">{t("workspaceSettings.subtitle")}</p>
       </div>
 
       <div className="border">
         <div className="flex h-9 items-center border-b px-4">
-          <h3 className="text-[13px] font-medium">Rename workspace</h3>
+          <h3 className="text-[13px] font-medium">{t("workspaceSettings.renameTitle")}</h3>
         </div>
         <div className="p-4">
           <p className="mt-1 text-[12px] text-muted-foreground">
-            Update the name of your workspace. Changes will take effect immediately.
+            {t("workspaceSettings.renameText")}
           </p>
           <div className="mt-3 flex gap-2">
             <Input
               value={workspaceName}
               onChange={(e) => setWorkspaceName(e.target.value)}
-              placeholder="Workspace name"
+              placeholder={t("workspaces.namePlaceholder")}
               className="h-8 max-w-xs text-[13px]"
             />
             <Button
@@ -102,7 +106,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
                 !workspaceName.trim()
               }
             >
-              {updateMutation.isPending ? "Saving..." : "Save"}
+              {updateMutation.isPending ? t("common.saving") : t("common.save")}
             </Button>
           </div>
         </div>
@@ -111,15 +115,14 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
       {isAdmin && (
         <div className="border">
           <div className="flex h-9 items-center border-b px-4">
-            <h3 className="text-[13px] font-medium">Delete workspace</h3>
+            <h3 className="text-[13px] font-medium">{t("workspaceSettings.deleteTitle")}</h3>
           </div>
           <div className="p-4">
             <p className="mt-1 text-[12px] text-muted-foreground">
-              Permanently delete this workspace and all of its projects and data. This action cannot
-              be undone.
+              {t("workspaceSettings.deleteText")}
             </p>
             <DeleteButton onClick={() => setShowDeleteDialog(true)} className="mt-3">
-              Delete workspace
+              {t("workspaceSettings.deleteTitle")}
             </DeleteButton>
           </div>
         </div>
@@ -128,39 +131,51 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Workspace</DialogTitle>
+            <DialogTitle>{t("workspaceSettings.deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. This will permanently delete the workspace &quot;
-              <span className="font-semibold">{workspace?.name}</span>&quot; and all associated
-              projects and data.
+              <Slots
+                text={t("workspaceSettings.deleteDialogText")}
+                slots={{ name: <span className="font-semibold">{workspace?.name}</span> }}
+              />
             </DialogDescription>
           </DialogHeader>
           <div>
             <p className="mb-2 text-sm text-muted-foreground">
-              Type{" "}
-              <span className="font-mono font-semibold text-foreground">{workspace?.name}</span> to
-              confirm:
+              <Slots
+                text={t("workspaceSettings.typeToConfirm")}
+                slots={{
+                  name: (
+                    <span className="font-mono font-semibold text-foreground">
+                      {workspace?.name}
+                    </span>
+                  ),
+                }}
+              />
             </p>
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleDelete()}
-              placeholder="Workspace name"
+              placeholder={t("workspaces.namePlaceholder")}
             />
             {deleteMutation.isError && (
-              <p className="mt-2 text-sm text-destructive">{deleteMutation.error.message}</p>
+              <p className="mt-2 text-sm text-destructive">
+                {translateClientError(t, deleteMutation.error.message)}
+              </p>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
               onClick={handleDelete}
               disabled={deleteConfirmText !== workspace?.name || deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete Workspace"}
+              {deleteMutation.isPending
+                ? t("workspaceSettings.deleting")
+                : t("workspaceSettings.deleteDialogTitle")}
             </Button>
           </DialogFooter>
         </DialogContent>

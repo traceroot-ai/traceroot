@@ -24,6 +24,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSetSignalStatus } from "../hooks";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
 export const STATUS_LABELS: Record<SignalStatus, string> = {
   open: "Open",
@@ -31,36 +34,44 @@ export const STATUS_LABELS: Record<SignalStatus, string> = {
   dismissed: "Dismissed",
 };
 
-const REASON_LABELS: Record<string, string> = {
-  fixed_elsewhere: "Fixed outside traceroot",
-  fixed_by_pr: "PR was merged",
-  already_fixed_before: "Already fixed before this signal",
-  unclear: "Signal is unclear",
-  rca_wrong: "Analysis is incorrect",
-  grouped_wrong: "Traces grouped incorrectly",
-  expected_behavior: "Expected behavior",
-  duplicate: "Duplicate signal",
-  already_fixed: "Already fixed",
-  low_impact: "Low impact",
-  other: "Other",
+/** The same labels as message keys, for showing a status in the visitor's language. */
+export const STATUS_LABEL_KEYS: Record<SignalStatus, MessageKey> = {
+  open: "eeSignalStatus.open",
+  resolved: "eeSignalStatus.resolved",
+  dismissed: "eeSignalStatus.dismissed",
+};
+
+// The text of each reason and of the two dialogs is in the `eeSignalStatus` message group.
+const REASON_LABELS: Record<string, MessageKey> = {
+  fixed_elsewhere: "eeSignalStatus.reasonFixedElsewhere",
+  fixed_by_pr: "eeSignalStatus.reasonFixedByPr",
+  already_fixed_before: "eeSignalStatus.reasonAlreadyFixedBefore",
+  unclear: "eeSignalStatus.reasonUnclear",
+  rca_wrong: "eeSignalStatus.reasonRcaWrong",
+  grouped_wrong: "eeSignalStatus.reasonGroupedWrong",
+  expected_behavior: "eeSignalStatus.reasonExpectedBehavior",
+  duplicate: "eeSignalStatus.reasonDuplicate",
+  already_fixed: "eeSignalStatus.reasonAlreadyFixed",
+  low_impact: "eeSignalStatus.reasonLowImpact",
+  other: "eeSignalStatus.reasonOther",
 };
 
 const CLOSE_COPY = {
   resolved: {
-    title: "Resolve signal",
-    hint: "Save what fixed it. You can reopen it later.",
-    notePlaceholder: "Link to the pull request or commit, or describe what fixed it.",
-    submit: "Resolve",
+    title: "eeSignalStatus.resolveTitle",
+    hint: "eeSignalStatus.resolveHint",
+    notePlaceholder: "eeSignalStatus.resolvePlaceholder",
+    submit: "eeSignalStatus.resolveSubmit",
     reasons: RESOLVE_REASONS,
   },
   dismissed: {
-    title: "Dismiss signal",
-    hint: "Save why this signal needs no action. You can reopen it later.",
-    notePlaceholder: "What makes this signal incorrect or not worth acting on?",
-    submit: "Dismiss & remember",
+    title: "eeSignalStatus.dismissTitle",
+    hint: "eeSignalStatus.dismissHint",
+    notePlaceholder: "eeSignalStatus.dismissPlaceholder",
+    submit: "eeSignalStatus.dismissSubmit",
     reasons: DISMISS_REASONS,
   },
-} as const;
+} as const satisfies Record<string, Record<string, MessageKey | readonly string[]>>;
 
 /**
  * The signal's status as a dropdown. Reopening applies at once; resolving and
@@ -79,6 +90,7 @@ export function SignalStatusControl({
   status: SignalStatus;
 }) {
   const mutation = useSetSignalStatus(projectId, signalId);
+  const t = useT();
   // The target status, and the status seen when the dialog opened: the save
   // sends the latter, so a change made meanwhile gets the server's conflict.
   const [closing, setClosing] = useState<{
@@ -112,43 +124,51 @@ export function SignalStatusControl({
   return (
     <>
       <Select value={status} onValueChange={onPick} disabled={mutation.isPending}>
-        <SelectTrigger className="h-8 w-[160px] text-[13px]" aria-label="Signal status">
+        <SelectTrigger
+          className="h-8 w-[160px] text-[13px]"
+          aria-label={t("eeSignalStatus.statusAria")}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           {SIGNAL_STATUSES.map((s) => (
             <SelectItem key={s} value={s} className="text-[13px]">
-              {STATUS_LABELS[s]}
+              {t(STATUS_LABEL_KEYS[s])}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
       {!closing && mutation.error && (
-        <span className="ml-2 text-[12px] text-destructive">{mutation.error.message}</span>
+        <span className="ml-2 text-[12px] text-destructive">
+          {translateClientError(t, mutation.error.message)}
+        </span>
       )}
 
       <Dialog open={!!closing} onOpenChange={(open) => !open && !mutation.isPending && reset()}>
         <DialogContent className="max-w-[480px]">
           <DialogHeader>
-            <DialogTitle>{copy?.title}</DialogTitle>
+            <DialogTitle>{copy && t(copy.title)}</DialogTitle>
             <DialogDescription className="space-y-1 text-[13px]">
               <span className="block text-foreground">{title}</span>
-              <span className="block">{copy?.hint}</span>
+              <span className="block">{copy && t(copy.hint)}</span>
             </DialogDescription>
           </DialogHeader>
           <div className="mt-2 space-y-4">
             <div className="space-y-1.5">
               <p className="text-[13px] font-medium">
-                Reason <span className="font-normal text-muted-foreground">(required)</span>
+                {t("eeSignalStatus.reason")}{" "}
+                <span className="font-normal text-muted-foreground">
+                  {t("eeSignalStatus.required")}
+                </span>
               </p>
               <Select value={reason} onValueChange={setReason}>
-                <SelectTrigger aria-label="Reason">
-                  <SelectValue placeholder="Select a reason" />
+                <SelectTrigger aria-label={t("eeSignalStatus.reason")}>
+                  <SelectValue placeholder={t("eeSignalStatus.selectReason")} />
                 </SelectTrigger>
                 <SelectContent>
                   {copy?.reasons.map((r) => (
                     <SelectItem key={r} value={r} className="text-[13px]">
-                      {REASON_LABELS[r] ?? r}
+                      {REASON_LABELS[r] ? t(REASON_LABELS[r]) : r}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -156,9 +176,9 @@ export function SignalStatusControl({
             </div>
             <div className="space-y-1.5">
               <p className="text-[13px] font-medium">
-                Note{" "}
+                {t("eeSignalStatus.note")}{" "}
                 <span className="font-normal text-muted-foreground">
-                  {noteRequired ? "(required)" : "(optional)"}
+                  {noteRequired ? t("eeSignalStatus.required") : t("eeSignalStatus.optional")}
                 </span>
               </p>
               <textarea
@@ -166,8 +186,12 @@ export function SignalStatusControl({
                 onChange={(e) => setNote(e.target.value)}
                 maxLength={SIGNAL_NOTE_MAX_LENGTH}
                 rows={3}
-                placeholder={copy?.notePlaceholder}
-                aria-label={closing?.to === "resolved" ? "Resolution note" : "Dismissal note"}
+                placeholder={copy ? t(copy.notePlaceholder) : undefined}
+                aria-label={
+                  closing?.to === "resolved"
+                    ? t("eeSignalStatus.resolutionNote")
+                    : t("eeSignalStatus.dismissalNote")
+                }
                 className="resize-vertical w-full rounded-md border border-input bg-background px-3 py-2 text-[13px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <p className="text-right text-[12px] tabular-nums text-muted-foreground">
@@ -175,7 +199,9 @@ export function SignalStatusControl({
               </p>
             </div>
             {mutation.error && (
-              <p className="text-[12px] text-destructive">{mutation.error.message}</p>
+              <p className="text-[12px] text-destructive">
+                {translateClientError(t, mutation.error.message)}
+              </p>
             )}
             <div className="flex justify-end gap-2">
               <Button
@@ -185,7 +211,7 @@ export function SignalStatusControl({
                 onClick={reset}
                 disabled={mutation.isPending}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="button"
@@ -202,7 +228,7 @@ export function SignalStatusControl({
                   )
                 }
               >
-                {mutation.isPending ? "Saving..." : copy?.submit}
+                {mutation.isPending ? t("common.saving") : copy && t(copy.submit)}
               </Button>
             </div>
           </div>

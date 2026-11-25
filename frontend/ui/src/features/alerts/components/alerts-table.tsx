@@ -10,6 +10,7 @@ import { DETECTOR_TH, DETECTOR_TD } from "@/features/detectors/components/detect
 import type { AlertSummary } from "../hooks/use-alerts";
 import { AlertSeverityBadge } from "./alert-severity-badge";
 import { formatAlertWindow, resolveAlertDisplayState } from "./alert-display";
+import { useT } from "@/lib/i18n/provider";
 
 const ACTION_ITEM = "flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px]";
 
@@ -30,18 +31,19 @@ export function AlertsTable({
   onDelete,
   isStatusPending,
 }: AlertsTableProps) {
+  const t = useT();
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
 
   return (
     <table className="data-table w-full">
       <thead>
         <tr className="border-b border-border">
-          <th className={cn(DETECTOR_TH, "w-[110px]")}>Status</th>
-          <th className={DETECTOR_TH}>Name</th>
-          <th className={cn(DETECTOR_TH, "w-[120px]")}>Window</th>
-          <th className={cn(DETECTOR_TH, "w-[180px]")}>Last evaluated</th>
+          <th className={cn(DETECTOR_TH, "w-[110px]")}>{t("alertsList.colStatus")}</th>
+          <th className={DETECTOR_TH}>{t("common.name")}</th>
+          <th className={cn(DETECTOR_TH, "w-[120px]")}>{t("alertsList.colWindow")}</th>
+          <th className={cn(DETECTOR_TH, "w-[180px]")}>{t("alertsList.colLastEvaluated")}</th>
           <th className="col-sticky-end-head w-[56px] whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-            <span className="sr-only">Actions</span>
+            <span className="sr-only">{t("alertsList.actions")}</span>
           </th>
         </tr>
       </thead>
@@ -72,15 +74,15 @@ export function AlertsTable({
               </td>
               <td className={cn(DETECTOR_TD, "text-foreground")}>{alert.name}</td>
               <td className={cn(DETECTOR_TD, "text-muted-foreground")}>
-                {formatAlertWindow(alert.window)}
+                {formatAlertWindow(alert.window, t)}
               </td>
               <td
                 className={cn(DETECTOR_TD, "text-muted-foreground")}
                 title={
-                  alert.lastEvaluatedAt ? formatRelativeTime(alert.lastEvaluatedAt) : undefined
+                  alert.lastEvaluatedAt ? formatRelativeTime(alert.lastEvaluatedAt, t) : undefined
                 }
               >
-                {alert.lastEvaluatedAt ? formatDate(alert.lastEvaluatedAt) : "Never"}
+                {alert.lastEvaluatedAt ? formatDate(alert.lastEvaluatedAt) : t("alertsList.never")}
               </td>
               <td className="col-sticky-end px-2 text-right">
                 <Popover
@@ -92,7 +94,7 @@ export function AlertsTable({
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                      aria-label={`Actions for ${alert.name}`}
+                      aria-label={t("alertsList.actionsFor", { name: alert.name })}
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />
                     </Button>
@@ -111,7 +113,7 @@ export function AlertsTable({
                       ) : (
                         <Pause className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
-                      {isStopped ? "Resume" : "Pause"}
+                      {isStopped ? t("alertsList.resume") : t("alertsList.pause")}
                     </button>
                     <Link
                       href={`/projects/${projectId}/alerts/${alert.id}`}
@@ -119,7 +121,7 @@ export function AlertsTable({
                       onClick={() => setActionsOpen(null)}
                     >
                       <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                      Edit
+                      {t("alertsList.edit")}
                     </Link>
                     <button
                       className={cn(ACTION_ITEM, "text-destructive hover:bg-destructive/10")}
@@ -129,7 +131,7 @@ export function AlertsTable({
                       }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      Delete
+                      {t("common.delete")}
                     </button>
                   </PopoverContent>
                 </Popover>

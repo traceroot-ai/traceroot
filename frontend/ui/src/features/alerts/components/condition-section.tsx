@@ -25,6 +25,7 @@ import {
 } from "../rule-model";
 import { CONTROL_SIZE } from "./form-controls";
 import { MeasureOption } from "./measure-option";
+import { useT } from "@/lib/i18n/provider";
 
 function Connective({ children }: { children: React.ReactNode }) {
   return <span className="shrink-0 text-[12px] text-muted-foreground">{children}</span>;
@@ -68,12 +69,13 @@ export function ConditionSection({
   onThresholdChange,
   onWindowChange,
 }: ConditionSectionProps) {
+  const t = useT();
   const measure = getMeasure(view, measureId);
   const validAggregations = measure ? getValidAggregations(measure, view) : [];
   const unit = getAlertUnit(measureId, aggregation, view);
 
   return (
-    <SectionBox label="Condition">
+    <SectionBox label={t("alertsForm.condition")}>
       {/* Scoped here rather than at the app root, matching how the repo mounts
           tooltip providers. Context still reaches the portalled dropdown. */}
       <TooltipProvider delayDuration={150}>
@@ -89,8 +91,11 @@ export function ConditionSection({
               }}
               disabled={validAggregations.length <= 1}
             >
-              <SelectTrigger className={cn(CONTROL_SIZE, "w-20 shrink-0")} aria-label="aggregation">
-                <SelectValue placeholder="Aggregation" />
+              <SelectTrigger
+                className={cn(CONTROL_SIZE, "w-20 shrink-0")}
+                aria-label={t("alertsForm.aggregationLabel")}
+              >
+                <SelectValue placeholder={t("alertsForm.aggregationPlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {validAggregations.map((a) => (
@@ -100,10 +105,13 @@ export function ConditionSection({
                 ))}
               </SelectContent>
             </Select>
-            <Connective>of</Connective>
+            <Connective>{t("alertsForm.of")}</Connective>
             <Select value={measureId} onValueChange={onMeasureChange}>
-              <SelectTrigger className={cn(CONTROL_SIZE, "min-w-0 flex-1")} aria-label="measure">
-                <SelectValue placeholder="Measure" />
+              <SelectTrigger
+                className={cn(CONTROL_SIZE, "min-w-0 flex-1")}
+                aria-label={t("alertsForm.measureLabel")}
+              >
+                <SelectValue placeholder={t("alertsForm.measurePlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {ALERT_MEASURES_BY_VIEW[view].map((m) => (
@@ -116,7 +124,10 @@ export function ConditionSection({
               its own line and the threshold keeps a width it can be typed in. */}
           <div className="flex flex-wrap items-center gap-1.5">
             <Select value={operator} onValueChange={(o) => onOperatorChange(o as AlertOperator)}>
-              <SelectTrigger className={cn(CONTROL_SIZE, "w-20 shrink-0")} aria-label="operator">
+              <SelectTrigger
+                className={cn(CONTROL_SIZE, "w-20 shrink-0")}
+                aria-label={t("alertsForm.operatorLabel")}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -144,8 +155,8 @@ export function ConditionSection({
                 type="number"
                 value={threshold}
                 onChange={(e) => onThresholdChange(e.target.value)}
-                placeholder="Threshold"
-                aria-label="threshold"
+                placeholder={t("alertsForm.thresholdPlaceholder")}
+                aria-label={t("alertsForm.thresholdLabel")}
                 required
                 step="any"
                 className="min-w-0 flex-1 bg-transparent outline-none [appearance:textfield] placeholder:text-muted-foreground [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
@@ -155,11 +166,11 @@ export function ConditionSection({
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              <Connective>over the last</Connective>
+              <Connective>{t("alertsForm.overTheLast")}</Connective>
               <Select value={window} onValueChange={(w) => onWindowChange(w as AlertWindow)}>
                 <SelectTrigger
                   className={cn(CONTROL_SIZE, "w-[4.5rem] shrink-0")}
-                  aria-label="window"
+                  aria-label={t("alertsForm.windowLabel")}
                 >
                   <SelectValue />
                 </SelectTrigger>

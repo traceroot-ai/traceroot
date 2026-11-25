@@ -22,14 +22,18 @@ import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
 import type { TriggerCondition } from "@/features/detectors/components/trigger-editor";
 import {
   normalizeTriggerConditions,
+  translateTriggerError,
   validateTriggerConditions,
 } from "@/features/detectors/trigger-fields";
 import { SignalsCard } from "@/features/detectors/components/signals-card";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { ApiError } from "@/lib/api/client";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 export default function NewDetectorPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
@@ -61,7 +65,7 @@ export default function NewDetectorPage() {
   const [enableSignals, setEnableSignals] = useState(true);
 
   const handleTemplateChange = (templateId: string) => {
-    const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
+    const template = DETECTOR_TEMPLATES.find((tpl) => tpl.id === templateId);
     if (template) {
       setSelectedTemplate(templateId);
       setPrompt(template.prompt);
@@ -72,7 +76,7 @@ export default function NewDetectorPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
+    const template = DETECTOR_TEMPLATES.find((tpl) => tpl.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
       ...buildTemplateDetectorInput(template),
       name,
@@ -94,7 +98,7 @@ export default function NewDetectorPage() {
     }
   };
 
-  const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
+  const selectedTemplateDef = DETECTOR_TEMPLATES.find((tpl) => tpl.id === selectedTemplate);
 
   const isDuplicateNameError = Boolean(
     createMutation.isError && (createMutation.error as ApiError | null)?.status === 409,
@@ -113,8 +117,8 @@ export default function NewDetectorPage() {
         {/* Page header */}
         <PageBackHeader
           backHref={`/projects/${projectId}/detectors`}
-          backLabel="Detectors"
-          title="New detector"
+          backLabel={t("nav.detectors")}
+          title={t("detectorsList.newDetector")}
         />
 
         {/* Scrollable form */}
@@ -126,28 +130,30 @@ export default function NewDetectorPage() {
             {/* Template */}
             <div className="border border-border">
               <div className="flex h-9 items-center border-b border-border px-4">
-                <span className="text-[13px] font-medium text-foreground">Template</span>
+                <span className="text-[13px] font-medium text-foreground">
+                  {t("detectorsForm.template")}
+                </span>
               </div>
               <div className="p-4">
                 <div className="flex flex-wrap gap-1.5">
-                  {DETECTOR_TEMPLATES.map((t) => (
+                  {DETECTOR_TEMPLATES.map((tpl) => (
                     <Button
-                      key={t.id}
+                      key={tpl.id}
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => handleTemplateChange(t.id)}
+                      onClick={() => handleTemplateChange(tpl.id)}
                       className={cn(
                         "h-7 text-[12px]",
-                        selectedTemplate === t.id && "border-brand bg-accent text-brand",
+                        selectedTemplate === tpl.id && "border-brand bg-accent text-brand",
                       )}
                     >
-                      {t.label}
+                      {tpl.label}
                     </Button>
                   ))}
                 </div>
                 <p className="mt-2 min-h-[1rem] text-[12px] text-muted-foreground">
-                  {selectedTemplateDef?.description ?? ""}
+                  {selectedTemplateDef ? t(selectedTemplateDef.descriptionKey) : ""}
                 </p>
               </div>
             </div>
@@ -155,7 +161,7 @@ export default function NewDetectorPage() {
             {/* Name */}
             <div className="border border-border">
               <div className="flex h-9 items-center border-b border-border px-4">
-                <span className="text-[13px] font-medium text-foreground">Name</span>
+                <span className="text-[13px] font-medium text-foreground">{t("common.name")}</span>
               </div>
               <div className="p-4">
                 <Input
@@ -167,13 +173,13 @@ export default function NewDetectorPage() {
                       createMutation.reset();
                     }
                   }}
-                  placeholder="e.g. error detector"
+                  placeholder={t("detectorsForm.namePlaceholder")}
                   className="h-7 text-[13px]"
                   required
                 />
                 {isDuplicateNameError && (
                   <p className="mt-1.5 text-[12px] text-destructive">
-                    {createMutation.error?.message}
+                    {translateClientError(t, createMutation.error?.message)}
                   </p>
                 )}
               </div>
@@ -182,7 +188,9 @@ export default function NewDetectorPage() {
             {/* Model */}
             <div className="border border-border">
               <div className="flex h-9 items-center border-b border-border px-4">
-                <span className="text-[13px] font-medium text-foreground">Model</span>
+                <span className="text-[13px] font-medium text-foreground">
+                  {t("detectorsForm.model")}
+                </span>
               </div>
               {/* Detector Model — per-detector, editable */}
               <div className="p-4">
@@ -195,7 +203,7 @@ export default function NewDetectorPage() {
                   field
                 />
                 <p className="mt-1 text-[12px] text-muted-foreground">
-                  Used to evaluate each trace for this detector.
+                  {t("detectorsForm.modelHint")}
                 </p>
               </div>
             </div>
@@ -203,14 +211,16 @@ export default function NewDetectorPage() {
             {/* Prompt */}
             <div className="border border-border">
               <div className="flex h-9 items-center border-b border-border px-4">
-                <span className="text-[13px] font-medium text-foreground">Prompt</span>
+                <span className="text-[13px] font-medium text-foreground">
+                  {t("detectorsForm.prompt")}
+                </span>
               </div>
               <div className="p-4">
                 <textarea
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   rows={10}
-                  placeholder="Describe what to detect..."
+                  placeholder={t("detectorsForm.promptPlaceholder")}
                   className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                   required
                 />
@@ -230,7 +240,9 @@ export default function NewDetectorPage() {
             {/* Sampling */}
             <div className="border border-border">
               <div className="flex h-9 items-center border-b border-border px-4">
-                <span className="text-[13px] font-medium text-foreground">Sampling</span>
+                <span className="text-[13px] font-medium text-foreground">
+                  {t("detectorsForm.sampling")}
+                </span>
               </div>
               <div className="flex items-center gap-3 p-4">
                 <input
@@ -262,11 +274,13 @@ export default function NewDetectorPage() {
             <div className="flex items-center justify-end gap-2 pt-1">
               {createMutation.isError && !isDuplicateNameError && (
                 <span className="mr-auto text-[12px] text-destructive">
-                  {createMutation.error?.message}
+                  {translateClientError(t, createMutation.error?.message)}
                 </span>
               )}
               {conditionsError && (
-                <span className="text-[12px] text-destructive">{conditionsError}</span>
+                <span className="text-[12px] text-destructive">
+                  {translateTriggerError(t, conditionsError)}
+                </span>
               )}
               <Button
                 type="button"
@@ -275,7 +289,7 @@ export default function NewDetectorPage() {
                 onClick={() => router.push(`/projects/${projectId}/detectors`)}
                 className="h-7 text-[12px]"
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -288,7 +302,9 @@ export default function NewDetectorPage() {
                   conditionsError !== null
                 }
               >
-                {createMutation.isPending ? "Creating..." : "Create detector"}
+                {createMutation.isPending
+                  ? t("common.creating")
+                  : t("detectorsForm.createDetector")}
               </Button>
             </div>
           </form>

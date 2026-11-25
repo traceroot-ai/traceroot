@@ -19,6 +19,8 @@ import remarkGfm from "remark-gfm";
 import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { describeCapture } from "@traceroot/core/capture-note";
+import { useT } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n/translate";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
 import {
@@ -104,7 +106,7 @@ function getTableRowCells(trNode: ReactNode): ReactNode[] {
     .map((cell) => cell.props.children);
 }
 
-function parseMarkdownTable(children: ReactNode): ParsedMarkdownTable | null {
+function parseMarkdownTable(children: ReactNode, t: Translate): ParsedMarkdownTable | null {
   const headers: string[] = [];
   const rows: ReactNode[][] = [];
   let maxCellTextLength = 0;
@@ -118,7 +120,7 @@ function parseMarkdownTable(children: ReactNode): ParsedMarkdownTable | null {
         headers.push(
           ...getTableRowCells(headerRow).map((cell, idx) => {
             const text = flattenNodeText(cell).trim();
-            const resolvedText = text || `Column ${idx + 1}`;
+            const resolvedText = text || t("assistantMessages.columnFallback", { n: idx + 1 });
             maxCellTextLength = Math.max(maxCellTextLength, resolvedText.length);
             return resolvedText;
           }),
@@ -149,10 +151,12 @@ function parseMarkdownTable(children: ReactNode): ParsedMarkdownTable | null {
       ? [
           ...headers,
           ...Array.from({ length: Math.max(0, columnCount - headers.length) }, (_, i) => {
-            return `Column ${headers.length + i + 1}`;
+            return t("assistantMessages.columnFallback", { n: headers.length + i + 1 });
           }),
         ]
-      : Array.from({ length: columnCount }, (_, i) => `Column ${i + 1}`);
+      : Array.from({ length: columnCount }, (_, i) =>
+          t("assistantMessages.columnFallback", { n: i + 1 }),
+        );
 
   return {
     headers: normalizedHeaders,
@@ -197,7 +201,7 @@ function getCardLabelColumnWidth(containerWidth: number): number {
 // ---------------------------------------------------------------------------
 // Markdown renderer config - only override what prose can't handle
 // ---------------------------------------------------------------------------
-function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
+function getMarkdownComponents(layout: MarkdownLayoutOptions, t: Translate): Components {
   const labelColWidth = getCardLabelColumnWidth(layout.containerWidth);
 
   return {
@@ -211,7 +215,7 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
       </pre>
     ),
     table: ({ children, ...props }) => {
-      const parsed = parseMarkdownTable(children);
+      const parsed = parseMarkdownTable(children, t);
       const mode = parsed ? getTableRenderMode(parsed, layout.containerWidth) : "table";
 
       if (parsed && mode === "stacked") {
@@ -339,10 +343,10 @@ function formatToolName(name: string): string {
 /** Cap the revision text shown on the tool line; the full text stays in the result. */
 const REVISED_NOTE_MAX_CHARS = 80;
 
-function revisedNote(text: string): string {
+function revisedNote(text: string, t: Translate): string {
   const trimmed =
     text.length > REVISED_NOTE_MAX_CHARS ? `${text.slice(0, REVISED_NOTE_MAX_CHARS)}…` : text;
-  return `revised — ${trimmed}`;
+  return t("assistantMessages.revisedNote", { text: trimmed });
 }
 
 function ToolStepItem({
@@ -355,6 +359,7 @@ function ToolStepItem({
   /** Present only when this step's turn has a resolved trace to focus into. */
   onOpenSpan?: (spanId: string) => void;
 }) {
+  const t = useT();
   const [isOpen, setIsOpen] = useState(isActive);
 
   useEffect(() => {
@@ -362,8 +367,8 @@ function ToolStepItem({
       setIsOpen(true);
     } else {
       // Delay collapse so the new item finishes sliding in first (matches AnimatedItem duration)
-      const t = setTimeout(() => setIsOpen(false), 200);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setIsOpen(false), 200);
+      return () => clearTimeout(timer);
     }
   }, [isActive]);
 
@@ -400,11 +405,11 @@ function ToolStepItem({
           ({step.toolName})
         </span>
         {step.skipped ? (
-          <span className="text-muted-foreground/60">skipped</span>
+          <span className="text-muted-foreground/60">{t("assistantMessages.skippedNote")}</span>
         ) : (
           step.revisedText !== undefined && (
             <span className="min-w-0 flex-1 truncate text-left text-muted-foreground/60">
-              {revisedNote(step.revisedText)}
+              {revisedNote(step.revisedText, t)}
             </span>
           )
         )}
@@ -424,7 +429,7 @@ function ToolStepItem({
         <div className="overflow-hidden">
           <div className="mt-1 space-y-1.5 pl-5">
             <div>
-              <p className="mb-0.5 text-muted-foreground/50">Args</p>
+              <p className="mb-0.5 text-muted-foreground/50">{t("assistantMessages.args")}</p>
               <pre className="overflow-x-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground/60">
                 {argsStr}
               </pre>
@@ -440,12 +445,12 @@ function ToolStepItem({
                   )}
                 >
                   {step.skipped
-                    ? "Skipped"
+                    ? t("assistantMessages.labelSkipped")
                     : step.revisedText !== undefined
-                      ? "Revised"
+                      ? t("assistantMessages.labelRevised")
                       : step.isError
-                        ? "Error"
-                        : "Result"}
+                        ? t("assistantMessages.labelError")
+                        : t("assistantMessages.labelResult")}
                 </p>
                 <pre className="max-h-[200px] overflow-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[12px] leading-relaxed text-foreground/60">
                   {resultStr}
@@ -463,7 +468,7 @@ function ToolStepItem({
                 className="text-muted-foreground/60 hover:underline"
                 onClick={() => onOpenSpan(step.spanId!)}
               >
-                Open span
+                {t("assistantMessages.openSpan")}
               </button>
             )}
           </div>
@@ -513,6 +518,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
   traceId?: string;
   onOpenTrace?: (traceId: string, spanId?: string) => void;
 }) {
+  const t = useT();
   const onOpenSpan = useMemo(
     () => (onOpenTrace && traceId ? (spanId: string) => onOpenTrace(traceId, spanId) : undefined),
     [onOpenTrace, traceId],
@@ -523,14 +529,14 @@ const ToolStepEntry = memo(function ToolStepEntry({
   // posted decision) clears `pending` and the step falls through to the
   // receipt flow.
   const pendingCard = useMemo(
-    () => (step.pending ? pendingCardModel(step, projectId, retentionDays, known) : null),
-    [step, projectId, retentionDays, known],
+    () => (step.pending ? pendingCardModel(step, projectId, retentionDays, known, t) : null),
+    [step, projectId, retentionDays, known, t],
   );
   // A read whose result carries card details becomes its card: rows for an
   // alert list, the resource's own card for an alert, widget or dashboard.
   const readCard = useMemo(
-    () => (pendingCard !== null ? null : readCardModel(step, projectId, retentionDays)),
-    [pendingCard, step, projectId, retentionDays],
+    () => (pendingCard !== null ? null : readCardModel(step, projectId, retentionDays, t)),
+    [pendingCard, step, projectId, retentionDays, t],
   );
   // A write that created something we can show becomes its card; every other
   // step — and every write we can't read a resource out of, or whose card
@@ -540,8 +546,8 @@ const ToolStepEntry = memo(function ToolStepEntry({
     () =>
       pendingCard !== null || readCard !== null || suppressed
         ? null
-        : resourceCardModel(step, widgetsByDashboard, retentionDays),
-    [pendingCard, readCard, suppressed, step, widgetsByDashboard, retentionDays],
+        : resourceCardModel(step, widgetsByDashboard, retentionDays, t),
+    [pendingCard, readCard, suppressed, step, widgetsByDashboard, retentionDays, t],
   );
   const carded = card !== null || pendingCard !== null || readCard !== null;
   return (
@@ -568,6 +574,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
 });
 
 function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: number }) {
+  const t = useT();
   const normalizedContent = useMemo(
     () =>
       normalizeStreamingMarkdown(msg.content, {
@@ -577,8 +584,8 @@ function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: numb
     [msg.content, msg.isStreaming],
   );
   const markdownComponents = useMemo(
-    () => getMarkdownComponents({ containerWidth: Math.max(280, panelWidth) }),
-    [panelWidth],
+    () => getMarkdownComponents({ containerWidth: Math.max(280, panelWidth) }, t),
+    [panelWidth, t],
   );
 
   return (
@@ -587,7 +594,7 @@ function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: numb
         <details className="group mb-2 text-[12px]">
           <summary className="flex cursor-pointer select-none list-none items-center gap-1.5 text-muted-foreground/60 hover:text-muted-foreground">
             <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
-            <span className="italic">Reasoning</span>
+            <span className="italic">{t("assistantMessages.reasoning")}</span>
           </summary>
           <pre className="mt-1.5 max-h-[200px] overflow-auto whitespace-pre-wrap border-l-2 border-muted-foreground/20 pl-3 font-mono text-[12px] leading-relaxed text-muted-foreground/60">
             {msg.thinking}
@@ -639,27 +646,30 @@ function ReplyFooter({
   msg: AIMessage;
   onOpenTrace?: (traceId: string, spanId?: string) => void;
 }) {
+  const t = useT();
   const traceId = reachableTrace(msg);
   const parts: ReactNode[] = [];
   if (msg.inputTokens != null) {
     parts.push(
-      <span key="in" title="Input tokens">
-        {msg.inputTokens.toLocaleString()} in
+      <span key="in" title={t("assistantMessages.inputTokensHint")}>
+        {t("assistantMessages.inputTokens", { count: msg.inputTokens.toLocaleString() })}
       </span>,
-      <span key="out" title="Output tokens">
-        {(msg.outputTokens ?? 0).toLocaleString()} out
+      <span key="out" title={t("assistantMessages.outputTokensHint")}>
+        {t("assistantMessages.outputTokens", {
+          count: (msg.outputTokens ?? 0).toLocaleString(),
+        })}
       </span>,
     );
     if (msg.totalTokens != null) {
       parts.push(
-        <span key="session" title="Cumulative session tokens">
-          {msg.totalTokens.toLocaleString()} session
+        <span key="session" title={t("assistantMessages.sessionTokensHint")}>
+          {t("assistantMessages.sessionTokens", { count: msg.totalTokens.toLocaleString() })}
         </span>,
       );
     }
     if (msg.costUsd != null && msg.costUsd > 0) {
       parts.push(
-        <span key="cost" title="Estimated cost">
+        <span key="cost" title={t("assistantMessages.costHint")}>
           ${msg.costUsd.toFixed(4)}
         </span>,
       );
@@ -673,18 +683,18 @@ function ReplyFooter({
         className="hover:underline"
         title={
           msg.traceStatus === "pending"
-            ? "The trace is still being uploaded; it may take a few seconds to fill in"
-            : "Open this turn's trace"
+            ? t("assistantMessages.tracePendingHint")
+            : t("assistantMessages.openTurnTrace")
         }
         onClick={() => onOpenTrace(traceId)}
       >
-        View trace
+        {t("assistantMessages.viewTrace")}
       </button>,
     );
   } else if (msg.traceStatus === "failed") {
     parts.push(
-      <span key="trace" title="The trace upload failed; this turn has no trace to open">
-        Trace not available
+      <span key="trace" title={t("assistantMessages.traceFailedHint")}>
+        {t("assistantMessages.traceUnavailable")}
       </span>,
     );
   }

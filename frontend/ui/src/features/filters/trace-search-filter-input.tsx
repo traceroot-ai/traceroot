@@ -11,7 +11,8 @@ import { ListFilter, X } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { Predicate } from "@/types/api";
-import type { FilterFieldDef } from "./registry";
+import { useT } from "@/lib/i18n/provider";
+import { filterFieldLabel, type FilterFieldDef } from "./registry";
 import { useFilterFields } from "./hooks";
 import { FilterBuilder } from "./filter-builder";
 import { predicateLabel, upsertPredicate } from "./predicate-ui";
@@ -48,8 +49,9 @@ export function TraceSearchFilterInput({
   startAfter,
   endBefore,
   fields: customFields,
-  placeholder = "Filter traces…",
+  placeholder,
 }: TraceSearchFilterInputProps) {
+  const t = useT();
   const traceFields = useFilterFields(projectId, !customFields);
   const fields = customFields ?? traceFields;
   const [open, setOpen] = useState(false);
@@ -72,8 +74,10 @@ export function TraceSearchFilterInput({
   // Only the BARE name goes to predicateLabel: the label appends a keyed predicate's own
   // key itself, so it reads as `metadata.session_id` there. Handing it a name that already
   // carries the key would spell the key twice.
-  const fieldName = (field: string) =>
-    fields.find((f) => f.field === field)?.label.toLowerCase() ?? field;
+  const fieldName = (field: string) => {
+    const def = fields.find((f) => f.field === field);
+    return def ? filterFieldLabel(def, t).toLowerCase() : field;
+  };
   // The remove button names the raw field (not its display label) so the accessible name
   // is stable regardless of whether the registry has loaded; the key is appended so two
   // metadata chips are distinguishable rather than both reading "Remove metadata filter".
@@ -113,11 +117,11 @@ export function TraceSearchFilterInput({
               className="flex items-center gap-1 rounded bg-muted py-0.5 pl-1.5 pr-1 text-[12px]"
             >
               <span className="font-medium text-foreground">
-                {predicateLabel(p, fieldName(p.field))}
+                {predicateLabel(p, fieldName(p.field), t("componentsFilters.opContains"))}
               </span>
               <button
                 type="button"
-                aria-label={`Remove ${chipRemoveTarget(p)} filter`}
+                aria-label={t("componentsFilters.removeFilter", { target: chipRemoveTarget(p) })}
                 onClick={() => removeAt(i)}
                 className="rounded p-0.5 transition-colors hover:bg-border"
               >
@@ -138,7 +142,11 @@ export function TraceSearchFilterInput({
                 removeAt(filters.length - 1);
               }
             }}
-            placeholder={filters.length === 0 ? placeholder : "Add filter…"}
+            placeholder={
+              filters.length === 0
+                ? (placeholder ?? t("componentsFilters.filterTraces"))
+                : t("componentsFilters.addFilterPlaceholder")
+            }
             className="h-6 min-w-[6rem] flex-1 cursor-text bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
         </div>

@@ -1,11 +1,14 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { cn } from "@/lib/utils";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import type { Translate } from "@/lib/i18n/translate";
 
 /**
  * Small code helpers for the datasets UI: a line-numbered editable field, and a
@@ -22,6 +25,17 @@ const KIND_LABEL: Record<ValueKind, string> = {
   pretty: "Pretty",
   markdown: "Markdown",
 };
+
+// Format names that read as plain words are translated; YAML, JSON and Markdown stay as they are.
+const KIND_LABEL_KEY: Partial<Record<ValueKind, MessageKey>> = {
+  text: "evalsShared.kindText",
+  pretty: "evalsShared.kindPretty",
+};
+
+function kindLabel(t: Translate, kind: ValueKind): string {
+  const key = KIND_LABEL_KEY[kind];
+  return key ? t(key) : KIND_LABEL[kind];
+}
 
 const KINDS: ValueKind[] = ["yaml", "text", "json", "pretty", "markdown"];
 
@@ -225,6 +239,7 @@ export function LineNumberedTextarea({
   fontClassName?: string;
   "aria-label"?: string;
 }) {
+  const t = useT();
   const isCollapsed = collapsed && value.length > collapseAt;
   const shown = isCollapsed ? value.slice(0, collapseAt) : value;
   // The display splits the RAW value — NO appended trailing newline. (Appending one previously
@@ -307,7 +322,9 @@ export function LineNumberedTextarea({
                   onClick={onExpand}
                   className="cursor-pointer align-baseline text-muted-foreground hover:text-foreground"
                 >
-                  …expand ({(value.length - collapseAt).toLocaleString()} more characters)
+                  {t("evalsShared.expandMore", {
+                    count: (value.length - collapseAt).toLocaleString(),
+                  })}
                 </button>
               </span>
             </div>
@@ -384,6 +401,7 @@ export function ValueBlock({
   value: unknown;
   defaultKind?: ValueKind;
 }) {
+  const t = useT();
   const [kind, setKind] = React.useState<ValueKind>(defaultKind);
   const [menuOpen, setMenuOpen] = React.useState(false);
 
@@ -397,7 +415,7 @@ export function ValueBlock({
               type="button"
               className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              {KIND_LABEL[kind]}
+              {kindLabel(t, kind)}
               <ChevronDown className="h-3 w-3" aria-hidden />
             </button>
           </PopoverTrigger>
@@ -415,7 +433,7 @@ export function ValueBlock({
                   k === kind ? "bg-accent" : "hover:bg-muted",
                 )}
               >
-                {KIND_LABEL[k]}
+                {kindLabel(t, k)}
               </button>
             ))}
           </PopoverContent>
@@ -561,6 +579,7 @@ export function EditableValueBlock({
    *  re-collapses — only a new key does. Unneeded when the block is remounted by `key`. */
   collapseResetKey?: string;
 }) {
+  const t = useT();
   const [kind, setKind] = React.useState<ValueKind>(defaultKind);
   const [menuOpen, setMenuOpen] = React.useState(false);
   // Minimised via the header chevron, like the span detail panel's I/O sections.
@@ -637,7 +656,7 @@ export function EditableValueBlock({
               type="button"
               className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              {KIND_LABEL[kind]}
+              {kindLabel(t, kind)}
               <ChevronDown className="h-3 w-3" aria-hidden />
             </button>
           </PopoverTrigger>
@@ -652,7 +671,7 @@ export function EditableValueBlock({
                   k === kind ? "bg-accent" : "hover:bg-muted",
                 )}
               >
-                {KIND_LABEL[k]}
+                {kindLabel(t, k)}
               </button>
             ))}
           </PopoverContent>
@@ -665,7 +684,7 @@ export function EditableValueBlock({
           value={readOnly ? display : text}
           className="h-4 w-4 text-muted-foreground hover:text-foreground"
           iconClassName="h-3 w-3"
-          title="Copy"
+          title={t("evalsShared.copy")}
         />
       )}
     </div>
@@ -693,7 +712,9 @@ export function EditableValueBlock({
                 onClick={() => setFieldExpanded(true)}
                 className="mt-2 cursor-pointer text-[12px] text-muted-foreground hover:text-foreground"
               >
-                …expand ({(collapseValue.length - COLLAPSE_AT).toLocaleString()} more characters)
+                {t("evalsShared.expandMore", {
+                  count: (collapseValue.length - COLLAPSE_AT).toLocaleString(),
+                })}
               </button>
             </div>
           ) : (
@@ -701,9 +722,7 @@ export function EditableValueBlock({
           )}
         </div>
         {!readOnly && (
-          <p className="mt-1 text-[12px] text-muted-foreground">
-            Preview — switch to Text to edit.
-          </p>
+          <p className="mt-1 text-[12px] text-muted-foreground">{t("evalsShared.previewHint")}</p>
         )}
       </div>
     ) : (

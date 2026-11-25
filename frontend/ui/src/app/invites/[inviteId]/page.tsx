@@ -4,14 +4,18 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { acceptInvite } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 export default function AcceptInvitePage() {
   const params = useParams();
   const router = useRouter();
+  const t = useT();
   const { data: session, isPending } = authClient.useSession();
   const inviteId = params.inviteId as string;
 
-  const [error, setError] = useState<string | null>(null);
+  // `true` when the failure came with no message of its own.
+  const [error, setError] = useState<string | true | null>(null);
 
   useEffect(() => {
     if (isPending) return;
@@ -28,7 +32,7 @@ export default function AcceptInvitePage() {
         const result = await acceptInvite(inviteId);
         router.push(`/workspaces/${result.workspace.id}/projects`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to accept invite");
+        setError(err instanceof Error ? err.message : true);
       }
     };
 
@@ -39,10 +43,12 @@ export default function AcceptInvitePage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="max-w-md border p-6 text-center">
-          <h1 className="text-[15px] font-medium">Invitation Error</h1>
-          <p className="mt-2 text-muted-foreground">{error}</p>
+          <h1 className="text-[15px] font-medium">{t("invite.errorTitle")}</h1>
+          <p className="mt-2 text-muted-foreground">
+            {error === true ? t("invite.failed") : translateClientError(t, error)}
+          </p>
           <button onClick={() => router.push("/workspaces")} className="mt-4 text-sm underline">
-            Go to workspaces
+            {t("invite.goToWorkspaces")}
           </button>
         </div>
       </div>
@@ -53,7 +59,7 @@ export default function AcceptInvitePage() {
     <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
         <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
-        <p className="mt-4 text-muted-foreground">Accepting invitation...</p>
+        <p className="mt-4 text-muted-foreground">{t("invite.accepting")}</p>
       </div>
     </div>
   );

@@ -32,18 +32,23 @@ import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import { useSignalCounts } from "@/ee/features/signals/hooks";
+import { useT } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n/translate";
 
-function formatDetectorModel(detector: {
-  detectionModel: string | null;
-  detectionProvider: string | null;
-  detectionSource: "system" | "byok" | null;
-}) {
+function formatDetectorModel(
+  detector: {
+    detectionModel: string | null;
+    detectionProvider: string | null;
+    detectionSource: "system" | "byok" | null;
+  },
+  t: Translate,
+) {
   if (detector.detectionModel) {
     return detector.detectionModel;
   }
 
   if (detector.detectionSource === "byok") {
-    return detector.detectionProvider ?? "configured provider";
+    return detector.detectionProvider ?? t("detectorsList.configuredProvider");
   }
 
   // Both "system" and a never-set null source resolve to the screening
@@ -75,6 +80,7 @@ const capitalizeLabel = (label: string) =>
   label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
 
 export default function DetectorsPage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -188,10 +194,10 @@ export default function DetectorsPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
         <PageHeader
-          title="Detectors"
+          title={t("nav.detectors")}
           actions={
             <Button size="sm" onClick={() => router.push(`/projects/${projectId}/detectors/new`)}>
-              New detector
+              {t("detectorsList.newDetector")}
             </Button>
           }
         />
@@ -200,7 +206,7 @@ export default function DetectorsPage() {
         <SearchFilterBar
           searchValue={state.keyword}
           onSearchChange={updateKeyword}
-          searchPlaceholder="Search..."
+          searchPlaceholder={t("detectorsList.searchPlaceholder")}
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
@@ -214,31 +220,29 @@ export default function DetectorsPage() {
         <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading detectors..." />
+              <LoadingState label={t("detectorsList.loading")} />
             </div>
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading detectors</p>
+              <p className="text-[13px] text-destructive">{t("detectorsList.loadError")}</p>
             </div>
           ) : isEmptyProject ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-[13px] text-muted-foreground">No detectors yet</p>
-              <p className="text-[12px] text-muted-foreground">
-                Create a detector to automatically analyze your traces.
-              </p>
+              <p className="text-[13px] text-muted-foreground">{t("detectorsList.emptyTitle")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("detectorsList.emptyText")}</p>
               <Button
                 size="sm"
                 className="mt-1 h-7 text-[12px]"
                 onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
               >
-                New detector
+                {t("detectorsList.newDetector")}
               </Button>
             </div>
           ) : isEmptySearch ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">
-                No detectors match &ldquo;{state.keyword}&rdquo;
+                {t("detectorsList.noMatch", { keyword: state.keyword })}
               </p>
               <Button
                 size="sm"
@@ -246,7 +250,7 @@ export default function DetectorsPage() {
                 className="h-7 text-[12px]"
                 onClick={() => updateKeyword("")}
               >
-                Clear search
+                {t("detectorsList.clearSearch")}
               </Button>
             </div>
           ) : (
@@ -254,44 +258,44 @@ export default function DetectorsPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Name
+                    {t("common.name")}
                   </th>
                   <th className="w-[8rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Template
+                    {t("detectorsList.colTemplate")}
                   </th>
                   <th className="w-[8rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Model
+                    {t("detectorsList.colModel")}
                   </th>
                   <th className="w-[6.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Sampling
+                    {t("detectorsList.colSampling")}
                   </th>
                   <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Judge runs
+                    {t("detectorsList.colJudgeRuns")}
                   </th>
                   <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Signals
+                    {t("nav.signals")}
                   </th>
                   <th className="w-[5.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Agent runs
+                    {t("detectorsList.colAgentRuns")}
                   </th>
                   <th className="w-[11.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Created at
+                    {t("detectorsList.colCreatedAt")}
                   </th>
                   <th className="hidden w-[11.5rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground 2xl:table-cell">
-                    Updated at
+                    {t("detectorsList.colUpdatedAt")}
                   </th>
                   <th className="w-[10rem] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Detector ID
+                    {t("detectorsList.colDetectorId")}
                   </th>
                   <th className="col-sticky-end-head w-[56px] whitespace-nowrap px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    <span className="sr-only">Actions</span>
+                    <span className="sr-only">{t("detectorsList.actions")}</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {detectors.map((detector) => {
                   const template = getTemplate(detector.template);
-                  const modelLabel = formatDetectorModel(detector);
+                  const modelLabel = formatDetectorModel(detector, t);
                   const c = counts?.[detector.id];
                   const runCount = c?.run_count ?? 0;
                   const agentRunCount = c?.agent_run_count ?? 0;
@@ -336,21 +340,18 @@ export default function DetectorsPage() {
                       <td className={countClass}>
                         <CountLink
                           href={countLinks.runs}
-                          label={`View judge runs for ${detector.name}`}
+                          label={t("detectorsList.viewJudgeRuns", { name: detector.name })}
                           value={counts ? runCount : null}
                         />
                       </td>
                       <td className={countClass}>
                         <CountLink
                           href={countLinks.signals}
-                          label={`View signals for ${detector.name}`}
+                          label={t("detectorsList.viewSignals", { name: detector.name })}
                           value={signalCounts ? signalCount : null}
                         />
                       </td>
-                      <td
-                        className={countClass}
-                        title="RCA agent runs started in the selected time range, including retries"
-                      >
+                      <td className={countClass} title={t("detectorsList.agentRunsHint")}>
                         {counts ? agentRunCount : "—"}
                       </td>
                       <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
@@ -387,7 +388,7 @@ export default function DetectorsPage() {
                               }}
                             >
                               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                              Edit
+                              {t("detectorsList.edit")}
                             </button>
                             <button
                               className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive hover:bg-destructive/10"
@@ -398,7 +399,7 @@ export default function DetectorsPage() {
                               }}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                              Delete
+                              {t("common.delete")}
                             </button>
                           </PopoverContent>
                         </Popover>

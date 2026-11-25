@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/provider";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import type { SocialProvider } from "@/lib/social-providers";
@@ -72,6 +73,7 @@ export function SocialSignInButtons({
   onError: (message: string | null) => void;
 }) {
   const [redirectingTo, setRedirectingTo] = useState<SocialProvider | null>(null);
+  const t = useT();
   if (providers.length === 0) return null;
 
   async function signIn(provider: SocialProvider) {
@@ -95,7 +97,7 @@ export function SocialSignInButtons({
           <span className="w-full border-t" />
         </div>
         <div className="relative flex justify-center text-[12px] uppercase">
-          <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+          <span className="bg-card px-2 text-muted-foreground">{t("auth.orContinueWith")}</span>
         </div>
       </div>
 
@@ -110,7 +112,7 @@ export function SocialSignInButtons({
             disabled={redirectingTo !== null}
           >
             {redirectingTo === provider ? (
-              "Redirecting..."
+              t("auth.redirecting")
             ) : (
               <>
                 {PROVIDERS[provider].mark}

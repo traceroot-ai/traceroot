@@ -6,6 +6,7 @@ import { Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Workspace } from "@/types/api";
+import { useT } from "@/lib/i18n/provider";
 import { isDemoWorkspaceViewer } from "../utils";
 
 interface WorkspaceCardProps {
@@ -16,6 +17,7 @@ interface WorkspaceCardProps {
  * Card component for displaying a workspace in the grid
  */
 export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
+  const t = useT();
   const router = useRouter();
 
   return (
@@ -27,7 +29,9 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
         <div className={`${workspace.is_demo ? "" : "mb-3"} flex items-start justify-between`}>
           <div className="flex min-w-0 items-center gap-2">
             <h3 className="truncate text-[13px] font-medium">{workspace.name}</h3>
-            {isDemoWorkspaceViewer(workspace) && <Badge variant="outline">View only</Badge>}
+            {isDemoWorkspaceViewer(workspace) && (
+              <Badge variant="outline">{t("common.viewOnly")}</Badge>
+            )}
           </div>
           <Link
             href={`/workspaces/${workspace.id}/settings`}
@@ -39,9 +43,17 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
         </div>
         {!workspace.is_demo && (
           <div className="flex gap-4 text-[12px] text-muted-foreground">
-            <span>Created {new Date(workspace.create_time).toLocaleDateString()}</span>
+            <span>
+              {t("componentsCards.createdOn", {
+                date: new Date(workspace.create_time).toLocaleDateString(),
+              })}
+            </span>
             {workspace.update_time && (
-              <span>Updated {new Date(workspace.update_time).toLocaleDateString()}</span>
+              <span>
+                {t("componentsCards.updatedOn", {
+                  date: new Date(workspace.update_time).toLocaleDateString(),
+                })}
+              </span>
             )}
           </div>
         )}
