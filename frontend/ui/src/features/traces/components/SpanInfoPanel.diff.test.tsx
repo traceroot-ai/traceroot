@@ -448,6 +448,85 @@ describe("SpanInfoPanel in diff mode, a span whose status changed", () => {
   });
 });
 
+describe("SpanInfoPanel in diff mode, a failed span's error box", () => {
+  // Each run at its own repo and commit. The baseline's legacy_lookup failed, a call this
+  // run no longer makes; this run's search failed, and so did its new fallback.
+  const failed = (error_type: string): Partial<Span> => ({
+    status: SpanStatus.ERROR,
+    error_type,
+    status_message: `${error_type}: lookup failed`,
+  });
+  const baseline = (git: Partial<TraceDetail>) =>
+    traceOf(
+      "tb8",
+      [
+        ["b0", null, "agent", SpanKind.AGENT, 0, 1000],
+        ["b1", "b0", "legacy_lookup", SpanKind.TOOL, 10, 100, failed("KeyError")],
+        ["b2", "b0", "web_search", SpanKind.TOOL, 110, 200],
+      ],
+      git,
+    );
+  const BASELINE_GIT = { git_repo: "acme/support-bot", git_ref: "1a2b3c4d5e6f" };
+  const RUN = traceOf(
+    "tc8",
+    [
+      ["c0", null, "agent", SpanKind.AGENT, 0, 1000],
+      ["c1", "c0", "web_search", SpanKind.TOOL, 10, 100, failed("TimeoutError")],
+      ["c2", "c0", "fallback", SpanKind.TOOL, 110, 200, failed("ValueError")],
+    ],
+    { git_repo: "acme/support-agent", git_ref: "9f8e7d6c5b4a" },
+  );
+  const select = (base: TraceDetail, name: string) => {
+    const n = traceUnion(base, RUN).nodes.find((x) => shown(x).name === name)!;
+    render(
+      <SpanInfoPanel
+        projectId="p1"
+        trace={RUN}
+        selection={{ type: "span", span: shown(n) }}
+        diff={{
+          baseline: base,
+          node: n,
+          measured: true,
+          layout: "columns",
+          onLayoutChange: vi.fn(),
+        }}
+      />,
+    );
+  };
+  const errorBox = () =>
+    within(screen.getByText("Error", { selector: "div" }).closest<HTMLElement>(".rounded-md")!);
+
+  it("shows the baseline's repo and commit for a span only the baseline has", () => {
+    select(baseline(BASELINE_GIT), "legacy_lookup");
+    expect(errorBox().getByText("KeyError")).toBeTruthy();
+    expect(errorBox().getByText("acme/support-bot")).toBeTruthy();
+    expect(errorBox().getByText("1a2b3c4")).toBeTruthy();
+    expect(errorBox().queryByText("acme/support-agent")).toBeNull();
+    expect(errorBox().queryByText("9f8e7d6")).toBeNull();
+  });
+
+  it("shows no repo or commit when the baseline trace has none, not this run's", () => {
+    select(baseline({}), "legacy_lookup");
+    expect(errorBox().getByText("KeyError")).toBeTruthy();
+    expect(errorBox().queryByText("acme/support-agent")).toBeNull();
+    expect(errorBox().queryByText("9f8e7d6")).toBeNull();
+  });
+
+  it("keeps this run's repo and commit for a span this run has", () => {
+    for (const [name, errorType] of [
+      ["web_search", "TimeoutError"],
+      ["fallback", "ValueError"],
+    ]) {
+      select(baseline(BASELINE_GIT), name);
+      expect(errorBox().getByText(errorType)).toBeTruthy();
+      expect(errorBox().getByText("acme/support-agent")).toBeTruthy();
+      expect(errorBox().getByText("9f8e7d6")).toBeTruthy();
+      expect(errorBox().queryByText("acme/support-bot")).toBeNull();
+      cleanup();
+    }
+  });
+});
+
 describe("SpanInfoPanel in diff mode, before a span's stored metadata arrives", () => {
   // The trace skeleton's metadata is only the SDK's path keys; the stored value is fetched
   // per span.
