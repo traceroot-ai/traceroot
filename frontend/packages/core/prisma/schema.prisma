@@ -286,6 +286,13 @@ model UserOnboarding {
   // service for someone who gets one. The questions ending sends it sooner;
   // otherwise the scheduled run sends it from then.
   welcomeDueAt         DateTime?  @map("welcome_due_at") @db.Timestamp(6)
+  // When the person was added to the newsletter segment (lib/email/newsletter.ts):
+  // 14 days after sign-up, or by the one-time import for earlier sign-ups.
+  newsletterAddedAt    DateTime?  @map("newsletter_added_at") @db.Timestamp(6)
+  // The last time adding the person failed or their preference could not be
+  // read; each run tries those not tried yet first, so failures at the front
+  // of the queue never hold up the rest.
+  newsletterTriedAt    DateTime?  @map("newsletter_tried_at") @db.Timestamp(6)
   createTime           DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime           DateTime   @updatedAt @map("update_time") @db.Timestamp(6)
   user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
