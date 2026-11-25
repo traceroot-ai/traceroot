@@ -30,7 +30,7 @@ from rest.rate_limit import (
 from rest.routers.internal_read_proxy import post_internal_read, service_error
 from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.common import PaginationMeta
-from rest.schemas.public import PublicSignalListResponse, SignalDetail, SignalSummary
+from rest.schemas.public import PublicSignalListResponse, SignalDetail, SignalHit, SignalSummary
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,32 @@ def _summary_fields(signal: Any) -> dict[str, Any]:
         "created_at": signal["createTime"],
         "rca_state": signal.get("rcaState"),
     }
+
+
+def _recent_hits(hits: Any) -> list[SignalHit]:
+    """Map the internal route's recent hits (camelCase) to the public model.
+
+    Args:
+        hits (Any): The ``recentHits`` list from the internal route.
+
+    Returns:
+        list[SignalHit]: The hits, in the route's order (latest trace start first).
+
+    Raises:
+        TypeError: If the value is not a list or an item is not a mapping (the
+            caller fails closed).
+        KeyError: If an item misses a required field (the caller fails closed).
+    """
+    if not isinstance(hits, list):
+        raise TypeError("recentHits must be a list")
+    return [
+        SignalHit(
+            trace_id=h["traceId"],
+            finding_id=h["findingId"],
+            trace_start_time=h["traceStartTime"],
+        )
+        for h in hits
+    ]
 
 
 async def _list_signals_page(
@@ -108,12 +134,16 @@ async def _list_signals_page(
 async def _get_signal_detail(project_id: str, signal_id: str) -> SignalDetail:
     """Fetch one signal of a project via the internal route.
 
+    A route that predates ``recentHits`` leaves it out; that reads as no hits
+    rather than failing the read. A malformed list still fails closed.
+
     Args:
         project_id (str): The project the caller's credential resolved to.
         signal_id (str): The signal to fetch.
 
     Returns:
-        SignalDetail: The signal, with ``merged_into_id`` set when it was merged.
+        SignalDetail: The signal, with ``merged_into_id`` set when it was merged
+            and its most recent hits.
 
     Raises:
         HTTPException: 404 when the signal is not in the project; 503 (fail
@@ -131,6 +161,7 @@ async def _get_signal_detail(project_id: str, signal_id: str) -> SignalDetail:
             **_summary_fields(signal),
             resolved_at=signal["resolvedAt"],
             merged_into_id=signal["mergedIntoId"],
+            recent_hits=_recent_hits(signal.get("recentHits", [])),
         )
     except (KeyError, TypeError, ValidationError) as e:
         raise service_error(_SERVICE) from e
@@ -168,5 +199,9 @@ async def get_signal(
     auth: DualStampedAuth,
     signal_id: str,
 ) -> SignalDetail:
-    """Get one signal of the caller's project. A merged signal names the signal it moved to."""
+    """Get one signal of the caller's project.
+
+    Lists up to 20 of the signal's recent traces inside the plan's retention
+    window, latest trace start first. A merged signal names the signal it moved to.
+    """
     return await _get_signal_detail(auth.project_id, signal_id)

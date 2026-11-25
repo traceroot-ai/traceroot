@@ -40,7 +40,7 @@ export type IntegrationCategory = "provider" | "framework" | "coding-agent";
  * can only use that provider's key ("fixed"). A provider-agnostic framework
  * will take whatever it is handed, so the honest answer is the provider our own
  * example calls, offered as a starting point the user can change
- * ("suggested"). And an entry can name a provider TraceRoot has no BYOK adapter
+ * ("suggested"). And an entry can name a provider traceroot has no BYOK adapter
  * for at all ("none"), which has to be said rather than papered over with a
  * field that cannot store anything.
  *
@@ -61,6 +61,11 @@ export interface IntegrationOption {
   name: string;
   href: string;
   category: IntegrationCategory;
+  /**
+   * Shown before the picker is expanded: the ten stacks most people set up with.
+   * The rest stay one press away, in their own groups.
+   */
+  common?: boolean;
   providerKey: ProviderKeyBinding;
   logo: string;
   logoDark?: string;
@@ -144,6 +149,7 @@ traceroot.initialize(integrations=[
     name: "Claude Agent SDK",
     href: "https://traceroot.ai/docs/integrations/claude-agent-sdk",
     category: "framework",
+    common: true,
     // Anthropic's own agent SDK — @anthropic-ai/claude-agent-sdk, ANTHROPIC_API_KEY.
     providerKey: { kind: "fixed", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/claude-agent-sdk.svg",
@@ -179,6 +185,7 @@ TraceRoot.initialize({
     name: "CrewAI",
     href: "https://traceroot.ai/docs/integrations/crewai",
     category: "framework",
+    common: true,
     // CrewAI drives any LLM; the snippet above initializes Integration.OPENAI.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/crewai.svg",
@@ -245,6 +252,7 @@ traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
     name: "LangChain & LangGraph",
     href: "https://traceroot.ai/docs/integrations/langchain",
     category: "framework",
+    common: true,
     // LangChain wraps any chat model; the docs example is ChatOpenAI(model="gpt-4o").
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/langchain.png",
@@ -383,6 +391,7 @@ const mastra = new Mastra({
     name: "OpenAI Agents SDK",
     href: "https://traceroot.ai/docs/integrations/openai-agents-sdk",
     category: "framework",
+    common: true,
     // OpenAI's own agent SDK — @openai/agents, OPENAI_API_KEY.
     providerKey: { kind: "fixed", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/openai-agents-sdk.svg",
@@ -459,6 +468,7 @@ traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
     name: "Vercel AI SDK",
     href: "https://traceroot.ai/docs/integrations/vercel-ai",
     category: "framework",
+    common: true,
     // The AI SDK is provider-agnostic; the docs example is openai("gpt-4o-mini").
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/vercel-ai.svg",
@@ -488,6 +498,7 @@ registerTelemetry(new OpenTelemetry({ usage: true }));`,
     name: "Anthropic",
     href: "https://traceroot.ai/docs/integrations/anthropic",
     category: "provider",
+    common: true,
     // This entry is the Anthropic SDK itself.
     providerKey: { kind: "fixed", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/anthropic.svg",
@@ -522,6 +533,7 @@ const client = new Anthropic();`,
     name: "Google Gemini",
     href: "https://traceroot.ai/docs/integrations/gemini",
     category: "provider",
+    common: true,
     // This entry is the Google GenAI SDK itself; the adapter is labelled Google Gemini.
     providerKey: { kind: "fixed", adapter: LLMAdapter.GOOGLE },
     logo: "/logo/integrations/gemini.svg",
@@ -564,6 +576,7 @@ traceroot.initialize(integrations=[Integration.MISTRAL])`,
     name: "OpenAI",
     href: "https://traceroot.ai/docs/integrations/openai",
     category: "provider",
+    common: true,
     // This entry is the OpenAI SDK itself.
     providerKey: { kind: "fixed", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/openai.svg",
@@ -640,6 +653,7 @@ const openai = new OpenAI({
     name: "Claude Code",
     href: "https://traceroot.ai/docs/integrations/claude-code",
     category: "coding-agent",
+    common: true,
     // Claude Code runs on Anthropic's models.
     providerKey: { kind: "suggested", adapter: LLMAdapter.ANTHROPIC },
     logo: "/logo/integrations/claude-agent-sdk.svg",
@@ -659,6 +673,7 @@ claude plugin install traceroot-observability@traceroot-claude-code-plugin`;
     name: "Codex",
     href: "https://traceroot.ai/docs/integrations/codex",
     category: "coding-agent",
+    common: true,
     // Codex runs on OpenAI's models.
     providerKey: { kind: "suggested", adapter: LLMAdapter.OPENAI },
     logo: "/logo/integrations/openai.svg",

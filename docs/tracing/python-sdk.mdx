@@ -98,17 +98,21 @@ traceroot checks whether the required package is installed before instrumenting.
 
 Wrap any function to create an OpenTelemetry span. Supports synchronous functions, asynchronous functions, and generators.
 
+{/* [start:snippet:python-sdk-observe] */}
 ```python
 from traceroot import observe
 
+
 @observe(name="my_function", type="tool")
 def my_function(query: str) -> str:
-    return do_work(query)
+    return f"Processed: {query}"
+
 
 @observe(name="async_agent", type="agent")
 async def async_agent(query: str) -> str:
-    return await process(query)
+    return f"Result: {query}"
 ```
+{/* [end:snippet:python-sdk-observe] */}
 
 ### Parameters
 

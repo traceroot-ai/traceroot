@@ -1,4 +1,4 @@
-"""Tiered, workspace-keyed rate limiting for the Traceroot REST API.
+"""Tiered, workspace-keyed rate limiting for the traceroot REST API.
 
 Design
 ------

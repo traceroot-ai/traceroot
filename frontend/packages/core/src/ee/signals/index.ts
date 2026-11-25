@@ -12,6 +12,7 @@ export { pickCanonicalRca } from "./canonical-rca.ts";
 export {
   listSignals,
   getSignal,
+  recentSignalHits,
   signalsForTrace,
   signalIdsForTraces,
   signalsForRuns,

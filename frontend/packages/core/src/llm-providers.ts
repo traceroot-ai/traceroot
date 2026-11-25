@@ -1,4 +1,4 @@
-// Model source — system (TraceRoot-hosted) or BYOK (user's own keys)
+// Model source — system (traceroot-hosted) or BYOK (user's own keys)
 export const ModelSource = {
   SYSTEM: "system",
   BYOK: "byok",
@@ -191,6 +191,8 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
+    { id: "gpt-6.2-sol", label: "gpt-6.2-sol" },
+    { id: "gpt-6.2-astra", label: "gpt-6.2-astra" },
     { id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
     { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-6-sol", label: "gpt-6-sol" },

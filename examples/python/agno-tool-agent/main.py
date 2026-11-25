@@ -1,8 +1,8 @@
 """
-Agno Tool Agent — TraceRoot Observability
+Agno Tool Agent — traceroot Observability
 
 A ReAct-style agent built with the Agno framework, instrumented
-with TraceRoot via traceroot.initialize(integrations=[Integration.AGNO]).
+with traceroot via traceroot.initialize(integrations=[Integration.AGNO]).
 
 Env vars required: ANTHROPIC_API_KEY, TRACEROOT_API_KEY
 
@@ -68,7 +68,7 @@ DEMO_QUERIES = [
 @observe(name="demo_session", type="agent")
 def run_demo() -> None:
     print("=" * 60)
-    print("Agno Tool Agent — Demo (TraceRoot)")
+    print("Agno Tool Agent — Demo (traceroot)")
     print("=" * 60)
 
     for i, query in enumerate(DEMO_QUERIES, 1):

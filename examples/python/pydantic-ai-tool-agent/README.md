@@ -1,6 +1,6 @@
 # Pydantic AI Tool Agent
 
-A tool-using financial research agent built with [pydantic-ai](https://ai.pydantic.dev), instrumented with [TraceRoot](https://traceroot.ai).
+A tool-using financial research agent built with [pydantic-ai](https://ai.pydantic.dev), instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

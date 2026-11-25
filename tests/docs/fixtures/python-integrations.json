@@ -1,0 +1,21 @@
+{
+  "integrations": [
+    "openai",
+    "anthropic",
+    "langchain",
+    "google_genai",
+    "crewai",
+    "openai_agents",
+    "claude_agent_sdk",
+    "llama_index",
+    "autogen",
+    "agno",
+    "groq",
+    "dspy",
+    "google_adk",
+    "mistral",
+    "pydantic_ai",
+    "bedrock",
+    "agent_framework"
+  ]
+}
