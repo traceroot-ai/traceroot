@@ -355,6 +355,11 @@ jobs:
           pnpm exec prisma generate
           pnpm exec vitest run .db.test.ts --coverage --coverage.reportsDirectory=./coverage-postgres
 
+      - name: Run worker's Postgres tests
+        run: |
+          cd frontend/worker
+          pnpm exec vitest run .db.test.ts --coverage --coverage.reportsDirectory=./coverage-postgres
+
       - name: Fix lcov source paths
         if: always()
         run: |
@@ -363,7 +368,7 @@ jobs:
           # gate reads them as separate reports, and a line counts as covered
           # when any report covers it.
           mkdir -p coverage-postgres
-          for pkg in frontend/packages/core; do
+          for pkg in frontend/packages/core frontend/worker; do
             lcov_file="$pkg/coverage-postgres/lcov.info"
             if [ -f "$lcov_file" ]; then
               sed "s|^SF:|SF:${pkg}/|" "$lcov_file" > "coverage-postgres/$(basename "$pkg").lcov"
@@ -379,9 +384,6 @@ jobs:
           name: coverage-postgres
           path: coverage-postgres/*.lcov
           if-no-files-found: warn
-
-      - name: Run worker's Postgres tests
-        run: cd frontend/worker && pnpm exec vitest run .db.test.ts
 
       - name: Postgres logs
         if: failure()
