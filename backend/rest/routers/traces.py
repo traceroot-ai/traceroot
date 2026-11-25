@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import Iterator
 from datetime import datetime
+from functools import partial
 from typing import Annotated, Literal
 
 from botocore.response import StreamingBody
@@ -27,6 +28,7 @@ from rest.rate_limit import (
 )
 from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.deps import RateLimitedProjectAccess
+from rest.routers.labels_common import MAX_LABEL_LENGTH, resolve_labeled_trace_ids
 from rest.schemas.traces import (
     FilterFieldsResponse,
     FilterValuesResponse,
@@ -125,11 +127,59 @@ async def list_traces(
     # 422 rather than being swallowed by the broad 500 handler below.
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
-        parsed_filters = parse_filters_param(filters)
+        parsed_filters = parse_filters_param(filters, allow_label=True)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+
+    label_field = filter_columns.LABEL_FILTER_COLUMN.name
+    label_filters = [predicate for predicate in parsed_filters if predicate.field == label_field]
+    label = None
+    if label_filters:
+        values = label_filters[0].value
+        if (
+            len(label_filters) != 1
+            or len(values) != 1
+            or not 1 <= len(values[0].strip()) <= MAX_LABEL_LENGTH
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Select one project label",
+            )
+
+        label = values[0]
+        parsed_filters = [
+            predicate for predicate in parsed_filters if predicate.field != label_field
+        ]
+        include_evaluations = False
+
+    scope = {
+        "project_id": project_id,
+        "name": name,
+        "user_id": user_id,
+        "start_after": start_after,
+        "end_before": end_before,
+        "search_query": search_query,
+        "filters": parsed_filters,
+        "include_evaluations": include_evaluations,
+    }
     try:
         service = get_trace_reader_service()
+        if label is not None:
+            trace_ids = await resolve_labeled_trace_ids(
+                project_id,
+                label,
+                trace_ids,
+                MAX_TRACE_IDS,
+                partial(service.matching_trace_ids, **scope),
+            )
+            if len(trace_ids) > MAX_TRACE_IDS:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=f"This label matches more than {MAX_TRACE_IDS} traces in the current filters",
+                )
+            if not trace_ids:
+                return {"data": [], "meta": {"page": page, "limit": limit, "total": 0}}
+
         # Off the event loop: clickhouse-connect is synchronous, and this is the widest
         # scan the dashboard issues (a filtered list runs a page query and a count query
         # back to back, both capped at the shared execution timeout). Awaiting it inline
@@ -137,19 +187,14 @@ async def list_traces(
         # uvicorn worker, single replica, so there is no second process to absorb it.
         result = await asyncio.to_thread(
             service.list_traces,
-            project_id=project_id,
             page=page,
             limit=limit,
-            name=name,
-            user_id=user_id,
             trace_ids=trace_ids,
-            start_after=start_after,
-            end_before=end_before,
-            search_query=search_query,
-            filters=parsed_filters,
-            include_evaluations=include_evaluations,
+            **scope,
         )
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
         raise HTTPException(
@@ -194,7 +239,11 @@ async def get_filter_fields(
                 "integer": c.is_integer,
                 "requires_key": c.requires_key,
             }
-            for c in filter_columns.FILTER_COLUMNS
+            for c in (
+                *filter_columns.FILTER_COLUMNS[:1],
+                filter_columns.LABEL_FILTER_COLUMN,
+                *filter_columns.FILTER_COLUMNS[1:],
+            )
         ]
     }
 

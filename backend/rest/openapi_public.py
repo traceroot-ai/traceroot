@@ -404,6 +404,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     "ingest_traces": {"enabled": False},
+    "write_label": {"enabled": False},
     "run_sql": {
         "name": "run_sql",
         "description": (
@@ -1258,6 +1259,10 @@ DOCS_SERVERS: list[dict[str, Any]] = [
 
 #: Page summaries used by Mintlify for search snippets, keyed by operation ID.
 _DOCS_DESCRIPTIONS: dict[str, str] = {
+    "write_label": (
+        "Apply an existing project label to a production trace or span with a project API key. "
+        "Use the same idempotency key when retrying the request."
+    ),
     "whoami": (
         "Check which traceroot project and workspace an API key belongs to. Useful "
         "for confirming that a credential is valid and correctly scoped."
@@ -1490,6 +1495,7 @@ _DOCS_DESCRIPTIONS: dict[str, str] = {
 
 #: Caller-facing details that do not fit in the search snippet.
 _DOCS_USAGE_NOTES = {
+    "write_label": "Use a project API key. Create the label in Project Settings before applying it.",
     "list_alerts": "Alerts are ordered oldest first.",
     "create_alert": "Each call creates a new alert, even when its name matches an existing one.",
     "update_alert": (
@@ -1539,6 +1545,9 @@ _DOCS_USAGE_NOTES = {
     ),
 }
 
+_SDK_DRIVEN_OPERATIONS = frozenset(
+    {"ingest_traces", "register_run", "upsert_result", "complete_run"}
+)
 _SDK_NOTE = (
     "<Note>The traceroot SDKs call this endpoint for you; call it directly only "
     "where no SDK fits. It accepts a project API key only.</Note>"
@@ -1554,9 +1563,9 @@ def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
     Mintlify only reads files inside ``docs/``, so the reference needs its own
     copy. It is the public document plus what only the docs need: ``servers``
-    for the playground, search descriptions, and a note on each operation hidden from the tool
-    registry (the SDKs' ingest and evaluation-run writes) saying the SDKs call
-    it. ``public.json`` itself stays unchanged, so the tool registry is unaffected.
+    for the playground, search descriptions, and notes on the SDKs' ingest and
+    evaluation-run writes. ``public.json`` itself stays unchanged, so the tool
+    registry is unaffected.
 
     Args:
         schema (dict[str, Any]): The public-only OpenAPI document; not mutated.
@@ -1573,7 +1582,7 @@ def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
             op_id = op["operationId"]
             tool = op["x-tool"]
             parts = []
-            if not tool["enabled"]:
+            if op_id in _SDK_DRIVEN_OPERATIONS:
                 parts.append(_SDK_NOTE + (_INGEST_NOTE if op_id == "ingest_traces" else ""))
             role = tool.get("policy", {}).get("minRole")
             if role == "MEMBER":
