@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useDashboardMutations } from "../hooks/use-dashboards";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,7 +61,9 @@ export function DeleteDashboardDialog({
           </DialogDescription>
         </DialogHeader>
         {removeDashboard.isError && (
-          <p className="text-sm text-destructive">{removeDashboard.error.message}</p>
+          <p className="text-sm text-destructive">
+            {translateClientError(t, removeDashboard.error.message)}
+          </p>
         )}
         <DialogFooter>
           <Button

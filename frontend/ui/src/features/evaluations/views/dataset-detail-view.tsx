@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
@@ -172,7 +173,7 @@ export function DatasetDetailView({
       onError: (e) =>
         toast({
           title: t("datasetsDetail.rowDeleteFailed"),
-          description: String(e),
+          description: translateClientError(t, String(e)),
           tone: "warning",
         }),
     });
@@ -315,7 +316,7 @@ export function DatasetDetailView({
                     <Th className="w-[150px]">{t("common.created")}</Th>
                     <Th>{t("evalsShared.input")}</Th>
                     <Th>{t("evalsShared.expected")}</Th>
-                    <Th>Metadata</Th>
+                    <Th>{t("tracesSpan.metadata")}</Th>
                     {isCurrentVersion && (
                       <Th className="w-[70px] text-right">
                         <span className="sr-only">{t("evalsShared.actions")}</span>
@@ -675,7 +676,7 @@ function CasePanel({
                 />
                 <TraceIOSection
                   key={`metadata-${testCase.id}`}
-                  title="Metadata"
+                  title={t("tracesSpan.metadata")}
                   content={metadataJson || null}
                   onCopy={metadataJson ? () => copyToClipboard(metadataJson) : undefined}
                 />

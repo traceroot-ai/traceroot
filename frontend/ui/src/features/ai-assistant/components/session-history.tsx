@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n/translate";
 import type { AISession } from "../types";
 
 interface SessionHistoryProps {
@@ -14,20 +16,20 @@ interface SessionHistoryProps {
   readOnly?: boolean;
 }
 
-function getTimeGroup(dateStr: string): string {
+function getTimeGroup(dateStr: string, t: Translate): string {
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays === 0) return t("assistantHistory.today");
+  if (diffDays === 1) return t("assistantHistory.yesterday");
+  if (diffDays < 7) return t("assistantHistory.daysAgo", { count: diffDays });
   const weeks = Math.floor(diffDays / 7);
-  if (weeks < 5) return `${weeks}w ago`;
+  if (weeks < 5) return t("assistantHistory.weeksAgo", { count: weeks });
   const months = Math.floor(diffDays / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(diffDays / 365)}y ago`;
+  if (months < 12) return t("assistantHistory.monthsAgo", { count: months });
+  return t("assistantHistory.yearsAgo", { count: Math.floor(diffDays / 365) });
 }
 
 export function SessionHistory({
@@ -38,6 +40,7 @@ export function SessionHistory({
   onDelete,
   readOnly = false,
 }: SessionHistoryProps) {
+  const t = useT();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
@@ -61,7 +64,7 @@ export function SessionHistory({
   if (sessions.length === 0) {
     return (
       <div className="px-2.5 py-3 text-center text-[12px] text-muted-foreground">
-        No past sessions
+        {t("assistantHistory.empty")}
       </div>
     );
   }
@@ -71,7 +74,9 @@ export function SessionHistory({
   let currentGroup: string | null = null;
 
   for (const session of sessions) {
-    const group = session.isExample ? "Example sessions" : getTimeGroup(session.createTime);
+    const group = session.isExample
+      ? t("assistantHistory.examples")
+      : getTimeGroup(session.createTime, t);
     if (group !== currentGroup) {
       currentGroup = group;
       groups.push({ label: group, sessions: [] });
@@ -98,7 +103,7 @@ export function SessionHistory({
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-[12px]">
-                {s.title || "Untitled session"}
+                {s.title || t("assistantHistory.untitled")}
               </span>
               {!readOnly && !s.isExample && (
                 <Trash2

@@ -28,6 +28,7 @@ import { ConditionSection } from "./condition-section";
 import { NotificationsSection } from "./notifications-section";
 import { ScopeSection } from "./scope-section";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { MEASURE_LABEL_KEY } from "../measure-docs";
 
 interface AlertFormProps {
@@ -226,7 +227,9 @@ export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: Ale
               <AlertsCapacityNotice capacity={capacity} className="mr-auto text-muted-foreground" />
             )}
             {submitError && (
-              <p className="mr-auto text-[12px] text-destructive">{submitError.message}</p>
+              <p className="mr-auto text-[12px] text-destructive">
+                {translateClientError(t, submitError.message)}
+              </p>
             )}
             {/* A hint, not a gate: the save stays one click, and a rename closes nothing. */}
             {isEdit && hasOpenPage && !submitError && (

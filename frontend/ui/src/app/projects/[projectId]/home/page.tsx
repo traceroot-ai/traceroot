@@ -13,7 +13,7 @@ import {
   pickDefaultModel,
 } from "@/features/ai-assistant/lib/resolve-model";
 import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
-import { DEMO_AGENT_SEND_DENIED } from "@/features/ai-assistant/constants";
+import { DEMO_AGENT_SEND_DENIED_KEY } from "@/features/ai-assistant/constants";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import { NextStepsChecklist } from "@/features/onboarding/components/next-steps-checklist";
 import { useT } from "@/lib/i18n/provider";
@@ -136,7 +136,7 @@ export default function HomePage() {
         </div>
         {readOnly && sendBlocked && (
           <p role="alert" className="mt-3 text-[12px] text-destructive">
-            {DEMO_AGENT_SEND_DENIED}
+            {t(DEMO_AGENT_SEND_DENIED_KEY)}
           </p>
         )}
       </div>

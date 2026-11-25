@@ -17,6 +17,7 @@ import {
 import { updateProject, deleteProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 
 interface GeneralTabProps {
   projectId: string;
@@ -134,16 +135,22 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
           <DialogHeader>
             <DialogTitle>{t("projectSettings.deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {t("projectSettings.deleteDialogBefore")}
-              <span className="font-semibold">{project?.name}</span>
-              {t("projectSettings.deleteDialogAfter")}
+              <Slots
+                text={t("projectSettings.deleteDialogText")}
+                slots={{ name: <span className="font-semibold">{project?.name}</span> }}
+              />
             </DialogDescription>
           </DialogHeader>
           <div>
             <p className="mb-2 text-sm text-muted-foreground">
-              {t("workspaceSettings.typeBefore")}{" "}
-              <span className="font-mono font-semibold text-foreground">{project?.name}</span>{" "}
-              {t("workspaceSettings.typeAfter")}
+              <Slots
+                text={t("workspaceSettings.typeToConfirm")}
+                slots={{
+                  name: (
+                    <span className="font-mono font-semibold text-foreground">{project?.name}</span>
+                  ),
+                }}
+              />
             </p>
             <Input
               value={deleteConfirmText}

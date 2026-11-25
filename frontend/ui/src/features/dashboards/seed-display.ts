@@ -23,6 +23,38 @@ export function displayWidgetTitle(t: Translate, title: string): string {
   return key ? t(key) : title;
 }
 
+// The widget schema (backend/rest/services/widget_registry.py) labels its fields in English for
+// every client. Labels that are plain words get a translation when shown; product terms
+// (Trace ID, Tokens) and any label the schema adds later are shown as they arrive.
+const FIELD_LABEL_KEYS: Record<string, MessageKey> = {
+  "Span name": "componentsFilters.fieldSpanName",
+  "Span kind": "componentsFilters.fieldSpanKind",
+  Status: "componentsFilters.fieldStatus",
+  "Error type": "componentsFilters.fieldErrorType",
+  Model: "componentsFilters.fieldModel",
+  Environment: "componentsFilters.fieldEnvironment",
+  Cost: "componentsFilters.fieldCost",
+  Latency: "componentsFilters.fieldLatency",
+  Errors: "componentsFilters.fieldErrors",
+  Duration: "evalsShared.duration",
+  Metadata: "tracesSpan.metadata",
+  Count: "alertsMeasures.labelCount",
+  "Input tokens": "alertsMeasures.labelInputTokens",
+  "Output tokens": "alertsMeasures.labelOutputTokens",
+  "Total tokens": "alertsMeasures.labelTotalTokens",
+  "Cache read tokens": "dashboardsFields.cacheReadTokens",
+  "Cache write tokens": "dashboardsFields.cacheWriteTokens",
+  "Tokens per second": "dashboardsFields.tokensPerSecond",
+  "Trace name": "dashboardsFields.traceName",
+  "Root span": "dashboardsFields.rootSpan",
+  User: "dashboardsFields.user",
+  Session: "dashboardsFields.session",
+};
+
+export function displayFieldLabel(t: Translate, label: string): string {
+  return Object.hasOwn(FIELD_LABEL_KEYS, label) ? t(FIELD_LABEL_KEYS[label]) : label;
+}
+
 export function displayDashboardName(t: Translate, name: string): string {
   return name === SEEDED_DASHBOARD_NAME ? t("dashboardsSeed.defaultName") : name;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_LOCALE, ENABLED_LOCALES, LOCALES, parseLocale } from "./locales";
-import { en, type MessageKey } from "./messages/en";
+import { en } from "./messages/en";
 import { zh } from "./messages/zh";
 import { createTranslator } from "./translate";
 
@@ -19,15 +19,6 @@ describe("parseLocale", () => {
   });
 });
 
-function firstUntranslatedKey(): [string, string] {
-  for (const [group, values] of Object.entries(en)) {
-    const translated = (zh as Record<string, Record<string, string> | undefined>)[group] ?? {};
-    const missing = Object.keys(values).find((key) => !(key in translated));
-    if (missing) return [group, missing];
-  }
-  throw new Error("every key is translated, so there is no fallback to test");
-}
-
 describe("createTranslator", () => {
   it("returns the English text for English", () => {
     expect(createTranslator("en")("workspaces.emptyTitle")).toBe("No workspaces yet");
@@ -40,14 +31,9 @@ describe("createTranslator", () => {
     // traceroot's own terms stay in English: zh leaves them out, so they fall back.
     expect(zh.nav?.detectors).toBeUndefined();
     expect(t("nav.detectors")).toBe("Detectors");
-    // A key zh leaves out shows the English text.
-    expect(zh.nav?.homeLabel).toBeDefined();
-    expect(zh.settings?.modelProviders).toBeDefined();
-    expect(zh.common?.settingsFor).toBeDefined();
-    const [group, key] = firstUntranslatedKey();
-    expect(t(`${group}.${key}` as MessageKey)).toBe(
-      (en[group as keyof typeof en] as Record<string, string>)[key],
-    );
+    // A language with no translation for a key shows the English text. Japanese is listed but
+    // has no message file yet, so every key falls back.
+    expect(createTranslator("ja")("workspaces.emptyTitle")).toBe("No workspaces yet");
   });
 
   it("fills placeholders and leaves unknown ones visible", () => {
@@ -76,5 +62,18 @@ describe("message files", () => {
         expect(placeholders(text), `${group}.${key}`).toEqual(placeholders(english));
       }
     }
+  });
+});
+
+describe("translateFormError", () => {
+  it("translates known schema messages and passes everything else through", async () => {
+    const { translateFormError } = await import("./form-errors");
+    const t = createTranslator("zh");
+    expect(translateFormError(t, "Invalid email")).toBe("邮箱格式不正确");
+    expect(translateFormError(t, "Email already registered")).toBe("Email already registered");
+    // Names that exist on Object.prototype are ordinary messages, not keys.
+    expect(translateFormError(t, "constructor")).toBe("constructor");
+    expect(translateFormError(t, "toString")).toBe("toString");
+    expect(translateFormError(t, null)).toBeNull();
   });
 });

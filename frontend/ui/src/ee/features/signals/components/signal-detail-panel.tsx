@@ -24,6 +24,7 @@ import {
 import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import type { Translate } from "@/lib/i18n/translate";
 
 /**
@@ -352,13 +353,18 @@ function SignalBlocks({
                   <p className="text-[12px] text-muted-foreground">
                     {earlier ? (
                       <>
-                        {t("eeSignalDetail.fromBefore")}{" "}
-                        {earlierAt ? (
-                          <span title={formatDate(earlierAt)}>{formatRelativeTime(earlierAt)}</span>
-                        ) : (
-                          t("eeSignalDetail.earlier")
-                        )}
-                        {t("eeSignalDetail.fromAfter")}
+                        <Slots
+                          text={t("eeSignalDetail.fromEarlier")}
+                          slots={{
+                            time: earlierAt ? (
+                              <span title={formatDate(earlierAt)}>
+                                {formatRelativeTime(earlierAt, t)}
+                              </span>
+                            ) : (
+                              t("eeSignalDetail.earlier")
+                            ),
+                          }}
+                        />
                         {reopeningState(ownState, detail.grouping, t)}
                       </>
                     ) : (

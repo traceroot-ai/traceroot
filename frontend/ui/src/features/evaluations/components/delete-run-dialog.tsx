@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -31,9 +32,10 @@ export function DeleteRunDialog({
         </DialogHeader>
         <div className="mt-1 space-y-4">
           <p className="text-[12px] text-muted-foreground">
-            {t("datasetsDelete.runBefore")}{" "}
-            <span className="font-medium text-foreground">{runLabel}</span>{" "}
-            {t("datasetsDelete.runAfter")}
+            <Slots
+              text={t("datasetsDelete.runText")}
+              slots={{ name: <span className="font-medium text-foreground">{runLabel}</span> }}
+            />
           </p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>

@@ -2,6 +2,7 @@
 
 import { displayWidgetTitle } from "@/features/dashboards/seed-display";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { MoreVertical } from "lucide-react";
 import {
   DropdownMenu,
@@ -61,7 +62,7 @@ function QueryWidgetBody({
     return (
       <div className="p-2 text-[12px] text-danger">
         {t("dashboardsWidget.queryFailed")}
-        {error instanceof Error ? `: ${error.message}` : ""}
+        {error instanceof Error ? `: ${translateClientError(t, error.message)}` : ""}
       </div>
     );
   }

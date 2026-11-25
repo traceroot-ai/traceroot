@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
 import { AccountLine } from "@/components/account-line";
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import type { MessageKey } from "@/lib/i18n/messages/en";
 import type { Translate } from "@/lib/i18n/translate";
 
@@ -501,11 +502,16 @@ function Consent({
       <CodeConfirm code={code} />
 
       <p className="text-[12px] text-muted-foreground">
-        {t("device.consentBefore", { client: clientName })}{" "}
-        <Link href="/account/settings/sessions" className="underline hover:text-foreground">
-          {t("device.activeSessionsLink")}
-        </Link>{" "}
-        {t("device.consentAfter")}
+        <Slots
+          text={t("device.consentText", { client: clientName })}
+          slots={{
+            link: (
+              <Link href="/account/settings/sessions" className="underline hover:text-foreground">
+                {t("device.activeSessionsLink")}
+              </Link>
+            ),
+          }}
+        />
       </p>
 
       <p className="border border-warning-border bg-warning-soft p-2 text-[12px] text-warning">

@@ -26,6 +26,7 @@ import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 export default function AlertsPage() {
   const t = useT();
@@ -136,7 +137,7 @@ export default function AlertsPage() {
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">{t("alertsList.loadError")}</p>
               <p className="max-w-md text-center text-[12px] text-muted-foreground">
-                {error instanceof Error ? error.message : String(error)}
+                {error instanceof Error ? translateClientError(t, error.message) : String(error)}
               </p>
             </div>
           ) : isEmptyProject ? (
@@ -159,7 +160,7 @@ export default function AlertsPage() {
             <>
               {statusMutation.error && (
                 <p className="border-b border-border px-4 py-2 text-[12px] text-destructive">
-                  {statusMutation.error.message}
+                  {translateClientError(t, statusMutation.error.message)}
                 </p>
               )}
               <AlertsTable

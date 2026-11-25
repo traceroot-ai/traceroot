@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -48,13 +49,14 @@ export function DeleteDatasetDialog({
 
         <div className="mt-1 space-y-4">
           <p className="text-[12px] text-muted-foreground">
-            {t("datasetsDelete.textBefore")}{" "}
-            <span className="font-medium text-foreground">{datasetName}</span>{" "}
-            {caseCount === 1
-              ? t("datasetsDelete.textMiddleOne", { count: caseCount })
-              : t("datasetsDelete.textMiddleOther", { count: caseCount })}{" "}
-            <span className="font-medium text-foreground">{datasetName}</span>{" "}
-            {t("datasetsDelete.textAfter")}
+            <Slots
+              text={
+                caseCount === 1
+                  ? t("datasetsDelete.textOne", { count: caseCount })
+                  : t("datasetsDelete.textOther", { count: caseCount })
+              }
+              slots={{ name: <span className="font-medium text-foreground">{datasetName}</span> }}
+            />
           </p>
 
           <Input

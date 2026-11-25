@@ -63,19 +63,16 @@ export const verifyEn = {
   },
   datasetsDelete: {
     title: "Delete dataset",
-    textBefore: "This deletes",
-    textMiddleOne:
-      "and all {count} test case across every version. This action cannot be undone. Type",
-    textMiddleOther:
-      "and all {count} test cases across every version. This action cannot be undone. Type",
-    textAfter: "to confirm.",
+    textOne:
+      "This deletes {name} and all {count} test case across every version. This action cannot be undone. Type {name} to confirm.",
+    textOther:
+      "This deletes {name} and all {count} test cases across every version. This action cannot be undone. Type {name} to confirm.",
     rowTitle: "Delete row",
-    rowBefore: "This removes",
-    rowAfter:
-      "from the current version by publishing a new one. Earlier versions still contain it, so any run that scored it is unaffected.",
+    rowText:
+      "This removes {name} from the current version by publishing a new one. Earlier versions still contain it, so any run that scored it is unaffected.",
     runTitle: "Delete run",
-    runBefore: "This permanently deletes",
-    runAfter: "and all of its per-case results. This can't be undone.",
+    runText:
+      "This permanently deletes {name} and all of its per-case results. This can't be undone.",
   },
   datasetsRow: {
     editTitle: "Edit row",
@@ -137,9 +134,8 @@ export const verifyEn = {
     back: "Back to evaluations",
     reconstructed: "Reconstructed — no telemetry was emitted for this result",
     pendingHeading: "Trace is still being ingested",
-    pendingBefore: "This result reported a trace (",
-    pendingAfter:
-      "), but its telemetry hasn't finished ingesting yet. It will appear here once it lands.",
+    pendingText:
+      "This result reported a trace ({traceId}), but its telemetry hasn't finished ingesting yet. It will appear here once it lands.",
     emptyNone: "No per-case results reported for this run yet.",
     emptyFiltered: "No results match this filter.",
     noOutput: "No output",
@@ -355,17 +351,15 @@ export const verifyZh: PartialGroups<typeof verifyEn> = {
   },
   datasetsDelete: {
     title: "删除数据集",
-    textBefore: "将删除",
-    textMiddleOne: "及其在所有版本中的全部 {count} 个测试用例。此操作无法撤销。输入",
-    textMiddleOther: "及其在所有版本中的全部 {count} 个测试用例。此操作无法撤销。输入",
-    textAfter: "以确认。",
+    textOne:
+      "将删除 {name} 及其在所有版本中的全部 {count} 个测试用例。此操作无法撤销。输入 {name} 以确认。",
+    textOther:
+      "将删除 {name} 及其在所有版本中的全部 {count} 个测试用例。此操作无法撤销。输入 {name} 以确认。",
     rowTitle: "删除行",
-    rowBefore: "将把",
-    rowAfter:
-      "从当前版本中移除，并发布一个新版本。更早的版本仍然保留这一行，给它打过分的运行不受影响。",
+    rowText:
+      "将把 {name} 从当前版本中移除，并发布一个新版本。更早的版本仍然保留这一行，给它打过分的运行不受影响。",
     runTitle: "删除运行",
-    runBefore: "将永久删除",
-    runAfter: "及其所有用例的结果。此操作无法撤销。",
+    runText: "将永久删除 {name} 及其所有用例的结果。此操作无法撤销。",
   },
   datasetsRow: {
     editTitle: "编辑行",
@@ -427,8 +421,8 @@ export const verifyZh: PartialGroups<typeof verifyEn> = {
     back: "返回评测",
     reconstructed: "重建的 trace：这条结果没有上报遥测数据",
     pendingHeading: "trace 仍在写入中",
-    pendingBefore: "这条结果上报了一个 trace（",
-    pendingAfter: "），但它的遥测数据还没有写入完成，完成后会显示在这里。",
+    pendingText:
+      "这条结果上报了一个 trace（{traceId}），但它的遥测数据还没有写入完成，完成后会显示在这里。",
     emptyNone: "这次运行还没有上报任何用例结果。",
     emptyFiltered: "没有符合筛选条件的结果。",
     noOutput: "无输出",

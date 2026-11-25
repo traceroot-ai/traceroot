@@ -96,8 +96,7 @@ export const detectEn = {
   },
   detectorsDelete: {
     title: "Delete detector",
-    confirmBefore: "This action cannot be undone. Type",
-    confirmAfter: "to confirm.",
+    confirmText: "This action cannot be undone. Type {name} to confirm.",
     deleting: "Deleting...",
   },
   detectorsDetail: {
@@ -183,12 +182,9 @@ export const detectEn = {
   },
   alertsDelete: {
     title: "Delete alert",
-    textBefore: "Permanently delete",
-    textAfter:
-      "? Evaluation and notifications stop immediately, and its recorded state is removed. This cannot be undone.",
+    text: "Permanently delete {name}? Evaluation and notifications stop immediately, and its recorded state is removed. This cannot be undone.",
     openWarning: "This alert is open. Deleting it will close it and post an [OK] to Slack.",
-    typeBefore: "Type",
-    typeAfter: "to confirm.",
+    typeToConfirm: "Type {name} to confirm.",
     confirmLabel: "confirm alert name",
     deleting: "Deleting...",
   },
@@ -409,8 +405,7 @@ export const detectZh: PartialGroups<typeof detectEn> = {
   },
   detectorsDelete: {
     title: "删除 detector",
-    confirmBefore: "此操作无法撤销。输入",
-    confirmAfter: "以确认。",
+    confirmText: "此操作无法撤销。输入 {name} 以确认。",
     deleting: "删除中...",
   },
   detectorsDetail: {
@@ -490,11 +485,9 @@ export const detectZh: PartialGroups<typeof detectEn> = {
   },
   alertsDelete: {
     title: "删除告警",
-    textBefore: "永久删除",
-    textAfter: "？评估和通知会立即停止，已记录的状态也会移除。此操作无法撤销。",
+    text: "永久删除 {name}？评估和通知会立即停止，已记录的状态也会移除。此操作无法撤销。",
     openWarning: "这个告警正处于触发状态。删除后会将其关闭，并向 Slack 发送一条 [OK]。",
-    typeBefore: "输入",
-    typeAfter: "以确认。",
+    typeToConfirm: "输入 {name} 以确认。",
     confirmLabel: "确认告警名称",
     deleting: "删除中...",
   },

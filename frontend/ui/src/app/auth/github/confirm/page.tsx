@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 function ConfirmContent() {
   const router = useRouter();
@@ -76,7 +77,7 @@ function ConfirmContent() {
         router.push("/");
       }
     } catch (err: any) {
-      setError(err.message || t("auth.errorUnexpected"));
+      setError(translateClientError(t, err.message) || t("auth.errorUnexpected"));
       setIsLoading(false);
     }
   }

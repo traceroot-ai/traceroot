@@ -3,6 +3,9 @@ import { shellEn } from "./areas/shell";
 import { tracesEn } from "./areas/traces";
 import { detectEn } from "./areas/detect";
 import { verifyEn } from "./areas/verify";
+import { assistantEn } from "./areas/assistant";
+import { supportEn } from "./areas/support";
+import { sweepEn } from "./areas/sweep";
 import type { PartialGroups } from "./types";
 
 // English is the source of truth: every key lives here and other languages fall back to it.
@@ -42,11 +45,9 @@ const core = {
     deleteText:
       "Permanently delete this workspace and all of its projects and data. This action cannot be undone.",
     deleteDialogTitle: "Delete Workspace",
-    deleteDialogBefore:
-      'This action cannot be undone. This will permanently delete the workspace "',
-    deleteDialogAfter: '" and all associated projects and data.',
-    typeBefore: "Type",
-    typeAfter: "to confirm:",
+    deleteDialogText:
+      'This action cannot be undone. This will permanently delete the workspace "{name}" and all associated projects and data.',
+    typeToConfirm: "Type {name} to confirm:",
     deleting: "Deleting...",
     integrationsSubtitle: "Connect third-party services to enhance your workspace",
     connectedServices: "Connected services",
@@ -150,7 +151,17 @@ const core = {
 };
 
 // Larger areas keep their groups in ./areas so they can be worked on independently.
-export const en = { ...core, ...componentsEn, ...shellEn, ...tracesEn, ...detectEn, ...verifyEn };
+export const en = {
+  ...core,
+  ...componentsEn,
+  ...shellEn,
+  ...tracesEn,
+  ...detectEn,
+  ...verifyEn,
+  ...assistantEn,
+  ...supportEn,
+  ...sweepEn,
+};
 
 export type Messages = typeof en;
 export type PartialMessages = PartialGroups<Messages>;

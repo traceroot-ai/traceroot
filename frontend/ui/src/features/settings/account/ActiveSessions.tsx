@@ -6,6 +6,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import { useActiveSessions, type SessionRow } from "./hooks";
 import { formatSessionAgent } from "./utils/session-label";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 export function ActiveSessions() {
   const t = useT();
@@ -48,7 +49,7 @@ export function ActiveSessions() {
 
       {actionError && (
         <p role="alert" className="text-[13px] text-destructive">
-          {actionError.message}
+          {translateClientError(t, actionError.message)}
         </p>
       )}
 
@@ -122,8 +123,12 @@ function SessionTableRow({ session, canRevoke, onRevoke, isRevoking }: SessionTa
           </span>
         )}
       </td>
-      <td className="px-3 py-2 text-muted-foreground">{formatRelativeTime(session.createdAt)}</td>
-      <td className="px-3 py-2 text-muted-foreground">{formatRelativeTime(session.updatedAt)}</td>
+      <td className="px-3 py-2 text-muted-foreground">
+        {formatRelativeTime(session.createdAt, t)}
+      </td>
+      <td className="px-3 py-2 text-muted-foreground">
+        {formatRelativeTime(session.updatedAt, t)}
+      </td>
       <td className="px-3 py-2 text-muted-foreground">{session.ipAddress || "-"}</td>
       <td className="px-3 py-2 text-right">
         {/* Revoking your own session logs you out immediately, so the current

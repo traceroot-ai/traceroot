@@ -6,6 +6,7 @@ import { traceUrl } from "@/lib/first-trace";
 import { cn } from "@/lib/utils";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 
 interface FirstTraceLineProps {
   /** How the watch for the first trace is going. */
@@ -76,11 +77,16 @@ function Line({ wait, align }: Required<FirstTraceLineProps>) {
     // and it is also where an expired session gets asked to sign in again.
     return (
       <p className={text}>
-        {t("componentsFirstTrace.unreadableBefore")}
-        <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
-          {t("componentsFirstTrace.openTraces")}
-        </Link>
-        {t("componentsFirstTrace.unreadableAfter")}
+        <Slots
+          text={t("componentsFirstTrace.unreadable")}
+          slots={{
+            link: (
+              <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
+                {t("componentsFirstTrace.openTraces")}
+              </Link>
+            ),
+          }}
+        />
       </p>
     );
   }
@@ -90,11 +96,16 @@ function Line({ wait, align }: Required<FirstTraceLineProps>) {
   // is still running wherever the command was run.
   return (
     <p className={text}>
-      {t("componentsFirstTrace.stillNoneBefore")}
-      <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
-        {t("componentsFirstTrace.openTraces")}
-      </Link>
-      {t("componentsFirstTrace.stillNoneAfter")}
+      <Slots
+        text={t("componentsFirstTrace.stillNone")}
+        slots={{
+          link: (
+            <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
+              {t("componentsFirstTrace.openTraces")}
+            </Link>
+          ),
+        }}
+      />
     </p>
   );
 }

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { useSetSignalStatus } from "../hooks";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import type { MessageKey } from "@/lib/i18n/messages/en";
 
 export const STATUS_LABELS: Record<SignalStatus, string> = {
@@ -138,7 +139,9 @@ export function SignalStatusControl({
         </SelectContent>
       </Select>
       {!closing && mutation.error && (
-        <span className="ml-2 text-[12px] text-destructive">{mutation.error.message}</span>
+        <span className="ml-2 text-[12px] text-destructive">
+          {translateClientError(t, mutation.error.message)}
+        </span>
       )}
 
       <Dialog open={!!closing} onOpenChange={(open) => !open && !mutation.isPending && reset()}>
@@ -196,7 +199,9 @@ export function SignalStatusControl({
               </p>
             </div>
             {mutation.error && (
-              <p className="text-[12px] text-destructive">{mutation.error.message}</p>
+              <p className="text-[12px] text-destructive">
+                {translateClientError(t, mutation.error.message)}
+              </p>
             )}
             <div className="flex justify-end gap-2">
               <Button

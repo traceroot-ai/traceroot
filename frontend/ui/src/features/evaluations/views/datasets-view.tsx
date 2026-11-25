@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -90,7 +91,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         setDeleteTarget(null);
       },
       onError: (e) =>
-        toast({ title: t("datasetsList.deleteFailed"), description: String(e), tone: "warning" }),
+        toast({
+          title: t("datasetsList.deleteFailed"),
+          description: translateClientError(t, String(e)),
+          tone: "warning",
+        }),
     });
   };
 

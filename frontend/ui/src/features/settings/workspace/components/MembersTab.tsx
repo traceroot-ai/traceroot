@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -185,7 +186,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             </div>
             {inviteMutation.isError && (
               <p role="alert" className="text-sm text-destructive">
-                {inviteMutation.error.message}
+                {translateClientError(t, inviteMutation.error.message)}
               </p>
             )}
           </div>
@@ -237,7 +238,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             </Select>
             {updateRoleMutation.isError && (
               <p role="alert" className="mt-4 text-sm text-destructive">
-                {updateRoleMutation.error.message}
+                {translateClientError(t, updateRoleMutation.error.message)}
               </p>
             )}
           </div>

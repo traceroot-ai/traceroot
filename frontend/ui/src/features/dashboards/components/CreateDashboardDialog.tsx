@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDashboardMutations } from "../hooks/use-dashboards";
@@ -88,7 +89,9 @@ export function CreateDashboardDialog({
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
             />
             {createDashboard.isError && (
-              <p className="text-sm text-destructive">{createDashboard.error.message}</p>
+              <p className="text-sm text-destructive">
+                {translateClientError(t, createDashboard.error.message)}
+              </p>
             )}
           </div>
           <DialogFooter>

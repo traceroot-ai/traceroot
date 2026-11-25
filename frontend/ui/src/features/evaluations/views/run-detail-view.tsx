@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
@@ -364,7 +365,7 @@ function PendingTracePanel({
   return (
     <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[45%] min-w-[520px] max-w-[94vw] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <span className="text-sm font-medium">Evaluation trace</span>
+        <span className="text-sm font-medium">{t("evalsMisc.evaluationTrace")}</span>
         <Button
           variant="ghost"
           size="sm"
@@ -379,9 +380,10 @@ function PendingTracePanel({
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
         <p className="text-[13px] font-medium">{t("evalsRun.pendingHeading")}</p>
         <p className="max-w-[360px] leading-relaxed text-muted-foreground">
-          {t("evalsRun.pendingBefore")}
-          <span className="font-mono">{traceId.slice(0, 12)}…</span>
-          {t("evalsRun.pendingAfter")}
+          <Slots
+            text={t("evalsRun.pendingText")}
+            slots={{ traceId: <span className="font-mono">{traceId.slice(0, 12)}…</span> }}
+          />
         </p>
         <Button
           variant="outline"

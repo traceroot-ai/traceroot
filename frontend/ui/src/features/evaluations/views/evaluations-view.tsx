@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import Link from "next/link";
@@ -280,7 +281,11 @@ function RunsTab({ projectId }: { projectId: string }) {
         setDeleteRun(null);
       },
       onError: (e) =>
-        toast({ title: t("evalsList.runDeleteFailed"), description: String(e), tone: "warning" }),
+        toast({
+          title: t("evalsList.runDeleteFailed"),
+          description: translateClientError(t, String(e)),
+          tone: "warning",
+        }),
     });
   };
 
@@ -338,7 +343,11 @@ function RunsTab({ projectId }: { projectId: string }) {
         setBulkDeleteOpen(false);
       },
       onError: (e) =>
-        toast({ title: t("evalsList.runsDeleteFailed"), description: String(e), tone: "warning" }),
+        toast({
+          title: t("evalsList.runsDeleteFailed"),
+          description: translateClientError(t, String(e)),
+          tone: "warning",
+        }),
     });
   };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useState } from "react";
 import { useDashboardMutations } from "../hooks/use-dashboards";
 import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "../types";
@@ -86,7 +87,9 @@ export function EditDashboardDialog({
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
             />
             {renameDashboard.isError && (
-              <p className="text-sm text-destructive">{renameDashboard.error.message}</p>
+              <p className="text-sm text-destructive">
+                {translateClientError(t, renameDashboard.error.message)}
+              </p>
             )}
           </div>
           <DialogFooter>

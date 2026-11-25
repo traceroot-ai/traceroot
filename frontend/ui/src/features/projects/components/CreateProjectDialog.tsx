@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -86,7 +87,9 @@ export function CreateProjectDialog({
               disabled={createMutation.isPending}
             />
             {createMutation.isError && (
-              <p className="mt-2 text-sm text-destructive">{createMutation.error.message}</p>
+              <p className="mt-2 text-sm text-destructive">
+                {translateClientError(t, createMutation.error.message)}
+              </p>
             )}
           </div>
           <DialogFooter>

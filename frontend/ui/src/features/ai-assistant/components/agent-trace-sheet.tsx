@@ -1,6 +1,7 @@
 "use client";
 
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
+import { useT } from "@/lib/i18n/provider";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 
 /**
@@ -29,6 +30,7 @@ export function AgentTraceSheet({
   spanId?: string;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <Drawer
       open={!!traceId}
@@ -40,9 +42,9 @@ export function AgentTraceSheet({
           built-in corner × would sit on top of that row as a second, differently
           styled close. */}
       <DrawerContent width="w-[min(90vw,1100px)]" className="p-0" hideClose>
-        <DrawerTitle className="sr-only">Trace</DrawerTitle>
+        <DrawerTitle className="sr-only">{t("assistantPanel.traceSheetTitle")}</DrawerTitle>
         <DrawerDescription className="sr-only">
-          The trace recorded for this assistant turn.
+          {t("assistantPanel.traceSheetDescription")}
         </DrawerDescription>
         {traceId && (
           <TraceViewerPanel

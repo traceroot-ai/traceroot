@@ -14,23 +14,7 @@ import {
   type DateFilterOption,
 } from "@/lib/date-filter";
 import { useT } from "@/lib/i18n/provider";
-import type { MessageKey } from "@/lib/i18n/messages/en";
-
-// The option labels live with the options in lib/date-filter; this maps each option id to the
-// translatable copy of the same text.
-const OPTION_LABEL_KEYS: Record<string, MessageKey> = {
-  "30m": "componentsDateFilter.last30m",
-  "1h": "componentsDateFilter.last1h",
-  "3h": "componentsDateFilter.last3h",
-  "6h": "componentsDateFilter.last6h",
-  "1d": "componentsDateFilter.last1d",
-  "7d": "componentsDateFilter.last7d",
-  "14d": "componentsDateFilter.last14d",
-  "30d": "componentsDateFilter.last30d",
-  "60d": "componentsDateFilter.last60d",
-  "90d": "componentsDateFilter.last90d",
-  custom: "componentsDateFilter.custom",
-};
+import { dateFilterLabel } from "@/lib/date-filter-labels";
 
 // The one date-filter control: preset list + custom range picker in a popover.
 // Extracted from SearchFilterBar so every windowed surface (trace list,
@@ -58,10 +42,7 @@ export function DateFilterSelect({
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
 
-  const optionLabel = (option: DateFilterOption) => {
-    const key = OPTION_LABEL_KEYS[option.id];
-    return key ? t(key) : option.label;
-  };
+  const optionLabel = (option: DateFilterOption) => dateFilterLabel(t, option);
 
   const getDateFilterLabel = () => {
     if (dateFilter.isCustom && customStartDate && customEndDate) {

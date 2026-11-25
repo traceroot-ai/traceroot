@@ -389,7 +389,7 @@ export function SaveTestCaseDrawer({
 
           <div>
             <EditableValueBlock
-              label="Metadata"
+              label={t("tracesSpan.metadata")}
               text={metadata}
               onChange={setMetadata}
               copyable
@@ -462,7 +462,7 @@ export function TraceEvaluationChip({
       title={t("evalsSave.chipTitle")}
     >
       <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
-      <span className="text-muted-foreground">Evaluation:</span>
+      <span className="text-muted-foreground">{t("evalsMisc.chipLabel")}</span>
       <span className="font-medium">{run.evaluation.name}</span>
       <span className="text-muted-foreground">
         {t("evalsSave.chipRun", { number: run.runNumber, version: run.candidateVersion })}

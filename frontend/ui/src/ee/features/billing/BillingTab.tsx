@@ -16,6 +16,8 @@ import type { UsageStats, AIUsageByModel } from "@/types/api";
 import { formatRcaQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
 import { PricingDialog } from "./PricingDialog";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
+import { Slots } from "@/lib/i18n/slots";
 import type { Translate } from "@/lib/i18n/translate";
 
 function formatCost(cost: number): string {
@@ -158,7 +160,9 @@ export function BillingTab({
       const { url } = await getPortalUrl(workspaceId);
       window.location.href = url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("billing.failedPortal"));
+      setError(
+        err instanceof Error ? translateClientError(t, err.message) : t("billing.failedPortal"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -186,9 +190,12 @@ export function BillingTab({
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
-            {t("billing.onPlanBefore")}{" "}
-            <span className="font-medium text-foreground">{currentPlanConfig.name}</span>
-            {t("billing.onPlanAfter")}
+            <Slots
+              text={t("billing.onPlan")}
+              slots={{
+                plan: <span className="font-medium text-foreground">{currentPlanConfig.name}</span>,
+              }}
+            />
           </p>
 
           {/* Cancellation Notice */}
@@ -213,14 +220,21 @@ export function BillingTab({
               <div className="text-sm">
                 <p className="font-medium text-info">{t("billing.planChangeScheduled")}</p>
                 <p className="text-info">
-                  {t("billing.planChangeBefore")}{" "}
-                  <span className="font-medium">
-                    {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name ||
-                      subscriptionInfo.scheduledChange.newPlan}
-                  </span>
-                  {t("billing.planChangeAfter", {
-                    date: new Date(subscriptionInfo.scheduledChange.switchAt).toLocaleDateString(),
-                  })}
+                  <Slots
+                    text={t("billing.planChange", {
+                      date: new Date(
+                        subscriptionInfo.scheduledChange.switchAt,
+                      ).toLocaleDateString(),
+                    })}
+                    slots={{
+                      plan: (
+                        <span className="font-medium">
+                          {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name ||
+                            subscriptionInfo.scheduledChange.newPlan}
+                        </span>
+                      ),
+                    }}
+                  />
                 </p>
               </div>
             </div>

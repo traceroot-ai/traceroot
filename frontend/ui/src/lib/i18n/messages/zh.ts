@@ -3,6 +3,9 @@ import { shellZh } from "./areas/shell";
 import { tracesZh } from "./areas/traces";
 import { detectZh } from "./areas/detect";
 import { verifyZh } from "./areas/verify";
+import { assistantZh } from "./areas/assistant";
+import { supportZh } from "./areas/support";
+import { sweepZh } from "./areas/sweep";
 import type { PartialMessages } from "./en";
 
 // Wording follows Dify's Simplified Chinese where it has the same term: workspace 工作空间,
@@ -46,10 +49,8 @@ const core: PartialMessages = {
     deleteTitle: "删除工作空间",
     deleteText: "永久删除这个工作空间，以及其中所有的项目和数据。此操作无法撤销。",
     deleteDialogTitle: "删除工作空间",
-    deleteDialogBefore: "此操作无法撤销。将永久删除工作空间“",
-    deleteDialogAfter: "”以及其中所有的项目和数据。",
-    typeBefore: "输入",
-    typeAfter: "以确认：",
+    deleteDialogText: "此操作无法撤销。将永久删除工作空间“{name}”以及其中所有的项目和数据。",
+    typeToConfirm: "输入 {name} 以确认：",
     deleting: "删除中...",
     integrationsSubtitle: "连接第三方服务，扩展工作空间的能力",
     connectedServices: "已连接的服务",
@@ -156,4 +157,7 @@ export const zh: PartialMessages = {
   ...tracesZh,
   ...detectZh,
   ...verifyZh,
+  ...assistantZh,
+  ...supportZh,
+  ...sweepZh,
 };

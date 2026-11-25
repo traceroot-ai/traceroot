@@ -6,8 +6,10 @@ import { authClient } from "@/lib/auth-client";
 import { useQuery } from "@tanstack/react-query";
 import { getWorkspaces } from "@/lib/api";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
+import { useT } from "@/lib/i18n/provider";
 
 export default function Home() {
+  const t = useT();
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
 
@@ -47,7 +49,7 @@ export default function Home() {
   // Always show loading while we determine where to redirect
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <p className="text-muted-foreground">Loading...</p>
+      <p className="text-muted-foreground">{t("shellCommon.loading")}</p>
     </div>
   );
 }

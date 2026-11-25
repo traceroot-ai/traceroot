@@ -19,7 +19,6 @@
 
 import {
   ALERT_THRESHOLD_OPERATOR_LABELS,
-  ALERT_THRESHOLD_OPERATOR_PHRASES,
   describeAlertFilter,
   getAlertUnit,
   getMeasure,
@@ -38,7 +37,12 @@ import {
   type AlertView,
   type AlertWindow,
 } from "@traceroot/core";
-import { formatDate, formatRelativeTime } from "@/lib/utils";
+import { formatDate, parseAsUTC } from "@/lib/utils";
+import { dateFilterLabel } from "@/lib/date-filter-labels";
+import { DEFAULT_LOCALE } from "@/lib/i18n/locales";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import { createTranslator, type Translate } from "@/lib/i18n/translate";
+import { MEASURE_LABEL_KEY } from "@/features/alerts/measure-docs";
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
 import { findRangePreset, resolveSiteRange } from "@/features/dashboards/range-presets";
@@ -69,17 +73,29 @@ import {
 } from "./resource-created";
 import type { AIMessage, ToolCallStep } from "../types";
 
-/** The resource types that have a card body; anything else keeps the tool line. */
-const RESOURCE_TYPE_LABELS = {
-  widget: "Widget",
-  dashboard: "Dashboard",
-  project: "Project",
-  workspace: "Workspace",
-  detector: "Detector",
-  alert: "Alert",
-} as const;
+// Every card model here is built in the visitor's language: the exported builders take `t`
+// last, and a caller without one (a unit test) gets English, the text they always returned.
+const ENGLISH = createTranslator(DEFAULT_LOCALE);
 
-export type CardResourceType = keyof typeof RESOURCE_TYPE_LABELS;
+/** The resource types that have a card body; anything else keeps the tool line. */
+const RESOURCE_TYPE_LABEL_KEYS = {
+  widget: "assistantCardModel.typeWidget",
+  dashboard: "assistantCardModel.typeDashboard",
+  project: "assistantCardModel.typeProject",
+  workspace: "assistantCardModel.typeWorkspace",
+  detector: "assistantCardModel.typeDetector",
+  alert: "assistantCardModel.typeAlert",
+} as const satisfies Record<string, MessageKey>;
+
+export type CardResourceType = keyof typeof RESOURCE_TYPE_LABEL_KEYS;
+
+/**
+ * The window a chart covers, as the footer names it. A fixed span is named by its own dates;
+ * a preset by the date filter's label for it.
+ */
+function rangeLabel(range: DateFilterOption, t: Translate): string {
+  return range.isCustom ? range.label : dateFilterLabel(t, range);
+}
 
 /** One line of a project/workspace receipt. */
 export interface ReceiptRow {
@@ -270,7 +286,7 @@ const MAX_VALUE_CHARS = 64;
 const MAX_PROMPT_CHARS = 2000;
 
 function isCardResourceType(value: string): value is CardResourceType {
-  return Object.prototype.hasOwnProperty.call(RESOURCE_TYPE_LABELS, value);
+  return Object.prototype.hasOwnProperty.call(RESOURCE_TYPE_LABEL_KEYS, value);
 }
 
 function plainObject(value: unknown): Record<string, unknown> | null {
@@ -298,25 +314,25 @@ function scalar(value: unknown): string | null {
  * order the spec reads. A trace-feed widget has none of those, so it names
  * itself and its row limit instead.
  */
-function widgetChips(args: Record<string, unknown>): string[] {
+function widgetChips(args: Record<string, unknown>, t: Translate): string[] {
   const spec = plainObject(args.spec) ?? {};
   const view = str(spec.view);
   if (view === null) {
     if (str(args.type) !== "trace_feed") return [];
-    const chips = ["trace feed"];
+    const chips = [t("assistantCardModel.chipTraceFeed")];
     if (typeof spec.limit === "number" && Number.isFinite(spec.limit)) {
-      chips.push(`${spec.limit} rows`);
+      chips.push(t("assistantCardModel.chipRows", { count: spec.limit }));
     }
     return chips;
   }
 
-  const chips = [`view ${view}`];
+  const chips = [t("assistantCardModel.chipView", { view })];
   const metric = plainObject(spec.metric);
   const agg = metric === null ? null : str(metric.agg);
   const measure = metric === null ? null : str(metric.measure);
   if (agg !== null && measure !== null) chips.push(`${agg}(${measure})`);
   const breakdown = str(spec.breakdown);
-  if (breakdown !== null) chips.push(`by ${breakdown}`);
+  if (breakdown !== null) chips.push(t("assistantCardModel.chipBy", { field: breakdown }));
   const display = plainObject(spec.display);
   const displayType = display === null ? null : str(display.type);
   if (displayType !== null) chips.push(displayType);
@@ -358,7 +374,7 @@ function widgetChart(
  * One trigger condition in the detector editor's own vocabulary ("Latency ≥
  * 30000"), or null when the condition is not the shape the editor writes.
  */
-function triggerChip(condition: unknown): string | null {
+function triggerChip(condition: unknown, t: Translate): string | null {
   const parsed = plainObject(condition);
   if (parsed === null) return null;
   const field = str(parsed.field);
@@ -366,7 +382,11 @@ function triggerChip(condition: unknown): string | null {
   const value = scalar(parsed.value);
   if (field === null || op === null || value === null) return null;
   const def = triggerFieldDef(field);
-  return `${def?.label ?? field} ${triggerOpLabel(def, op)} ${value}`;
+  // Only the editor's own words are closed up; the value is the user's and stays as typed.
+  const subject = closeUp(
+    `${def === undefined ? field : t(def.labelKey)} ${triggerOpLabel(def, op, t)}`,
+  );
+  return `${subject} ${value}`;
 }
 
 /**
@@ -376,24 +396,30 @@ function triggerChip(condition: unknown): string | null {
  * is enabled by default and the UI never sets it at create time — and the
  * prompt is not one either: it is the card's body (see detectorPrompt).
  */
-function detectorChips(args: Record<string, unknown>): string[] {
+function detectorChips(args: Record<string, unknown>, t: Translate): string[] {
   const chips: string[] = [];
   if (typeof args.sample_rate === "number" && Number.isFinite(args.sample_rate)) {
-    chips.push(`sample ${args.sample_rate}%`);
+    chips.push(t("assistantCardModel.chipSample", { rate: args.sample_rate }));
   }
   if (typeof args.enable_rca === "boolean") {
-    chips.push(args.enable_rca ? "RCA automatic" : "RCA manual");
+    chips.push(
+      args.enable_rca
+        ? t("assistantCardModel.chipRcaAutomatic")
+        : t("assistantCardModel.chipRcaManual"),
+    );
   }
   const detectionModel = str(args.detection_model);
-  if (detectionModel !== null) chips.push(`model ${detectionModel}`);
+  if (detectionModel !== null) {
+    chips.push(t("assistantCardModel.chipModel", { model: detectionModel }));
+  }
 
   if (Array.isArray(args.trigger_conditions)) {
     const triggers = args.trigger_conditions
-      .map(triggerChip)
+      .map((condition) => triggerChip(condition, t))
       .filter((chip): chip is string => chip !== null);
     chips.push(...triggers.slice(0, MAX_TRIGGER_CHIPS));
     const hidden = triggers.length - MAX_TRIGGER_CHIPS;
-    if (hidden > 0) chips.push(`+${hidden} more`);
+    if (hidden > 0) chips.push(t("assistantCardModel.chipMore", { count: hidden }));
   }
   return chips;
 }
@@ -484,15 +510,15 @@ function alertRuleOf(record: Record<string, unknown>): AlertRule | null {
  * in it means when the record says. Each chip stands on its own, so a rule
  * the write would refuse still shows the parts it was given.
  */
-function alertChips(record: Record<string, unknown>): string[] {
+function alertChips(record: Record<string, unknown>, t: Translate): string[] {
   const chips: string[] = [];
   const view = str(record.view);
-  if (view !== null) chips.push(`view ${view.toLowerCase()}`);
+  if (view !== null) chips.push(t("assistantCardModel.chipView", { view: view.toLowerCase() }));
   const aggregation = str(record.aggregation);
   const measure = str(record.measure);
   if (aggregation !== null && measure !== null) chips.push(`${aggregation}(${measure})`);
   const window = str(record.window);
-  if (window !== null) chips.push(`over ${window}`);
+  if (window !== null) chips.push(t("assistantCardModel.chipOver", { window }));
   const operator = str(record.threshold_operator);
   const threshold = record.threshold;
   if (operator !== null && typeof threshold === "number" && Number.isFinite(threshold)) {
@@ -505,19 +531,23 @@ function alertChips(record: Record<string, unknown>): string[] {
   const filters = alertFilters(record).map(describeAlertFilter);
   chips.push(...filters.slice(0, MAX_FILTER_CHIPS));
   const hidden = filters.length - MAX_FILTER_CHIPS;
-  if (hidden > 0) chips.push(`+${hidden} more`);
+  if (hidden > 0) chips.push(t("assistantCardModel.chipMore", { count: hidden }));
 
   const renotify = plainObject(record.renotify);
   const mode = renotify === null ? null : str(renotify.mode);
   if (mode === "EVERY") {
     const minutes = renotify === null ? null : scalar(renotify.interval_minutes);
-    chips.push(minutes === null ? "renotify" : `renotify every ${minutes} min`);
+    chips.push(
+      minutes === null
+        ? t("assistantCardModel.chipRenotify")
+        : t("assistantCardModel.chipRenotifyEvery", { minutes }),
+    );
   } else if (mode === "OFF") {
-    chips.push("renotify off");
+    chips.push(t("assistantCardModel.chipRenotifyOff"));
   }
 
   const noData = str(record.no_data_mode);
-  if (noData !== null) chips.push(`no data → ${noData}`);
+  if (noData !== null) chips.push(t("assistantCardModel.chipNoData", { mode: noData }));
   return chips;
 }
 
@@ -526,30 +556,72 @@ function alertChips(record: Record<string, unknown>): string[] {
  * or null when the record does not carry a whole rule. The measure reads by
  * its catalog label; a count rule is just "count".
  */
-function alertRuleSummary(record: Record<string, unknown>): string | null {
+function alertRuleSummary(record: Record<string, unknown>, t: Translate): string | null {
   const rule = alertRuleOf(record);
   if (rule === null) return null;
-  const label = getMeasure(rule.view, rule.measure)?.label.toLowerCase() ?? rule.measure;
-  const subject = rule.aggregation === "count" ? "count" : `${rule.aggregation} ${label}`;
-  return `${subject} ${ALERT_THRESHOLD_OPERATOR_LABELS[rule.operator]} ${thresholdWords(rule.measure, rule.aggregation, rule.threshold)} over ${rule.window}`;
+  const subject =
+    rule.aggregation === "count"
+      ? t("assistantCardModel.summaryCount")
+      : `${rule.aggregation} ${measureWords(rule, t)}`;
+  return closeUp(
+    t("assistantCardModel.summary", {
+      subject,
+      operator: ALERT_THRESHOLD_OPERATOR_LABELS[rule.operator],
+      threshold: thresholdWords(rule.measure, rule.aggregation, rule.threshold),
+      window: rule.window,
+    }),
+  );
+}
+
+/** The measure by its catalog label in the visitor's language, lowercased; its id when unknown. */
+function measureWords(rule: AlertRule, t: Translate): string {
+  const measure = getMeasure(rule.view, rule.measure);
+  if (measure === undefined) return rule.measure;
+  const labelKey = MEASURE_LABEL_KEY[measure.id];
+  return (labelKey === undefined ? measure.label : t(labelKey)).toLowerCase();
+}
+
+/**
+ * A translated rule is assembled from words that each carry a space around them, which reads
+ * right between Latin words and wrong between two Chinese ones: this closes those gaps. English
+ * has none to close.
+ */
+function closeUp(text: string): string {
+  return text.replace(/([\u4e00-\u9fff]) (?=[\u4e00-\u9fff])/g, "$1");
 }
 
 /** How an aggregation reads before its measure in a sentence: "total cost", "p95 latency". */
-const AGGREGATION_WORDS: Record<string, string> = {
-  sum: "total",
-  avg: "average",
-  min: "minimum",
-  max: "maximum",
-  uniq: "distinct",
+const AGGREGATION_WORD_KEYS: Record<string, MessageKey> = {
+  sum: "assistantCardModel.aggSum",
+  avg: "assistantCardModel.aggAvg",
+  min: "assistantCardModel.aggMin",
+  max: "assistantCardModel.aggMax",
+  uniq: "assistantCardModel.aggUniq",
+};
+
+/** How a comparison reads in a sentence: "above", "at or below". */
+const OPERATOR_PHRASE_KEYS: Record<AlertThresholdOperator, MessageKey> = {
+  ">": "assistantCardModel.cmpAbove",
+  ">=": "assistantCardModel.cmpAtOrAbove",
+  "<": "assistantCardModel.cmpBelow",
+  "<=": "assistantCardModel.cmpAtOrBelow",
+  "=": "assistantCardModel.cmpEqual",
+  "!=": "assistantCardModel.cmpNotEqual",
 };
 
 /** "10m" as words: "10 minutes"; "1h" as "1 hour". */
-function windowWords(window: string): string {
+function windowWords(window: string, t: Translate): string {
   const parsed = /^(\d+)([mh])$/.exec(window);
   if (parsed === null) return window;
   const count = Number(parsed[1]);
-  const unit = parsed[2] === "m" ? "minute" : "hour";
-  return `${count} ${unit}${count === 1 ? "" : "s"}`;
+  if (parsed[2] === "m") {
+    return count === 1
+      ? t("assistantCardModel.windowMinute", { count })
+      : t("assistantCardModel.windowMinutes", { count });
+  }
+  return count === 1
+    ? t("assistantCardModel.windowHour", { count })
+    : t("assistantCardModel.windowHours", { count });
 }
 
 /**
@@ -557,15 +629,25 @@ function windowWords(window: string): string {
  * over 10 minutes is above 2,000 ms" — or null when the record does not
  * carry a whole rule. The chips spell the parts; this is the reading.
  */
-function alertRuleSentence(record: Record<string, unknown>): string | null {
+function alertRuleSentence(record: Record<string, unknown>, t: Translate): string | null {
   const rule = alertRuleOf(record);
   if (rule === null) return null;
-  const label = getMeasure(rule.view, rule.measure)?.label.toLowerCase() ?? rule.measure;
+  const aggregationKey = AGGREGATION_WORD_KEYS[rule.aggregation];
   const subject =
     rule.aggregation === "count"
-      ? "span count"
-      : `${AGGREGATION_WORDS[rule.aggregation] ?? rule.aggregation} ${label}`;
-  return `${subject} over ${windowWords(rule.window)} is ${ALERT_THRESHOLD_OPERATOR_PHRASES[rule.operator]} ${thresholdWords(rule.measure, rule.aggregation, rule.threshold)}`;
+      ? t("assistantCardModel.sentenceCount")
+      : t("assistantCardModel.sentenceSubject", {
+          aggregation: aggregationKey === undefined ? rule.aggregation : t(aggregationKey),
+          measure: measureWords(rule, t),
+        });
+  return closeUp(
+    t("assistantCardModel.sentence", {
+      subject,
+      window: windowWords(rule.window, t),
+      comparison: t(OPERATOR_PHRASE_KEYS[rule.operator]),
+      threshold: thresholdWords(rule.measure, rule.aggregation, rule.threshold),
+    }),
+  );
 }
 
 /**
@@ -625,12 +707,13 @@ function alertChart(
 function alertBody(
   record: Record<string, unknown> | null,
   projectId: string | null,
-  retentionDays?: number | null,
+  retentionDays: number | null | undefined,
+  t: Translate,
 ): ResourceCardBody {
   if (record === null) return { kind: "alert", chips: [], chart: null };
   return {
     kind: "alert",
-    chips: alertChips(record),
+    chips: alertChips(record, t),
     chart: alertChart(record, projectId, retentionDays),
   };
 }
@@ -642,12 +725,13 @@ function alertBody(
  * from the details alone — nothing else about a project is knowable without
  * going back to the server, and a receipt must not go fetching.
  */
-function receiptRows(details: ResourceCreatedDetails): ReceiptRow[] {
+function receiptRows(details: ResourceCreatedDetails, t: Translate): ReceiptRow[] {
   const rows: ReceiptRow[] = [];
   const workspaceId = str(details.workspaceId);
-  if (workspaceId !== null) rows.push({ label: "workspace", value: workspaceId });
+  if (workspaceId !== null)
+    rows.push({ label: t("assistantCardModel.rowWorkspace"), value: workspaceId });
   const resourceId = str(details.resourceId);
-  if (resourceId !== null) rows.push({ label: "id", value: resourceId });
+  if (resourceId !== null) rows.push({ label: t("assistantCardModel.rowId"), value: resourceId });
   return rows;
 }
 
@@ -706,9 +790,9 @@ function dashboardTiles(
  * the internal id would read as a detector with nothing in it. The raw id
  * stands for anything unrecognised.
  */
-function templateLabel(template: string): string {
-  if (template === "blank") return "Custom";
-  return DETECTOR_TEMPLATES.find((t) => t.id === template)?.label ?? template;
+function templateLabel(template: string, t: Translate): string {
+  if (template === "blank") return t("assistantCardModel.templateCustom");
+  return DETECTOR_TEMPLATES.find((entry) => entry.id === template)?.label ?? template;
 }
 
 /**
@@ -783,14 +867,15 @@ function body(
   args: Record<string, unknown> | null,
   details: ResourceCreatedDetails,
   widgetSteps: readonly ToolCallStep[],
-  retentionDays?: number | null,
+  retentionDays: number | null | undefined,
+  t: Translate,
 ): ResourceCardBody {
   switch (resourceType) {
     case "widget":
       if (args === null) return { kind: "widget", chips: [], chart: null };
       return {
         kind: "widget",
-        chips: widgetChips(args),
+        chips: widgetChips(args, t),
         chart: widgetChart(args, details, retentionDays),
       };
     case "dashboard":
@@ -806,14 +891,14 @@ function body(
     case "detector":
       return {
         kind: "detector",
-        chips: args === null ? [] : detectorChips(args),
+        chips: args === null ? [] : detectorChips(args, t),
         prompt: args === null ? null : detectorPrompt(args),
       };
     case "alert":
       // The chart is aimed where the write landed, like a widget's.
-      return alertBody(args, scopeProjectId(details), retentionDays);
+      return alertBody(args, scopeProjectId(details), retentionDays, t);
     default:
-      return { kind: "receipt", rows: receiptRows(details) };
+      return { kind: "receipt", rows: receiptRows(details, t) };
   }
 }
 
@@ -834,11 +919,12 @@ export function resourceCardModel(
   step: ToolCallStep,
   widgetsByDashboard?: ReadonlyMap<string, readonly ToolCallStep[]>,
   retentionDays?: number | null,
+  t: Translate = ENGLISH,
 ): ResourceCardModel | null {
   const updated = resourceUpdatedDetails(step.result);
-  if (updated !== null) return updateReceiptModel(step, updated);
+  if (updated !== null) return updateReceiptModel(step, updated, t);
   const deleted = resourceDeletedDetails(step.result);
-  if (deleted !== null) return deleteReceiptModel(deleted);
+  if (deleted !== null) return deleteReceiptModel(deleted, t);
   const details = resourceCreatedDetails(step.result);
   if (details === null || !isCardResourceType(details.resourceType)) return null;
   const resourceType = details.resourceType;
@@ -859,31 +945,32 @@ export function resourceCardModel(
     details,
     widgetsByDashboard?.get(details.resourceId) ?? [],
     retentionDays,
+    t,
   );
 
-  const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
+  const meta: string[] = [t(RESOURCE_TYPE_LABEL_KEYS[resourceType])];
   // A chart is a number without context until the window it covers is named —
   // and the name must be the range the chart actually queries: the site's
   // stored selection for the chart's own project, default otherwise.
   if (cardBody.kind === "widget" && cardBody.chart !== null) {
-    meta.push(cardBody.chart.range.label);
+    meta.push(rangeLabel(cardBody.chart.range, t));
   }
   if (resourceType === "dashboard") {
     const widgetCount = widgetsByDashboard?.get(details.resourceId)?.length ?? 0;
-    if (widgetCount > 0) meta.push(widgetCount === 1 ? "1 widget" : `${widgetCount} widgets`);
+    if (widgetCount > 0) meta.push(widgetCountWords(widgetCount, t));
     // One window label for the whole preview — every tile, feed included,
     // queries the one frozen range, so naming it per tile would be twelve
     // copies of one fact. The first tile carries the snapshot, the same one
     // the preview draws over.
     const [firstTile] = cardBody.kind === "dashboard" ? cardBody.tiles : [];
-    if (firstTile !== undefined) meta.push(firstTile.range.label);
+    if (firstTile !== undefined) meta.push(rangeLabel(firstTile.range, t));
   }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
-    if (template !== null) meta.push(templateLabel(template));
+    if (template !== null) meta.push(templateLabel(template, t));
   }
   if (cardBody.kind === "alert" && cardBody.chart !== null) {
-    meta.push(cardBody.chart.range.label);
+    meta.push(rangeLabel(cardBody.chart.range, t));
   }
   // The receipt shows the state the alert was created in — the alerts
   // page's own badge, reading a rule that has not run yet as exactly that.
@@ -897,11 +984,11 @@ export function resourceCardModel(
   const renamedFrom = str(details.renamedFrom, MAX_TITLE_CHARS);
   const description =
     renamedFrom !== null
-      ? `Renamed from "${renamedFrom}": a ${resourceType} with that name already existed.`
+      ? t(RENAMED_KEYS[resourceType], { name: renamedFrom })
       : resourceType === "dashboard" && details.created === false && args !== null
         ? str(args.description, MAX_DESCRIPTION_CHARS)
         : resourceType === "alert" && args !== null
-          ? alertRuleSentence(args)
+          ? alertRuleSentence(args, t)
           : null;
 
   return {
@@ -916,6 +1003,23 @@ export function resourceCardModel(
     body: cardBody,
   };
 }
+
+/** "1 widget", "4 widgets": how many widgets a dashboard holds. */
+function widgetCountWords(count: number, t: Translate): string {
+  return count === 1
+    ? t("assistantCardModel.widgetCountOne")
+    : t("assistantCardModel.widgetCountMany", { count });
+}
+
+/** Why a created resource does not carry the name the call asked for. */
+const RENAMED_KEYS: Record<CardResourceType, MessageKey> = {
+  widget: "assistantCardModel.renamedWidget",
+  dashboard: "assistantCardModel.renamedDashboard",
+  project: "assistantCardModel.renamedProject",
+  workspace: "assistantCardModel.renamedWorkspace",
+  detector: "assistantCardModel.renamedDetector",
+  alert: "assistantCardModel.renamedAlert",
+};
 
 /** The resource types a proposal can park as a card in the chat. */
 export type PendingResourceType = Extract<
@@ -1120,9 +1224,41 @@ export function pendingProposal(
   return { resourceType, title, action, approvalClass };
 }
 
-/** "sample_rate" as "sample rate"; the one acronym reads as itself. */
-function fieldLabel(field: string): string {
-  return field === "enable_rca" ? "RCA" : field.replace(/_/g, " ");
+/** The fields an edit most often names, in the visitor's language. */
+const FIELD_LABEL_KEYS: Record<string, MessageKey> = {
+  name: "assistantCardModel.fieldName",
+  title: "assistantCardModel.fieldTitle",
+  description: "assistantCardModel.fieldDescription",
+  prompt: "assistantCardModel.fieldPrompt",
+  template: "assistantCardModel.fieldTemplate",
+  type: "assistantCardModel.fieldType",
+  sample_rate: "assistantCardModel.fieldSampleRate",
+  enable_rca: "assistantCardModel.fieldEnableRca",
+  detection_model: "assistantCardModel.fieldDetectionModel",
+  trigger_conditions: "assistantCardModel.fieldTriggerConditions",
+  output_schema: "assistantCardModel.fieldOutputSchema",
+  spec: "assistantCardModel.fieldSpec",
+  view: "assistantCardModel.fieldView",
+  measure: "assistantCardModel.fieldMeasure",
+  aggregation: "assistantCardModel.fieldAggregation",
+  window: "assistantCardModel.fieldWindow",
+  threshold_operator: "assistantCardModel.fieldThresholdOperator",
+  threshold: "assistantCardModel.fieldThreshold",
+  filters: "assistantCardModel.fieldFilters",
+  renotify: "assistantCardModel.fieldRenotify",
+  no_data_mode: "assistantCardModel.fieldNoDataMode",
+  status: "assistantCardModel.fieldStatus",
+  enabled: "assistantCardModel.fieldEnabled",
+};
+
+/**
+ * "sample_rate" as "sample rate"; the one acronym reads as itself. A field with no entry
+ * above reads as its own name, spaced.
+ */
+function fieldLabel(field: string, t: Translate): string {
+  return Object.hasOwn(FIELD_LABEL_KEYS, field)
+    ? t(FIELD_LABEL_KEYS[field])
+    : field.replace(/_/g, " ");
 }
 
 /**
@@ -1133,33 +1269,44 @@ function fieldLabel(field: string): string {
  * the editors word them, a schema by its size, a prompt as "replaced"
  * (the card previews the text itself).
  */
-function changeValue(field: string, value: unknown): string {
-  if (value === null) return "cleared";
-  if (typeof value === "boolean") return value ? "yes" : "no";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "replaced";
-  if (typeof value === "string") return field === "prompt" ? "replaced" : (str(value) ?? "cleared");
-  if (field === "spec") return widgetChips({ spec: value }).join(" · ") || "replaced";
+function changeValue(field: string, value: unknown, t: Translate): string {
+  const replaced = t("assistantCardModel.valueReplaced");
+  const cleared = t("assistantCardModel.valueCleared");
+  const none = t("assistantCardModel.valueNone");
+  if (value === null) return cleared;
+  if (typeof value === "boolean") {
+    return value ? t("assistantCardModel.valueYes") : t("assistantCardModel.valueNo");
+  }
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : replaced;
+  if (typeof value === "string") return field === "prompt" ? replaced : (str(value) ?? cleared);
+  if (field === "spec") return widgetChips({ spec: value }, t).join(" · ") || replaced;
   if (field === "trigger_conditions" && Array.isArray(value)) {
-    const chips = value.map(triggerChip).filter((chip): chip is string => chip !== null);
-    return chips.length === 0 ? "none" : chips.join(" · ");
+    const chips = value
+      .map((condition) => triggerChip(condition, t))
+      .filter((chip): chip is string => chip !== null);
+    return chips.length === 0 ? none : chips.join(" · ");
   }
   if (field === "filters" && Array.isArray(value)) {
     const chips = alertFilters({ filters: value }).map(describeAlertFilter);
-    return chips.length === 0 ? "none" : chips.join(" · ");
+    return chips.length === 0 ? none : chips.join(" · ");
   }
   if (field === "output_schema" && Array.isArray(value)) {
-    return `${value.length} field${value.length === 1 ? "" : "s"}`;
+    return value.length === 1
+      ? t("assistantCardModel.valueFieldsOne", { count: value.length })
+      : t("assistantCardModel.valueFieldsMany", { count: value.length });
   }
   if (field === "renotify") {
     const renotify = plainObject(value);
     const mode = renotify === null ? null : str(renotify.mode);
-    if (mode === "OFF") return "off";
+    if (mode === "OFF") return t("assistantCardModel.valueOff");
     if (mode === "EVERY") {
       const minutes = renotify === null ? null : scalar(renotify.interval_minutes);
-      return minutes === null ? "on" : `every ${minutes} min`;
+      return minutes === null
+        ? t("assistantCardModel.valueOn")
+        : t("assistantCardModel.valueEvery", { minutes });
     }
   }
-  return "replaced";
+  return replaced;
 }
 
 /**
@@ -1172,19 +1319,20 @@ function changeValue(field: string, value: unknown): string {
 function changeChips(
   edited: Record<string, unknown>,
   record: Record<string, unknown> | null,
+  t: Translate,
 ): string[] {
   const chips: string[] = [];
   for (const [field, value] of Object.entries(edited)) {
     if (value === undefined) continue;
-    const after = changeValue(field, value);
+    const after = changeValue(field, value, t);
     const before =
       record !== null && field in record && record[field] !== undefined
-        ? changeValue(field, record[field])
+        ? changeValue(field, record[field], t)
         : null;
     chips.push(
       before === null || before === after
-        ? `${fieldLabel(field)}: ${after}`
-        : `${fieldLabel(field)}: ${before} → ${after}`,
+        ? t("assistantCardModel.change", { field: fieldLabel(field, t), after })
+        : t("assistantCardModel.changeFrom", { field: fieldLabel(field, t), before, after }),
     );
   }
   return chips;
@@ -1241,14 +1389,18 @@ function changePreview(
 }
 
 /** The chips a known resource is defined by, in its own card's vocabulary. */
-function knownChips(resourceType: CardResourceType, record: Record<string, unknown>): string[] {
+function knownChips(
+  resourceType: CardResourceType,
+  record: Record<string, unknown>,
+  t: Translate,
+): string[] {
   switch (resourceType) {
     case "widget":
-      return widgetChips(record);
+      return widgetChips(record, t);
     case "detector":
-      return detectorChips(record);
+      return detectorChips(record, t);
     case "alert":
-      return alertChips(record);
+      return alertChips(record, t);
     default:
       return [];
   }
@@ -1259,15 +1411,22 @@ function knownChips(resourceType: CardResourceType, record: Record<string, unkno
  * for nothing. The counts are named by the receipt, so each name is capped
  * like any other printed value, and a blank one reads as "resources".
  */
-function cascadeWords(cascaded: Record<string, number> | undefined): string | null {
+function cascadeWords(cascaded: Record<string, number> | undefined, t: Translate): string | null {
   if (cascaded === undefined) return null;
   const parts = Object.entries(cascaded)
     .filter(([, count]) => count > 0)
     .map(([what, count]) => {
+      // Widgets are the one thing a delete takes with it today, so they read in the
+      // visitor's language; anything else reads by the name the receipt gave it.
+      if (what === "widgets") {
+        return count === 1
+          ? t("assistantCardModel.cascadeWidgetsOne", { count })
+          : t("assistantCardModel.cascadeWidgetsMany", { count });
+      }
       const plural = str(what) ?? "resources";
       return `${count} ${count === 1 ? plural.replace(/s$/, "") : plural}`;
     });
-  return parts.length === 0 ? null : `and its ${parts.join(", ")}`;
+  return parts.length === 0 ? null : t("assistantCardModel.cascade", { parts: parts.join(", ") });
 }
 
 /**
@@ -1279,6 +1438,7 @@ function cascadeWords(cascaded: Record<string, number> | undefined): string | nu
 function knownCascade(
   dashboardId: string | null,
   known: ReadonlyMap<string, KnownResource> | undefined,
+  t: Translate,
 ): string | null {
   if (dashboardId === null || known === undefined) return null;
   let widgets = 0;
@@ -1287,13 +1447,13 @@ function knownCascade(
       widgets += 1;
     }
   }
-  return cascadeWords({ widgets });
+  return cascadeWords({ widgets }, t);
 }
 
 /** The meta parts a detector's template contributes. */
-function templateMeta(record: Record<string, unknown> | null): string[] {
+function templateMeta(record: Record<string, unknown> | null, t: Translate): string[] {
   const template = record === null ? null : str(record.template);
-  return template === null ? [] : [templateLabel(template)];
+  return template === null ? [] : [templateLabel(template, t)];
 }
 
 /**
@@ -1321,14 +1481,15 @@ export function pendingCardModel(
   panelProjectId: string | undefined,
   retentionDays?: number | null,
   known?: ReadonlyMap<string, KnownResource>,
+  t: Translate = ENGLISH,
 ): ResourceCardModel | null {
   const proposal = pendingProposal(step, known);
   if (proposal === null) return null;
   const { resourceType, action } = proposal;
-  const title = proposal.title ?? RESOURCE_TYPE_LABELS[resourceType];
+  const title = proposal.title ?? t(RESOURCE_TYPE_LABEL_KEYS[resourceType]);
   const args = plainObject(step.args);
   if (action !== "create") {
-    return pendingChangeModel(step, proposal, panelProjectId, retentionDays, known);
+    return pendingChangeModel(step, proposal, panelProjectId, retentionDays, known, t);
   }
 
   let body: ResourceCardBody;
@@ -1339,7 +1500,7 @@ export function pendingCardModel(
       const spec = args === null || str(args.type) !== "query" ? null : parseSpec(args.spec);
       body = {
         kind: "widget",
-        chips: args === null ? [] : widgetChips(args),
+        chips: args === null ? [] : widgetChips(args, t),
         chart:
           spec === null || panelProjectId === undefined
             ? null
@@ -1359,7 +1520,7 @@ export function pendingCardModel(
       // the write would create, prompt included.
       body = {
         kind: "detector",
-        chips: args === null ? [] : detectorChips(args),
+        chips: args === null ? [] : detectorChips(args, t),
         prompt: args === null ? null : detectorPrompt(args),
       };
       break;
@@ -1367,26 +1528,26 @@ export function pendingCardModel(
       // The gate must show the rule the write would store, since the rule is
       // the whole resource: its chart aimed at the panel's project — the
       // scope the write would land in — over the chips that spell it out.
-      body = alertBody(args, panelProjectId ?? null, retentionDays);
+      body = alertBody(args, panelProjectId ?? null, retentionDays, t);
       break;
   }
 
-  const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
+  const meta: string[] = [t(RESOURCE_TYPE_LABEL_KEYS[resourceType])];
   // The pending chart is aimed at the panel's project, so its window label
   // resolves against the same project — what the preview will really query.
   if (body.kind === "widget" && body.chart !== null) {
-    meta.push(body.chart.range.label);
+    meta.push(rangeLabel(body.chart.range, t));
   }
-  if (resourceType === "detector") meta.push(...templateMeta(args));
+  if (resourceType === "detector") meta.push(...templateMeta(args, t));
   if (body.kind === "alert" && body.chart !== null) {
-    meta.push(body.chart.range.label);
+    meta.push(rangeLabel(body.chart.range, t));
   }
 
   const description =
     resourceType === "dashboard" && args !== null
       ? str(args.description, MAX_DESCRIPTION_CHARS)
       : resourceType === "alert" && args !== null
-        ? alertRuleSentence(args)
+        ? alertRuleSentence(args, t)
         : null;
 
   return {
@@ -1411,15 +1572,16 @@ function pendingChangeModel(
   panelProjectId: string | undefined,
   retentionDays: number | null | undefined,
   known: ReadonlyMap<string, KnownResource> | undefined,
+  t: Translate,
 ): ResourceCardModel {
   const { resourceType, action } = proposal;
   const args = plainObject(step.args);
   const id = args === null ? null : str(args[idField(resourceType)], MAX_TITLE_CHARS);
   const record = id === null ? null : (known?.get(id)?.record ?? null);
-  const title = proposal.title ?? RESOURCE_TYPE_LABELS[resourceType];
-  const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
+  const title = proposal.title ?? t(RESOURCE_TYPE_LABEL_KEYS[resourceType]);
+  const meta: string[] = [t(RESOURCE_TYPE_LABEL_KEYS[resourceType])];
   // The template is the stored resource's, never the edit's: it cannot change.
-  if (resourceType === "detector") meta.push(...templateMeta(record));
+  if (resourceType === "detector") meta.push(...templateMeta(record, t));
 
   if (action === "delete") {
     return {
@@ -1435,21 +1597,21 @@ function pendingChangeModel(
       body: {
         kind: "delete",
         reason: (args === null ? null : str(args.reason, MAX_REASON_CHARS)) ?? "",
-        cascade: resourceType === "dashboard" ? knownCascade(id, known) : null,
-        chips: record === null ? [] : knownChips(resourceType, record),
+        cascade: resourceType === "dashboard" ? knownCascade(id, known, t) : null,
+        chips: record === null ? [] : knownChips(resourceType, record, t),
       },
     };
   }
 
   const edited = resourceFields(args, resourceType);
   const preview = changePreview(resourceType, edited, record, panelProjectId, retentionDays);
-  if (preview?.kind === "widget") meta.push(preview.chart.range.label);
-  if (preview?.kind === "alert") meta.push(preview.chart.range.label);
+  if (preview?.kind === "widget") meta.push(rangeLabel(preview.chart.range, t));
+  if (preview?.kind === "alert") meta.push(rangeLabel(preview.chart.range, t));
   // An alert's live state rides on an edit proposal: a rule change on a
   // firing alert clears its page, and the badge is how the user sees that.
   const badge = resourceType === "alert" && record !== null ? alertBadgeOf(record) : null;
   const description =
-    preview?.kind === "alert" ? alertRuleSentence({ ...record, ...edited }) : null;
+    preview?.kind === "alert" ? alertRuleSentence({ ...record, ...edited }, t) : null;
   return {
     resourceType,
     resourceId: step.toolCallId,
@@ -1461,7 +1623,7 @@ function pendingChangeModel(
     ...(badge === null ? {} : { badge }),
     // The changes are what the user judges, so they open with the card.
     definitionOpen: true,
-    body: { kind: "changes", chips: changeChips(edited, record), preview },
+    body: { kind: "changes", chips: changeChips(edited, record, t), preview },
   };
 }
 
@@ -1474,6 +1636,7 @@ function pendingChangeModel(
 function updateReceiptModel(
   step: ToolCallStep,
   details: ResourceUpdatedDetails,
+  t: Translate,
 ): ResourceCardModel | null {
   const { resourceType } = details;
   if (!isCardResourceType(resourceType)) return null;
@@ -1484,17 +1647,21 @@ function updateReceiptModel(
   );
   const count = details.changed.length;
   const meta = [
-    RESOURCE_TYPE_LABELS[resourceType],
-    count === 0 ? "unchanged" : `${count} field${count === 1 ? "" : "s"} changed`,
+    t(RESOURCE_TYPE_LABEL_KEYS[resourceType]),
+    count === 0
+      ? t("assistantCardModel.unchanged")
+      : count === 1
+        ? t("assistantCardModel.fieldsChangedOne", { count })
+        : t("assistantCardModel.fieldsChangedMany", { count }),
   ];
   const badge = resourceType === "alert" ? alertBadgeOfState(details.alertState) : null;
   const description =
     resourceType !== "alert"
       ? null
       : details.pageCleared === true
-        ? "This alert was firing; the edit cleared that page and reset its evaluation state."
+        ? t("assistantCardModel.editClearedPage")
         : details.stateReset === true
-          ? "The edit reset the alert's evaluation state; the rule is due to run now."
+          ? t("assistantCardModel.editResetState")
           : null;
   return {
     resourceType,
@@ -1511,7 +1678,7 @@ function updateReceiptModel(
     ...(description === null ? {} : { description }),
     ...(badge === null ? {} : { badge }),
     definitionOpen: true,
-    body: { kind: "changes", chips: changeChips(edited, null), preview: null },
+    body: { kind: "changes", chips: changeChips(edited, null, t), preview: null },
   };
 }
 
@@ -1519,12 +1686,15 @@ function updateReceiptModel(
  * The receipt for a delete: what is gone, the reason as recorded, what went
  * with it, and nothing to open — the page no longer exists.
  */
-function deleteReceiptModel(details: ResourceDeletedDetails): ResourceCardModel | null {
+function deleteReceiptModel(
+  details: ResourceDeletedDetails,
+  t: Translate,
+): ResourceCardModel | null {
   const { resourceType } = details;
   if (!isCardResourceType(resourceType)) return null;
   const description =
     resourceType === "alert" && details.pageCleared === true
-      ? "This alert was firing; deleting it cleared that page."
+      ? t("assistantCardModel.deleteClearedPage")
       : null;
   return {
     resourceType,
@@ -1532,14 +1702,14 @@ function deleteReceiptModel(details: ResourceDeletedDetails): ResourceCardModel 
     created: true,
     outcome: "deleted",
     title: str(details.name, MAX_TITLE_CHARS) ?? str(details.resourceId, MAX_TITLE_CHARS) ?? "",
-    meta: [RESOURCE_TYPE_LABELS[resourceType]],
+    meta: [t(RESOURCE_TYPE_LABEL_KEYS[resourceType])],
     href: null,
     ...(description === null ? {} : { description }),
     definitionOpen: true,
     body: {
       kind: "delete",
       reason: str(details.reason, MAX_REASON_CHARS) ?? "",
-      cascade: cascadeWords(details.cascaded),
+      cascade: cascadeWords(details.cascaded, t),
       chips: [],
     },
   };
@@ -1648,25 +1818,50 @@ export type ReadCardModel =
  * then a live breach with whether it was notified, then when the rule last
  * ran, and a rule that has not run yet says so.
  */
-function alertRowState(record: Record<string, unknown>): string {
+function alertRowState(record: Record<string, unknown>, t: Translate): string {
   const status = str(record.status);
-  if (status === "PARKED") return "parked · evaluation stopped";
-  if (status === "PAUSED") return "paused";
+  if (status === "PARKED") return t("assistantCardModel.stateParked");
+  if (status === "PAUSED") return t("assistantCardModel.statePaused");
   const alertedAt = str(record.alerted_at);
   if (alertedAt !== null) {
+    const when = relativeTime(alertedAt, t);
     const notify = str(record.last_notify_status);
-    const notified =
-      notify === null
-        ? ""
-        : notify === "DELIVERED"
-          ? " · notified"
-          : ` · notify ${notify.toLowerCase()}`;
-    return `alerted ${formatRelativeTime(alertedAt)}${notified}`;
+    return notify === null
+      ? t("assistantCardModel.stateAlerted", { when })
+      : notify === "DELIVERED"
+        ? t("assistantCardModel.stateAlertedNotified", { when })
+        : t("assistantCardModel.stateAlertedNotify", { when, status: notify.toLowerCase() });
   }
   const evaluatedAt = str(record.last_evaluated_at);
   return evaluatedAt === null
-    ? "not evaluated yet"
-    : `evaluated ${formatRelativeTime(evaluatedAt)}`;
+    ? t("assistantCardModel.stateNotEvaluated")
+    : t("assistantCardModel.stateEvaluated", { when: relativeTime(evaluatedAt, t) });
+}
+
+/**
+ * How long ago an instant was, in the visitor's language: the steps and the English wording
+ * of `formatRelativeTime`, which the alerts table shows for the same rows.
+ */
+function relativeTime(date: string, t: Translate): string {
+  const then = parseAsUTC(date);
+  const diffSeconds = Math.floor((Date.now() - then.getTime()) / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffSeconds < 60) return t("assistantCardModel.justNow");
+  if (diffMinutes < 60) {
+    return diffMinutes === 1
+      ? t("assistantCardModel.minuteAgo", { count: diffMinutes })
+      : t("assistantCardModel.minutesAgo", { count: diffMinutes });
+  }
+  if (diffHours < 24) {
+    return diffHours === 1
+      ? t("assistantCardModel.hourAgo", { count: diffHours })
+      : t("assistantCardModel.hoursAgo", { count: diffHours });
+  }
+  if (diffDays === 1) return t("assistantCardModel.yesterday");
+  if (diffDays < 7) return t("assistantCardModel.daysAgo", { count: diffDays });
+  return then.toLocaleDateString();
 }
 
 /** The alert's page under the panel's project, when both ids are path-safe. */
@@ -1679,6 +1874,7 @@ function alertPageHref(panelProjectId: string | undefined, alertId: unknown): st
 function alertListCardModel(
   details: Record<string, unknown>,
   panelProjectId: string | undefined,
+  t: Translate,
 ): AlertListCardModel | null {
   if (!Array.isArray(details.alerts)) return null;
   const rows: AlertListRow[] = [];
@@ -1690,8 +1886,8 @@ function alertListCardModel(
     rows.push({
       id,
       name: str(record.name, MAX_TITLE_CHARS) ?? id,
-      summary: alertRuleSummary(record),
-      state: alertRowState(record),
+      summary: alertRuleSummary(record, t),
+      state: alertRowState(record, t),
       badge: alertBadgeOf(record),
       href: alertPageHref(panelProjectId, record.id),
     });
@@ -1723,20 +1919,22 @@ function alertListCardModel(
  * the rule. Only what the record says — a fact it does not carry is left
  * out, not printed as unknown.
  */
-function alertFacts(record: Record<string, unknown>): ReceiptRow[] {
+function alertFacts(record: Record<string, unknown>, t: Translate): ReceiptRow[] {
   const rows: ReceiptRow[] = [];
   const alertedAt = str(record.alerted_at);
-  if (alertedAt !== null) rows.push({ label: "alerting since", value: formatDate(alertedAt) });
+  if (alertedAt !== null) {
+    rows.push({ label: t("assistantCardModel.factAlertingSince"), value: formatDate(alertedAt) });
+  }
   const evaluatedAt = str(record.last_evaluated_at);
   rows.push({
-    label: "last evaluated",
-    value: evaluatedAt === null ? "never" : formatDate(evaluatedAt),
+    label: t("assistantCardModel.factLastEvaluated"),
+    value: evaluatedAt === null ? t("assistantCardModel.factNever") : formatDate(evaluatedAt),
   });
   const notify = str(record.last_notify_status);
   if (notify !== null) {
     const at = str(record.last_notify_at);
     rows.push({
-      label: "notified",
+      label: t("assistantCardModel.factNotified"),
       value: at === null ? notify.toLowerCase() : `${notify.toLowerCase()} · ${formatDate(at)}`,
     });
   }
@@ -1744,7 +1942,7 @@ function alertFacts(record: Record<string, unknown>): ReceiptRow[] {
   if (creator !== null) {
     const createdAt = str(record.create_time);
     rows.push({
-      label: "created by",
+      label: t("assistantCardModel.factCreatedBy"),
       value: createdAt === null ? creator : `${creator} · ${formatDate(createdAt).slice(0, 10)}`,
     });
   }
@@ -1754,17 +1952,18 @@ function alertFacts(record: Record<string, unknown>): ReceiptRow[] {
 function alertDetailCardModel(
   details: Record<string, unknown>,
   panelProjectId: string | undefined,
-  retentionDays?: number | null,
+  retentionDays: number | null | undefined,
+  t: Translate,
 ): ResourceCardModel | null {
   const record = plainObject(details.alert);
   if (record === null) return null;
   const id = str(record.id, MAX_TITLE_CHARS);
   if (id === null) return null;
-  const body = alertBody(record, panelProjectId ?? null, retentionDays);
-  const meta: string[] = [RESOURCE_TYPE_LABELS.alert];
-  if (body.kind === "alert" && body.chart !== null) meta.push(body.chart.range.label);
+  const body = alertBody(record, panelProjectId ?? null, retentionDays, t);
+  const meta: string[] = [t(RESOURCE_TYPE_LABEL_KEYS.alert)];
+  if (body.kind === "alert" && body.chart !== null) meta.push(rangeLabel(body.chart.range, t));
   const badge = alertBadgeOf(record);
-  const description = alertRuleSentence(record);
+  const description = alertRuleSentence(record, t);
   return {
     resourceType: "alert",
     resourceId: id,
@@ -1774,7 +1973,7 @@ function alertDetailCardModel(
     href: alertPageHref(panelProjectId, record.id),
     ...(description === null ? {} : { description }),
     ...(badge === null ? {} : { badge }),
-    facts: alertFacts(record),
+    facts: alertFacts(record, t),
     // The read's answer is the definition; it opens with the card.
     definitionOpen: true,
     body,
@@ -1793,25 +1992,26 @@ export function readCardModel(
   step: ToolCallStep,
   panelProjectId: string | undefined,
   retentionDays?: number | null,
+  t: Translate = ENGLISH,
 ): ReadCardModel | null {
   if (step.status !== "done" || step.isError === true) return null;
   const result = plainObject(step.result);
   const details = result === null ? null : plainObject(result.details);
   if (details === null) return null;
   if (details.kind === "alert_list") {
-    const model = alertListCardModel(details, panelProjectId);
+    const model = alertListCardModel(details, panelProjectId, t);
     return model === null ? null : { kind: "alert_list", model };
   }
   if (details.kind === "alert_detail") {
-    const model = alertDetailCardModel(details, panelProjectId, retentionDays);
+    const model = alertDetailCardModel(details, panelProjectId, retentionDays, t);
     return model === null ? null : { kind: "alert", model };
   }
   if (details.kind === "widget_read") {
-    const model = widgetReadCardModel(details, panelProjectId, retentionDays);
+    const model = widgetReadCardModel(details, panelProjectId, retentionDays, t);
     return model === null ? null : { kind: "widget", model };
   }
   if (details.kind === "dashboard_read") {
-    const model = dashboardReadCardModel(details, panelProjectId, retentionDays);
+    const model = dashboardReadCardModel(details, panelProjectId, retentionDays, t);
     return model === null ? null : { kind: "dashboard", model };
   }
   return null;
@@ -1873,14 +2073,21 @@ function dashboardPageHref(panelProjectId: string | undefined, dashboardId: unkn
 }
 
 /** What a read says when it did not answer a widget: a feed, or the reason it failed. */
-function unansweredText(status: unknown, type: string | null, error: unknown): string | null {
+function unansweredText(
+  status: unknown,
+  type: string | null,
+  error: unknown,
+  t: Translate,
+): string | null {
   if (status === "error") {
-    return `Couldn't answer this widget: ${str(error, MAX_REASON_CHARS) ?? "unknown error"}`;
+    return t("assistantCardModel.unanswered", {
+      reason: str(error, MAX_REASON_CHARS) ?? t("assistantCardModel.unansweredUnknown"),
+    });
   }
   if (status === "skipped" || (type !== null && type !== "query")) {
     return type === "trace_feed"
-      ? "A trace feed: open the dashboard to see its traces."
-      : "This widget has no chart to draw here: open the dashboard to see it.";
+      ? t("assistantCardModel.feedNotice")
+      : t("assistantCardModel.noChartNotice");
   }
   return null;
 }
@@ -1894,15 +2101,16 @@ function unansweredText(status: unknown, type: string | null, error: unknown): s
 function widgetReadCardModel(
   details: Record<string, unknown>,
   panelProjectId: string | undefined,
-  retentionDays?: number | null,
+  retentionDays: number | null | undefined,
+  t: Translate,
 ): ResourceCardModel | null {
   const widget = plainObject(details.widget);
   if (widget === null) return null;
   const id = str(widget.id, MAX_TITLE_CHARS);
   if (id === null) return null;
   const type = str(widget.type);
-  const chips = widgetChips({ type, spec: widget.spec });
-  const notice = unansweredText(widget.status, type, widget.error);
+  const chips = widgetChips({ type, spec: widget.spec }, t);
+  const notice = unansweredText(widget.status, type, widget.error, t);
   const window = readWindow(details.window, panelProjectId, retentionDays);
   const spec = notice === null ? parseSpec(widget.spec) : null;
   const projectId = pathSegment(panelProjectId);
@@ -1917,11 +2125,11 @@ function widgetReadCardModel(
     };
   }
 
-  const meta: string[] = [RESOURCE_TYPE_LABELS.widget];
+  const meta: string[] = [t(RESOURCE_TYPE_LABEL_KEYS.widget)];
   const dashboardName = str(widget.dashboard_name, MAX_TITLE_CHARS);
   if (dashboardName !== null) meta.push(dashboardName);
   // A chart names its window; a one-line notice draws nothing over one.
-  if (body.kind === "widget" && body.chart !== null) meta.push(window.range.label);
+  if (body.kind === "widget" && body.chart !== null) meta.push(rangeLabel(window.range, t));
   return {
     resourceType: "widget",
     resourceId: id,
@@ -1945,7 +2153,8 @@ function widgetReadCardModel(
 function dashboardReadCardModel(
   details: Record<string, unknown>,
   panelProjectId: string | undefined,
-  retentionDays?: number | null,
+  retentionDays: number | null | undefined,
+  t: Translate,
 ): ResourceCardModel | null {
   const dashboard = plainObject(details.dashboard);
   if (dashboard === null || !Array.isArray(details.widgets)) return null;
@@ -1991,7 +2200,7 @@ function dashboardReadCardModel(
       const type = widget.type;
       const failed =
         widget.status === "error"
-          ? (str(widget.error, MAX_REASON_CHARS) ?? "Couldn't answer this widget")
+          ? (str(widget.error, MAX_REASON_CHARS) ?? t("assistantCardModel.unansweredTile"))
           : null;
       return {
         id: widget.id as string,
@@ -2013,10 +2222,10 @@ function dashboardReadCardModel(
     });
   }
 
-  const meta: string[] = [RESOURCE_TYPE_LABELS.dashboard];
-  meta.push(widgets.length === 1 ? "1 widget" : `${widgets.length} widgets`);
+  const meta: string[] = [t(RESOURCE_TYPE_LABEL_KEYS.dashboard)];
+  meta.push(widgetCountWords(widgets.length, t));
   // One window label for the whole preview, as the created-dashboard card does.
-  if (tiles.length > 0) meta.push(window.range.label);
+  if (tiles.length > 0) meta.push(rangeLabel(window.range, t));
   return {
     resourceType: "dashboard",
     resourceId: id,

@@ -1,7 +1,8 @@
 "use client";
 
-import { displayDashboardName } from "@/features/dashboards/seed-display";
+import { displayDashboardName, displayFieldLabel } from "@/features/dashboards/seed-display";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -383,7 +384,7 @@ export function WidgetBuilderPage({
                             className="text-[12px]"
                             icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
                           >
-                            {meta.label}
+                            {displayFieldLabel(t, meta.label)}
                           </SelectItem>
                         );
                       })}
@@ -429,7 +430,7 @@ export function WidgetBuilderPage({
                           className="text-[12px]"
                           icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
                         >
-                          {meta.label}
+                          {displayFieldLabel(t, meta.label)}
                         </SelectItem>
                       );
                     })}
@@ -487,7 +488,9 @@ export function WidgetBuilderPage({
                 {histogramBlocked && (
                   <p className="mt-1 text-[12px] text-warning">
                     {t("dashboardsBuilder.histogramBlocked", {
-                      name: measureField?.label ?? draft.metric?.measure ?? "",
+                      name: measureField
+                        ? displayFieldLabel(t, measureField.label)
+                        : (draft.metric?.measure ?? ""),
                     })}
                   </p>
                 )}
@@ -513,7 +516,9 @@ export function WidgetBuilderPage({
             {saveError ? (
               <p className="text-[11.5px] text-red-600">
                 {t("dashboardsBuilder.saveFailed")}
-                {saveError instanceof Error ? `: ${saveError.message}` : ""}
+                {saveError instanceof Error
+                  ? `: ${translateClientError(t, saveError.message)}`
+                  : ""}
               </p>
             ) : null}
             <div className="flex justify-end gap-2">
@@ -552,7 +557,7 @@ export function WidgetBuilderPage({
             ) : preview.error ? (
               <div className="flex h-full items-start justify-center pt-8 text-[12px] text-red-600">
                 {preview.error instanceof Error
-                  ? preview.error.message
+                  ? translateClientError(t, preview.error.message)
                   : t("dashboardsWidget.queryFailed")}
               </div>
             ) : preview.data ? (

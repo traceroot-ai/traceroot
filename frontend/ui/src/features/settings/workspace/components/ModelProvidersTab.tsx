@@ -42,6 +42,7 @@ import {
   type ModelProviderResponse,
 } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 interface ModelProvidersTabProps {
   workspaceId: string;
@@ -100,7 +101,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       closeDialog();
     },
     onError: (err) =>
-      setSaveError(err instanceof Error ? err.message : t("modelProviders.failedSave")),
+      setSaveError(
+        err instanceof Error
+          ? translateClientError(t, err.message)
+          : t("modelProviders.failedSave"),
+      ),
   });
 
   const updateMutation = useMutation({
@@ -112,7 +117,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       closeDialog();
     },
     onError: (err) =>
-      setSaveError(err instanceof Error ? err.message : t("modelProviders.failedSave")),
+      setSaveError(
+        err instanceof Error
+          ? translateClientError(t, err.message)
+          : t("modelProviders.failedSave"),
+      ),
   });
 
   const deleteMutation = useMutation({
@@ -136,7 +145,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
         error:
           err instanceof ImpersonationError ? err.message : t("modelProviders.connectionFailed"),
         detail:
-          err instanceof Error && !(err instanceof ImpersonationError) ? err.message : undefined,
+          err instanceof Error && !(err instanceof ImpersonationError)
+            ? translateClientError(t, err.message)
+            : undefined,
       }),
   });
 
@@ -757,7 +768,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
           </DialogHeader>
           {deleteMutation.error instanceof ImpersonationError && (
             <p role="alert" className="text-sm text-destructive">
-              {deleteMutation.error.message}
+              {translateClientError(t, deleteMutation.error.message)}
             </p>
           )}
           <DialogFooter>

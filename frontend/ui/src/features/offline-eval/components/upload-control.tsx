@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Upload, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * CSV / JSON upload control for creating a dataset or importing rows.
@@ -17,6 +18,7 @@ export function UploadControl({
   onFile?: (fileName: string) => void;
   className?: string;
 }) {
+  const t = useT();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [dragging, setDragging] = React.useState(false);
@@ -53,15 +55,15 @@ export function UploadControl({
             <FileText className="h-5 w-5 text-muted-foreground" aria-hidden />
             <span className="text-[12px] font-medium">{fileName}</span>
             <span className="text-[12px] text-muted-foreground">
-              Click to choose a different file
+              {t("offlineEvalUpload.chooseDifferent")}
             </span>
           </>
         ) : (
           <>
             <Upload className="h-5 w-5 text-muted-foreground" aria-hidden />
-            <span className="text-[12px]">Drop a CSV or JSON file, or click to browse</span>
+            <span className="text-[12px]">{t("offlineEvalUpload.drop")}</span>
             <span className="text-[12px] text-muted-foreground">
-              Columns map to input, expected, and metadata
+              {t("offlineEvalUpload.columns")}
             </span>
           </>
         )}
@@ -72,7 +74,7 @@ export function UploadControl({
         accept=".csv,.json,application/json,text/csv"
         className="hidden"
         onChange={(e) => accept(e.target.files?.[0])}
-        aria-label="Upload CSV or JSON"
+        aria-label={t("offlineEvalUpload.inputAria")}
       />
     </div>
   );

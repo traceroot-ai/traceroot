@@ -12,6 +12,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
+import { Slots } from "@/lib/i18n/slots";
 
 interface DeleteAlertDialogProps {
   alertName: string;
@@ -47,9 +49,10 @@ export function DeleteAlertDialog({
         <DialogHeader>
           <DialogTitle>{t("alertsDelete.title")}</DialogTitle>
           <DialogDescription className="text-[12px]">
-            {t("alertsDelete.textBefore")}{" "}
-            <span className="font-medium text-foreground">{alertName}</span>
-            {t("alertsDelete.textAfter")}
+            <Slots
+              text={t("alertsDelete.text")}
+              slots={{ name: <span className="font-medium text-foreground">{alertName}</span> }}
+            />
           </DialogDescription>
         </DialogHeader>
 
@@ -58,9 +61,10 @@ export function DeleteAlertDialog({
         )}
 
         <p className="text-[12px] text-muted-foreground">
-          {t("alertsDelete.typeBefore")}{" "}
-          <span className="font-medium text-foreground">{alertName}</span>{" "}
-          {t("alertsDelete.typeAfter")}
+          <Slots
+            text={t("alertsDelete.typeToConfirm")}
+            slots={{ name: <span className="font-medium text-foreground">{alertName}</span> }}
+          />
         </p>
         <Input
           className="h-8 text-[12px]"
@@ -71,7 +75,9 @@ export function DeleteAlertDialog({
           autoFocus
         />
 
-        {error && <p className="text-[12px] text-destructive">{error.message}</p>}
+        {error && (
+          <p className="text-[12px] text-destructive">{translateClientError(t, error.message)}</p>
+        )}
 
         <DialogFooter>
           <Button

@@ -12,9 +12,11 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { PLANS, PlanType } from "@traceroot/core";
+import { displayPlanText } from "./plan-display";
 import { createCheckoutSession, changePlan } from "./api";
 import { getPlanButtonText, resolvePlanAction } from "./plan-actions";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 interface PricingDialogProps {
   open: boolean;
@@ -61,7 +63,9 @@ export function PricingDialog({
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("billing.failedChange"));
+      setError(
+        err instanceof Error ? translateClientError(t, err.message) : t("billing.failedChange"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -100,7 +104,7 @@ export function PricingDialog({
                       <h3 className="font-medium">{plan.name}</h3>
                       {plan.badge && (
                         <span className="rounded-[2px] border border-brand-border bg-background px-1.5 py-0.5 text-brand">
-                          {plan.badge}
+                          {displayPlanText(t, plan.badge)}
                         </span>
                       )}
                     </div>
@@ -122,10 +126,15 @@ export function PricingDialog({
                       )}
                     </div>
 
-                    <p className="mt-2 text-[13px] text-muted-foreground">{plan.description}</p>
+                    <p className="mt-2 text-[13px] text-muted-foreground">
+                      {displayPlanText(t, plan.description)}
+                    </p>
 
                     <ul className="mb-5 mt-3 flex-1 space-y-1">
-                      {[...plan.features, `${plan.support} support`].map((feature) => (
+                      {[
+                        ...plan.features.map((feature) => displayPlanText(t, feature)),
+                        t("billingPlans.supportVia", { channels: plan.support }),
+                      ].map((feature) => (
                         <li
                           key={feature}
                           className="flex items-start gap-2 py-0.5 text-[13px] text-muted-foreground"

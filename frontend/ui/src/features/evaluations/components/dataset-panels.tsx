@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -72,7 +73,11 @@ export function NewDatasetPanel({
           router.push(`/projects/${projectId}/datasets/${data.dataset.id}`);
         },
         onError: (e) =>
-          toast({ title: t("datasetsForm.createFailed"), description: String(e), tone: "warning" }),
+          toast({
+            title: t("datasetsForm.createFailed"),
+            description: translateClientError(t, String(e)),
+            tone: "warning",
+          }),
       },
     );
   };
@@ -159,7 +164,11 @@ export function DatasetEditPanel({
           onClose();
         },
         onError: (e) =>
-          toast({ title: t("datasetsForm.saveFailed"), description: String(e), tone: "warning" }),
+          toast({
+            title: t("datasetsForm.saveFailed"),
+            description: translateClientError(t, String(e)),
+            tone: "warning",
+          }),
       },
     );
   };

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { acceptInvite } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 export default function AcceptInvitePage() {
   const params = useParams();
@@ -44,7 +45,7 @@ export default function AcceptInvitePage() {
         <div className="max-w-md border p-6 text-center">
           <h1 className="text-[15px] font-medium">{t("invite.errorTitle")}</h1>
           <p className="mt-2 text-muted-foreground">
-            {error === true ? t("invite.failed") : error}
+            {error === true ? t("invite.failed") : translateClientError(t, error)}
           </p>
           <button onClick={() => router.push("/workspaces")} className="mt-4 text-sm underline">
             {t("invite.goToWorkspaces")}

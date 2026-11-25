@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { formatRelativeTime } from "@/lib/utils";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
+import { Slots } from "@/lib/i18n/slots";
 import {
   getAccessKeys,
   createAccessKey,
@@ -112,7 +114,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   if (error instanceof ImpersonationError) {
     return (
       <p role="alert" className="text-sm text-muted-foreground">
-        {error.message}
+        {translateClientError(t, error.message)}
       </p>
     );
   }
@@ -189,7 +191,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           </div>
           {createMutation.error instanceof ImpersonationError && (
             <p role="alert" className="text-sm text-destructive">
-              {createMutation.error.message}
+              {translateClientError(t, createMutation.error.message)}
             </p>
           )}
           <DialogFooter>
@@ -222,7 +224,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           </div>
           {updateMutation.error instanceof ImpersonationError && (
             <p role="alert" className="text-sm text-destructive">
-              {updateMutation.error.message}
+              {translateClientError(t, updateMutation.error.message)}
             </p>
           )}
           <DialogFooter>
@@ -249,20 +251,30 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <DialogHeader>
             <DialogTitle>{t("accessKeys.deleteTitle")}</DialogTitle>
             <DialogDescription>
-              {t("accessKeys.deleteBefore")}
-              <span className="font-semibold">
-                {keyToDelete?.name || formatKeyHint(keyToDelete?.key_hint || "")}
-              </span>
-              {t("accessKeys.deleteAfter")}
+              <Slots
+                text={t("accessKeys.deleteDialogText")}
+                slots={{
+                  name: (
+                    <span className="font-semibold">
+                      {keyToDelete?.name || formatKeyHint(keyToDelete?.key_hint || "")}
+                    </span>
+                  ),
+                }}
+              />
             </DialogDescription>
           </DialogHeader>
           <div>
             <p className="mb-2 text-sm text-muted-foreground">
-              {t("workspaceSettings.typeBefore")}{" "}
-              <span className="font-mono font-semibold text-foreground">
-                {keyToDelete?.name || "delete"}
-              </span>{" "}
-              {t("workspaceSettings.typeAfter")}
+              <Slots
+                text={t("workspaceSettings.typeToConfirm")}
+                slots={{
+                  name: (
+                    <span className="font-mono font-semibold text-foreground">
+                      {keyToDelete?.name || "delete"}
+                    </span>
+                  ),
+                }}
+              />
             </p>
             <Input
               value={deleteConfirmText}
@@ -275,7 +287,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           </div>
           {deleteMutation.error instanceof ImpersonationError && (
             <p role="alert" className="text-sm text-destructive">
-              {deleteMutation.error.message}
+              {translateClientError(t, deleteMutation.error.message)}
             </p>
           )}
           <DialogFooter>
@@ -347,11 +359,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                     </code>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {formatRelativeTime(key.create_time)}
+                    {formatRelativeTime(key.create_time, t)}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {key.last_use_time
-                      ? formatRelativeTime(key.last_use_time)
+                      ? formatRelativeTime(key.last_use_time, t)
                       : t("accessKeys.never")}
                   </td>
                   <td className="px-3 py-2">

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 
 interface DeleteDetectorDialogProps {
   detectorName: string;
@@ -40,9 +41,10 @@ export function DeleteDetectorDialog({
 
         <div className="mt-1 space-y-4">
           <p className="text-[12px] text-muted-foreground">
-            {t("detectorsDelete.confirmBefore")}{" "}
-            <span className="font-medium text-foreground">{detectorName}</span>{" "}
-            {t("detectorsDelete.confirmAfter")}
+            <Slots
+              text={t("detectorsDelete.confirmText")}
+              slots={{ name: <span className="font-medium text-foreground">{detectorName}</span> }}
+            />
           </p>
 
           <Input

@@ -79,7 +79,7 @@ export function AlertsTable({
               <td
                 className={cn(DETECTOR_TD, "text-muted-foreground")}
                 title={
-                  alert.lastEvaluatedAt ? formatRelativeTime(alert.lastEvaluatedAt) : undefined
+                  alert.lastEvaluatedAt ? formatRelativeTime(alert.lastEvaluatedAt, t) : undefined
                 }
               >
                 {alert.lastEvaluatedAt ? formatDate(alert.lastEvaluatedAt) : t("alertsList.never")}

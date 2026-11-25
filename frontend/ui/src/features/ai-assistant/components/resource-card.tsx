@@ -10,9 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { AlertSeverityBadge } from "@/features/alerts/components/alert-severity-badge";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import { useT } from "@/lib/i18n/provider";
 import { DashboardPreview } from "./dashboard-preview";
 import { CHART_TILE_ASPECT } from "./preview-constants";
 import type {
+  CardResourceType,
   ChangePreview,
   DetectorPrompt,
   ReceiptRow,
@@ -95,11 +98,12 @@ function promptNeedsClamp(text: string): boolean {
  * prompt the call adopted by omitting its own.
  */
 function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   if (prompt.kind === "standard") {
     return (
       <p className="text-[12px] text-muted-foreground">
-        Uses the standard {prompt.templateLabel} prompt
+        {t("assistantCards.standardPrompt", { template: prompt.templateLabel })}
       </p>
     );
   }
@@ -119,7 +123,7 @@ function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
           className="text-[12px] font-medium text-muted-foreground underline-offset-2 hover:underline"
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? "Show less" : "Show more"}
+          {expanded ? t("assistantCards.showLess") : t("assistantCards.showMore")}
         </button>
       )}
     </div>
@@ -253,6 +257,16 @@ function definitionChips(body: ResourceCardBody): string[] {
     : [];
 }
 
+/** The accessible name of the link to each resource's page. */
+const OPEN_LABEL_KEYS: Record<CardResourceType, MessageKey> = {
+  widget: "assistantCards.openWidget",
+  dashboard: "assistantCards.openDashboard",
+  project: "assistantCards.openProject",
+  workspace: "assistantCards.openWorkspace",
+  detector: "assistantCards.openDetector",
+  alert: "assistantCards.openAlert",
+};
+
 const iconActionClasses =
   "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground";
 
@@ -265,6 +279,7 @@ export function ResourceCard({
    *  footer meta says so, since the card is otherwise the receipt's twin. */
   proposed?: boolean;
 }) {
+  const t = useT();
   const [definitionOpen, setDefinitionOpen] = useState(model.definitionOpen === true);
   const [previewHidden, setPreviewHidden] = useState(false);
 
@@ -276,8 +291,10 @@ export function ResourceCard({
   const facts = model.facts ?? [];
   const hasDefinition = chips.length > 0 || facts.length > 0 || model.description !== undefined;
 
-  const meta = (proposed ? ["Proposed", ...model.meta] : model.meta).join(" · ");
-  const previewLabel = previewHidden ? "Show preview" : "Hide preview";
+  const meta = (proposed ? [t("assistantCards.proposed"), ...model.meta] : model.meta).join(" · ");
+  const previewLabel = previewHidden
+    ? t("assistantCards.showPreview")
+    : t("assistantCards.hidePreview");
 
   return (
     <Card
@@ -322,12 +339,14 @@ export function ResourceCard({
             an update or delete receipt says which it is. */}
         {!model.created && (
           <Badge variant="default" className="shrink-0">
-            Reused
+            {t("assistantCards.reused")}
           </Badge>
         )}
         {model.outcome !== undefined && (
           <Badge variant="outline" className="shrink-0">
-            {model.outcome === "updated" ? "Updated" : "Deleted"}
+            {model.outcome === "updated"
+              ? t("assistantCards.updated")
+              : t("assistantCards.deleted")}
           </Badge>
         )}
         {/* An alert's state, as the alerts page badges it. A create proposal
@@ -345,13 +364,13 @@ export function ResourceCard({
                   <TooltipTrigger asChild>
                     <Link
                       href={model.href}
-                      aria-label={`Open ${model.resourceType}`}
+                      aria-label={t(OPEN_LABEL_KEYS[model.resourceType])}
                       className={iconActionClasses}
                     >
                       <ExternalLink className="h-3 w-3" />
                     </Link>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Open</TooltipContent>
+                  <TooltipContent side="top">{t("assistantCards.open")}</TooltipContent>
                 </Tooltip>
               )}
               {previewable && (

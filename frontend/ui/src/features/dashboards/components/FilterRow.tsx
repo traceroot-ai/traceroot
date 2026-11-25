@@ -17,6 +17,7 @@ import {
   ValueDropdown,
 } from "@/features/filters/filter-controls";
 import { fieldIcon } from "./field-icons";
+import { displayFieldLabel } from "../seed-display";
 import { useWidgetFieldValues } from "../hooks/use-widget-data";
 import {
   filterOpLabel,
@@ -163,7 +164,7 @@ export function FilterRow({
         <FieldDropdown
           options={filterableFields.map(([key, meta]) => ({
             key,
-            label: meta.label,
+            label: displayFieldLabel(t, meta.label),
             icon: fieldIcon(key),
           }))}
           valueKey={filter.field || null}

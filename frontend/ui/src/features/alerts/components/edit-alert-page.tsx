@@ -8,6 +8,7 @@ import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { AlertForm, type AlertDraft } from "./alert-form";
 import { isAlertGone, useAlert, type AlertRecord } from "../hooks/use-alerts";
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 
 interface EditAlertPageProps {
   projectId: string;
@@ -63,7 +64,9 @@ export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
                 {isAlertGone(error) ? t("alertsForm.notFound") : t("alertsForm.cannotEdit")}
               </p>
               <p className="max-w-md text-center text-[12px] text-muted-foreground">
-                {isAlertGone(error) ? t("alertsForm.notFoundText") : error.message}
+                {isAlertGone(error)
+                  ? t("alertsForm.notFoundText")
+                  : translateClientError(t, error.message)}
               </p>
             </div>
           ) : (

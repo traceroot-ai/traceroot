@@ -14,8 +14,10 @@ import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import { useDemoAgentAccess } from "../hooks/use-demo-agent-access";
-import { DEMO_AGENT_SEND_DENIED } from "../constants";
+import { DEMO_AGENT_SEND_DENIED_KEY } from "../constants";
 import { useRetention } from "@/lib/hooks/use-retention";
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
 
 interface AiAssistantPanelProps {
   projectId?: string;
@@ -71,6 +73,7 @@ export function AiAssistantPanel({
   emptyState,
   pageTop,
 }: AiAssistantPanelProps) {
+  const t = useT();
   // In page placement the root spans the full page so the header's bottom
   // border runs edge to edge like every other section header; only the
   // content below it (messages, empty state, input) is centered in the
@@ -167,7 +170,7 @@ export function AiAssistantPanel({
             variant="ghost"
             size="icon"
             className={btnCls}
-            title="New session"
+            title={t("assistantPanel.newSession")}
             onClick={handleNewSession}
           >
             <Plus className={iconCls} />
@@ -179,7 +182,7 @@ export function AiAssistantPanel({
               variant="ghost"
               size="icon"
               className={btnCls}
-              title="History"
+              title={t("assistantPanel.history")}
               onClick={handleOpenHistory}
             >
               <History className={iconCls} />
@@ -225,19 +228,31 @@ export function AiAssistantPanel({
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <div>
               <p className="font-medium text-warning">
-                Unsupported model{unsupportedModels.length > 1 ? "s" : ""} detected
+                {t(
+                  unsupportedModels.length > 1
+                    ? "assistantPanel.unsupportedTitleMany"
+                    : "assistantPanel.unsupportedTitleOne",
+                )}
               </p>
               <p className="mt-0.5 text-warning">
-                {unsupportedModels.map((m) => m.id).join(", ")}{" "}
-                {unsupportedModels.length > 1 ? "are" : "is"} no longer in the supported model list.
-                Update in{" "}
-                <a
-                  href={`/workspaces/${workspaceId}/settings/model-providers`}
-                  className="font-medium underline"
-                >
-                  Settings &rarr; Model Providers
-                </a>
-                .
+                <Slots
+                  text={t(
+                    unsupportedModels.length > 1
+                      ? "assistantPanel.unsupportedTextMany"
+                      : "assistantPanel.unsupportedTextOne",
+                  )}
+                  slots={{
+                    models: unsupportedModels.map((m) => m.id).join(", "),
+                    link: (
+                      <a
+                        href={`/workspaces/${workspaceId}/settings/model-providers`}
+                        className="font-medium underline"
+                      >
+                        {t("assistantPanel.settingsModelProviders")}
+                      </a>
+                    ),
+                  }}
+                />
               </p>
             </div>
           </div>
@@ -248,17 +263,21 @@ export function AiAssistantPanel({
           <div className="flex flex-1 items-center justify-center px-6">
             <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
               <AlertTriangle className="h-8 w-8 text-warning" />
-              <p className="text-[13px] font-medium">No LLM models available</p>
+              <p className="text-[13px] font-medium">{t("assistantPanel.noModelsTitle")}</p>
               <p className="text-[12px] text-muted-foreground">
-                To use the AI assistant, configure a system API key (e.g. Anthropic, OpenAI) in your
-                environment, or add a BYOK provider in{" "}
-                <a
-                  href={`/workspaces/${workspaceId}/settings/model-providers`}
-                  className="font-medium underline"
-                >
-                  Workspace Settings &rarr; Model Providers
-                </a>
-                .
+                <Slots
+                  text={t("assistantPanel.noModelsText")}
+                  slots={{
+                    link: (
+                      <a
+                        href={`/workspaces/${workspaceId}/settings/model-providers`}
+                        className="font-medium underline"
+                      >
+                        {t("assistantPanel.workspaceSettingsModelProviders")}
+                      </a>
+                    ),
+                  }}
+                />
               </p>
             </div>
           </div>
@@ -303,13 +322,13 @@ export function AiAssistantPanel({
           modelSelection={modelSelection}
           onModelChange={setModelSelection}
           disabled={accessLoading || !projectId || (!readOnly && !hasModels)}
-          blockedReason={readOnly ? DEMO_AGENT_SEND_DENIED : undefined}
+          blockedReason={readOnly ? t(DEMO_AGENT_SEND_DENIED_KEY) : undefined}
           workspaceId={workspaceId}
           // While a proposal awaits a decision, a typed reply revises it —
           // except a delete, which a reply skips; the bar says so instead.
           placeholder={
             hasPendingDecision && pendingDecision?.approvalClass !== "approval"
-              ? "Reply to revise"
+              ? t("assistantPanel.replyToRevise")
               : undefined
           }
           actions={
@@ -318,10 +337,10 @@ export function AiAssistantPanel({
               <button
                 onClick={handleAbort}
                 className="flex items-center gap-1 rounded px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                title="Stop generation"
+                title={t("assistantPanel.stopGeneration")}
               >
                 <Square className="h-3 w-3 fill-current" />
-                Stop
+                {t("assistantPanel.stop")}
               </button>
             )
           }

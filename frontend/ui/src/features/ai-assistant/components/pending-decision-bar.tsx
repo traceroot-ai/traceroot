@@ -4,13 +4,31 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PendingDecision, PendingDecisionAction } from "../hooks/use-ai-chat";
-import type { PendingAction } from "../lib/resource-card";
+import type { MessageKey } from "@/lib/i18n/messages/en";
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
+import type { PendingAction, PendingResourceType } from "../lib/resource-card";
 
-/** How the bar words each action, in the question and on its button. */
-const ACTION_VERBS: Record<PendingAction, string> = {
-  create: "Create",
-  update: "Update",
-  delete: "Delete",
+/** How the bar words each action on each resource, in the question and on its button. */
+const ACTION_KEYS: Record<PendingAction, Record<PendingResourceType, MessageKey>> = {
+  create: {
+    widget: "assistantDecision.createWidget",
+    dashboard: "assistantDecision.createDashboard",
+    detector: "assistantDecision.createDetector",
+    alert: "assistantDecision.createAlert",
+  },
+  update: {
+    widget: "assistantDecision.updateWidget",
+    dashboard: "assistantDecision.updateDashboard",
+    detector: "assistantDecision.updateDetector",
+    alert: "assistantDecision.updateAlert",
+  },
+  delete: {
+    widget: "assistantDecision.deleteWidget",
+    dashboard: "assistantDecision.deleteDashboard",
+    detector: "assistantDecision.deleteDetector",
+    alert: "assistantDecision.deleteAlert",
+  },
 };
 
 /**
@@ -36,6 +54,7 @@ export function PendingDecisionBar({
     action: PendingDecisionAction;
   }) => Promise<boolean>;
 }) {
+  const t = useT();
   const [inFlight, setInFlight] = useState<PendingDecisionAction | null>(null);
 
   const decide = async (action: PendingDecisionAction) => {
@@ -50,20 +69,22 @@ export function PendingDecisionBar({
   };
 
   const spinner = <Loader2 className="h-3 w-3 animate-spin" />;
-  const verb = ACTION_VERBS[decision.action];
+  const action = t(ACTION_KEYS[decision.action][decision.resourceType]);
   const destructive = decision.approvalClass === "approval";
 
   return (
     <div className="mx-3 mb-1 rounded-md border border-border bg-card px-2.5 py-2 text-xs">
       <p className="truncate font-medium text-foreground">
-        {verb} {decision.resourceType}
-        {decision.title !== null && (
-          <>
-            {" "}
-            <span className="font-normal text-muted-foreground">{decision.title}</span>
-          </>
+        {decision.title === null ? (
+          t("assistantDecision.question", { action })
+        ) : (
+          <Slots
+            text={t("assistantDecision.questionNamed", { action })}
+            slots={{
+              name: <span className="font-normal text-muted-foreground">{decision.title}</span>,
+            }}
+          />
         )}
-        ?
       </p>
       <div className="mt-1.5 flex items-center gap-1.5">
         <Button
@@ -75,7 +96,7 @@ export function PendingDecisionBar({
           onClick={() => void decide("create")}
         >
           {inFlight === "create" && spinner}
-          {verb} {decision.resourceType}
+          {action}
         </Button>
         <Button
           variant="ghost"
@@ -85,10 +106,10 @@ export function PendingDecisionBar({
           onClick={() => void decide("skip")}
         >
           {inFlight === "skip" && spinner}
-          Skip
+          {t("assistantDecision.skip")}
         </Button>
         <span className="ml-auto min-w-0 truncate text-[12px] text-muted-foreground/70">
-          {destructive ? "a reply below skips it" : "or reply below to revise"}
+          {destructive ? t("assistantDecision.replySkips") : t("assistantDecision.replyRevises")}
         </span>
       </div>
     </div>

@@ -2,6 +2,9 @@
 
 import * as React from "react";
 import type { TraceUsage } from "@/lib/eval/trace-usage";
+import { useT } from "@/lib/i18n/provider";
+import { Slots } from "@/lib/i18n/slots";
+import type { Translate } from "@/lib/i18n/translate";
 
 /**
  * Per-RESULT usage, split into the candidate's own execution and the evaluation
@@ -26,6 +29,7 @@ export function ResultUsageSummary({
   /** Authoritative candidate task cost (backend-denormalised); null → Unknown. */
   taskCost: number | null;
 }) {
+  const t = useT();
   const pending = usage.state === "pending";
   const hasJudge = usage.scorer.spanCount > 0;
 
@@ -35,31 +39,34 @@ export function ResultUsageSummary({
         {/* Candidate execution — the thing under test. */}
         <div>
           <div className="mb-1 text-[12px] font-medium text-muted-foreground">
-            Candidate execution
+            {t("evalsUsage.candidateExecution")}
           </div>
-          <Row label="Duration" value={fmtDuration(durationMs)} />
-          <Row label="Tokens" value={tokenText(usage, "task")} />
-          <Row label="Task cost" value={fmtCost(taskCost)} />
-          <Row label="Observed task model" value={modelText(usage, "task")} mono />
+          <Row label={t("evalsShared.duration")} value={fmtDuration(durationMs, t)} />
+          <Row label="Tokens" value={tokenText(usage, "task", t)} />
+          <Row label={t("evalsUsage.taskCost")} value={fmtCost(taskCost, t)} />
+          <Row label={t("evalsUsage.observedTaskModel")} value={modelText(usage, "task", t)} mono />
         </div>
 
         {/* Evaluation overhead — the judge's cost of grading, kept apart so it never
             colours the candidate's own cost. */}
         <div>
           <div className="mb-1 text-[12px] font-medium text-muted-foreground">
-            Evaluation overhead
+            {t("evalsUsage.evaluationOverhead")}
           </div>
           {pending ? (
-            <div className="text-muted-foreground">Pending</div>
+            <div className="text-muted-foreground">{t("evalsUsage.pending")}</div>
           ) : hasJudge ? (
             <>
-              <Row label="Judge model" value={modelText(usage, "scorer")} mono />
-              <Row label="Judge tokens" value={usage.scorer.totalTokens.toLocaleString("en-US")} />
-              <Row label="Judge cost" value={bucketCost(usage, "scorer")} />
+              <Row label={t("evalsUsage.judgeModel")} value={modelText(usage, "scorer", t)} mono />
+              <Row
+                label={t("evalsUsage.judgeTokens")}
+                value={usage.scorer.totalTokens.toLocaleString("en-US")}
+              />
+              <Row label={t("evalsUsage.judgeCost")} value={bucketCost(usage, "scorer", t)} />
             </>
           ) : (
             <div className="text-muted-foreground">
-              {usage.state === "unknown" ? "Unknown" : "No evaluator LLM calls"}
+              {usage.state === "unknown" ? t("evalsRun.unknown") : t("evalsUsage.noEvaluatorCalls")}
             </div>
           )}
         </div>
@@ -69,11 +76,16 @@ export function ResultUsageSummary({
           never mistaken for the candidate's own cost. Tokens only (one source). */}
       {!pending && hasJudge && (
         <div className="mt-2 border-t border-border pt-1.5 text-muted-foreground">
-          Total including evaluation:{" "}
-          <span className="font-medium text-foreground">
-            {usage.combined.totalTokens.toLocaleString("en-US")}
-          </span>{" "}
-          tokens
+          <Slots
+            text={t("evalsUsage.totalIncluding")}
+            slots={{
+              count: (
+                <span className="font-medium text-foreground">
+                  {usage.combined.totalTokens.toLocaleString("en-US")}
+                </span>
+              ),
+            }}
+          />
         </div>
       )}
     </div>
@@ -89,36 +101,38 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
   );
 }
 
-function fmtDuration(ms: number | null): string {
-  if (ms === null) return "Unknown";
+function fmtDuration(ms: number | null, t: Translate): string {
+  if (ms === null) return t("evalsRun.unknown");
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-function fmtCost(c: number | null): string {
-  if (c === null) return "Unknown";
+function fmtCost(c: number | null, t: Translate): string {
+  if (c === null) return t("evalsRun.unknown");
   return `$${c.toFixed(c < 0.01 ? 4 : 2)}`;
 }
 
 /** Token count for a bucket, honouring pending/unknown (never a coerced zero). */
-function tokenText(u: TraceUsage, bucket: "task" | "scorer"): string {
-  if (u.state === "pending") return "Pending";
-  if (u.state === "unknown") return "Unknown";
+function tokenText(u: TraceUsage, bucket: "task" | "scorer", t: Translate): string {
+  if (u.state === "pending") return t("evalsUsage.pending");
+  if (u.state === "unknown") return t("evalsRun.unknown");
   const b = u[bucket];
-  return `${b.totalTokens.toLocaleString("en-US")} total · ${b.inputTokens.toLocaleString(
-    "en-US",
-  )} in · ${b.outputTokens.toLocaleString("en-US")} out`;
+  return t("evalsUsage.tokenBreakdown", {
+    total: b.totalTokens.toLocaleString("en-US"),
+    input: b.inputTokens.toLocaleString("en-US"),
+    output: b.outputTokens.toLocaleString("en-US"),
+  });
 }
 
 /** A bucket's cost, distinguishing an unattributed cost (Unknown) from a real zero. */
-function bucketCost(u: TraceUsage, bucket: "task" | "scorer"): string {
-  if (u.state === "pending") return "Pending";
+function bucketCost(u: TraceUsage, bucket: "task" | "scorer", t: Translate): string {
+  if (u.state === "pending") return t("evalsUsage.pending");
   const b = u[bucket];
-  if (!b.costKnown) return "Unknown";
-  return fmtCost(b.cost);
+  if (!b.costKnown) return t("evalsRun.unknown");
+  return fmtCost(b.cost, t);
 }
 
-function modelText(u: TraceUsage, bucket: "task" | "scorer"): string {
-  if (u.state === "pending") return "Pending";
+function modelText(u: TraceUsage, bucket: "task" | "scorer", t: Translate): string {
+  if (u.state === "pending") return t("evalsUsage.pending");
   const models = u[bucket].models;
   return models.length > 0 ? models.join(", ") : "—";
 }

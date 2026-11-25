@@ -1,6 +1,7 @@
 "use client";
 
 import { useT } from "@/lib/i18n/provider";
+import { translateClientError } from "@/lib/i18n/client-errors";
 import * as React from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -159,7 +160,11 @@ export function TestCaseEditorModal({
       onClose();
     };
     const onError = (e: unknown) =>
-      toast({ title: t("datasetsRow.saveFailed"), description: String(e), tone: "warning" });
+      toast({
+        title: t("datasetsRow.saveFailed"),
+        description: translateClientError(t, String(e)),
+        tone: "warning",
+      });
 
     if (mode.kind === "edit") {
       update.mutate(
@@ -220,7 +225,7 @@ export function TestCaseEditorModal({
             minRows={3}
           />
           <EditableValueBlock
-            label="Metadata"
+            label={t("tracesSpan.metadata")}
             text={metadata}
             onChange={setMetadata}
             defaultKind="pretty"

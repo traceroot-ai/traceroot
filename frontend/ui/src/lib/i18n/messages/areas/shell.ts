@@ -68,8 +68,8 @@ export const shellEn = {
     deleteText:
       "Permanently delete this project and all of its data. This action cannot be undone.",
     deleteDialogTitle: "Delete Project",
-    deleteDialogBefore: 'This action cannot be undone. This will permanently delete the project "',
-    deleteDialogAfter: '" and all associated data.',
+    deleteDialogText:
+      'This action cannot be undone. This will permanently delete the project "{name}" and all associated data.',
   },
   accessKeys: {
     title: "Project API Keys",
@@ -86,8 +86,8 @@ export const shellEn = {
     editNoteDescription: "Update the note for this API key.",
     note: "Note",
     deleteTitle: "Delete API Key",
-    deleteBefore: 'This action cannot be undone. This will permanently delete the API key "',
-    deleteAfter: '".',
+    deleteDialogText:
+      'This action cannot be undone. This will permanently delete the API key "{name}".',
     keyNamePlaceholder: "API key name",
     loading: "Loading API keys...",
     empty: "No API keys yet. Create one to start using the SDK.",
@@ -166,14 +166,12 @@ export const shellEn = {
   billing: {
     subtitle: "Manage your subscription and billing details",
     currentPlan: "Current plan",
-    onPlanBefore: "You are currently on the",
-    onPlanAfter: " plan.",
+    onPlan: "You are currently on the {plan} plan.",
     subscriptionEnding: "Subscription ending",
     cancelNotice:
       "Your subscription will be canceled on {date}. You will be downgraded to the Free plan after this date.",
     planChangeScheduled: "Plan change scheduled",
-    planChangeBefore: "Your plan will change to",
-    planChangeAfter: " on {date}.",
+    planChange: "Your plan will change to {plan} on {date}.",
     billingPeriod: "Current billing period: {start} - {end}",
     changePlan: "Change plan",
     manageBilling: "Manage billing",
@@ -268,10 +266,9 @@ export const shellEn = {
     continue: "Continue",
     confirmCode: "Confirm this code",
     wantsToSignIn: " wants to sign in",
-    consentBefore:
-      "Approving signs {client} in to your traceroot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign {client} out, but you can revoke it from",
+    consentText:
+      "Approving signs {client} in to your traceroot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign {client} out, but you can revoke it from {link} in your account settings.",
     activeSessionsLink: "Active Sessions",
-    consentAfter: "in your account settings.",
     approveWarning:
       "Only approve a code you generated yourself just now. If you didn't just run a traceroot command in your terminal, deny this.",
     deny: "Deny",
@@ -413,9 +410,8 @@ export const shellEn = {
       "These criteria did not pass the check when the signal was created: they may not match its first hit, or may also match another signal's hits.",
     rca: "Root Cause Analysis",
     openInAgent: "Open in agent",
-    fromBefore: "This analysis is from",
+    fromEarlier: "This analysis is from {time}, before the signal reopened. ",
     earlier: "earlier",
-    fromAfter: ", before the signal reopened. ",
     reopenNone:
       "No new analysis ran, because the last one was less than 24 hours earlier or this detector's root cause analysis is Manual.",
     reopenFailed: "The new analysis failed.",
@@ -503,8 +499,7 @@ export const shellZh: PartialGroups<typeof shellEn> = {
     deleteTitle: "删除项目",
     deleteText: "永久删除这个项目及其所有数据。此操作无法撤销。",
     deleteDialogTitle: "删除项目",
-    deleteDialogBefore: "此操作无法撤销。将永久删除项目“",
-    deleteDialogAfter: "”及其所有相关数据。",
+    deleteDialogText: "此操作无法撤销。将永久删除项目“{name}”及其所有相关数据。",
   },
   accessKeys: {
     title: "项目 API key",
@@ -521,8 +516,7 @@ export const shellZh: PartialGroups<typeof shellEn> = {
     editNoteDescription: "修改这个 API key 的备注。",
     note: "备注",
     deleteTitle: "删除 API key",
-    deleteBefore: "此操作无法撤销。将永久删除 API key “",
-    deleteAfter: "”。",
+    deleteDialogText: "此操作无法撤销。将永久删除 API key “{name}”。",
     keyNamePlaceholder: "API key 名称",
     loading: "正在加载 API key...",
     empty: "还没有 API key。创建一个即可开始使用 SDK。",
@@ -594,13 +588,11 @@ export const shellZh: PartialGroups<typeof shellEn> = {
   billing: {
     subtitle: "管理订阅和账单信息",
     currentPlan: "当前套餐",
-    onPlanBefore: "你当前使用的是",
-    onPlanAfter: " 套餐。",
+    onPlan: "你当前使用的是 {plan} 套餐。",
     subscriptionEnding: "订阅即将结束",
     cancelNotice: "你的订阅将于 {date} 取消，之后会降级到 Free 套餐。",
     planChangeScheduled: "已安排套餐变更",
-    planChangeBefore: "你的套餐将变更为",
-    planChangeAfter: "，生效日期 {date}。",
+    planChange: "你的套餐将变更为 {plan}，生效日期 {date}。",
     billingPeriod: "当前账单周期：{start} - {end}",
     changePlan: "更改套餐",
     manageBilling: "管理账单",
@@ -689,10 +681,9 @@ export const shellZh: PartialGroups<typeof shellEn> = {
     continue: "继续",
     confirmCode: "确认这个验证码",
     wantsToSignIn: " 请求登录",
-    consentBefore:
-      "批准后，{client} 将登录你的 traceroot 账户。使用期间会保持登录，最后一次使用后七天内自动登出。在这个浏览器里登出不会让 {client} 登出，你可以在账户设置的",
+    consentText:
+      "批准后，{client} 将登录你的 traceroot 账户。使用期间会保持登录，最后一次使用后七天内自动登出。在这个浏览器里登出不会让 {client} 登出，你可以在账户设置的{link}里撤销它。",
     activeSessionsLink: "活跃会话",
-    consentAfter: "里撤销它。",
     approveWarning:
       "只批准你自己刚刚生成的验证码。如果你刚才没有在终端里运行 traceroot 命令，请拒绝。",
     deny: "拒绝",
@@ -826,9 +817,8 @@ export const shellZh: PartialGroups<typeof shellEn> = {
       "创建 signal 时，这些判定条件没有通过检查：它们可能与第一次命中不匹配，也可能同时匹配了其他 signal 的命中。",
     rca: "根因分析",
     openInAgent: "在 agent 中打开",
-    fromBefore: "这份分析生成于",
+    fromEarlier: "这份分析生成于 {time}，在 signal 重新打开之前。",
     earlier: "更早之前",
-    fromAfter: "，在 signal 重新打开之前。",
     reopenNone:
       "没有运行新的分析，因为距离上一次分析不到 24 小时，或这个 detector 的根因分析设为了 Manual。",
     reopenFailed: "新的分析失败了。",

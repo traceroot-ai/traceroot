@@ -15,6 +15,7 @@ import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers"
 import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
+import { useT } from "@/lib/i18n/provider";
 import type { CardBounds } from "../lib/resource-card";
 import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS, frozenRange } from "./preview-constants";
 
@@ -33,6 +34,7 @@ interface WidgetChartPreviewProps {
 }
 
 function Plot({ projectId, widgetId, spec, rangeId, bounds }: WidgetChartPreviewProps) {
+  const t = useT();
   // The window is frozen at the moment the card first came into view: a
   // receipt for a past action should not quietly slide its own axis while the
   // transcript stays open. WHICH window is the card model's own snapshot of
@@ -56,7 +58,9 @@ function Plot({ projectId, widgetId, spec, rangeId, bounds }: WidgetChartPreview
   // isPending, not isLoading: while the auth session resolves the query is
   // disabled rather than fetching, and isLoading would leave the card blank.
   if (isPending) {
-    return <div className="p-2 text-[12px] text-muted-foreground">Loading…</div>;
+    return (
+      <div className="p-2 text-[12px] text-muted-foreground">{t("assistantCards.loading")}</div>
+    );
   }
   // A failed preview costs the user nothing — the widget itself was created —
   // so it says so in one line and leaves the transcript intact.
@@ -66,7 +70,7 @@ function Plot({ projectId, widgetId, spec, rangeId, bounds }: WidgetChartPreview
         className="p-2 text-[12px] text-muted-foreground"
         title={error instanceof Error ? error.message : undefined}
       >
-        Couldn&apos;t load this preview
+        {t("assistantCards.previewError")}
       </div>
     );
   }
