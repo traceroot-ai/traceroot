@@ -30,6 +30,7 @@ import { clientEnv } from "@/env.client";
 import { demoWorkspaceId, userMembershipWhere } from "@/lib/demo-workspace";
 import { isCloud } from "@/lib/server/cloud";
 import { displayFirstName } from "@/lib/email/welcome/render";
+import { demoProjectUrl } from "@/lib/email/demo-link";
 import { renderFollowUp } from "@/lib/email/follow-up/render";
 import type { FollowUpLinks } from "@/lib/email/follow-up/copy";
 import {
@@ -194,7 +195,7 @@ async function linksFor(
   campaign: FollowUp,
 ): Promise<FollowUpLinks> {
   const demoId = demoWorkspaceId();
-  const [ownProject, ownWorkspace, demoProject, openSignals] = await Promise.all([
+  const [ownProject, ownWorkspace, demoUrl, openSignals] = await Promise.all([
     prisma.project.findFirst({
       where: {
         deleteTime: null,
@@ -208,20 +209,14 @@ async function linksFor(
       orderBy: { createTime: "asc" },
       select: { id: true },
     }),
-    demoId
-      ? prisma.project.findFirst({
-          where: { workspaceId: demoId, deleteTime: null },
-          orderBy: { createTime: "asc" },
-          select: { id: true },
-        })
-      : null,
+    demoProjectUrl(appUrl),
     // Only the Slack and GitHub email carries the open-signals line.
     campaign === "connect_slack_github" ? openSignalsFor(userId) : null,
   ]);
   return {
     // A project with no trace shows the setup instructions on its traces page.
     setupUrl: ownProject ? `${appUrl}/projects/${ownProject.id}/traces` : `${appUrl}/onboarding`,
-    demoUrl: demoProject ? `${appUrl}/projects/${demoProject.id}/traces` : appUrl,
+    demoUrl,
     integrationsUrl: ownWorkspace
       ? `${appUrl}/workspaces/${ownWorkspace.id}/settings/integrations`
       : `${appUrl}/workspaces`,

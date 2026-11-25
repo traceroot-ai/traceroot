@@ -7,7 +7,8 @@ import {
 import { PRODUCT_FOOTER_SLOT } from "@traceroot/core/email";
 import type { FollowUp } from "@/lib/lifecycle/follow-up";
 import { greeting, LINK_STYLE } from "../welcome/copy";
-import { FOLLOW_UP_SIGNOFF, followUpCopy, PRODUCT_OPT_OUT_LABEL, type FollowUpLinks } from "./copy";
+import { FOUNDER_SIGNOFF, PRODUCT_OPT_OUT_LABEL } from "../founder-email";
+import { followUpCopy, type FollowUpLinks } from "./copy";
 
 const LINK = /\[([^\]]+)\]\(([^\s)]+)\)/g;
 const COMMAND = /^ {4}/;
@@ -34,7 +35,9 @@ const LAYOUT = {
 } as const;
 const TEXT = "font-size:16px;line-height:25px";
 const SIGNOFF = "font-size:15px;line-height:22px";
-const FOOTER = `font-size:12px;line-height:18px;color:${EMAIL_COLORS.muted}`;
+// Read when an email is rendered, not when the module loads, so importing this
+// module never depends on the email constants being ready.
+const footerStyle = () => `font-size:12px;line-height:18px;color:${EMAIL_COLORS.muted}`;
 
 function toHtml(paragraph: string, marginTop: number): string {
   if (COMMAND.test(paragraph)) {
@@ -78,7 +81,7 @@ export function renderFollowUp(input: RenderFollowUpInput): {
     ...(copy.button ? ["", `${copy.button.label}: ${copy.button.url}`] : []),
     ...(after.length ? ["", after.map(toText).join("\n\n")] : []),
     "",
-    ...FOLLOW_UP_SIGNOFF,
+    ...FOUNDER_SIGNOFF,
     "",
     `${PRODUCT_OPT_OUT_LABEL}: ${input.unsubscribeUrl}`,
   ].join("\n");
@@ -98,11 +101,11 @@ export function renderFollowUp(input: RenderFollowUpInput): {
     `<img src="${EMAIL_PIXEL_WORDMARK_URL}" alt="traceroot" width="${LAYOUT.wordmarkWidth}" style="display:block;border:0;width:${LAYOUT.wordmarkWidth}px;height:auto;margin:0 0 ${LAYOUT.afterWordmark}px">`,
     `<p style="margin:0 0 ${LAYOUT.afterGreeting}px;${TEXT}">${escapeHtml(greeting(input.firstName))}</p>`,
     ...body,
-    `<p style="margin:${LAYOUT.beforeSignoff}px 0 0;${SIGNOFF}">${FOLLOW_UP_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
-    `<p style="margin:${LAYOUT.beforeUnsubscribe}px 0 0;${FOOTER}"><a href="${escapeHtml(input.unsubscribeUrl)}" style="color:${EMAIL_COLORS.muted};text-decoration:underline">${PRODUCT_OPT_OUT_LABEL}</a></p>`,
+    `<p style="margin:${LAYOUT.beforeSignoff}px 0 0;${SIGNOFF}">${FOUNDER_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
+    `<p style="margin:${LAYOUT.beforeUnsubscribe}px 0 0;${footerStyle()}"><a href="${escapeHtml(input.unsubscribeUrl)}" style="color:${EMAIL_COLORS.muted};text-decoration:underline">${PRODUCT_OPT_OUT_LABEL}</a></p>`,
     // The provider adds the postal address here (PRODUCT_FOOTER_SLOT), so it
     // sits in the same column and style as the unsubscribe line.
-    `<p style="margin:${LAYOUT.beforeAddress}px 0 0;${FOOTER}">${PRODUCT_FOOTER_SLOT}</p>`,
+    `<p style="margin:${LAYOUT.beforeAddress}px 0 0;${footerStyle()}">${PRODUCT_FOOTER_SLOT}</p>`,
     "</div>",
     "</body></html>",
   ].join("\n");
