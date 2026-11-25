@@ -7,6 +7,8 @@ const core = vi.hoisted(() => ({
   UNSUBSCRIBE_PATH: "/api/email/unsubscribe",
 }));
 vi.mock("@traceroot/core/email", () => core);
+const account = vi.hoisted(() => ({ recordUnsubscribe: vi.fn() }));
+vi.mock("@/lib/lifecycle/pause", () => account);
 
 import { GET, POST } from "./route";
 
@@ -26,6 +28,86 @@ beforeEach(() => {
   core.verifyUnsubscribeToken.mockImplementation((t) => ({ valid: t === "good", email: EMAIL }));
   core.ensureContact.mockResolvedValue({ ok: true });
   core.setTopicSubscription.mockResolvedValue({ ok: true });
+  account.recordUnsubscribe.mockResolvedValue("user_1");
+});
+
+it.each([
+  ["List-Unsubscribe=One-Click", "?t=good", false],
+  ["t=good&action=opt_out", "", false],
+  ["t=good&action=opt_in", "", true],
+])("POST %j%s records the choice on the account too", async (body, query, subscribed) => {
+  await post(body, query);
+  expect(account.recordUnsubscribe).toHaveBeenCalledWith(EMAIL, subscribed);
+});
+
+it("POST keeps the address out of the log", async () => {
+  await post("List-Unsubscribe=One-Click", "?t=good");
+  const logged = vi.mocked(console.log).mock.calls.flat().join(" ");
+  expect(logged).toContain("user_1");
+  expect(logged).not.toContain(EMAIL);
+});
+
+const FAILED = "Could not update your preference right now.";
+const order = () =>
+  [account.recordUnsubscribe, core.setTopicSubscription]
+    .map((fn) => ({ fn, at: fn.mock.invocationCallOrder[0] }))
+    .filter((c) => c.at !== undefined)
+    .sort((a, b) => a.at! - b.at!)
+    .map((c) => (c.fn === account.recordUnsubscribe ? "account" : "provider"));
+
+it("POST writes an opt-out on the account before the provider, a resubscribe after it", async () => {
+  await post("List-Unsubscribe=One-Click", "?t=good");
+  expect(order()).toEqual(["account", "provider"]);
+  vi.clearAllMocks();
+  await post("t=good&action=opt_in");
+  expect(order()).toEqual(["provider", "account"]);
+});
+
+it("POST answers an error, not a confirmation, when the account write fails", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  account.recordUnsubscribe.mockRejectedValue(new Error("db down"));
+  const optOut = await post("List-Unsubscribe=One-Click", "?t=good");
+  expect(optOut.status).toBe(502);
+  const text = await optOut.text();
+  expect(text).toContain(FAILED);
+  expect(text).not.toContain(BYE);
+  // Nothing reached the provider, so the person's state is unchanged everywhere.
+  expect(core.setTopicSubscription).not.toHaveBeenCalled();
+
+  const optIn = await post("t=good&action=opt_in");
+  expect(optIn.status).toBe(502);
+  expect(await optIn.text()).not.toContain("You're subscribed again.");
+});
+
+it("POST keeps an opt-out recorded on the account when the provider then fails", async () => {
+  core.setTopicSubscription.mockResolvedValue({ ok: false });
+  const response = await post("List-Unsubscribe=One-Click", "?t=good");
+  expect(response.status).toBe(502);
+  expect(account.recordUnsubscribe).toHaveBeenCalledWith(EMAIL, false);
+});
+
+it("POST leaves the account unsubscribed when the provider refuses a resubscribe", async () => {
+  core.setTopicSubscription.mockResolvedValue({ ok: false });
+  expect((await post("t=good&action=opt_in")).status).toBe(502);
+  expect(account.recordUnsubscribe).not.toHaveBeenCalled();
+});
+
+it("POST answers an error when the provider call throws", async () => {
+  core.setTopicSubscription.mockRejectedValue(new Error("network"));
+  expect((await post("List-Unsubscribe=One-Click", "?t=good")).status).toBe(502);
+});
+
+it("POST confirms on a retry once the account write works again, and on duplicates", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  account.recordUnsubscribe.mockRejectedValueOnce(new Error("db down"));
+  expect((await post("List-Unsubscribe=One-Click", "?t=good")).status).toBe(502);
+  for (let i = 0; i < 2; i += 1) {
+    const response = await post("List-Unsubscribe=One-Click", "?t=good");
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(BYE);
+  }
+  expect(account.recordUnsubscribe).toHaveBeenCalledTimes(3);
+  expect(core.setTopicSubscription).toHaveBeenCalledTimes(2);
 });
 
 it("GET renders the opt-out form for a valid token and writes nothing", async () => {
