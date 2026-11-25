@@ -28,8 +28,9 @@ describe("createTranslator", () => {
     const t = createTranslator("zh");
     expect(t("workspaces.emptyTitle")).toBe("还没有工作空间");
     expect(t("nav.traces")).toBe("追踪");
-    // traceroot's own terms keep their English name beside the Chinese one.
-    expect(t("nav.detectors")).toBe("检测器 Detectors");
+    // traceroot's own terms stay in English: zh leaves them out, so they fall back.
+    expect(zh.nav?.detectors).toBeUndefined();
+    expect(t("nav.detectors")).toBe("Detectors");
     // A language with no translation for a key shows the English text. Japanese is listed but
     // has no message file yet, so every key falls back.
     expect(createTranslator("ja")("workspaces.emptyTitle")).toBe("No workspaces yet");

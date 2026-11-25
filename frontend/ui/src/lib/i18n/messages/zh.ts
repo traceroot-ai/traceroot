@@ -6,6 +6,7 @@ import type { PartialMessages } from "./en";
 // when it means a group of traces. A signed-in browser or CLI session is 会话.
 // Generic product words are Chinese: alert 告警, dashboard 仪表盘, widget 组件, evaluation 评测,
 // tracing 追踪.
+// One language per term: a term is either Chinese or English, never both side by side.
 // The brand is always "traceroot", lowercase.
 export const zh: PartialMessages = {
   common: {
@@ -29,7 +30,6 @@ export const zh: PartialMessages = {
     integrations: "集成",
     billing: "账单",
     apiKeys: "API key",
-    detectors: "检测器 Detectors",
     activeSessions: "活跃会话",
     workspaceLink: "工作空间",
   },
@@ -135,9 +135,6 @@ export const zh: PartialMessages = {
     alerts: "告警",
     evaluations: "评测",
     detect: "检测",
-    // traceroot's own terms: Chinese first, with the English name the rest of the UI uses.
-    detectors: "检测器 Detectors",
-    signals: "信号 Signals",
     verify: "验证",
     datasets: "数据集",
     workspaces: "工作空间",
