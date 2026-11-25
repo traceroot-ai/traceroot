@@ -21,7 +21,7 @@ TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
 const openai = new OpenAI();
 // [end:tracing-get-started-typescript]
-import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+import { usingAttributes } from '@traceroot-ai/traceroot';
 
 // [start:typescript-sdk-observe]
 import { observe } from '@traceroot-ai/traceroot';
@@ -195,6 +195,7 @@ class ReActAgent {
         if (msg.tool_calls && msg.tool_calls.length > 0) {
           this.conversationHistory.push(msg);
           for (const tc of msg.tool_calls) {
+            if (tc.type !== 'function') continue;
             const fnArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
             console.log(`\n  [Tool: ${tc.function.name}(${JSON.stringify(fnArgs)})]`);
             const result = await this.executeTool(tc.function.name, fnArgs);
