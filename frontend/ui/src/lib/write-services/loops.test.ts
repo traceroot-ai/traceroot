@@ -511,3 +511,88 @@ describe("requestLoopRun", () => {
     expect(tx.loopRun.create).not.toHaveBeenCalled();
   });
 });
+
+/** A duck-typed Prisma "record to update/delete not found". */
+const p2025 = () => Object.assign(new Error("gone"), { code: "P2025" });
+const LOOP_NOT_FOUND = { ok: false, status: 404, error: "Loop not found" };
+
+describe("a Loop deleted mid-write, and other write failures", () => {
+  beforeEach(() => {
+    tx.loop.findFirst.mockResolvedValue(loopRow());
+  });
+
+  it("updateLoop answers 404 when the row is gone, and rethrows anything else", async () => {
+    const call = () => updateLoop({ ...base, loopId: "l1", patch: { dryRun: true }, provenance });
+    tx.loop.update.mockRejectedValueOnce(p2025());
+    expect(await call()).toEqual(LOOP_NOT_FOUND);
+    tx.loop.update.mockRejectedValueOnce(new Error("connection lost"));
+    await expect(call()).rejects.toThrow("connection lost");
+    // A name collision without a rename is not a 409.
+    tx.loop.update.mockRejectedValueOnce(p2002("uq_loop_project_name"));
+    await expect(call()).rejects.toThrow("dup");
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("setLoopStatus answers 404 when the row is gone, and rethrows anything else", async () => {
+    tx.loop.update.mockRejectedValueOnce(p2025());
+    expect(await setLoopStatus({ ...base, loopId: "l1", action: "pause" })).toEqual(LOOP_NOT_FOUND);
+    tx.loop.update.mockRejectedValueOnce(new Error("connection lost"));
+    await expect(setLoopStatus({ ...base, loopId: "l1", action: "pause" })).rejects.toThrow(
+      "connection lost",
+    );
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("deleteLoop answers 404 when the row is gone, and rethrows anything else", async () => {
+    const call = () => deleteLoop({ ...base, loopId: "l1", reason: "No longer needed" });
+    tx.loop.delete.mockRejectedValueOnce(p2025());
+    expect(await call()).toEqual(LOOP_NOT_FOUND);
+    tx.loop.delete.mockRejectedValueOnce(new Error("connection lost"));
+    await expect(call()).rejects.toThrow("connection lost");
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("requestLoopRun answers 404 when the row is gone, and rethrows anything else", async () => {
+    tx.project.findUnique.mockResolvedValue({
+      workspaceId: "w1",
+      deleteTime: null,
+      workspace: { loopBlocked: false },
+    });
+    tx.$queryRaw.mockResolvedValue([{ id: "l1", name: "Daily review", status: "active" }]);
+    tx.loopRun.findFirst.mockResolvedValue(null);
+    tx.loopRun.aggregate.mockResolvedValue({ _max: { seq: 2 } });
+    tx.loopRun.create.mockRejectedValueOnce(p2025());
+    expect(await requestLoopRun({ ...base, loopId: "l1" })).toEqual(LOOP_NOT_FOUND);
+    tx.loopRun.create.mockRejectedValueOnce(new Error("connection lost"));
+    await expect(requestLoopRun({ ...base, loopId: "l1" })).rejects.toThrow("connection lost");
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateLoop's template and model fields", () => {
+  beforeEach(() => {
+    tx.loop.findFirst.mockResolvedValue(loopRow());
+    tx.loop.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
+      loopRow(data),
+    );
+  });
+
+  it("sets and clears the template", async () => {
+    const template = "coding-agents";
+    expect(
+      await updateLoop({ ...base, loopId: "l1", patch: { template }, provenance }),
+    ).toMatchObject({ ok: true, changed: ["template"] });
+    expect(tx.loop.update.mock.calls[0][0].data).toMatchObject({ template });
+
+    tx.loop.findFirst.mockResolvedValue(loopRow({ template }));
+    await updateLoop({ ...base, loopId: "l1", patch: { template: null }, provenance });
+    expect(tx.loop.update.mock.calls[1][0].data).toMatchObject({ template: null });
+  });
+
+  it("takes the system source with the default model", async () => {
+    expect(
+      await updateLoop({ ...base, loopId: "l1", patch: { source: "system" }, provenance }),
+    ).toMatchObject({ ok: true, changed: ["source"] });
+    expect(tx.loop.update.mock.calls[0][0].data).toMatchObject({ source: "system" });
+  });
+});
