@@ -1,17 +1,17 @@
 ---
-title: Session
-description: 把相关的 trace 归入 session，用于多轮对话和工作流
+title: 会话
+description: 把相关的 trace 归入会话，用于多轮对话和工作流
 ---
 
 设置 **Session ID** 可以把 trace 归到一起，比如一段对话里的所有轮次，或者多 agent 工作流里的所有步骤。
 
-<Frame caption="Session 面板：汇总统计、用户，以及每条 trace 的输入和输出">
-  <img src="/images/session_v2.png" alt="traceroot Session 面板，展示 session 统计、用户，以及每条 trace 的输入和输出" />
+<Frame caption="会话面板：汇总统计、用户，以及每条 trace 的输入和输出">
+  <img src="/images/session_v2.png" alt="traceroot 会话面板，展示会话统计、用户，以及每条 trace 的输入和输出" />
 </Frame>
 
 ## 使用 `using_attributes` / `usingAttributes`
 
-把 Session ID 传递给代码块内的所有 trace：
+把会话 ID 传递给代码块内的所有 trace：
 
 <Tabs>
   <Tab title="Python">

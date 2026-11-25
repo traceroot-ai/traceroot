@@ -51,7 +51,7 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 
 ## 设置 trace 上下文
 
-用 `usingAttributes()` 为代码块内创建的所有 span 设置用户和 session 上下文：
+用 `usingAttributes()` 为代码块内创建的所有 span 设置用户和会话上下文：
 
 ```typescript
 import { usingAttributes } from '@traceroot-ai/traceroot';
@@ -74,7 +74,7 @@ await usingAttributes(
 
 | 参数 | 类型 | 说明 |
 |-----------|------|-------------|
-| `sessionId` | `string` | session / 对话 ID |
+| `sessionId` | `string` | 会话 ID |
 | `userId` | `string` | 用户标识 |
 | `tags` | `string[]` | 要附加到所有 span 的标签 |
 | `metadata` | `Record<string, unknown>` | 任意元数据 |
@@ -123,7 +123,7 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | 参数 | 类型 | 说明 |
 |-----------|------|-------------|
 | `userId` | `string` | 用户标识 |
-| `sessionId` | `string` | session 标识 |
+| `sessionId` | `string` | 会话标识 |
 | `tags` | `string[]` | trace 的标签 |
 | `metadata` | `Record<string, unknown>` | trace 级别的元数据 |
 

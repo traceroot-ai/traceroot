@@ -124,14 +124,14 @@ async def async_agent(query: str) -> str:
 | `tags` | `list[str] \| None` | `None` | 用于给 span 分类的标签。 |
 | `capture_input` | `bool` | `True` | 是否自动把函数参数采集为输入。 |
 | `capture_output` | `bool` | `True` | 是否自动把返回值采集为输出。 |
-| `session_id` | `str \| None` | `None` | 要附加到 trace 的 session 标识。 |
+| `session_id` | `str \| None` | `None` | 要附加到 trace 的会话标识。 |
 | `user_id` | `str \| None` | `None` | 要附加到 trace 的用户标识。 |
 
 如何让敏感的函数输入和输出不出现在 span 上，请看[数据采集与隐私](/zh/tracing/data-capture)里的示例。
 
 ## 设置 trace 上下文
 
-用 `using_attributes` 为代码块内创建的所有 span 设置用户和 session 上下文。为了方便使用，它从 OpenInference 重新导出：
+用 `using_attributes` 为代码块内创建的所有 span 设置用户和会话上下文。为了方便使用，它从 OpenInference 重新导出：
 
 ```python
 from traceroot import using_attributes
@@ -150,7 +150,7 @@ with using_attributes(
 | 参数 | 类型 | 说明 |
 |-----------|------|-------------|
 | `user_id` | `str` | 用户标识。 |
-| `session_id` | `str` | session / 对话 ID。 |
+| `session_id` | `str` | 会话 ID。 |
 | `tags` | `list[str]` | 要附加到该上下文内创建的所有 span 的标签。 |
 | `metadata` | `dict` | 任意元数据字典。 |
 
@@ -206,7 +206,7 @@ update_current_trace(
 | 参数 | 类型 | 说明 |
 |-----------|------|-------------|
 | `user_id` | `str \| None` | 发起这条 trace 的用户的标识。 |
-| `session_id` | `str \| None` | session 标识，用于把相关的 trace 归入同一段对话。 |
+| `session_id` | `str \| None` | 会话标识，用于把相关的 trace 归入同一段对话。 |
 | `metadata` | `dict[str, Any] \| None` | trace 级别的元数据键值对。 |
 | `tags` | `list[str] \| None` | 用于在 UI 里给 trace 分类和筛选的标签。 |
 
