@@ -95,9 +95,10 @@ export const SaveToDatasetMenu = React.forwardRef<
 
 /**
  * The evaluations' save drawer for a save under way, starting from the candidate run's
- * dataset. It stays on the result it was opened for while the trace panel moves to another
- * case or pair, so what was typed into it isn't lost. Closing it puts focus back on the
- * menu's button, or on `fallback` when the case shown now has none.
+ * dataset (a new case starts with none picked). It stays on the result it was opened for
+ * while the trace panel moves to another case or pair, so what was typed into it isn't lost.
+ * Closing it puts focus back on the menu's button, or on `fallback` when the case shown now
+ * has none.
  */
 export function SaveToDatasetDrawer({
   projectId,

@@ -136,6 +136,26 @@ describe("SaveResultToDatasetDrawer", () => {
     expect(screen.getByLabelText("Dataset")).toBeDefined();
   });
 
+  it("save-new opens with no dataset picked, and Save stays off until one is chosen", async () => {
+    mount("save_new_case");
+    // Wait for the datasets list, so Save is off for the missing pick, not the loading list.
+    await screen.findByRole("option", { name: "Report quality" });
+    const picker = screen.getByLabelText("Dataset") as HTMLSelectElement;
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(picker.value).toBe("");
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.change(picker, { target: { value: "ds2" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("duplicate starts from the source dataset", async () => {
+    mount("duplicate_as_variant");
+    await screen.findByRole("option", { name: "Report quality" });
+    expect((screen.getByLabelText("Dataset") as HTMLSelectElement).value).toBe("ds1");
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
+  });
+
   it("disables Save until a field is edited or dataset changes", () => {
     mount("update_existing_case");
     const save = screen.getByRole("button", { name: "Save" });
@@ -229,16 +249,18 @@ describe("SaveResultToDatasetDrawer", () => {
     expect(body.expected).toBeUndefined();
   });
 
-  it("surfaces the backend's actionable circular-save conflict verbatim", async () => {
+  it("surfaces the backend's actionable circular-save conflict verbatim when the source dataset is picked", async () => {
     const fetchMock = stubFetch({
       ok: false,
       status: 409,
       body: { error: "This result already came from this case — use update instead." },
     });
     mount("save_new_case");
-    // ds1 is the source dataset (default); saving a new case that recreates the source
-    // is what the backend rejects. Save stays disabled until the datasets list has
-    // loaded and confirms ds1 is a real, current dataset.
+    // ds1 is the source dataset; saving a new case that recreates the source is what
+    // the backend rejects. It stays on offer, since only the server knows whether the
+    // source case is still in the dataset's latest version.
+    await screen.findByRole("option", { name: "Billing routing" });
+    fireEvent.change(screen.getByLabelText("Dataset"), { target: { value: "ds1" } });
     const saveBtn = screen.getByRole("button", { name: /^Save$/i }) as HTMLButtonElement;
     await waitFor(() => expect(saveBtn.disabled).toBe(false));
     fireEvent.click(saveBtn);
