@@ -9,13 +9,16 @@ import { reportDailyTraceCounts } from "@/lib/trace-count";
 // BullMQ job scheduler (frontend/worker/src/web-tick). Each task here is safe to
 // run twice and in two overlapping ticks, so the caller may retry freely: each
 // workspace owner's daily trace_count (lib/trace-count.ts), and the follow-up
-// emails (lib/lifecycle/follow-up-job.ts, off unless enabled). One failing does
-// not stop the other. Trust is the X-Internal-Secret. Never log addresses.
+// emails (lib/lifecycle/follow-up-job.ts, off unless enabled). Each task catches
+// its own failure, so one failing never stops the others. Trust is the X-Internal-Secret. Never log addresses.
 export async function POST(request: NextRequest) {
   if (!verifyInternalSecret(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const traceCounts = await reportDailyTraceCounts();
+  const traceCounts = await reportDailyTraceCounts().catch((error: unknown) => {
+    console.error(`[trace-count] daily report failed: ${String(error)}`);
+    return { error: "failed" as const };
+  });
   const followUps = await runFollowUps().catch((error: unknown) => {
     console.error(`[follow-ups] run failed: ${String(error)}`);
     return { error: "failed" as const };

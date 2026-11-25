@@ -59,6 +59,35 @@ describe("POST /api/internal/scheduled-tick", () => {
     });
   });
 
+  it("still runs the follow-ups, and answers, when the trace report rejects", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    reportDailyTraceCountsMock.mockRejectedValue(new Error("posthog down"));
+    runFollowUpsMock.mockResolvedValue({ mode: "send", sent: 1 });
+
+    const response = await tick();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      traceCounts: { error: "failed" },
+      followUps: { mode: "send", sent: 1 },
+    });
+    expect(runFollowUpsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers with both failures when both tasks reject", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    reportDailyTraceCountsMock.mockRejectedValue(new Error("posthog down"));
+    runFollowUpsMock.mockRejectedValue(new Error("db down"));
+
+    const response = await tick();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      traceCounts: { error: "failed" },
+      followUps: { error: "failed" },
+    });
+  });
+
   it("rejects a caller without the internal secret before doing any work", async () => {
     verifyInternalSecretMock.mockReturnValue(false);
 
