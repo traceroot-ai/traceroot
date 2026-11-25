@@ -238,12 +238,16 @@ traceroot.flush()
 traceroot.shutdown()
 ```
 
+<Note>
+  **Server & Container Shutdown (`SIGTERM`):** Python's `atexit` handler does **not** run when a process receives `SIGTERM` (for example during Docker, Kubernetes, or Uvicorn/FastAPI shutdown) or when a serverless runtime freezes the process. In long-running servers, call `traceroot.shutdown()` (or `traceroot.flush()`) inside your framework's shutdown or lifespan handler so the final batch of spans is not dropped.
+</Note>
+
 ### Exported Utilities
 
 | Symbol | Type | Description |
 |--------|------|-------------|
-| `flush()` | Function | Flushes all pending spans and traces immediately to the backend. Crucial in serverless environments (AWS Lambda, Google Cloud Functions) and Jupyter notebooks before process termination. |
-| `shutdown()` | Function | Flushes pending spans and stops background exporter worker threads gracefully. Call it once, on application exit. |
+| `flush()` | Function | Flushes all pending spans and traces immediately to the backend. Crucial in serverless environments (AWS Lambda, Google Cloud Functions), Jupyter notebooks, and server shutdown handlers before process termination. |
+| `shutdown()` | Function | Flushes pending spans and stops background exporter worker threads gracefully. Call it once on application exit or inside your server's `SIGTERM` / lifespan shutdown handler. |
 | `get_client()` | Function | Returns the singleton `TracerootClient` instance, auto-initializing one from environment variables if none exists. |
 | `TracerootClient` | Class | The client class instantiated by `initialize()` and `get_client()`. Manages batching, background workers, and OpenTelemetry trace exporting. |
 | `get_current_trace_id()` | Function | Returns the active 32-character hexadecimal trace ID string (e.g. `"4bf92f3577b34da6a3ce929d0e0e4736"`), or `None` if there is no active recording span. |
