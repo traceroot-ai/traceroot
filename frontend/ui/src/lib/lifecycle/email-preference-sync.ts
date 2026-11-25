@@ -7,9 +7,10 @@
  * - One write per person at a time. A writer takes a lease
  *   (emailProviderLeaseUntil) with a short conditional update before sending,
  *   and gives it back when the answer comes; no database connection is held
- *   while it waits. A crashed writer's lease runs out after LEASE_MS, longer
- *   than a provider request may take (resend.ts). So a write never lands
- *   after one that started later.
+ *   while it waits. A writer stops waiting for the provider after
+ *   PROVIDER_DEADLINE_MS, well inside the lease, and one whose lease ran out
+ *   before its answer came acknowledges nothing. A crashed writer's lease runs
+ *   out after LEASE_MS. So a write never lands after one that started later.
  * - A choice made while another write holds the lease is not sent alongside
  *   it: it is marked as racing that write (emailProviderContendedVersion), and
  *   when the write in flight comes back the writer sends a newer opt-out at
@@ -48,15 +49,29 @@ import {
  * been applied (no answer).
  */
 export type WriteOutcome = "ok" | "rejected" | "unknown";
-export type SetProviderTopic = (email: string, choice: TopicSubscription) => Promise<WriteOutcome>;
+export type SetProviderTopic = (
+  email: string,
+  choice: TopicSubscription,
+  /** Ends every provider request of this write; an ended one counts as no answer. */
+  deadline?: AbortSignal,
+) => Promise<WriteOutcome>;
 /** Reads the provider's topic for one address; null when it cannot be read. */
 export type ReadProviderTopic = (email: string) => Promise<TopicSubscription | "missing" | null>;
 
-export const setProviderTopic: SetProviderTopic = async (email, choice) => {
+export const setProviderTopic: SetProviderTopic = async (email, choice, deadline) => {
+  const fetchImpl: typeof fetch = (input, init) =>
+    fetch(input, {
+      ...init,
+      signal: deadline
+        ? init?.signal
+          ? AbortSignal.any([init.signal, deadline])
+          : deadline
+        : init?.signal,
+    });
   try {
     // No contact, no topic write: nothing was applied.
-    if (!(await ensureContact({ email })).ok) return "rejected";
-    const result = await setTopicSubscription(email, choice);
+    if (!(await ensureContact({ email }, { fetchImpl })).ok) return "rejected";
+    const result = await setTopicSubscription(email, choice, { fetchImpl });
     if (result.ok) return "ok";
     return result.rejected ? "rejected" : "unknown";
   } catch {
@@ -84,7 +99,13 @@ export const readProviderTopic: ReadProviderTopic = async (email) => {
 /** How long after the latest provider write the scheduled run looks at it. */
 export const SETTLE_AFTER_MS = 10 * 60 * 1000;
 /** How long a writer may hold the lease; longer than any provider request. */
-export const LEASE_MS = 30_000;
+export const LEASE_MS = 60_000;
+/**
+ * How long one write's provider requests may take in all (a contact lookup,
+ * maybe a create, and the topic write), well inside the lease, so a writer
+ * gives up waiting before anyone else can take the lease.
+ */
+export const PROVIDER_DEADLINE_MS = 20_000;
 /** Per scheduled tick: at most this many people, and no new one after this long. */
 export const PER_TICK = 20;
 export const TICK_BUDGET_MS = 15_000;
@@ -146,6 +167,7 @@ async function startWrite(userId: string, lease: Date, version: number): Promise
         email_provider_write_version = ${version},
         email_provider_rejected_version = NULL
     WHERE user_id = ${userId} AND email_provider_lease_until = ${at}::timestamp(3)
+      AND email_preference_version = ${version}
     RETURNING email_provider_write_at AS at`;
   return row?.at ?? null;
 }
@@ -161,18 +183,24 @@ async function recordRejected(userId: string, version: number, attempt: Date) {
   });
 }
 
-/** Gives the lease back, and acknowledges `version` if the write succeeded with it still in force. */
-async function giveBack(userId: string, lease: Date, ackVersion: number | null) {
-  await prisma.userOnboarding.updateMany({
+/**
+ * Gives the lease back, and acknowledges `version` if the write succeeded with
+ * it still in force. Answers false, and acknowledges nothing, when the lease is
+ * no longer this writer's (it ran out, and someone else may have taken it).
+ */
+async function giveBack(userId: string, lease: Date, ackVersion: number | null): Promise<boolean> {
+  const { count } = await prisma.userOnboarding.updateMany({
     where: { userId, emailProviderLeaseUntil: lease },
     data: { emailProviderLeaseUntil: null },
   });
+  if (count === 0) return false;
   if (ackVersion !== null) {
     await prisma.userOnboarding.updateMany({
       where: { userId, emailPreferenceVersion: ackVersion },
       data: { emailProviderAckVersion: ackVersion },
     });
   }
+  return true;
 }
 
 /** Marks a choice as made while another write was on its way. */
@@ -194,13 +222,21 @@ async function sendUnderLease(
   choice: TopicSubscription,
   version: number,
   setTopic: SetProviderTopic,
-): Promise<{ outcome: WriteOutcome; current: Choice | null }> {
+): Promise<{ outcome: WriteOutcome | "stale"; current: Choice | null }> {
   const started = await startWrite(userId, lease, version);
-  const outcome: WriteOutcome = started ? await setTopic(email, choice) : "rejected";
-  if (outcome === "rejected" && started) await recordRejected(userId, version, started);
+  if (!started) {
+    // The choice changed after it was read: nothing is sent.
+    await giveBack(userId, lease, null);
+    return { outcome: "stale", current: await readChoice(userId) };
+  }
+  let outcome = await setTopic(email, choice, AbortSignal.timeout(PROVIDER_DEADLINE_MS));
+  if (outcome === "rejected") await recordRejected(userId, version, started);
   const current = await readChoice(userId);
   const stillInForce = !!current && current.emailPreferenceVersion === version;
-  await giveBack(userId, lease, outcome === "ok" && stillInForce ? version : null);
+  const held = await giveBack(userId, lease, outcome === "ok" && stillInForce ? version : null);
+  // An answer that came after the lease ran out cannot be ordered against a
+  // writer that took it since: it is not acknowledged.
+  if (!held && outcome === "ok") outcome = "unknown";
   return { outcome, current };
 }
 
@@ -258,6 +294,13 @@ export async function syncEmailPreference(
       version,
       setTopic,
     );
+    if (outcome === "stale") {
+      // A newer choice landed just before the send; as above.
+      if (!current) return { state: "rejected" };
+      if (choiceOf(current) === "opt_in") return { state: "superseded", subscribed: true };
+      row = current;
+      continue;
+    }
     if (outcome !== "ok") return { state: outcome };
     if (!current || current.emailPreferenceVersion === version || choiceOf(current) === "opt_in")
       // In force, or overtaken by a Subscribe again, which raced this write and
@@ -315,6 +358,7 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
       const recorded = await prisma.$executeRaw`
         UPDATE user_onboarding
         SET unsubscribed_at = COALESCE(unsubscribed_at, clock_timestamp()::timestamp(3)),
+            email_preference_at = clock_timestamp()::timestamp(3),
             email_preference_version = email_preference_version + 1,
             email_provider_ack_version = email_preference_version + 1,
             email_provider_settled_at = COALESCE(email_provider_write_at, 'epoch'::timestamp)
@@ -325,7 +369,7 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
     // opt-in at the provider under an account opt-out is set back (the opt-out wins).
     const writeAt = await startWrite(userId, lease, version);
     if (!writeAt) return false;
-    const outcome = await io.setTopic(email, want);
+    const outcome = await io.setTopic(email, want, AbortSignal.timeout(PROVIDER_DEADLINE_MS));
     if (outcome === "rejected") await recordRejected(userId, version, writeAt);
     if (outcome !== "ok") return false;
     return await settle(writeAt);

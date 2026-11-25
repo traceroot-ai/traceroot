@@ -21,8 +21,9 @@ const db = vi.hoisted(() => ({
   row: null as null | Row,
   pending: [] as { user_id: string; email: string }[],
   queries: [] as string[],
-  // Runs once, just before the next lease is taken.
+  // Runs once, just before the next lease is taken / the next write starts.
   hookBeforeLease: null as null | (() => void),
+  hookBeforeWrite: null as null | (() => void),
 }));
 const same = (a: unknown, b: unknown) =>
   a instanceof Date && b instanceof Date ? +a === +b : a === b;
@@ -59,7 +60,14 @@ vi.mock("@traceroot/core", () => ({
         return [{ until: r.emailProviderLeaseUntil }];
       }
       if (sql.includes("SET email_provider_write_at")) {
+        const hook = db.hookBeforeWrite;
+        db.hookBeforeWrite = null;
+        hook?.();
         if (!r) return [];
+        // Only for the version the writer read (when the statement asks for it).
+        if (sql.includes("email_preference_version =") && r.emailPreferenceVersion !== values[3])
+          return [];
+        if (r.emailProviderLeaseUntil === null) return [];
         r.emailProviderWriteAt = new Date((db.clock += 1));
         r.emailProviderWriteVersion = values[0] as number;
         r.emailProviderRejectedVersion = null; // the attempt supersedes an earlier refusal
@@ -86,11 +94,25 @@ vi.mock("@traceroot/core/email", () => ({
   resendConfig: vi.fn(() => ({})),
 }));
 
-import { syncEmailPreference, syncPendingEmailPreferences } from "./email-preference-sync";
+import { ensureContact, setTopicSubscription } from "@traceroot/core/email";
+import {
+  LEASE_MS,
+  PROVIDER_DEADLINE_MS,
+  setProviderTopic,
+  syncEmailPreference,
+  syncPendingEmailPreferences,
+} from "./email-preference-sync";
 
 const T1 = new Date("2026-12-01T10:00:00.001Z");
 let provider: string | undefined;
-const setTopic = vi.fn<(email: string, choice: string) => Promise<"ok" | "rejected" | "unknown">>();
+const setTopic =
+  vi.fn<
+    (
+      email: string,
+      choice: string,
+      deadline?: AbortSignal,
+    ) => Promise<"ok" | "rejected" | "unknown">
+  >();
 const readTopic = vi.fn(async () => (provider ?? "missing") as "opt_in" | "opt_out" | "missing");
 const choose = (unsubscribed: boolean) => {
   db.row!.unsubscribedAt = unsubscribed ? T1 : null;
@@ -105,6 +127,7 @@ beforeEach(() => {
   db.clock = 1_000;
   db.queries = [];
   db.hookBeforeLease = null;
+  db.hookBeforeWrite = null;
   setTopic.mockReset().mockImplementation(async (_e, choice) => ((provider = choice), "ok"));
   readTopic.mockClear();
   db.row = {
@@ -169,6 +192,42 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
       expect(db.row!.emailProviderLeaseUntil).toBeNull();
     },
   );
+
+  it("does not send a choice that went stale between the read under the lease and the write", async () => {
+    db.row!.unsubscribedAt = null; // a Subscribe again
+    db.hookBeforeWrite = () => choose(true); // an unsubscribe lands just before the send
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({
+      state: "applied",
+      subscribed: false,
+    });
+    expect(setTopic.mock.calls.map((c) => c[1])).toEqual(["opt_out"]);
+  });
+
+  it("acknowledges nothing, and leaves the new writer's lease alone, when its own lease ran out before the answer", async () => {
+    let theirs: Date | undefined;
+    setTopic.mockImplementationOnce(async (_e, choice) => {
+      provider = choice;
+      // The lease runs out mid-request and another writer takes it.
+      theirs = new Date(db.clock + 99_999);
+      db.row!.emailProviderLeaseUntil = theirs;
+      return "ok";
+    });
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({ state: "unknown" });
+    expect(db.row!.emailProviderAckVersion).toBeNull();
+    expect(db.row!.emailProviderLeaseUntil).toEqual(theirs);
+  });
+
+  it("gives the provider a deadline well inside the lease", async () => {
+    expect(PROVIDER_DEADLINE_MS).toBeLessThan(LEASE_MS / 2);
+    const signals: (AbortSignal | undefined)[] = [];
+    setTopic.mockImplementationOnce(async (_e, choice, deadline) => {
+      signals.push(deadline);
+      provider = choice;
+      return "ok";
+    });
+    await syncEmailPreference("u1", "kai@acme.dev", setTopic);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+  });
 
   it("sends nothing while another write holds the lease, and marks the choice as racing it", async () => {
     db.row!.emailProviderLeaseUntil = new Date(db.clock + 10_000);
@@ -336,5 +395,43 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
     const result = await runOnce({ budgetMs: 10 });
     expect(result.remaining).toBeGreaterThan(0);
     expect(result.synced + result.pending + result.remaining).toBe(3);
+  });
+});
+
+describe("setProviderTopic", () => {
+  it("ends every provider request at the write's deadline, and counts that as no answer", async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      seen.push(init?.signal);
+      return new Response("{}");
+    }) as typeof fetch;
+    try {
+      const deadline = new AbortController();
+      vi.mocked(ensureContact).mockImplementationOnce(async (_input, options) => {
+        await options!.fetchImpl!("https://api.resend.com/contacts/x", {});
+        return { ok: true };
+      });
+      vi.mocked(setTopicSubscription).mockImplementationOnce(async (_e, _c, options) => {
+        deadline.abort();
+        await options!.fetchImpl!("https://api.resend.com/contacts/x/topics", {});
+        return { ok: false }; // the ended request: no answer
+      });
+      expect(await setProviderTopic("kai@acme.dev", "opt_in", deadline.signal)).toBe("unknown");
+      expect(seen).toHaveLength(2);
+      expect(seen.every((signal) => signal === deadline.signal)).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("tells a refusal from no answer", async () => {
+    vi.mocked(ensureContact).mockResolvedValue({ ok: true });
+    vi.mocked(setTopicSubscription).mockResolvedValueOnce({ ok: false, rejected: true });
+    expect(await setProviderTopic("kai@acme.dev", "opt_in")).toBe("rejected");
+    vi.mocked(setTopicSubscription).mockResolvedValueOnce({ ok: false });
+    expect(await setProviderTopic("kai@acme.dev", "opt_in")).toBe("unknown");
+    vi.mocked(ensureContact).mockResolvedValueOnce({ ok: false });
+    expect(await setProviderTopic("kai@acme.dev", "opt_in")).toBe("rejected");
   });
 });

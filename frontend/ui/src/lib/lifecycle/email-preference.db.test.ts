@@ -513,6 +513,30 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     expect(await unsubscribed(p.id)).toBe(false);
   });
 
+  it("does not let a Subscribe again stamped before a recorded provider opt-out clear it", async () => {
+    const pause = await import("./pause");
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    expect((await post(p.email, "opt_in")).status).toBe(200); // acknowledged
+    const before = (await account(p.id))!.emailPreferenceAt!;
+    // A Subscribe again stamped now, whose account write is delayed...
+    const delayed = new Date(+before + 1);
+    // ...while the person opts out at the provider and the run records it.
+    provider.topic.set(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    expect(await unsubscribed(p.id)).toBe(true);
+    // The delayed Subscribe again lands: it is older than the recorded opt-out.
+    expect(await pause.recordUnsubscribe(p.email, true, delayed)).toMatchObject({
+      applied: false,
+      subscribed: false,
+    });
+    expect(await unsubscribed(p.id)).toBe(true);
+  });
+
   it("still sends a Subscribe again at once when nothing else is on its way", async () => {
     const p = await person();
     await post(p.email, "opt_out");

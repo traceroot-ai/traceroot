@@ -441,6 +441,8 @@ async function recordProviderOptOut(db: AudienceClient, userId: string, now = ne
       unsubscribedAt: null,
       OR: [{ emailPreferenceAt: null }, { emailProviderSettledAt: { not: null } }],
     },
-    data: { unsubscribedAt: now, emailPreferenceVersion: { increment: 1 } },
+    // A newer choice than any made before it, so an older Subscribe again that
+    // lands later is ignored (pause.ts).
+    data: { unsubscribedAt: now, emailPreferenceAt: now, emailPreferenceVersion: { increment: 1 } },
   });
 }
