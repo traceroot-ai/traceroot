@@ -45,6 +45,9 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+const notifyMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/signup/membership-webhook", () => ({ notifyWorkspaceMember: notifyMock }));
+
 import { GET, POST } from "./route";
 
 function makeRequest(body: unknown) {
@@ -52,6 +55,7 @@ function makeRequest(body: unknown) {
 }
 
 beforeEach(() => {
+  notifyMock.mockReset();
   memberFindManyMock.mockReset();
   workspaceCreateMock.mockReset();
   memberCreateMock.mockReset();
@@ -143,6 +147,12 @@ describe("POST /api/workspaces", () => {
     expect(memberCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ userId: "user-1", role: "ADMIN" }),
     });
+    expect(notifyMock).toHaveBeenCalledWith({
+      userId: "user-1",
+      workspaceId: "ws-1",
+      createdBy: "user-1",
+      via: "created",
+    });
   });
 
   it("maps a name collision (Prisma P2002) to 409 instead of 500", async () => {
@@ -154,6 +164,7 @@ describe("POST /api/workspaces", () => {
     expect(((await res.json()) as { error: string }).error).toBe(
       "A workspace with this name already exists",
     );
+    expect(notifyMock).not.toHaveBeenCalled();
   });
 
   it("propagates non-P2002 create failures", async () => {
