@@ -179,3 +179,29 @@ def test_the_reader_does_not_depend_on_gnu_only_sed_features(tmp_path):
     assert result.stdout == _KEY
     code = [ln for ln in _ENV_VALUE.read_text().splitlines() if not ln.lstrip().startswith("#")]
     assert not [ln for ln in code if re.search(r"\bsed\b", ln)]
+
+
+def test_inherited_process_env_var_does_not_shadow_target_env_file(tmp_path, monkeypatch):
+    """Caller's exported env var (e.g. from root .env) must not override --env-file."""
+    env_file = tmp_path / ".env"
+    file_value = "file_value_123"
+    updated_value = "updated_value_456"
+    env_file.write_text(f"ENCRYPTION_KEY={file_value}\n")
+    monkeypatch.setenv("ENCRYPTION_KEY", "caller_shell_shadow_value")
+
+    got = subprocess.run(
+        ["sh", str(_ENV_VALUE), "get", "ENCRYPTION_KEY", str(env_file)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert got.stdout == file_value
+
+    updated = subprocess.run(
+        ["sh", str(_ENV_VALUE), "set", "ENCRYPTION_KEY", str(env_file)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "ENV_VALUE_NEW": updated_value},
+        check=True,
+    )
+    assert f"ENCRYPTION_KEY={updated_value}" in updated.stdout
