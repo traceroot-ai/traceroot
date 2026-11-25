@@ -27,6 +27,11 @@ interface Props {
   returnTo?: string;
 }
 
+/** Starts connecting Slack to the workspace; the authorization comes back to `returnTo`. */
+export function slackInstallHref(workspaceId: string, returnTo: string): string {
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/slack/install?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 export function SlackConnectButton({ workspaceId, returnTo }: Props) {
   const queryClient = useQueryClient();
   const { data: workspace } = useWorkspace(workspaceId);
@@ -60,7 +65,7 @@ export function SlackConnectButton({ workspaceId, returnTo }: Props) {
   const disconnect = useDisconnectSlack(workspaceId);
   const testMessage = useSendSlackTest(workspaceId);
 
-  const installHref = `/api/workspaces/${encodeURIComponent(workspaceId)}/slack/install?returnTo=${encodeURIComponent(returnTo ?? (pathname || "/"))}`;
+  const installHref = slackInstallHref(workspaceId, returnTo ?? (pathname || "/"));
 
   const sorted = useMemo(() => {
     if (!channelData?.channels) return [];

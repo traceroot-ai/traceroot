@@ -22,6 +22,15 @@ interface GitHubConnectButtonProps {
   returnTo?: string;
 }
 
+function githubHref(path: string, workspaceId: string, returnTo: string): string {
+  return `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+/** Starts connecting GitHub to the workspace (sign in, then install); comes back to `returnTo`. */
+export function githubConnectHref(workspaceId: string, returnTo: string): string {
+  return githubHref("/api/github/login", workspaceId, returnTo);
+}
+
 export function GitHubConnectButton({ workspaceId, returnTo }: GitHubConnectButtonProps) {
   const queryClient = useQueryClient();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
@@ -62,8 +71,7 @@ export function GitHubConnectButton({ workspaceId, returnTo }: GitHubConnectButt
 
   // usePathname is consistent on server and client — using window.location here
   // would create an SSR/CSR hydration mismatch in this client component.
-  const buildHref = (path: string) =>
-    `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(returnTo ?? (pathname || "/"))}`;
+  const buildHref = (path: string) => githubHref(path, workspaceId, returnTo ?? (pathname || "/"));
 
   if (impersonating || denial) {
     return (
