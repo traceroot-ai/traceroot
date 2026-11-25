@@ -22,8 +22,10 @@ Estimation tests use Claude model names: their token estimate is a deterministic
 offline `len(text) // 4`, so the tests never depend on tiktoken downloads or pricing DB.
 """
 
+import json
 from unittest.mock import patch
 
+from tests.fixtures.images import b64, data_url, make_png
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import transform_otel_to_clickhouse
 
@@ -653,3 +655,46 @@ def test_ok_status_llm_span_still_gets_estimated_tokens():
     )
     assert spans[0].get("status") != "ERROR"
     _assert_estimated_tokens(spans[0])
+
+
+# ── Inline images ────────────────────────────────────────────────────────────────
+#
+# A base64 image is billed by the provider per pixel, not per character. Ingest moves
+# inline images out of span text after the transform (and only where extraction is
+# enabled), so estimation sees the raw base64: at ~4 characters a token, a 1280x720
+# screenshot becomes tens of thousands of prompt tokens. Estimation must skip the
+# images extract_attachments would find.
+
+PNG = make_png(64, 64, pad=40_000)
+PROMPT = "Click the Submit button."
+
+
+def _estimated_input_tokens(content: list[dict]) -> int:
+    request = {
+        "messages": [{"role": "user", "content": [{"type": "text", "text": PROMPT}, *content]}]
+    }
+    attrs = [
+        make_attr("openinference.span.kind", "LLM"),
+        make_attr("llm.model_name", MODEL),
+        make_attr("input.value", json.dumps(request)),
+        make_attr("output.value", OUTPUT_TEXT),
+    ]
+    return _transform([_span_with(attrs)])[0]["input_tokens"]
+
+
+def _anthropic_image(data: str) -> dict:
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
+
+
+def _openai_image(url: str) -> dict:
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def test_a_base64_image_block_adds_no_estimated_tokens():
+    with_image = _estimated_input_tokens([_anthropic_image(b64(PNG))])
+    assert with_image == _estimated_input_tokens([_anthropic_image("")])
+
+
+def test_an_image_data_url_adds_no_estimated_tokens():
+    with_image = _estimated_input_tokens([_openai_image(data_url(PNG, "image/png"))])
+    assert with_image == _estimated_input_tokens([_openai_image("")])

@@ -317,6 +317,25 @@ class _Extractor:
         return f"[image omitted: {reason}, {byte_count} bytes]"
 
 
+class _ImageDropper(_Extractor):
+    """Finds images exactly as the extractor does, and drops them unvalidated and unstored."""
+
+    def __init__(self) -> None:
+        super().__init__(s3_service=None, project_id="", config=settings.attachments)
+
+    def _replacement(self, data: str) -> str:
+        return ""
+
+
+def without_inline_images(text: str) -> str:
+    """``text`` with every image ``extract_attachments`` would find removed.
+
+    For token estimation, which runs in the OTLP transform and must not count an image's
+    base64 as prompt text, whether or not extraction is enabled for the project.
+    """
+    return _ImageDropper().rewrite(text)
+
+
 def _known_shape_image(node: dict) -> str | None:
     """The base64 ``data`` when ``node`` is one of the known image shapes, else None."""
     data = node.get("data")
