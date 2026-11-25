@@ -633,7 +633,7 @@ export const shellZh: PartialGroups<typeof shellEn> = {
     perMonth: "每月",
     custom: "定制",
     currentPlanButton: "当前套餐",
-    contactSales: "联系销售",
+    contactSales: "和创始人聊聊",
     downgrade: "降级",
     upgrade: "升级",
   },
