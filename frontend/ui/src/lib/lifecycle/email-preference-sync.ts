@@ -133,21 +133,30 @@ async function takeLease(userId: string): Promise<Date | null> {
   return row?.until ?? null;
 }
 
-/** Records, under the lease, that a write of `version` is about to start. */
+/**
+ * Records, under the lease, that a write of `version` is about to start. Each
+ * attempt supersedes the previous one's refusal in the same statement, so a
+ * refusal only ever describes the latest attempt.
+ */
 async function startWrite(userId: string, lease: Date, version: number): Promise<Date | null> {
   const at = lease.toISOString().replace("Z", "");
   const [row] = await prisma.$queryRaw<{ at: Date }[]>`
     UPDATE user_onboarding
-    SET email_provider_write_at = clock_timestamp(), email_provider_write_version = ${version}
+    SET email_provider_write_at = clock_timestamp(),
+        email_provider_write_version = ${version},
+        email_provider_rejected_version = NULL
     WHERE user_id = ${userId} AND email_provider_lease_until = ${at}::timestamp(3)
     RETURNING email_provider_write_at AS at`;
   return row?.at ?? null;
 }
 
-/** Records that the provider refused the write of `version`: a later run tries it again. */
-async function recordRejected(userId: string, version: number) {
+/**
+ * Records that the provider refused the attempt that started at `attempt`: a
+ * later run tries it again. Nothing is recorded if another attempt has started since.
+ */
+async function recordRejected(userId: string, version: number, attempt: Date) {
   await prisma.userOnboarding.updateMany({
-    where: { userId, emailProviderWriteVersion: version },
+    where: { userId, emailProviderWriteVersion: version, emailProviderWriteAt: attempt },
     data: { emailProviderRejectedVersion: version },
   });
 }
@@ -188,7 +197,7 @@ async function sendUnderLease(
 ): Promise<{ outcome: WriteOutcome; current: Choice | null }> {
   const started = await startWrite(userId, lease, version);
   const outcome: WriteOutcome = started ? await setTopic(email, choice) : "rejected";
-  if (outcome === "rejected" && started) await recordRejected(userId, version);
+  if (outcome === "rejected" && started) await recordRejected(userId, version, started);
   const current = await readChoice(userId);
   const stillInForce = !!current && current.emailPreferenceVersion === version;
   await giveBack(userId, lease, outcome === "ok" && stillInForce ? version : null);
@@ -317,7 +326,7 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
     const writeAt = await startWrite(userId, lease, version);
     if (!writeAt) return false;
     const outcome = await io.setTopic(email, want);
-    if (outcome === "rejected") await recordRejected(userId, version);
+    if (outcome === "rejected") await recordRejected(userId, version, writeAt);
     if (outcome !== "ok") return false;
     return await settle(writeAt);
   } finally {

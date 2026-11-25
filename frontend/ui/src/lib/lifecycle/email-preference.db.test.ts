@@ -54,6 +54,7 @@ const provider = {
   slowMs: 0,
   writes: 0, // topic writes that reached the provider
   timeoutNext: 0, // the next topic writes get no answer: the connection drops
+  applyThenDropNext: 0, // the next topic writes are applied, then the connection drops
   // The next write of this choice waits for the gate, lands, and then either
   // answers or (lost) never answers its request.
   hold: null as null | {
@@ -110,6 +111,11 @@ const handle = async (
   if (provider.timeoutNext > 0) {
     provider.timeoutNext -= 1;
     return null; // the server drops the connection without answering
+  }
+  if (provider.applyThenDropNext > 0) {
+    provider.applyThenDropNext -= 1;
+    provider.topic.set(parts[2], choice);
+    return null; // applied, but the answer is lost
   }
   if (provider.failNext > 0) {
     provider.failNext -= 1;
@@ -241,6 +247,8 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     provider.hold = null;
     provider.slowMs = 0;
     provider.noTopic.clear();
+    provider.timeoutNext = 0;
+    provider.applyThenDropNext = 0;
     Object.assign(jobs, { traceCountsFail: false, newsletterFail: false, newsletterRuns: 0 });
   });
 
@@ -452,6 +460,57 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     const unknown = await post(p.email, "opt_in");
     expect(unknown.text).not.toContain("You're subscribed again.");
     expect(unknown.text).toContain('name="action" value="opt_in"');
+  });
+
+  it("does not resubscribe when a refused Subscribe again is retried, applied with its answer lost, then withdrawn at the provider", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    // Attempt 1 is refused (503).
+    provider.failNext = 1;
+    await post(p.email, "opt_in");
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    // The scheduled retry of the same version is applied, but its answer is lost.
+    provider.applyThenDropNext = 1;
+    await windowPassed(p.id);
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    const row = await account(p.id);
+    expect(row?.emailProviderRejectedVersion).toBeNull(); // the old refusal did not survive
+    // The person then opts out at the provider; the next ticks keep it.
+    provider.topic.set(p.email, "opt_out");
+    await windowPassed(p.id);
+    const writesBefore = provider.writes;
+    await tick();
+    await tick();
+    expect(provider.writes).toBe(writesBefore);
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    expect(await unsubscribed(p.id)).toBe(true);
+  });
+
+  it("retries a Subscribe again the provider keeps refusing until it is taken, then confirms it", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    provider.failNext = 1;
+    await post(p.email, "opt_in"); // refused
+    provider.failNext = 1;
+    await windowPassed(p.id);
+    await tick(); // refused again
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    const refused = await account(p.id);
+    expect(refused?.emailProviderRejectedVersion).toBe(refused?.emailPreferenceVersion);
+    await windowPassed(p.id);
+    await tick(); // taken
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    await windowPassed(p.id);
+    await tick();
+    expect(await settled(p.id)).toBe(true);
+    expect(await unsubscribed(p.id)).toBe(false);
   });
 
   it("still sends a Subscribe again at once when nothing else is on its way", async () => {

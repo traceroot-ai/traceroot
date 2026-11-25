@@ -62,6 +62,7 @@ vi.mock("@traceroot/core", () => ({
         if (!r) return [];
         r.emailProviderWriteAt = new Date((db.clock += 1));
         r.emailProviderWriteVersion = values[0] as number;
+        r.emailProviderRejectedVersion = null; // the attempt supersedes an earlier refusal
         return [{ at: r.emailProviderWriteAt }];
       }
       return db.pending;
@@ -251,6 +252,23 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
     expect(setTopic).not.toHaveBeenCalled();
     expect(db.row!.unsubscribedAt).not.toBeNull();
     expect(db.row!.emailPreferenceVersion).toBe(2);
+  });
+
+  it("lets a new attempt supersede an earlier refusal, so its lost answer counts as unknown", async () => {
+    Object.assign(db.row!, {
+      unsubscribedAt: null,
+      emailProviderWriteVersion: 1,
+      emailProviderRejectedVersion: 1, // attempt 1 was refused
+    });
+    provider = "opt_out";
+    setTopic.mockImplementationOnce(async (_e, choice) => ((provider = choice), "unknown"));
+    expect(await runOnce()).toEqual({ synced: 0, pending: 1, remaining: 0 });
+    expect(provider).toBe("opt_in"); // applied, answer lost
+    expect(db.row!.emailProviderRejectedVersion).toBeNull();
+    provider = "opt_out"; // withdrawn at the provider
+    expect(await runOnce()).toEqual({ synced: 1, pending: 0, remaining: 0 });
+    expect(setTopic).toHaveBeenCalledTimes(1);
+    expect(db.row!.unsubscribedAt).not.toBeNull();
   });
 
   it("keeps the provider opt-out over a Subscribe again written with no answer (its writer died)", async () => {
