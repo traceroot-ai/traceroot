@@ -69,8 +69,6 @@ export async function setFollowUpPause(
   const older = {
     OR: [{ followUpsIntentAt: null }, { followUpsIntentAt: { lt: intentAt } }],
   };
-  // Every choice applied waits for the provider again, even one made in the
-  // same millisecond as the last (email-preference-sync.ts).
   let applied: number;
   if (action === "pause") {
     const fresh = await prisma.userOnboarding.updateMany({
@@ -137,27 +135,38 @@ export async function recordUnsubscribe(
       ...(subscribed ? [] : [{ emailPreferenceAt: decidedAt }]),
     ],
   };
-  // Every choice applied waits for the provider again, even one made in the
-  // same millisecond as the last (email-preference-sync.ts).
+  // Every choice applied gets a new version and waits for the provider to be
+  // confirmed again (email-preference-sync.ts).
   let applied: number;
   if (subscribed) {
     ({ count: applied } = await prisma.userOnboarding.updateMany({
       where: { userId: user.id, ...older },
-      data: { unsubscribedAt: null, emailPreferenceAt: decidedAt, emailPreferenceSyncedAt: null },
+      data: {
+        unsubscribedAt: null,
+        emailPreferenceAt: decidedAt,
+        emailPreferenceVersion: { increment: 1 },
+        emailProviderSettledAt: null,
+      },
     }));
   } else {
-    // A second unsubscribe keeps the time of the first.
+    // A second unsubscribe keeps the time of the first. The already-unsubscribed
+    // case goes first, so a row the other update changes cannot match it too.
+    const already = await prisma.userOnboarding.updateMany({
+      where: { userId: user.id, unsubscribedAt: { not: null }, ...older },
+      data: {
+        emailPreferenceAt: decidedAt,
+        emailPreferenceVersion: { increment: 1 },
+        emailProviderSettledAt: null,
+      },
+    });
     const fresh = await prisma.userOnboarding.updateMany({
       where: { userId: user.id, unsubscribedAt: null, ...older },
       data: {
         unsubscribedAt: decidedAt,
         emailPreferenceAt: decidedAt,
-        emailPreferenceSyncedAt: null,
+        emailPreferenceVersion: { increment: 1 },
+        emailProviderSettledAt: null,
       },
-    });
-    const already = await prisma.userOnboarding.updateMany({
-      where: { userId: user.id, unsubscribedAt: { not: null }, ...older },
-      data: { emailPreferenceAt: decidedAt, emailPreferenceSyncedAt: null },
     });
     applied = fresh.count + already.count;
   }

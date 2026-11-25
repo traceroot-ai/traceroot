@@ -274,9 +274,14 @@ model UserOnboarding {
   // applied. One that was made earlier but lands later is ignored, so a slow
   // resubscribe can never undo a newer unsubscribe, nor the other way round.
   emailPreferenceAt    DateTime?  @map("email_preference_at") @db.Timestamp(3)
-  // The emailPreferenceAt whose choice the provider was last confirmed to hold.
-  // Behind it, the scheduled run brings the provider in line (email-preference-sync.ts).
-  emailPreferenceSyncedAt DateTime? @map("email_preference_synced_at") @db.Timestamp(3)
+  // Counts the choices applied: what a provider sync compares, since two choices
+  // can share a millisecond. The provider follows the account
+  // (email-preference-sync.ts): when its latest write started, recorded before
+  // sending, and when the scheduled run last confirmed the provider after all
+  // writes had had time to land.
+  emailPreferenceVersion  Int       @default(0) @map("email_preference_version")
+  emailProviderWriteAt    DateTime? @map("email_provider_write_at") @db.Timestamp(3)
+  emailProviderSettledAt  DateTime? @map("email_provider_settled_at") @db.Timestamp(3)
   // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
   // null for a question skipped or not asked.
   role                 String?    @db.VarChar

@@ -9,7 +9,8 @@ type Row = {
   followUpsIntentAt: Date | null;
   unsubscribedAt: Date | null;
   emailPreferenceAt: Date | null;
-  emailPreferenceSyncedAt?: Date | null;
+  emailPreferenceVersion?: number;
+  emailProviderSettledAt?: Date | null;
 };
 const db = vi.hoisted(() => ({
   users: [] as { id: string; email: string }[],
@@ -57,7 +58,16 @@ vi.mock("@traceroot/core", () => {
         },
         updateMany: async ({ where, data }: { where: Cond; data: Partial<Row> }) => {
           const hits = db.rows.filter((r) => matches(r, where));
-          for (const r of hits) Object.assign(r, data);
+          for (const r of hits)
+            for (const [k, v] of Object.entries(data)) {
+              const inc =
+                v && typeof v === "object" && "increment" in v
+                  ? (v as { increment: number })
+                  : null;
+              (r as Record<string, unknown>)[k] = inc
+                ? (((r as Record<string, unknown>)[k] as number) ?? 0) + inc.increment
+                : v;
+            }
           return { count: hits.length };
         },
         findUnique: async ({ where }: { where: { userId: string } }) => row(where.userId) ?? null,
@@ -231,13 +241,14 @@ describe("the latest unsubscribe or Subscribe again wins", () => {
     expect(db.rows[0].unsubscribedAt).toEqual(T1);
   });
 
-  it("marks every applied choice as waiting for the provider, even at the same instant", async () => {
+  it("gives every applied choice a new version and leaves it to be confirmed, even at the same instant", async () => {
     await recordUnsubscribe("kai@acme.dev", true, T1);
-    db.rows[0].emailPreferenceSyncedAt = T1;
+    expect(db.rows[0].emailPreferenceVersion).toBe(1);
+    db.rows[0].emailProviderSettledAt = T1;
     await recordUnsubscribe("kai@acme.dev", false, T1);
-    expect(db.rows[0].emailPreferenceSyncedAt).toBeNull();
-    db.rows[0].emailPreferenceSyncedAt = T1;
+    expect(db.rows[0]).toMatchObject({ emailPreferenceVersion: 2, emailProviderSettledAt: null });
+    db.rows[0].emailProviderSettledAt = T1;
     await recordUnsubscribe("kai@acme.dev", true, T1); // ignored: changes nothing
-    expect(db.rows[0].emailPreferenceSyncedAt).toEqual(T1);
+    expect(db.rows[0]).toMatchObject({ emailPreferenceVersion: 2, emailProviderSettledAt: T1 });
   });
 });
