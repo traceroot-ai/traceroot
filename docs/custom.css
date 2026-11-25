@@ -289,6 +289,16 @@ body {
   content: "Next  →";
 }
 
+/* The labels above are written in CSS, so each language needs its own. */
+html[lang^="zh"] #pagination:not(:has([rel="prev"]))::before,
+html[lang^="zh"] #pagination [rel="prev"]::before {
+  content: "←  上一页";
+}
+
+html[lang^="zh"] #pagination [rel="next"]::before {
+  content: "下一页  →";
+}
+
 #pagination [data-component-part="pagination-title"] {
   color: var(--tr-muted);
   font-size: 13px;
