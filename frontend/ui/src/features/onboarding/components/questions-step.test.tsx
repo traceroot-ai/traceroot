@@ -367,3 +367,46 @@ describe("asked once", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
   });
 });
+
+describe("option layout", () => {
+  // jsdom has no layout, so this pins the classes the measured layout comes
+  // from: two columns once the options are 20rem wide, a whole row for long
+  // choices, and one column for the uses.
+  const options = (group: string) => screen.getByRole("group", { name: group });
+  const twoColumns = (group: string) => options(group).className.includes("@[20rem]:grid-cols-2");
+  const wholeRow = (name: string) =>
+    screen.getByRole("radio", { name }).className.includes("@[20rem]:col-span-2");
+
+  it("lays out each question's choices in order, long ones on their own rows", async () => {
+    renderStep();
+    await screen.findByText("Step 1 of 3");
+    expect(twoColumns("What best describes you?")).toBe(true);
+    expect(
+      screen
+        .getAllByRole("radio")
+        .map((option) => [option.textContent, wholeRow(option.textContent!)]),
+    ).toEqual([
+      ["Software engineering", false],
+      ["Data or ML", false],
+      ["Product management", false],
+      ["Founder", false],
+      ["Engineering or company leadership", true],
+      ["Student", false],
+      ["Something else", false],
+    ]);
+
+    click("Continue");
+    await screen.findByText("Step 2 of 3");
+    expect(twoColumns("What will you use traceroot for?")).toBe(false);
+
+    click("Continue");
+    await screen.findByText("Step 3 of 3");
+    expect(twoColumns("Where did you hear about us?")).toBe(true);
+    expect(
+      screen
+        .getAllByRole("radio")
+        .filter((o) => wholeRow(o.textContent!))
+        .map((o) => o.textContent),
+    ).toEqual(["A friend or coworker", "A search engine or AI assistant"]);
+  });
+});
