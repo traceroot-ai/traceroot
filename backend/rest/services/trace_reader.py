@@ -517,6 +517,30 @@ class TraceReaderService:
         self._has_traces_cache[project_id] = (now + ttl, found)
         return found
 
+    def first_trace_receive_time(self, project_id: str) -> datetime | None:
+        """When the project's earliest stored customer span was received.
+
+        ``ch_create_time`` is when the ingest worker wrote a span, so its minimum is
+        when the project first received a trace, as far as stored spans go. Plan
+        retention narrows reads and deletes nothing, so this ignores it; once spans
+        are deleted, it is the oldest one left. Scoped like ``has_traces``.
+
+        Args:
+            project_id (str): Project whose customer spans to read.
+
+        Returns:
+            datetime | None: The receive time (naive UTC), or None when the project
+                has no customer spans.
+        """
+        result = self._client.query(
+            "SELECT minOrNull(ch_create_time) FROM spans "
+            "WHERE project_id = {project_id:String} "
+            f"AND {customer_traffic_only()}",
+            parameters={"project_id": project_id},
+        )
+        row = result.result_rows[0] if result.result_rows else None
+        return row[0] if row else None
+
     _TRACE_START_CACHE_MAX = 1024
 
     def get_trace_start_time(
@@ -569,19 +593,22 @@ class TraceReaderService:
             cache[cache_key] = (now + 3600.0, ts)
         return ts
 
-    def get_customer_trace_earliest_span_time(
-        self, project_id: str, trace_id: str
+    def get_trace_earliest_span_time(
+        self, project_id: str, trace_id: str, *, customer_only: bool = False
     ) -> datetime | None:
-        """The earliest start of any customer span in the trace, or ``None`` if it has none.
+        """The earliest start of any span in the trace, or ``None`` if it has none.
 
         Retention for a trace whose root span has not arrived: a root normally starts
         before its children, so this is the closest bound available, and it is the
         same for every span of the trace. Only each span's latest version counts, as
         in the other span readers, so an obsolete version that ClickHouse has not
-        merged away yet never moves the start earlier. A span stored under an
-        internal source never counts either. Never cached, because an earlier span
+        merged away yet never moves the start earlier. Scope it the way the caller
+        reads the trace: with ``customer_only``, a span stored under an internal
+        source never counts, and without it every span does, matching the unscoped
+        root lookup in ``get_trace_start_time``. Never cached, because an earlier span
         can still arrive.
         """
+        scope = f"AND {customer_traffic_only()}" if customer_only else ""
         result = self._client.query(
             f"""
             SELECT minOrNull(span_start_time)
@@ -589,7 +616,7 @@ class TraceReaderService:
                 SELECT span_start_time FROM spans
                 WHERE project_id = {{project_id:String}}
                   AND trace_id   = {{trace_id:String}}
-                  AND {customer_traffic_only()}
+                  {scope}
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY span_id
             )

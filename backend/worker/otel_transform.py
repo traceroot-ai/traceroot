@@ -854,7 +854,7 @@ def transform_otel_to_clickhouse(
                     span_record["git_source_function"] = git_source_function
 
                 # Extraction priority (first key present/not-None wins):
-                # 1. TraceRoot SDK: user-provided explicit values — highest authority.
+                # 1. traceroot SDK: user-provided explicit values — highest authority.
                 # 2. OpenInference: normalized cross-framework schema (LLM/chain spans).
                 # 3. GenAI semconv: native OTel GenAI attributes (LLM + tool spans).
                 # 4. Framework-specific fallbacks: raw attrs before OpenInference normalization.
@@ -864,7 +864,7 @@ def transform_otel_to_clickhouse(
                 span_input = first_present(
                     span_attrs,
                     [
-                        "traceroot.span.input",  # 1. TraceRoot SDK explicit input
+                        "traceroot.span.input",  # 1. traceroot SDK explicit input
                         "input.value",  # 2. OpenInference normalized input (LLM/chain)
                         "tool.parameters",  # 2. OpenInference tool input (pydantic-ai tool_arguments mapped here)
                         "gen_ai.input.messages",  # 3. GenAI semconv LLM input messages
@@ -875,7 +875,7 @@ def transform_otel_to_clickhouse(
                 span_output = first_present(
                     span_attrs,
                     [
-                        "traceroot.span.output",  # 1. TraceRoot SDK explicit output
+                        "traceroot.span.output",  # 1. traceroot SDK explicit output
                         "output.value",  # 2. OpenInference normalized output (LLM/chain/tool)
                         "gen_ai.output.messages",  # 3. GenAI semconv LLM output messages
                         "gen_ai.tool.call.result",  # 3. GenAI semconv tool-call result
@@ -1022,7 +1022,7 @@ def transform_otel_to_clickhouse(
                     # Reasoning tokens (o-series / GPT-5): a SUBSET of output
                     # tokens, already priced at the output rate, so this is
                     # display-only and must NOT feed the cost buckets.
-                    api_reasoning_tokens = first_present(
+                    api_reasoning_tokens = first_present_number(
                         span_attrs,
                         [
                             "llm.token_count.completion_details.reasoning",

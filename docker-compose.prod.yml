@@ -312,6 +312,10 @@ services:
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
       AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
+      AUTH_AGENTID_CLIENT_ID: ${AUTH_AGENTID_CLIENT_ID:-}
+      AUTH_AGENTID_CLIENT_SECRET: ${AUTH_AGENTID_CLIENT_SECRET:-}
+      AUTH_GITHUB_CLIENT_ID: ${AUTH_GITHUB_CLIENT_ID:-}
+      AUTH_GITHUB_CLIENT_SECRET: ${AUTH_GITHUB_CLIENT_SECRET:-}
       # --- API ---
       # NOTE: NEXT_PUBLIC_* vars are baked at build time in Next.js.
       # For production, rebuild the image with the correct value or use
@@ -451,6 +455,9 @@ services:
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_URL: redis://redis:6379/1
+      # --- The web app, for the report that a project received traces ---
+      TRACEROOT_UI_URL: http://web:3000
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       S3_ENDPOINT_URL: http://minio:9000
       S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
       S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?required, generate with openssl rand -hex 32}

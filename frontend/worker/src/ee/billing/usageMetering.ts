@@ -12,7 +12,7 @@
  * - Free plan: hard cap at 30 runs/month (blocked when reached)
  * - Starter/Pro: first 100 runs free, then $10/100 runs + 1.05x system model token cost
  * - BYOK runs: only run fee, no token markup (user pays their own API)
- * - Stripe receives units at $0.01 each; TraceRoot calculates the unit count
+ * - Stripe receives units at $0.01 each; traceroot calculates the unit count
  */
 
 import Stripe from "stripe";
@@ -463,6 +463,11 @@ async function processWorkspace(
       );
       if (reported) {
         (updateData.currentUsage as any).ai.lastReportedUnits = totalBillableUnits;
+        (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
+      } else {
+        // Keep the baseline on a failed report, as the RCA meter does. Dropping it
+        // would make the next run re-report units Stripe already accepted.
+        (updateData.currentUsage as any).ai.lastReportedUnits = lastReportedUnits;
         (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
       }
     } else {

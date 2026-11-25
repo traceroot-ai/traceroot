@@ -39,7 +39,11 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+const { captureServerEvent } = vi.hoisted(() => ({ captureServerEvent: vi.fn() }));
+vi.mock("@/lib/posthog-server", () => ({ captureServerEvent }));
+
 import { Role } from "@traceroot/core";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { POST } from "./route";
 
 function makeRequest(body: unknown) {
@@ -57,6 +61,7 @@ function validBody(extra: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   detectorCreateMock.mockReset();
+  captureServerEvent.mockReset();
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -264,5 +269,75 @@ describe("POST — signals switch", () => {
     const res = await POST(makeRequest(validBody({ enableSignals: "no" })), makeParams());
     expect(res.status).toBe(400);
     expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST .../detectors — detector_created", () => {
+  it("is sent once, to the creator, when the detector is created", async () => {
+    const res = await POST(makeRequest(validBody()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(captureServerEvent).toHaveBeenCalledTimes(1);
+    expect(captureServerEvent).toHaveBeenCalledWith("user-1", "detector_created", {
+      project_id: "proj-1",
+      workspace_id: "ws-1",
+      transport: "ui",
+      template: "failure",
+      detection_source: "system",
+      default_model: true,
+      prompt_customized: true,
+      trigger_count: 0,
+      sample_rate: DEFAULT_DETECTOR_SAMPLE_RATE,
+      enabled: true,
+      rca_enabled: true,
+      signals_enabled: true,
+    });
+  });
+
+  it("reports a BYOK detector and sends any other template as other", async () => {
+    await POST(
+      makeRequest(
+        validBody({
+          template: "my own",
+          detectionSource: "byok",
+          detectionProvider: "My OpenAI",
+          detectionModel: "gpt-5.4",
+        }),
+      ),
+      makeParams(),
+    );
+
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      "user-1",
+      "detector_created",
+      expect.objectContaining({
+        template: "other",
+        detection_source: "byok",
+        default_model: false,
+      }),
+    );
+  });
+
+  it("is not sent when the name is taken", async () => {
+    detectorCreateMock.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+
+    expect((await POST(makeRequest(validBody()), makeParams())).status).toBe(409);
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("is not sent for a request refused before the create", async () => {
+    const res = await POST(makeRequest(validBody({ sampleRate: 500 })), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(captureServerEvent).not.toHaveBeenCalled();
+  });
+
+  it("is not sent when the create fails", async () => {
+    detectorCreateMock.mockRejectedValue(new Error("Database connection lost"));
+
+    await expect(POST(makeRequest(validBody()), makeParams())).rejects.toThrow();
+    expect(captureServerEvent).not.toHaveBeenCalled();
   });
 });
