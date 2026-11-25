@@ -35,6 +35,11 @@ describe("sign-in options on sign-in and sign-up", () => {
       ["google", "agentid"],
       ["disabled", "enabled", "enabled"],
     ],
+    [["github"], ["enabled", "missing", "disabled"]],
+    [
+      ["github", "google", "agentid"],
+      ["enabled", "enabled", "enabled"],
+    ],
   ])("match each other with %j configured", (socialProviders, expected) => {
     render(<SignUpClient socialProviders={socialProviders} emailDomainPolicyEnabled />);
     const signUp = optionStates();
