@@ -98,7 +98,7 @@ describe("renderEmailCard", () => {
     expect(html).toContain("Do the thing");
     expect(html).toContain("Why you got this.");
     // branded logo header survives
-    expect(html).toContain('alt="TraceRoot"');
+    expect(html).toContain('alt="traceroot"');
   });
 
   it("sizes the logo by its height, so a wordmark keeps its proportions", () => {
