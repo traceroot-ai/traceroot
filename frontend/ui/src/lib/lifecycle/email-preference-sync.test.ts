@@ -13,6 +13,8 @@ type Row = {
   emailProviderCheckedAt?: Date | null;
   emailProviderLeaseUntil: Date | null;
   emailProviderContendedVersion: number | null;
+  emailProviderWriteVersion?: number | null;
+  emailProviderRejectedVersion?: number | null;
 };
 const db = vi.hoisted(() => ({
   clock: 0,
@@ -42,7 +44,7 @@ vi.mock("@traceroot/core", () => ({
         return { count: 1 };
       },
     },
-    $queryRaw: async (strings: TemplateStringsArray) => {
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join("?");
       db.queries.push(sql);
       const r = db.row;
@@ -54,6 +56,7 @@ vi.mock("@traceroot/core", () => ({
       if (sql.includes("SET email_provider_write_at")) {
         if (!r) return [];
         r.emailProviderWriteAt = new Date((db.clock += 1));
+        r.emailProviderWriteVersion = values[0] as number;
         return [{ at: r.emailProviderWriteAt }];
       }
       return db.pending;
@@ -81,7 +84,7 @@ import { syncEmailPreference, syncPendingEmailPreferences } from "./email-prefer
 
 const T1 = new Date("2026-12-01T10:00:00.001Z");
 let provider: string | undefined;
-const setTopic = vi.fn<(email: string, choice: string) => Promise<boolean>>();
+const setTopic = vi.fn<(email: string, choice: string) => Promise<"ok" | "rejected" | "unknown">>();
 const readTopic = vi.fn(async () => (provider ?? "missing") as "opt_in" | "opt_out" | "missing");
 const choose = (unsubscribed: boolean) => {
   db.row!.unsubscribedAt = unsubscribed ? T1 : null;
@@ -95,7 +98,7 @@ beforeEach(() => {
   provider = undefined;
   db.clock = 1_000;
   db.queries = [];
-  setTopic.mockReset().mockImplementation(async (_e, choice) => ((provider = choice), true));
+  setTopic.mockReset().mockImplementation(async (_e, choice) => ((provider = choice), "ok"));
   readTopic.mockClear();
   db.row = {
     userId: "u1",
@@ -117,9 +120,10 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
       expect(db.row!.emailProviderLeaseUntil).not.toBeNull();
       expect(db.row!.emailProviderWriteAt).not.toBeNull();
       provider = choice;
-      return true;
+      return "ok";
     });
     expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({
+      state: "applied",
       subscribed: false,
     });
     expect(provider).toBe("opt_out");
@@ -130,7 +134,7 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
 
   it("sends nothing while another write holds the lease, and marks the choice as racing it", async () => {
     db.row!.emailProviderLeaseUntil = new Date(db.clock + 10_000);
-    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toBeNull();
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({ state: "queued" });
     expect(setTopic).not.toHaveBeenCalled();
     expect(db.row!.emailProviderContendedVersion).toBe(1);
   });
@@ -140,9 +144,10 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
     setTopic.mockImplementationOnce(async (_e, choice) => {
       provider = choice;
       choose(true); // an unsubscribe while the Subscribe again is on its way
-      return true;
+      return "ok";
     });
     expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({
+      state: "applied",
       subscribed: false,
     });
     expect(setTopic.mock.calls.map((c) => c[1])).toEqual(["opt_in", "opt_out"]);
@@ -153,19 +158,30 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
     setTopic.mockImplementationOnce(async (_e, choice) => {
       provider = choice;
       choose(false); // a Subscribe again while the unsubscribe is on its way
-      return true;
+      return "ok";
     });
-    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toBeNull();
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({
+      state: "applied",
+      subscribed: false,
+    });
     expect(setTopic).toHaveBeenCalledTimes(1);
     expect(provider).toBe("opt_out");
     expect(db.row!.emailProviderAckVersion).toBeNull();
   });
 
-  it("answers null when the provider fails, leaving it unacknowledged for the scheduled run", async () => {
-    setTopic.mockResolvedValueOnce(false);
-    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toBeNull();
+  it("records a refusal for the scheduled run to send again, and tells apart no answer", async () => {
+    setTopic.mockResolvedValueOnce("rejected");
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({
+      state: "rejected",
+    });
+    expect(db.row!.emailProviderRejectedVersion).toBe(1);
     expect(db.row!.emailProviderAckVersion).toBeNull();
     expect(db.row!.emailProviderLeaseUntil).toBeNull();
+    setTopic.mockResolvedValueOnce("unknown");
+    db.row!.emailProviderRejectedVersion = null;
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({ state: "unknown" });
+    expect(db.row!.emailProviderRejectedVersion).toBeNull();
+    expect(db.row!.emailProviderWriteVersion).toBe(1);
   });
 });
 
@@ -177,8 +193,11 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
     expect(db.row!.emailProviderLeaseUntil).toBeNull();
   });
 
-  it("sets an uncontended, unacknowledged choice at the provider: a failed request is recovered", async () => {
-    db.row!.unsubscribedAt = null; // a Subscribe again whose write failed
+  it.each([
+    ["refused", { emailProviderWriteVersion: 1, emailProviderRejectedVersion: 1 }],
+    ["never sent", {}],
+  ])("sets a Subscribe again whose write was %s at the provider", async (_case, state) => {
+    Object.assign(db.row!, { unsubscribedAt: null }, state);
     provider = "opt_out";
     expect(await runOnce()).toEqual({ synced: 1, pending: 0, remaining: 0 });
     expect(provider).toBe("opt_in");
@@ -195,6 +214,14 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
     expect(setTopic).not.toHaveBeenCalled();
     expect(db.row!.unsubscribedAt).not.toBeNull();
     expect(db.row!.emailPreferenceVersion).toBe(2);
+  });
+
+  it("keeps the provider opt-out over a Subscribe again written with no answer (its writer died)", async () => {
+    Object.assign(db.row!, { unsubscribedAt: null, emailProviderWriteVersion: 1 });
+    provider = "opt_out";
+    expect(await runOnce()).toEqual({ synced: 1, pending: 0, remaining: 0 });
+    expect(setTopic).not.toHaveBeenCalled();
+    expect(db.row!.unsubscribedAt).not.toBeNull();
   });
 
   it("sets an opt-out back when the provider shows opt-in", async () => {
@@ -221,13 +248,13 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
   });
 
   it("does not mark it settled when a choice came along meanwhile", async () => {
-    setTopic.mockImplementationOnce(async () => (choose(false), true));
+    setTopic.mockImplementationOnce(async () => (choose(false), "ok"));
     expect(await runOnce()).toEqual({ synced: 0, pending: 1, remaining: 0 });
     expect(db.row!.emailProviderSettledAt).toBeNull();
   });
 
   it("counts a provider failure as pending, and keeps going", async () => {
-    setTopic.mockResolvedValueOnce(false);
+    setTopic.mockResolvedValueOnce("rejected");
     expect(await runOnce()).toEqual({ synced: 0, pending: 1, remaining: 0 });
     setTopic.mockRejectedValueOnce(new Error("network"));
     expect(await runOnce()).toEqual({ synced: 0, pending: 1, remaining: 0 });

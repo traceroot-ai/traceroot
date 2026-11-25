@@ -4,10 +4,11 @@
 -- a millisecond), when the latest provider write started, when the scheduled run
 -- last confirmed the provider, which choice the provider acknowledged, when the
 -- scheduled run last looked, a lease that keeps provider writes for one person to
--- one at a time, and the version of a choice made while another write was on its
--- way. Nullable columns and one with a constant default, added without rewriting
--- the table. Bound lock acquisition; roll back atomically on timeout and retry
--- during a quiet window.
+-- one at a time, the version of a choice made while another write was on its way,
+-- and which version the latest write carried and which the provider refused.
+-- Nullable columns and one with a constant default, added without rewriting the
+-- table. Bound lock acquisition; roll back atomically on timeout and retry during
+-- a quiet window.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -20,6 +21,8 @@ ADD COLUMN "email_provider_settled_at" TIMESTAMP(3),
 ADD COLUMN "email_provider_ack_version" INTEGER,
 ADD COLUMN "email_provider_checked_at" TIMESTAMP(3),
 ADD COLUMN "email_provider_lease_until" TIMESTAMP(3),
-ADD COLUMN "email_provider_contended_version" INTEGER;
+ADD COLUMN "email_provider_contended_version" INTEGER,
+ADD COLUMN "email_provider_write_version" INTEGER,
+ADD COLUMN "email_provider_rejected_version" INTEGER;
 
 COMMIT;

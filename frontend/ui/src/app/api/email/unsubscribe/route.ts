@@ -10,7 +10,11 @@ import {
   type TopicSubscription,
 } from "@traceroot/core/email";
 import { emailChoiceTime, recordUnsubscribe, type EmailPreference } from "@/lib/lifecycle/pause";
-import { setProviderTopic, syncEmailPreference } from "@/lib/lifecycle/email-preference-sync";
+import {
+  setProviderTopic,
+  syncEmailPreference,
+  type SyncResult,
+} from "@/lib/lifecycle/email-preference-sync";
 
 const HTML_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
@@ -106,13 +110,12 @@ export async function POST(request: Request): Promise<Response> {
     console.error("[unsubscribe] %s not recorded on the account: %s", action, String(error));
     return failed();
   }
-  let nowSubscribed = subscribed;
-  let syncing = false;
+  let result: SyncResult | null = null;
   if (preference) {
-    const synced = await syncEmailPreference(preference.userId, check.email).catch(() => null);
-    nowSubscribed = synced ? synced.subscribed : preference.subscribed;
-    syncing = !synced;
-  } else if (!(await setProviderTopic(check.email, action))) {
+    result = await syncEmailPreference(preference.userId, check.email).catch(
+      (): SyncResult => ({ state: "unknown" }),
+    );
+  } else if ((await setProviderTopic(check.email, action)) !== "ok") {
     // No account to keep the choice on: the provider is the only place, so ask
     // for another try.
     return failed();
@@ -122,12 +125,31 @@ export async function POST(request: Request): Promise<Response> {
     "[unsubscribe] %s %s%s",
     action,
     preference && !preference.applied ? "ignored, a newer choice is in force" : "recorded",
-    `${preference ? ` for user ${preference.userId}` : ""}${syncing ? ", provider sync left to the scheduled run" : ""}`,
+    `${preference ? ` for user ${preference.userId}` : ""}${result && result.state !== "applied" ? `, provider ${result.state}` : ""}`,
   );
+
+  // What to tell the person: the choice that will hold, not just the one asked for.
+  // - An unsubscribe on the account always holds: the provider follows it.
+  // - A Subscribe again holds once the provider took it, or once the scheduled
+  //   run resends one the provider refused.
+  // - A Subscribe again that raced another write, or got no answer, is not
+  //   promised: the scheduled run keeps an opt-out over it. The person can
+  //   choose again.
   const email = escapeHtml(check.email);
-  const message = !nowSubscribed
-    ? `<p>You're unsubscribed. No more product emails will be sent to ${email}.</p>${form(token, "opt_in", "Subscribe again")}`
-    : "<p>You're subscribed again.</p>";
-  const later = syncing ? "<p>It can take a few minutes to apply everywhere.</p>" : "";
-  return html(`${message}${later}${NOTE}`);
+  const subscribeAgain = form(token, "opt_in", "Subscribe again");
+  const later = "<p>It can take a few minutes to apply everywhere.</p>";
+  const inForce = preference ? preference.subscribed : subscribed;
+  let message: string;
+  if (!inForce || (result?.state === "applied" && !result.subscribed)) {
+    message = `<p>You're unsubscribed. No more product emails will be sent to ${email}.</p>${subscribeAgain}${result && result.state !== "applied" ? later : ""}`;
+  } else if (!result || result.state === "applied") {
+    message = "<p>You're subscribed again.</p>";
+  } else if (result.state === "rejected") {
+    message = `<p>You're subscribed again.</p>${later}`;
+  } else if (result.state === "queued") {
+    message = `<p>Another change to your email preferences was still being applied, so this one didn't go through and you're still unsubscribed. Choose Subscribe again to try once more.</p>${subscribeAgain}`;
+  } else {
+    message = `<p>We couldn't confirm this with our email service, so it may not have gone through. Choose Subscribe again to try once more.</p>${subscribeAgain}`;
+  }
+  return html(`${message}${NOTE}`);
 }

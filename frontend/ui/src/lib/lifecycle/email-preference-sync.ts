@@ -25,8 +25,11 @@
  *     since: which came last cannot be known, so the opt-out wins (an opt-out
  *     at the provider is recorded on the account; an opt-in there under an
  *     account opt-out is set back);
- *   - otherwise its write failed or is pending: the account's choice is set at
- *     the provider, so a failed request recovers with no action by the person.
+ *   - the choice was written with no answer (its writer died, or none came):
+ *     likewise unknown, so the opt-out wins;
+ *   - otherwise its write was refused (an error answer) or never sent: the
+ *     account's choice is set at the provider, so a refused request recovers
+ *     with no action by the person.
  * - The run takes the least recently looked at first and is bounded per tick,
  *   so nobody holds up the others.
  */
@@ -39,17 +42,25 @@ import {
   type TopicSubscription,
 } from "@traceroot/core/email";
 
-/** Sets the provider's topic for one address; false on any failure. */
-export type SetProviderTopic = (email: string, choice: TopicSubscription) => Promise<boolean>;
+/**
+ * Sets the provider's topic for one address. "rejected": not applied for
+ * certain (an error answer, or nothing sent); "unknown": it may or may not have
+ * been applied (no answer).
+ */
+export type WriteOutcome = "ok" | "rejected" | "unknown";
+export type SetProviderTopic = (email: string, choice: TopicSubscription) => Promise<WriteOutcome>;
 /** Reads the provider's topic for one address; null when it cannot be read. */
 export type ReadProviderTopic = (email: string) => Promise<TopicSubscription | "missing" | null>;
 
 export const setProviderTopic: SetProviderTopic = async (email, choice) => {
   try {
-    const contact = await ensureContact({ email });
-    return contact.ok && (await setTopicSubscription(email, choice)).ok;
+    // No contact, no topic write: nothing was applied.
+    if (!(await ensureContact({ email })).ok) return "rejected";
+    const result = await setTopicSubscription(email, choice);
+    if (result.ok) return "ok";
+    return result.rejected ? "rejected" : "unknown";
   } catch {
-    return false;
+    return "unknown";
   }
 };
 
@@ -85,6 +96,8 @@ type Choice = {
   emailProviderWriteAt: Date | null;
   emailProviderAckVersion: number | null;
   emailProviderContendedVersion: number | null;
+  emailProviderWriteVersion: number | null;
+  emailProviderRejectedVersion: number | null;
 };
 
 async function readChoice(userId: string): Promise<Choice | null> {
@@ -97,6 +110,8 @@ async function readChoice(userId: string): Promise<Choice | null> {
       emailProviderWriteAt: true,
       emailProviderAckVersion: true,
       emailProviderContendedVersion: true,
+      emailProviderWriteVersion: true,
+      emailProviderRejectedVersion: true,
     },
   });
 }
@@ -118,14 +133,23 @@ async function takeLease(userId: string): Promise<Date | null> {
   return row?.until ?? null;
 }
 
-/** Records, under the lease, that a provider write is about to start. */
-async function startWrite(userId: string, lease: Date): Promise<Date | null> {
+/** Records, under the lease, that a write of `version` is about to start. */
+async function startWrite(userId: string, lease: Date, version: number): Promise<Date | null> {
   const at = lease.toISOString().replace("Z", "");
   const [row] = await prisma.$queryRaw<{ at: Date }[]>`
-    UPDATE user_onboarding SET email_provider_write_at = clock_timestamp()
+    UPDATE user_onboarding
+    SET email_provider_write_at = clock_timestamp(), email_provider_write_version = ${version}
     WHERE user_id = ${userId} AND email_provider_lease_until = ${at}::timestamp(3)
     RETURNING email_provider_write_at AS at`;
   return row?.at ?? null;
+}
+
+/** Records that the provider refused the write of `version`: a later run tries it again. */
+async function recordRejected(userId: string, version: number) {
+  await prisma.userOnboarding.updateMany({
+    where: { userId, emailProviderWriteVersion: version },
+    data: { emailProviderRejectedVersion: version },
+  });
 }
 
 /** Gives the lease back, and acknowledges `version` if the write succeeded with it still in force. */
@@ -161,43 +185,62 @@ async function sendUnderLease(
   choice: TopicSubscription,
   version: number,
   setTopic: SetProviderTopic,
-): Promise<{ sent: boolean; current: Choice | null }> {
-  const sent = !!(await startWrite(userId, lease)) && (await setTopic(email, choice));
+): Promise<{ outcome: WriteOutcome; current: Choice | null }> {
+  const started = await startWrite(userId, lease, version);
+  const outcome: WriteOutcome = started ? await setTopic(email, choice) : "rejected";
+  if (outcome === "rejected" && started) await recordRejected(userId, version);
   const current = await readChoice(userId);
   const stillInForce = !!current && current.emailPreferenceVersion === version;
-  await giveBack(userId, lease, sent && stillInForce ? version : null);
-  return { sent, current };
+  await giveBack(userId, lease, outcome === "ok" && stillInForce ? version : null);
+  return { outcome, current };
 }
+
+/** What the unsubscribe page can tell the person about a choice it recorded. */
+export type SyncResult =
+  /** The provider took this choice (or a newer opt-out sent after it). */
+  | { state: "applied"; subscribed: boolean }
+  /** Another write was on its way: not sent now; an opt-in that raced it loses. */
+  | { state: "queued" }
+  /** The provider refused it: the scheduled run sends it again. */
+  | { state: "rejected" }
+  /** No answer: it may or may not have been applied. */
+  | { state: "unknown" };
 
 /**
  * On the unsubscribe page: sends the person's choice, unless another write is
  * on its way (then the choice is marked as racing it and left to the writer in
  * flight and the scheduled run). When the answer comes and a newer opt-out was
- * made meanwhile, that is sent too. Answers the choice the provider was given
- * and still in force, or null (the scheduled run finishes it).
+ * made meanwhile, that is sent too.
  */
 export async function syncEmailPreference(
   userId: string,
   email: string,
   setTopic: SetProviderTopic = setProviderTopic,
-): Promise<{ subscribed: boolean } | null> {
+): Promise<SyncResult> {
   let row = await readChoice(userId);
-  if (!row?.emailPreferenceAt) return null;
+  if (!row?.emailPreferenceAt) return { state: "rejected" };
   for (;;) {
     const version: number = row.emailPreferenceVersion;
     const choice = choiceOf(row);
     const lease = await takeLease(userId);
     if (!lease) {
       await markContended(userId, version);
-      return null;
+      return { state: "queued" };
     }
-    const { sent, current } = await sendUnderLease(userId, email, lease, choice, version, setTopic);
-    if (!sent || !current) return null;
-    if (current.emailPreferenceVersion === version) return { subscribed: choice === "opt_in" };
-    // A newer choice was made while this write was on its way, and could not
-    // be sent then. A newer opt-out is sent now; a newer opt-in is left to the
-    // scheduled run, which decides between it and anything at the provider.
-    if (choiceOf(current) === "opt_in") return null;
+    const { outcome, current } = await sendUnderLease(
+      userId,
+      email,
+      lease,
+      choice,
+      version,
+      setTopic,
+    );
+    if (outcome !== "ok") return { state: outcome };
+    if (!current || current.emailPreferenceVersion === version || choiceOf(current) === "opt_in")
+      // In force, or overtaken by a Subscribe again, which raced this write and
+      // is left to the scheduled run (the opt-out it raced wins there).
+      return { state: "applied", subscribed: choice === "opt_in" };
+    // A newer opt-out was made while this write was on its way: send it now.
     row = current;
   }
 }
@@ -232,8 +275,17 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
     };
     if (held === want) return await settle(row.emailProviderWriteAt);
 
+    // Which came last at the provider cannot be known when the choice raced
+    // another write, was acknowledged before the provider changed, or was
+    // written with no answer (its writer died, or none came).
+    const unknownOutcome =
+      row.emailProviderWriteVersion === version &&
+      row.emailProviderAckVersion !== version &&
+      row.emailProviderRejectedVersion !== version;
     const unknowable =
-      row.emailProviderContendedVersion === version || row.emailProviderAckVersion === version;
+      row.emailProviderContendedVersion === version ||
+      row.emailProviderAckVersion === version ||
+      unknownOutcome;
     if (unknowable && held === "opt_out") {
       // The opt-out wins: record it on the account, guarded by the version so a
       // choice made meanwhile is not overwritten.
@@ -246,10 +298,13 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
         WHERE user_id = ${userId} AND email_preference_version = ${version}`;
       return recorded > 0;
     }
-    // A pending or failed write of the account's choice is finished; an opt-in
-    // at the provider under an account opt-out is set back (the opt-out wins).
-    const writeAt = await startWrite(userId, lease);
-    if (!writeAt || !(await io.setTopic(email, want))) return false;
+    // A refused or never-sent write of the account's choice is finished; an
+    // opt-in at the provider under an account opt-out is set back (the opt-out wins).
+    const writeAt = await startWrite(userId, lease, version);
+    if (!writeAt) return false;
+    const outcome = await io.setTopic(email, want);
+    if (outcome === "rejected") await recordRejected(userId, version);
+    if (outcome !== "ok") return false;
     return await settle(writeAt);
   } finally {
     await giveBack(userId, lease, ackVersion);

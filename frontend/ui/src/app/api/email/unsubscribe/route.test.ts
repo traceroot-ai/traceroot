@@ -39,9 +39,10 @@ beforeEach(() => {
     subscribed,
   }));
   sync.syncEmailPreference.mockImplementation(async () => ({
+    state: "applied",
     subscribed: account.recordUnsubscribe.mock.calls.at(-1)![1] as boolean,
   }));
-  sync.setProviderTopic.mockResolvedValue(true);
+  sync.setProviderTopic.mockResolvedValue("ok");
 });
 
 describe("recording the choice", () => {
@@ -101,8 +102,8 @@ describe("failures", () => {
     expect(sync.setProviderTopic).not.toHaveBeenCalled();
   });
 
-  it("confirms, saying it can take a few minutes, when only the provider sync did not finish", async () => {
-    sync.syncEmailPreference.mockResolvedValue(null);
+  it("confirms an unsubscribe, saying it can take a few minutes, when the provider did not take it yet", async () => {
+    sync.syncEmailPreference.mockResolvedValue({ state: "rejected" });
     const response = await post(...ONE_CLICK);
     expect(response.status).toBe(200);
     const html = await response.text();
@@ -128,6 +129,29 @@ describe("failures", () => {
   });
 });
 
+describe("a Subscribe again the provider has not taken", () => {
+  it("says a refused one is on its way: the scheduled run sends it again", async () => {
+    sync.syncEmailPreference.mockResolvedValue({ state: "rejected" });
+    const html = await (await post("t=good&action=opt_in")).text();
+    expect(html).toContain(BACK);
+    expect(html).toContain(LATER);
+  });
+
+  it.each([
+    ["queued behind another write", "queued", "still unsubscribed"],
+    ["with no answer", "unknown", "may not have gone through"],
+  ] as const)(
+    "does not promise one %s, and offers the choice again",
+    async (_case, state, says) => {
+      sync.syncEmailPreference.mockResolvedValue({ state });
+      const html = await (await post("t=good&action=opt_in")).text();
+      expect(html).not.toContain(BACK);
+      expect(html).toContain(says);
+      expect(html).toContain(form("opt_in"));
+    },
+  );
+});
+
 describe("a choice that lands after a newer one", () => {
   it("shows the newer unsubscribe in force to a late Subscribe again", async () => {
     account.recordUnsubscribe.mockResolvedValue({
@@ -135,7 +159,7 @@ describe("a choice that lands after a newer one", () => {
       applied: false,
       subscribed: false,
     });
-    sync.syncEmailPreference.mockResolvedValue({ subscribed: false });
+    sync.syncEmailPreference.mockResolvedValue({ state: "applied", subscribed: false });
     const html = await (await post("t=good&action=opt_in")).text();
     expect(html).toContain(BYE);
     expect(html).not.toContain(BACK);
@@ -147,7 +171,7 @@ describe("a choice that lands after a newer one", () => {
       applied: false,
       subscribed: true,
     });
-    sync.syncEmailPreference.mockResolvedValue({ subscribed: true });
+    sync.syncEmailPreference.mockResolvedValue({ state: "applied", subscribed: true });
     expect(await (await post(...ONE_CLICK)).text()).toContain(BACK);
   });
 });
@@ -162,7 +186,7 @@ describe("an address with no account", () => {
   });
 
   it("asks for another try when the provider fails", async () => {
-    sync.setProviderTopic.mockResolvedValue(false);
+    sync.setProviderTopic.mockResolvedValue("rejected");
     expect((await post(...ONE_CLICK)).status).toBe(502);
   });
 });

@@ -53,6 +53,7 @@ const provider = {
   noTopic: new Set<string>(),
   slowMs: 0,
   writes: 0, // topic writes that reached the provider
+  timeoutNext: 0, // the next topic writes get no answer: the connection drops
   // The next write of this choice waits for the gate, lands, and then either
   // answers or (lost) never answers its request.
   hold: null as null | {
@@ -64,7 +65,10 @@ const provider = {
     landFirst?: boolean;
   },
 };
-const handle = async (url: URL, init: { method: string; body: string }) => {
+const handle = async (
+  url: URL,
+  init: { method: string; body: string },
+): Promise<Response | null> => {
   const parts = url.pathname.split("/").map(decodeURIComponent);
   const method = init.method;
   const body = init.body ? JSON.parse(init.body) : null;
@@ -103,6 +107,10 @@ const handle = async (url: URL, init: { method: string; body: string }) => {
     return Response.json({ id: "c" });
   }
   if (provider.failAlways.has(parts[2])) return new Response("{}", { status: 503 });
+  if (provider.timeoutNext > 0) {
+    provider.timeoutNext -= 1;
+    return null; // the server drops the connection without answering
+  }
   if (provider.failNext > 0) {
     provider.failNext -= 1;
     return new Response("{}", { status: 503 });
@@ -124,6 +132,10 @@ const startProvider = async () => {
         method: req.method ?? "GET",
         body,
       });
+      if (!response) {
+        req.socket.destroy(); // no answer at all
+        return;
+      }
       res.writeHead(response.status, { "content-type": "application/json" });
       res.end(await response.text());
     });
@@ -339,6 +351,96 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     },
   );
 
+  it("does not resubscribe after an unopposed Subscribe again reached the provider and its writer died before acknowledging", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    // The Subscribe again reaches the provider; its writer dies before it hears back.
+    let never!: () => void;
+    provider.hold = {
+      choice: "opt_in",
+      gate: new Promise<void>((r) => (never = r)),
+      lost: true,
+      failAfter: 0,
+      landFirst: true,
+    };
+    void post(p.email, "opt_in");
+    await sleep(80);
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    const row = await account(p.id);
+    expect(row?.emailProviderAckVersion).not.toBe(row?.emailPreferenceVersion);
+    // The person then opts out at the provider.
+    provider.topic.set(p.email, "opt_out");
+    // The lost writer's lease runs out; the real scheduler runs twice.
+    await leaseExpired(p.id);
+    await windowPassed(p.id);
+    await tick();
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    expect(await unsubscribed(p.id)).toBe(true);
+    void never;
+  });
+
+  it("tells a queued Subscribe again it is not confirmed yet, and lets a new click through", async () => {
+    const p = await person();
+    await post(p.email, "opt_in");
+    await sleep(5);
+    let release!: () => void;
+    provider.hold = {
+      choice: "opt_out",
+      gate: new Promise<void>((r) => (release = r)),
+      lost: false,
+      failAfter: 0,
+    };
+    const unsubscribing = post(p.email, "opt_out");
+    await sleep(80);
+    await sleep(5);
+    // A Subscribe again while the unsubscribe is on its way: queued, not confirmed.
+    const queued = await post(p.email, "opt_in");
+    expect(queued.status).toBe(200);
+    expect(queued.text).not.toContain("You're subscribed again.");
+    expect(queued.text).toContain("still unsubscribed");
+    expect(queued.text).toContain('name="action" value="opt_in"'); // a new explicit choice
+    release();
+    await unsubscribing;
+    // A new click, with nothing on its way, goes through at once.
+    await sleep(5);
+    const again = await post(p.email, "opt_in");
+    expect(again.text).toContain("You're subscribed again.");
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    expect(await unsubscribed(p.id)).toBe(false);
+    await windowPassed(p.id);
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    expect(await settled(p.id)).toBe(true);
+  });
+
+  it("retries a Subscribe again the provider rejected, and says so; an unknown outcome is not promised", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    // Rejected (503): the page says it is on its way; the run finishes it.
+    provider.failNext = 1;
+    const rejected = await post(p.email, "opt_in");
+    expect(rejected.text).toContain("You're subscribed again.");
+    expect(rejected.text).toContain("few minutes");
+    await windowPassed(p.id);
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    // Unknown (no answer): the page does not promise it, and offers the choice again.
+    await sleep(5);
+    await post(p.email, "opt_out");
+    await sleep(5);
+    provider.timeoutNext = 1;
+    const unknown = await post(p.email, "opt_in");
+    expect(unknown.text).not.toContain("You're subscribed again.");
+    expect(unknown.text).toContain('name="action" value="opt_in"');
+  });
+
   it("still sends a Subscribe again at once when nothing else is on its way", async () => {
     const p = await person();
     await post(p.email, "opt_out");
@@ -521,9 +623,9 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
         first = false;
         await pause.recordUnsubscribe(email, false, at);
       }
-      return true;
+      return "ok" as const;
     });
-    expect(result).toEqual({ subscribed: false });
+    expect(result).toEqual({ state: "applied", subscribed: false });
     expect(provider.topic.get(p.email)).toBe("opt_out");
     // A Subscribe again at that same instant changes nothing now.
     expect(await pause.recordUnsubscribe(p.email, true, at)).toMatchObject({ applied: false });
