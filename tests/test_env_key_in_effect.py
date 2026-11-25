@@ -205,3 +205,18 @@ def test_inherited_process_env_var_does_not_shadow_target_env_file(tmp_path, mon
         check=True,
     )
     assert f"ENCRYPTION_KEY={updated_value}" in updated.stdout
+
+
+def test_env_value_handles_key_named_like_internal_shell_var(tmp_path, monkeypatch):
+    """Reading a key named `probe` must not clear resolve()'s internal $probe variable."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("probe=from_file\n")
+    monkeypatch.setenv("probe", "from_shell")
+
+    got = subprocess.run(
+        ["sh", str(_ENV_VALUE), "get", "probe", str(env_file)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert got.stdout == "from_file"

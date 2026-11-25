@@ -42,9 +42,10 @@ resolve() { # resolve KEY FILE
 	# Each stage is checked on its own: a pipeline reports only its last stage, so a failing
 	# docker or a missing value line must not read as an unset key.
 	status=0
-	# Unset the target key inside the subshell so an inherited process env var
-	# (e.g., from a caller's shell or pytest conftest) does not shadow --env-file.
-	json=$(unset "$1" 2>/dev/null || true; docker compose --env-file "$2" -f "$probe/compose.yml" --project-directory "$probe" config --format json 2>/dev/null) || status=$?
+	# Remove the target key from the child process environment so an inherited
+	# env var (e.g. from caller's shell or pytest conftest) does not shadow --env-file,
+	# without mutating resolve()'s own shell variables such as $probe.
+	json=$(env -u "$1" docker compose --env-file "$2" -f "$probe/compose.yml" --project-directory "$probe" config --format json 2>/dev/null) || status=$?
 	value=
 	if [ "$status" -eq 0 ]; then
 		value=$(printf '%s\n' "$json" | unescape_json) || status=$?
