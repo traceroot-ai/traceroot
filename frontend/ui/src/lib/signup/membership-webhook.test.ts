@@ -78,7 +78,12 @@ describe("notifyWorkspaceMember", () => {
     );
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(error).toHaveBeenCalledTimes(1);
-    expect(String(error.mock.calls[0][0])).toContain("user u1 in workspace w1");
+    // The ids are arguments to a fixed format string, never part of it.
+    expect(error.mock.calls[0].slice(0, 3)).toEqual([
+      "[signup] membership webhook failed for user %s in workspace %s: %s",
+      "u1",
+      "w1",
+    ]);
   });
 
   it("stops retrying once a delivery gets through", async () => {

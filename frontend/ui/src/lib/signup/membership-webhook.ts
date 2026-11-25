@@ -42,9 +42,12 @@ export async function notifyWorkspaceMember(
       return await sendSignupWebhook(event, options);
     } catch (error) {
       if (attempt === ATTEMPTS) {
+        // The ids go in as arguments, not into the format string.
         console.error(
-          `[signup] membership webhook failed for user ${input.userId} in workspace ${input.workspaceId}:`,
-          error instanceof Error ? error.message : error,
+          "[signup] membership webhook failed for user %s in workspace %s: %s",
+          input.userId,
+          input.workspaceId,
+          error instanceof Error ? error.message : String(error),
         );
         return false;
       }
