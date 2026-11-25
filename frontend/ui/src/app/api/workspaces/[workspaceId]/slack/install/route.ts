@@ -4,6 +4,7 @@ import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { installer, SLACK_BOT_SCOPES } from "@traceroot/slack";
 import { hasEntitlement, prisma, type PlanType } from "@traceroot/core";
 import { env } from "@/env";
+import { slackResultUrl, slackReturnPath } from "@/lib/slack-return";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -29,8 +30,20 @@ async function handleGET(
     return NextResponse.redirect(upgradeUrl);
   }
 
+  // Where the authorization comes back to: the page it was started from, kept
+  // only when it is a path on this site.
   const url = new URL(request.url);
-  const returnTo = url.searchParams.get("returnTo") || "/";
+  const returnTo = slackReturnPath(workspaceId, url.searchParams.get("returnTo"));
+
+  // A deployment without the Slack app's settings cannot start an
+  // authorization (the state is signed with SLACK_STATE_SECRET). Back to the
+  // starting page with the reason, rather than an error page.
+  if (!env.SLACK_CLIENT_ID || !env.SLACK_STATE_SECRET) {
+    console.error("[slack] install: SLACK_CLIENT_ID or SLACK_STATE_SECRET is not set");
+    return NextResponse.redirect(
+      slackResultUrl(returnTo, { connected: false, reason: "not_configured" }, APP_BASE_URL),
+    );
+  }
 
   // Use the SDK's URL builder (which signs state via SLACK_STATE_SECRET)
   // and redirect with NextResponse — bypassing the SDK's HTTP plumbing,
