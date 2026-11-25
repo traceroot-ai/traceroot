@@ -135,6 +135,13 @@ describe("GET/PATCH/DELETE .../loops/[loopId]", () => {
     expect(getLoopSummaryMock).toHaveBeenCalledWith(prismaMock, "proj-1", "loop-1");
   });
 
+  it("GET answers the Loop with its roll-ups", async () => {
+    getLoopSummaryMock.mockResolvedValue({ id: "loop-1", runCount: 2 });
+    const res = await loopRoute.GET(req(), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ loop: { id: "loop-1", runCount: 2 } });
+  });
+
   it("PATCH hands the patch to the service as a MEMBER ui write and reports what changed", async () => {
     updateLoopMock.mockResolvedValue({ ok: true, data: { id: "loop-1" }, changed: ["dry_run"] });
     const res = await loopRoute.PATCH(req("", { dryRun: true }), params);
@@ -213,6 +220,15 @@ describe("GET .../runs", () => {
     expect((await runsRoute.GET(req("?status=exploded"), params)).status).toBe(400);
   });
 
+  it("falls back to the default page and limit when they are not numbers", async () => {
+    listLoopRunsMock.mockResolvedValue({ data: [], meta: { page: 0, limit: 50, total: 0 } });
+    await runsRoute.GET(req("?page=two&limit=many"), params);
+    expect(listLoopRunsMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ page: 0, limit: 50 }),
+    );
+  });
+
   it("hands a signal_id to the read, which narrows to that signal's runs", async () => {
     listLoopRunsMock.mockResolvedValue({ data: [], meta: { page: 0, limit: 50, total: 0 } });
     await runsRoute.GET(req("?signal_id=sig-1"), params);
@@ -228,6 +244,13 @@ describe("GET .../runs/[runId]", () => {
     getLoopRunMock.mockResolvedValue(null);
     expect((await runOneRoute.GET(req(), runParams)).status).toBe(404);
     expect(getLoopRunMock).toHaveBeenCalledWith(prismaMock, "loop-1", "run-1");
+  });
+
+  it("answers the run", async () => {
+    getLoopRunMock.mockResolvedValue({ id: "run-1", status: "succeeded" });
+    const res = await runOneRoute.GET(req(), runParams);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ run: { id: "run-1", status: "succeeded" } });
   });
 });
 
