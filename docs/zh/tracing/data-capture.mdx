@@ -104,7 +104,7 @@ traceroot 的 span 里可能包含应用数据。如果你要追踪的工作负�
 
 - 它在你的应用里运行，处理每一个已结束的 span，包括其他库产生的 span。在 Python 里，请保证它执行快、同步并且线程安全。在 TypeScript 里，它在导出时运行，不占用请求处理的时间，可以是异步函数；每个批次有 5 秒的时间。
 - 它会收到 span 的内容：`observe` 的输入、输出和元数据，LLM 提示词，异常信息这类事件属性，以及状态信息。结构化的值会以 JSON 文本的形式传入，如果你的检测逻辑漏掉了 JSON 里的姓名，请先解析再处理。
-- 它不会收到记录性质的字段：user ID 和会话 ID、模型名称和 token 用量、标签、环境、span 名称等。这些字段会原样发送，所以不要在里面放个人数据。user ID 请使用内部 ID，不要用邮箱地址。
+- 它不会收到记录性质的字段：用户 ID 和会话 ID、模型名称和 token 用量、标签、环境、span 名称等。这些字段会原样发送，所以不要在里面放个人数据。用户 ID 请使用内部 ID，不要用邮箱地址。
 - 请返回所有你想保留的 key。
 - 只有 traceroot 收到的这一份会被改写。你的应用里的其他 exporter 拿到的仍然是原始 span。
 
@@ -148,7 +148,7 @@ TraceRoot.initialize({
 从 0.8.0 开始，TypeScript 的 `redact` 还会收到由 Vercel AI SDK 属性派生出来的 key（`input.value`、`output.value`、`llm.*`）。如果你丢弃了某些 `ai.*` key，请把这些 key 也一并丢弃。
 </Note>
 
-trace 视图会把这个函数处理过的每个 span 标记为 **Redacted by your app**。
+trace 视图会把这个函数处理过的每个 span 标记为 **已由你的应用脱敏**。
 
 <Frame caption="Span 详情：Redacted by your app 标签和脱敏后的输入">
   <img src="/images/span_redacted_v1.png" alt="update_shipping_contact 的 span 详情，带有 Redacted by your app 标签，输入消息里的邮箱地址和电话号码显示为 [REDACTED]" />
