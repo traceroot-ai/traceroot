@@ -9,7 +9,7 @@ description: 描述你想让模型查找的问题，然后查看被它标记出�
 所有套餐都可以使用 detector。Free 套餐每个计费周期包含 100 次 detector 运行。
 
 <Frame caption="Detectors 列表：每个 detector 的模板、模型、采样率、signal 和 agent 运行次数">
-  <img src="/images/detectors_list_zh_v1.png" alt="Detectors 列表，展示每个 detector 的模板、模型、采样率、judge 运行次数、signal 和 agent 运行次数" />
+  <img src="/images/detectors_list_v1.png" alt="Detectors 列表，展示每个 detector 的模板、模型、采样率、judge 运行次数、signal 和 agent 运行次数" />
 </Frame>
 
 ## detector 的工作方式
@@ -20,34 +20,34 @@ description: 描述你想让模型查找的问题，然后查看被它标记出�
 
 **第 2 步：agent。** traceroot Agent 读取 signal 里的一条 trace，写出根因分析，其中包含代码位置和修复建议。它在什么时候运行，请看 [Signals](/signals/introduction)。
 
-两个步骤各用各的模型。judge 模型在每个 detector 上单独选择。agent 模型每个项目只选一次，位置在 **设置 → Detectors → Agent 模型**。两者都可以用 traceroot 提供的模型，也可以用你自己的提供商 key 对应的模型（[自带 key](/ai-agent/byok)）。
+两个步骤各用各的模型。judge 模型在每个 detector 上单独选择。agent 模型每个项目只选一次，位置在 **Settings → Detectors → Agent Model**。两者都可以用 traceroot 提供的模型，也可以用你自己的提供商 key 对应的模型（[自带 key](/ai-agent/byok)）。
 
 ## 如何创建 detector
 
 你需要一个已经在接收 trace 的项目。如何设置请看[追踪](/zh/tracing/get-started)。
 
-在 [traceroot Cloud](https://app.traceroot.ai) 里打开你的项目，在左侧导航里选择 **Detectors**，然后点击 **新建 detector**。
+在 [traceroot Cloud](https://app.traceroot.ai) 里打开你的项目，在左侧导航里选择 **Detectors**，然后点击 **New Detector**。
 
-<Frame caption="Detectors 页面：新建 detector 按钮">
-  <img src="/images/detector_new_button_zh_v1.png" alt="Detectors 页面顶部，新建 detector 按钮被高亮" />
+<Frame caption="Detectors 页面：New Detector 按钮">
+  <img src="/images/detector_new_button_v1.png" alt="Detectors 页面顶部，New Detector 按钮被高亮" />
 </Frame>
 
-1. **模板**：选择 **Failure**（默认选中）、**Hallucination**、**Logic error**、**Task completion**、**Safety** 或 **Blank**。模板会自动填好 **名称** 和 **提示词**。**Blank** 会让这两项留空。
-2. **模型**：选择用来判断每条 trace 的模型。默认是 `gpt-6-luna`。
-3. **提示词**：用自然语言描述要查找的问题。
-4. **筛选**：选择 detector 要检查哪些 trace。留空表示检查所有 trace。
-5. **采样**：设置在符合条件的 trace 里检查多大比例。初始值是 25%。**100%** 表示检查所有符合条件的 trace，**0%** 表示暂停这个 detector。对于同一条 trace，detector 的采样结果始终相同，所以重新发送这条 trace 不会改变它是否被检查。
-6. **Signals**：保持 **生成 signal** 开启，finding 就会被归并成 signal。**根因分析** 的设置方法见[下文](#根因分析)。
-7. 点击 **创建 detector**。detector 会从这一刻起检查新到达的 trace。
+1. **Template**：选择 **Failure**（默认选中）、**Hallucination**、**Logic Error**、**Task Completion**、**Safety** 或 **Blank**。模板会自动填好 **Name** 和 **Prompt**。**Blank** 会让这两项留空。
+2. **Model**：选择用来判断每条 trace 的模型。默认是 `gpt-6-luna`。
+3. **Prompt**：用自然语言描述要查找的问题。
+4. **Filter**：选择 detector 要检查哪些 trace。留空表示检查所有 trace。
+5. **Sampling**：设置在符合条件的 trace 里检查多大比例。初始值是 25%。**100%** 表示检查所有符合条件的 trace，**0%** 表示暂停这个 detector。对于同一条 trace，detector 的采样结果始终相同，所以重新发送这条 trace 不会改变它是否被检查。
+6. **Signals**：保持 **Generate signals** 开启，finding 就会被归并成 signal。**Root cause analysis** 的设置方法见[下文](#根因分析)。
+7. 点击 **Create Detector**。detector 会从这一刻起检查新到达的 trace。
 
 ## 用 AI 创建 detector
 
-在左侧导航里选择 **首页** 打开 traceroot Agent，然后描述你想要的 detector，或者让它根据你的项目推荐一个。例如：
+在左侧导航里选择 **Home** 打开 traceroot Agent，然后描述你想要的 detector，或者让它根据你的项目推荐一个。例如：
 
 - "Create a detector that flags traces where a tool call fails"
 - "Suggest a new detector based on my current detectors"
 
-agent 会起草这个 detector。在你点击对话下方的 **创建 detector** 之前，不会保存任何内容。如果想修改草稿，直接回复即可。
+agent 会起草这个 detector。在你点击对话下方的 **Create detector** 之前，不会保存任何内容。如果想修改草稿，直接回复即可。
 
 <Frame caption="traceroot Agent：一条创建 detector 的请求、它读取的 detector，以及它给出的总结">
   <img src="/images/detector_agent_v1.png" alt="traceroot Agent 列出并读取项目里的 detector，然后总结它们的配置" />
@@ -57,10 +57,10 @@ AI coding agent 也可以用 [traceroot CLI](/cli/get-started)（`traceroot dete
 
 ## 根因分析
 
-**根因分析** 在 **Signals** 部分设置，**新建 detector** 页面和 detector 的编辑面板里都有这一项。它需要 **生成 signal** 处于开启状态。
+**Root cause analysis** 在 **Signals** 部分设置，**New Detector** 页面和 detector 的编辑面板里都有这一项。它需要 **Generate signals** 处于开启状态。
 
-- **自动**（每个新 detector 的默认值）：agent 自动分析 signal。
-- **手动**：只有当你在某个 signal 上点击 **运行根因分析** 时，agent 才会运行。只想分析自己挑选的问题时，可以用这个模式。
+- **Automatic**（每个新 detector 的默认值）：agent 自动分析 signal。
+- **Manual**：只有当你在某个 signal 上点击 **Run root cause analysis** 时，agent 才会运行。只想分析自己挑选的问题时，可以用这个模式。
 
 两种模式下，检测和通知的方式完全相同。
 
@@ -68,14 +68,14 @@ agent 以 signal 为单位做分析，不会逐条分析 finding。它在什么�
 
 ## 查看 finding
 
-打开一个 detector 可以看到它的运行记录。**已识别** 为“是”的运行就是一个 finding。
+打开一个 detector 可以看到它的运行记录。**Identified** 为 Yes 的运行就是一个 finding。
 
 在运行记录表格里：
 
 - 每次运行都链接到它检查的那条 trace。
-- **已识别** 显示“是”或“否”；如果运行失败，显示一个短横线。
-- **Signal ID** 链接到这个 finding 所归入的 signal。如果归并失败，显示 **未归组**。
-- 如果 agent 分析了这条 trace，**Agent 运行 ID** 会链接到 agent 的那次运行，否则显示一个短横线。打开 signal 可以阅读它的分析。
+- **Identified** 显示 Yes 或 No；如果运行失败，显示一个短横线。
+- **Signal ID** 链接到这个 finding 所归入的 signal。如果归并失败，显示 **Not grouped**。
+- 如果 agent 分析了这条 trace，**Agent Run ID** 会链接到 agent 的那次运行，否则显示一个短横线。打开 signal 可以阅读它的分析。
 
 如果 agent 分析过某条 trace，它的分析会显示在这条 trace 的对话面板里，你可以在那里继续追问。trace 查看器的 **Detectors** 标签页列出了在这条 trace 上运行过的每个 detector，并链接到每个 finding 所属的 signal。
 
@@ -83,11 +83,11 @@ agent 以 signal 为单位做分析，不会逐条分析 finding。它在什么�
 
 signal 被创建或重新打开时，traceroot 会通知你。它会在每个告警窗口内收集这些 signal，然后合并成一条消息发送，这条消息叫 digest。如果一个 signal 已经通知过，它上面新增的 finding 不会再触发通知。
 
-在你的项目里打开 **设置 → Detectors**，找到 **通知**：
+在你的项目里打开 **Settings → Detectors**，找到 **Notifications**：
 
-- **邮箱**：点击 **添加收件人**，输入邮箱地址，然后点击 **保存**。
-- **告警窗口**：选择 traceroot 在发送 digest 之前收集 signal 的时长（1、5、10 或 30 分钟，1 小时或 2 小时），然后点击 **保存**。默认是 10 分钟。
-- **Slack**：显示已连接的 Slack 工作区和频道。点击 **连接** 或 **管理** 可以修改。
+- **Email**：点击 **Add recipient**，输入邮箱地址，然后点击 **Save**。
+- **Alert window**：选择 traceroot 在发送 digest 之前收集 signal 的时长（1、5、10 或 30 分钟，1 小时或 2 小时），然后点击 **Save**。默认是 10 分钟。
+- **Slack**：显示已连接的 Slack 工作区和频道。点击 **Connect** 或 **Manage** 可以修改。
 
 如果既没有邮件收件人，也没有 Slack 频道，traceroot 不会发送任何通知。之后再添加收件人或频道，也不会补发之前的 signal。
 
@@ -107,9 +107,9 @@ signal 被创建或重新打开时，traceroot 会通知你。它会在每个告
 
 每个 traceroot 工作空间只需要连接一次 Slack。traceroot 会把消息发到一个 Slack 频道。
 
-1. 以工作空间管理员的身份打开工作空间设置，进入 **集成**。在项目里，也可以点击 **设置 → Detectors → Slack** 下的 **连接**。
-2. 点击 **连接**，并在 Slack 里批准 traceroot。
-3. 点击 **管理 → 配置** 并选择频道。点击 **测试连接** 检查是否连通。
+1. 以工作空间管理员的身份打开工作空间设置，进入 **Integrations**。在项目里，也可以点击 **Settings → Detectors → Slack** 下的 **Connect**。
+2. 点击 **Connect**，并在 Slack 里批准 traceroot。
+3. 点击 **Manage → Configure** 并选择频道。点击 **Test Connection** 检查是否连通。
 
 <Note>
   在自托管部署里，signal、根因分析和通知需要服务器上配置 `OPENAI_API_KEY`。没有它，detector 仍然会记录 finding。这时没有选择模型的 detector 会用 `claude-haiku-5-5` 做判断，不再使用 `gpt-6-luna`，除非工作空间配置了自己的 OpenAI key。邮件通知还需要 `TRACEROOT_SMTP_URL`。

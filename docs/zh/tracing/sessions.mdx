@@ -3,10 +3,10 @@ title: 会话
 description: 把相关的 trace 归入会话，用于多轮对话和工作流
 ---
 
-设置 **会话 ID** 可以把 trace 归到一起，比如一段对话里的所有轮次，或者多 agent 工作流里的所有步骤。
+设置 **Session ID** 可以把 trace 归到一起，比如一段对话里的所有轮次，或者多 agent 工作流里的所有步骤。
 
 <Frame caption="会话面板：汇总统计、用户，以及每条 trace 的输入和输出">
-  <img src="/images/session_zh_v1.png" alt="traceroot 会话面板，展示会话统计、用户，以及每条 trace 的输入和输出" />
+  <img src="/images/session_v2.png" alt="traceroot 会话面板，展示会话统计、用户，以及每条 trace 的输入和输出" />
 </Frame>
 
 ## 使用 `using_attributes` / `usingAttributes`
@@ -23,7 +23,7 @@ description: 把相关的 trace 归入会话，用于多轮对话和工作流
         response_2 = agent.run("What about tomorrow?")
     ```
 
-    和用户 ID 一起使用，每条 trace 都能带上完整的上下文：
+    和 User ID 一起使用，每条 trace 都能带上完整的上下文：
 
     ```python
     with using_attributes(session_id="chat-abc-123", user_id="user-42"):
@@ -40,7 +40,7 @@ description: 把相关的 trace 归入会话，用于多轮对话和工作流
     });
     ```
 
-    和用户 ID 一起使用，每条 trace 都能带上完整的上下文：
+    和 User ID 一起使用，每条 trace 都能带上完整的上下文：
 
     ```typescript
     await usingAttributes({ sessionId: 'chat-abc-123', userId: 'user-42' }, async () => {

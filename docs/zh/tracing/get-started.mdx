@@ -28,7 +28,7 @@ setup 不会回滚 coding agent 做的修改，请用 `git diff` 检查这些改
 npx -y traceroot-cli@latest setup --host "http://localhost:8000" --auth-host "http://localhost:3000"
 ```
 
-只填 origin，不要带 `/api/v1`。如果两者是同一个 origin，只传 `--host` 就够了。你的部署里的 **追踪** 页面会显示这条命令，并且已经填好 origin。如何运行一套部署，请看[自托管](/zh/developer/self-hosting)。
+只填 origin，不要带 `/api/v1`。如果两者是同一个 origin，只传 `--host` 就够了。你的部署里的 **Traces** 页面会显示这条命令，并且已经填好 origin。如何运行一套部署，请看[自托管](/zh/developer/self-hosting)。
 
 ## 手动设置
 
@@ -55,8 +55,8 @@ npx -y traceroot-cli@latest setup --host "http://localhost:8000" --auth-host "ht
 
 ### 3. 设置环境变量
 
-<Frame caption="追踪设置：侧边栏、手动标签页、API key 输入框、生成按钮">
-  <img src="/images/tracing_api_key_zh_v1.png" alt="traceroot 追踪页面，高亮显示“创建 API key”步骤" />
+<Frame caption="追踪设置：侧边栏、Manual 标签页、API key 输入框、Generate 按钮">
+  <img src="/images/tracing_api_key_v1.png" alt="traceroot 追踪页面，高亮显示 Create an API key 步骤" />
 </Frame>
 
 两个 SDK 都不会自动加载 `.env` 文件，它们读取的是进程的环境变量。在 shell 里导出这些变量：
