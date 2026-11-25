@@ -279,6 +279,7 @@ export const tracesZh: PartialGroups<typeof tracesEn> = {
     openSignal: "{id} — 打开这个 signal",
   },
   tracesColumns: {
+    metadata: "元数据",
     timestamp: "时间",
     name: "名称",
     errors: "错误",
@@ -313,6 +314,7 @@ export const tracesZh: PartialGroups<typeof tracesEn> = {
     detectorMissing: "这次运行没有记录到 trace：self-trace 的导出没有到达后端。",
   },
   tracesSpan: {
+    metadata: "元数据",
     copyId: "复制 ID",
     spanKind: "Span 类型：",
     latency: "延迟：",
@@ -452,7 +454,7 @@ export const tracesZh: PartialGroups<typeof tracesEn> = {
     showMore: "再显示 {count} 个",
     viewDocs: "查看 {name} 文档",
     needsPython: "需要 Python 3.11 或更高版本。",
-    sendPrompt: "在 {name} 里发送一条 prompt，就会发出你的第一条 trace。",
+    sendPrompt: "在 {name} 里发送一条提示词，就会发出你的第一条 trace。",
     makeRequest: "通过你接入的代码发起一次 LLM 请求，就会发出你的第一条 trace。",
     hostBecause: "此页面无法得出这个部署的 API 地址，因为 ",
     hostIsSetTo: " 当前的值是 ",

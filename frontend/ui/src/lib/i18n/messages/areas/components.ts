@@ -252,7 +252,7 @@ export const componentsZh: PartialGroups<typeof componentsEn> = {
     enterValue: "输入值",
     selectValues: "选择值",
     noOptions: "无选项",
-    metadataKey: "metadata 键",
+    metadataKey: "元数据键",
     keyPlaceholder: "键",
     field: "字段",
     filterTraces: "筛选 trace…",
