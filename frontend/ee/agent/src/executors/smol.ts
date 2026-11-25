@@ -17,12 +17,24 @@ export class SmolExecutor implements Executor {
       { target },
     );
 
-    await this.exec("mkdir -p /workspace/repos /workspace/traces /workspace/notes");
-    await this.exec(
-      "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl > /dev/null 2>&1 || true",
+    await this.setup("mkdir -p /workspace/repos /workspace/traces /workspace/notes");
+    await this.setup(
+      "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl > /dev/null",
     );
 
     console.log(`[SmolExecutor] Machine ready: ${this.machine.name}`);
+  }
+
+  // A failed step deletes the machine, so the next tool call runs init() again.
+  private async setup(command: string): Promise<void> {
+    try {
+      const { code, stdout, stderr } = await this.exec(command);
+      if (code !== 0) throw new Error(`exit code ${code}: ${stderr || stdout}`);
+    } catch (err) {
+      await this.destroy();
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Machine setup failed at "${command}": ${msg}`, { cause: err });
+    }
   }
 
   async exec(command: string, options?: ExecOptions): Promise<ExecResult> {

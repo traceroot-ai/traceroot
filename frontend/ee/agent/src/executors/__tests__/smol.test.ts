@@ -52,6 +52,24 @@ describe("SmolExecutor", () => {
     const apt = mockMachine.exec.mock.calls.map((c) => c[0][2]).find((c) => c.includes("apt-get"));
     expect(apt).toContain("ca-certificates");
     expect(apt).toContain("git");
+    // Its exit code and stderr must reach init().
+    expect(apt).not.toMatch(/\|\| true|2>/);
+  });
+
+  it.each([
+    { step: "mkdir", fails: "exits 1", run: async () => execResult("", 1, "disk full") },
+    { step: "apt-get", fails: "exits 100", run: async () => execResult("", 100, "disk full") },
+    { step: "apt-get", fails: "throws", run: () => Promise.reject(new Error("disk full")) },
+  ])("rejects init() and deletes the machine when $step $fails", async ({ step, run }) => {
+    mockMachine.exec.mockImplementation(async (argv: string[]) =>
+      argv[2].startsWith(step) ? run() : execResult(""),
+    );
+    mockMachine.delete.mockRejectedValueOnce(new Error("delete failed"));
+
+    await expect(executor.init()).rejects.toThrow(new RegExp(`at "${step} .*disk full`));
+
+    expect(mockMachine.delete).toHaveBeenCalledTimes(1);
+    expect(executor.isReady()).toBe(false);
   });
 
   it("runs commands through sh with env out of argv and keeps the exit code", async () => {
