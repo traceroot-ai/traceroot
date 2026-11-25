@@ -14,9 +14,15 @@ import { ImpersonationError, throwIfImpersonationDenied } from "@/lib/api/errors
 
 interface GitHubConnectButtonProps {
   workspaceId: string;
+  /**
+   * Where GitHub's installation comes back to, as a same-site path. Defaults to
+   * the current page's path; pass one with its query when the page needs it to
+   * pick up where it was, as the sign-up connect step does with its project.
+   */
+  returnTo?: string;
 }
 
-export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
+export function GitHubConnectButton({ workspaceId, returnTo }: GitHubConnectButtonProps) {
   const queryClient = useQueryClient();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [open, setOpen] = useState(false);
@@ -57,7 +63,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
   // usePathname is consistent on server and client — using window.location here
   // would create an SSR/CSR hydration mismatch in this client component.
   const buildHref = (path: string) =>
-    `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(pathname || "/")}`;
+    `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(returnTo ?? (pathname || "/"))}`;
 
   if (impersonating || denial) {
     return (

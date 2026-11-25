@@ -1,33 +1,36 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/app/auth/use-hydrated";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Logo } from "@/components/Logo";
+import {
+  AgentIdNote,
+  AuthError,
+  AuthField,
+  AuthHeader,
+  AuthLayout,
+  AuthLegal,
+  AuthProviderOptions,
+  PasswordInput,
+} from "@/components/auth/auth-layout";
 import { signupEmailError } from "@/lib/signup/email-policy";
 import type { SocialProvider } from "@/lib/social-providers";
-import { SocialSignInButtons } from "../social-sign-in-buttons";
+import { useSocialSignIn } from "../use-social-sign-in";
 
-const signUpSchema = z
-  .object({
-    name: z.string().min(1, "Name is required"),
-    email: z.string().email("Invalid email"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
+// The password is asked for once; the show/hide toggle is how to check it.
+const signUpSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
 
 const cloudSignUpSchema = signUpSchema.superRefine(({ email }, ctx) => {
   const error = signupEmailError(email);
@@ -87,8 +90,7 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
       : "/auth/sign-in";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const hydrated = useHydrated();
 
   const {
     register,
@@ -96,7 +98,7 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
     formState: { errors },
   } = useForm<SignUpForm>({
     resolver: zodResolver(emailDomainPolicyEnabled ? cloudSignUpSchema : signUpSchema),
-    defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
+    defaultValues: { name: "", email: "", password: "" },
   });
 
   async function onSubmit(data: SignUpForm) {
@@ -122,106 +124,78 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
     }
   }
 
+  const social = useSocialSignIn(socialProviders, destination, setError);
+
+  const field = "h-10 pl-[13px] text-[14px]";
+
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mb-2 flex justify-center">
-            <Logo size="lg" />
-          </div>
-          <CardTitle className="text-[15px] font-medium">Create your account</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {error && (
-            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-              {error}
-            </div>
-          )}
+    <AuthLayout
+      topAction={
+        <>
+          <span className="hidden text-[13px] text-muted-foreground min-[400px]:inline">
+            Already have an account?
+          </span>
+          <Link
+            href={signInHref}
+            className={buttonVariants({ variant: "outline", size: "sm", className: "h-8 px-3" })}
+          >
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <AuthHeader
+        title="Create your account"
+        subtitle="Start tracing and improving your AI agents."
+      />
+      <AuthProviderOptions social={social} />
+      <div className="space-y-5">
+        <AuthError message={error} />
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Name</label>
-              <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
-              {errors.name && <p className="mt-1 text-[12px] text-danger">{errors.name.message}</p>}
-            </div>
+        <form method="post" onSubmit={handleSubmit(onSubmit)}>
+          <div className="space-y-4">
+            <AuthField label="Name" error={errors.name?.message}>
+              <Input
+                placeholder="Your name"
+                autoComplete="name"
+                className={field}
+                {...register("name")}
+              />
+            </AuthField>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Email</label>
+            <AuthField label="Email" error={errors.email?.message}>
               <Input
                 type="email"
                 placeholder="you@example.com"
-                className="h-8 text-[13px]"
+                autoComplete="email"
+                className={field}
                 {...register("email")}
               />
-              {errors.email && (
-                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
-              )}
-            </div>
+            </AuthField>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Password</label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="********"
-                  className="h-8 pr-10 text-[13px]"
-                  {...register("password")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
-              )}
-            </div>
+            <AuthField label="Password" error={errors.password?.message}>
+              <PasswordInput
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                className={field}
+                {...register("password")}
+              />
+            </AuthField>
+          </div>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Confirm Password</label>
-              <div className="relative">
-                <Input
-                  type={showConfirmPassword ? "text" : "password"}
-                  placeholder="********"
-                  className="h-8 pr-10 text-[13px]"
-                  {...register("confirmPassword")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {errors.confirmPassword && (
-                <p className="mt-1 text-[12px] text-danger">{errors.confirmPassword.message}</p>
-              )}
-            </div>
-
-            <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Sign up"}
-            </Button>
-          </form>
-
-          <SocialSignInButtons
-            providers={socialProviders}
-            callbackURL={destination}
-            onError={setError}
-          />
-
-          <p className="text-center text-[12px] text-muted-foreground">
-            Already have an account?{" "}
-            <Link href={signInHref} className="font-medium text-brand hover:underline">
-              Sign in
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+          <Button
+            type="submit"
+            size="sm"
+            className="mt-6 h-10 w-full text-[14px] font-[600] text-primary-ink"
+            disabled={isLoading || !hydrated}
+          >
+            {isLoading ? "Creating account..." : "Sign up"}
+          </Button>
+        </form>
+      </div>
+      <AgentIdNote intent="sign-up" social={social} className="mt-4" />
+      <AuthLegal className="mt-6" />
+    </AuthLayout>
   );
 }
 
