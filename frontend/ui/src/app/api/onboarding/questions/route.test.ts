@@ -9,7 +9,14 @@ const m = vi.hoisted(() => ({
   user: { id: "u-new", email: "new@acme.dev" },
   save: vi.fn(),
   finish: vi.fn(),
+  welcome: vi.fn(),
+  after: [] as (() => Promise<unknown>)[],
 }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => Promise<unknown>) => void m.after.push(task),
+}));
+vi.mock("@/lib/email/welcome/welcome-schedule", () => ({ sendScheduledWelcome: m.welcome }));
 vi.mock("@/lib/auth-helpers", async () => {
   const { NextResponse } = await import("next/server");
   return {
@@ -37,6 +44,8 @@ const request = (method: string, body?: string, forUser: string | null = "u-new"
 beforeEach(() => {
   m.save.mockReset().mockResolvedValue(undefined);
   m.finish.mockReset().mockResolvedValue({ finished: true });
+  m.welcome.mockReset().mockResolvedValue({ status: "sent", id: "e1" });
+  m.after.length = 0;
 });
 
 describe("PATCH /api/onboarding/questions", () => {
@@ -72,5 +81,29 @@ describe("POST /api/onboarding/questions", () => {
   it("refuses to finish for another account", async () => {
     expect((await POST(request("POST", undefined, "u-old"))).status).toBe(409);
     expect(m.finish).not.toHaveBeenCalled();
+    expect(m.after).toHaveLength(0);
+  });
+
+  it("sends the welcome once the response is on its way, from the call that finishes", async () => {
+    const response = await POST(request("POST"));
+    expect(await response.json()).toEqual({ finished: true });
+    expect(m.welcome).not.toHaveBeenCalled();
+    expect(m.after).toHaveLength(1);
+    await m.after[0]();
+    expect(m.welcome).toHaveBeenCalledWith("u-new");
+  });
+
+  it("sends nothing from a second finish (a double-click, another tab)", async () => {
+    m.finish.mockResolvedValue({ finished: false });
+    await POST(request("POST"));
+    expect(m.after).toHaveLength(0);
+  });
+
+  it("keeps a failed welcome from surfacing; the scheduled run sends it", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    m.welcome.mockRejectedValue(new Error("db down"));
+    expect((await POST(request("POST"))).status).toBe(200);
+    await expect(m.after[0]()).resolves.toBeUndefined();
+    expect(logged).toHaveBeenCalled();
   });
 });
