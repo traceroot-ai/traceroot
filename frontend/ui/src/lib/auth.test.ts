@@ -34,6 +34,19 @@ const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const sendPasswordResetEmailMock = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => undefined),
+);
+// Work handed to Next's after() runs once the response has been sent; the tests
+// hold it here and run it themselves.
+const afterResponse = vi.hoisted(() => [] as (() => unknown)[]);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => void afterResponse.push(task),
+}));
+vi.mock("@/lib/email/send-password-reset-email", () => ({
+  sendPasswordResetEmail: sendPasswordResetEmailMock,
+}));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
 vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
@@ -52,6 +65,8 @@ vi.mock("@/env", () => ({
     get AUTH_AGENTID_CLIENT_SECRET() {
       return process.env.TEST_AGENTID_CLIENT_SECRET ?? "";
     },
+    AUTH_GITHUB_CLIENT_ID: "",
+    AUTH_GITHUB_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
     // this mock cached, so the value has to be read at access time for the
     // invalid-CIDR test below to reach the config.
@@ -63,11 +78,22 @@ vi.mock("@/env", () => ({
 
 await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
-  account: { accountLinking: { enabled: boolean; trustedProviders: string[] } };
+  account: {
+    accountLinking: {
+      enabled: boolean;
+      trustedProviders: string[];
+      requireLocalEmailVerified?: boolean;
+    };
+  };
+  socialProviders: Record<string, { clientId: string; clientSecret: string }>;
   onAPIError: { errorURL: string };
   plugins: { id: string }[];
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  emailAndPassword: {
+    sendResetPassword: (data: { user: { email: string }; url: string }) => Promise<void>;
+    revokeSessionsOnPasswordReset: boolean;
+  };
   databaseHooks: {
     user: {
       create: {
@@ -110,6 +136,24 @@ describe("auth options", () => {
 
   it("keeps the device-code creation cap", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
+  });
+
+  it("registers only the social providers whose credentials are configured", () => {
+    // Both providers are blank in the env mock above, so better-auth must be
+    // handed an empty set rather than a provider with an empty clientId — that
+    // would render a sign-in button that dead-ends at the provider.
+    expect(options.socialProviders).toEqual({});
+  });
+
+  it("does not trust GitHub for account linking", () => {
+    // Trusting a provider tells better-auth to accept an email the provider
+    // itself reports as unverified as proof of ownership when linking into an
+    // account that already exists. account-linking.test.ts exercises what that
+    // means at runtime, in both directions.
+    expect(options.account.accountLinking.enabled).toBe(true);
+    expect(options.account.accountLinking.trustedProviders).not.toContain("github");
+    // Nor link into an account whose own email was never verified.
+    expect(options.account.accountLinking.requireLocalEmailVerified).toBe(true);
   });
 
   it("sends user_signed_up when a user is created", async () => {
@@ -177,6 +221,48 @@ describe("auth options", () => {
     reject(error);
     await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
     spy.mockRestore();
+  });
+});
+
+describe("password reset", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    afterResponse.length = 0;
+  });
+
+  // Only known emails reach this callback, so any work in it would make their
+  // responses slower than unknown ones.
+  it("prepares and sends nothing until the response has been sent", async () => {
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "a@example.com" },
+      url: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+    expect(sendPasswordResetEmailMock).not.toHaveBeenCalled();
+    expect(afterResponse).toHaveLength(1);
+
+    await afterResponse[0]!();
+    expect(sendPasswordResetEmailMock).toHaveBeenCalledExactlyOnceWith({
+      to: "a@example.com",
+      resetUrl: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+  });
+
+  it("logs a failed send", async () => {
+    const error = new Error("smtp down");
+    sendPasswordResetEmailMock.mockRejectedValueOnce(error);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "b@example.com" },
+      url: "u",
+    });
+
+    await expect(afterResponse[0]!()).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith("[auth] password reset email failed:", error);
+    spy.mockRestore();
+  });
+
+  it("signs out every session once the password changes", () => {
+    expect(options.emailAndPassword.revokeSessionsOnPasswordReset).toBe(true);
   });
 });
 

@@ -76,16 +76,21 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # 自托管：填你的 AP
 
     {/* [start:snippet:tracing-get-started-python] */}
     ```python
-    # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
     from openai import OpenAI
 
     import traceroot
     from traceroot import Integration
 
-    # This single line instruments all OpenAI API calls
-    traceroot.initialize(integrations=[Integration.OPENAI])
 
-    client = OpenAI()
+    def main():
+        client = OpenAI()
+        # ...your application
+
+
+    if __name__ == "__main__":
+        # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
+        traceroot.initialize(integrations=[Integration.OPENAI])  # instruments all OpenAI calls
+        main()
     ```
     {/* [end:snippet:tracing-get-started-python] */}
 
@@ -96,14 +101,18 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # 自托管：填你的 AP
 
     {/* [start:snippet:tracing-get-started-typescript] */}
     ```typescript
-    // import 'dotenv/config'; // Uncomment if using a .env file (requires: npm install dotenv)
+    // import { config } from 'dotenv';  // Uncomment if using a .env file (requires: npm install dotenv)
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
-    // This single line instruments all OpenAI API calls
-    TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+    async function main() {
+      // config();
+      TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });  // instruments all OpenAI calls
+      const openai = new OpenAI();
+      // ...your application
+    }
 
-    const openai = new OpenAI();
+    // Call main() from your entry point.
     ```
     {/* [end:snippet:tracing-get-started-typescript] */}
 

@@ -42,7 +42,7 @@ description: 描述你想让模型查找的问题，然后查看被它标记出�
 
 ## 用 AI 创建 detector
 
-在左侧导航里选择 **Home** 打开 traceroot Agent，然后描述你想要的 detector，或者让它根据你的项目推荐一个。例如：
+在左侧导航里选择 **Agent** 打开 traceroot Agent，然后描述你想要的 detector，或者让它根据你的项目推荐一个。例如：
 
 - "Create a detector that flags traces where a tool call fails"
 - "Suggest a new detector based on my current detectors"
@@ -53,7 +53,7 @@ agent 会起草这个 detector。在你点击对话下方的 **Create detector**
   <img src="/images/detector_agent_v1.png" alt="traceroot Agent 列出并读取项目里的 detector，然后总结它们的配置" />
 </Frame>
 
-AI coding agent 也可以用 [traceroot CLI](/cli/get-started)（`traceroot detectors create`）或 `/api/v1/public/detectors` 下的公开 API 创建 detector。写操作需要已登录的用户，项目 API key 只能读取。
+AI coding agent 也可以用 [traceroot CLI](/cli/detectors-and-findings)（`traceroot detectors create`）或 `/api/v1/public/detectors` 下的公开 API 创建 detector。写操作需要已登录的用户，项目 API key 只能读取。
 
 ## 根因分析
 

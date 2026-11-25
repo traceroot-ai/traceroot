@@ -47,7 +47,7 @@ See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) 
 
 ### Credentials
 
-`make prod` and `make prod-lite` create a `.env` file and fill in credentials for your install: the database and object store passwords, the auth and internal API secrets, and the key that encrypts stored model provider keys and Slack tokens (`ENCRYPTION_KEY`). Each install gets its own values. To use your own, set them in `.env` before starting; a value copied from `.env.example` is not accepted and the stack stops with a message naming the variable to change.
+`make prod` and `make prod-lite` create a `.env` file and fill in credentials for your install: the ClickHouse, SQL gateway and object store passwords, the auth and internal API secrets, and the key that encrypts stored model provider keys and Slack tokens (`ENCRYPTION_KEY`). Each install gets its own values. PostgreSQL is the exception: it keeps the default password `postgres` unless you set `POSTGRES_PASSWORD` in `.env`. To use your own, set them in `.env` before starting; a value copied from `.env.example` is not accepted and the stack stops with a message naming the variable to change.
 
 <Warning>
   Keep a backup of `.env`. If `ENCRYPTION_KEY` is lost, stored model provider keys and Slack tokens can no longer be read and have to be entered again.
@@ -57,7 +57,7 @@ The object store API is published on `127.0.0.1` only. Put a reverse proxy in fr
 
 ### Upgrading an existing install
 
-1. Pull the latest version and run `make prod-lite` (or `make prod`). This replaces any database or object store password in `.env` that was copied from `.env.example` with a generated one.
+1. Pull the latest version and run `make prod-lite` (or `make prod`). This replaces any ClickHouse, SQL gateway or object store password in `.env` that was copied from `.env.example` with a generated one.
 2. If the stack stops and names `ENCRYPTION_KEY`, your `.env` still has the key from `.env.example`. Run `make rotate-encryption-key` once. It re-encrypts the stored model provider keys and Slack tokens under a new key in a single transaction, writes the new key to `.env`, and saves the previous one in the `.env.encryption-key.d` directory. If it fails before the database is updated, nothing is changed and you can run it again. If the database was updated but `.env` could not be written, the command says so and keeps the new key in `.env.encryption-key.d/pending`; fix the problem and run it again to finish. It refuses to run while `ENCRYPTION_KEY` is set in your shell environment or `COMPOSE_ENV_FILES` is set, because Docker Compose would then not use the key in `.env`. While a rotation is running, or has not finished, the `make` targets that start the stack wait or refuse, so the services never run with a key the database is being moved away from; to start the stack with `docker compose` yourself, finish the rotation first.
 3. Start the stack again with `make prod-lite` (or `make prod`). If you started it with `make prod` before, its tmux session is still there and `make prod` offers to re-attach to it; answer `N` so a new session is started. Re-attaching skips the setup and would leave the stopped services stopped.
 
@@ -68,10 +68,42 @@ An install that never set `ENCRYPTION_KEY` has nothing stored under it and simpl
 
 ### Production Deployment
 
-Best for: production workloads on AWS.
+Best for: production workloads.
 
-Deploy traceroot on Kubernetes using Helm charts and Terraform. Configuration lives in the [`deploy`](https://github.com/traceroot-ai/traceroot/tree/main/deploy) directory.
+traceroot runs on Kubernetes. The deployment lives in two dedicated, versioned repositories, so you can pin a release and upgrade deliberately.
 
-<Warning>
-  Terraform deployment is currently experimental. We recommend testing thoroughly before production use.
-</Warning>
+| Repository | What it gives you |
+|---|---|
+| [traceroot-terraform-aws](https://github.com/traceroot-ai/traceroot-terraform-aws) | A Terraform module that provisions the whole stack on AWS: VPC, EKS, RDS (PostgreSQL), ElastiCache (Redis), ECR, S3, EFS, ACM and an ALB ingress. It then installs the Helm chart for you. |
+| [traceroot-k8s](https://github.com/traceroot-ai/traceroot-k8s) | The Helm chart for any Kubernetes cluster. Use it directly to run traceroot on infrastructure you already manage. |
+
+**On AWS**, use the Terraform module. It is the fastest path to a production deployment:
+
+```hcl
+module "traceroot" {
+  source = "github.com/traceroot-ai/traceroot-terraform-aws?ref=<release-tag>"
+
+  environment = "production"
+  name        = "traceroot-production"
+  aws_region  = "us-east-1"
+  vpc_cidr    = "10.0.0.0/16"
+  domain      = "traceroot.example.com"
+  image_tag   = "<image-tag>"
+}
+```
+
+See the [module README](https://github.com/traceroot-ai/traceroot-terraform-aws#readme) for every input, and [`examples/quickstart`](https://github.com/traceroot-ai/traceroot-terraform-aws/tree/main/examples/quickstart) for a runnable example.
+
+**On any other Kubernetes cluster**, install the chart with Helm:
+
+```bash
+helm repo add traceroot https://traceroot-ai.github.io/traceroot-k8s
+helm repo update
+helm install traceroot traceroot/traceroot -f my-values.yaml
+```
+
+See the [chart README](https://github.com/traceroot-ai/traceroot-k8s#readme) and its [`values.yaml`](https://github.com/traceroot-ai/traceroot-k8s/blob/main/charts/traceroot/values.yaml) for configuration.
+
+<Tip>
+  Pin the module `ref` and the chart version to a release rather than tracking `main`.
+</Tip>

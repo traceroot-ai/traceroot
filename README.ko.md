@@ -159,6 +159,8 @@ make prod-lite
 
 [localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
 
+프로덕션 환경에서는 [Helm 차트](https://github.com/traceroot-ai/traceroot-k8s)로 Kubernetes에 배포하거나, AWS에서는 인프라를 프로비저닝하고 차트까지 설치해 주는 [Terraform 모듈](https://github.com/traceroot-ai/traceroot-terraform-aws)을 사용하세요.
+
 ## 통합
 
 ### 네이티브 SDK
