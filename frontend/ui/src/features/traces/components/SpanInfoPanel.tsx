@@ -141,6 +141,9 @@ export function SpanInfoPanel({
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
   const errorType = !isTrace ? selection.span.error_type : "";
+  // The trace the selected span ran in, for the repo and commit beside its error: a span
+  // only the baseline has ran at the baseline's, not this run's.
+  const spanTrace = diff?.node?.state === "removed" ? diff.baseline : trace;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -353,7 +356,10 @@ export function SpanInfoPanel({
             </div>
             {/* Source location info */}
             {!isTrace &&
-              (errorType || trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
+              (errorType ||
+                spanTrace?.git_repo ||
+                spanTrace?.git_ref ||
+                selection.span.git_source_file) && (
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   {errorType && (
                     <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-danger-soft px-2 py-0.5 text-xs">
@@ -361,18 +367,20 @@ export function SpanInfoPanel({
                       <span className="min-w-0 break-all font-mono text-danger">{errorType}</span>
                     </div>
                   )}
-                  {trace.git_repo && (
+                  {spanTrace?.git_repo && (
                     <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-danger-soft px-2 py-0.5 text-xs">
                       <GitBranch className="h-3 w-3 shrink-0 text-danger" />
                       <span className="min-w-0 break-all font-mono text-danger">
-                        {trace.git_repo}
+                        {spanTrace.git_repo}
                       </span>
                     </div>
                   )}
-                  {trace.git_ref && (
+                  {spanTrace?.git_ref && (
                     <div className="inline-flex items-center gap-1.5 rounded bg-danger-soft px-2 py-0.5 text-xs">
                       <GitCommitHorizontal className="h-3 w-3 shrink-0 text-danger" />
-                      <span className="font-mono text-danger">{trace.git_ref.substring(0, 7)}</span>
+                      <span className="font-mono text-danger">
+                        {spanTrace.git_ref.substring(0, 7)}
+                      </span>
                     </div>
                   )}
                   {selection.span.git_source_file && (
