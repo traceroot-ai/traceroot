@@ -424,10 +424,23 @@ async function stampTried(db: AudienceClient, userId: string, now = new Date()) 
   await db.userOnboarding.updateMany({ where: { userId }, data: { newsletterTriedAt: now } });
 }
 
+/**
+ * Records an opt-out the provider holds on the account, unless the account has a
+ * choice of its own that the provider has not been confirmed to hold yet (a
+ * Subscribe again whose sync is still under way shows the old opt-out at the
+ * provider until it lands): then the account's choice stands and the scheduled
+ * run brings the provider in line with it. One guarded statement, so a choice
+ * made meanwhile is never overwritten; the new version makes a sync in flight
+ * look again. The person is left out of the newsletter either way.
+ */
 async function recordProviderOptOut(db: AudienceClient, userId: string, now = new Date()) {
   await db.userOnboarding.createMany({ data: [{ userId }], skipDuplicates: true });
   await db.userOnboarding.updateMany({
-    where: { userId, unsubscribedAt: null },
-    data: { unsubscribedAt: now },
+    where: {
+      userId,
+      unsubscribedAt: null,
+      OR: [{ emailPreferenceAt: null }, { emailProviderSettledAt: { not: null } }],
+    },
+    data: { unsubscribedAt: now, emailPreferenceVersion: { increment: 1 } },
   });
 }

@@ -277,11 +277,15 @@ model UserOnboarding {
   // Counts the choices applied: what a provider sync compares, since two choices
   // can share a millisecond. The provider follows the account
   // (email-preference-sync.ts): when its latest write started, recorded before
-  // sending, and when the scheduled run last confirmed the provider after all
-  // writes had had time to land.
+  // sending, when the scheduled run last confirmed the provider after all writes
+  // had had time to land, and which choice the provider acknowledged.
   emailPreferenceVersion  Int       @default(0) @map("email_preference_version")
   emailProviderWriteAt    DateTime? @map("email_provider_write_at") @db.Timestamp(3)
   emailProviderSettledAt  DateTime? @map("email_provider_settled_at") @db.Timestamp(3)
+  // The emailPreferenceVersion the provider acknowledged holding: a write of it
+  // succeeded with no other choice applied meanwhile. Cleared when a write of an
+  // older choice may have landed after it.
+  emailProviderAckVersion Int?      @map("email_provider_ack_version")
   // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
   // null for a question skipped or not asked.
   role                 String?    @db.VarChar

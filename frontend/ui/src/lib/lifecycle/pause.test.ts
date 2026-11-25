@@ -72,6 +72,19 @@ vi.mock("@traceroot/core", () => {
         },
         findUnique: async ({ where }: { where: { userId: string } }) => row(where.userId) ?? null,
       },
+      // The unsubscribe's one guarded UPDATE (pause.ts): values are the time
+      // (UTC wall clock) for each placeholder and the user id.
+      $executeRaw: async (_sql: TemplateStringsArray, ...values: string[]) => {
+        const [at, , userId] = values;
+        const time = new Date(`${at}Z`);
+        const r = row(userId);
+        if (!r || (r.emailPreferenceAt && r.emailPreferenceAt > time)) return 0;
+        r.unsubscribedAt ??= time;
+        r.emailPreferenceAt = time;
+        r.emailPreferenceVersion = (r.emailPreferenceVersion ?? 0) + 1;
+        r.emailProviderSettledAt = null;
+        return 1;
+      },
     },
   };
 });

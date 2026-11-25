@@ -127,13 +127,10 @@ export async function recordUnsubscribe(
   });
   if (!user) return null;
   await ensureRow(user.id);
-  // Two choices made at the same instant: the unsubscribe wins.
+  // Only a newer choice applies. At the same instant the unsubscribe wins: a
+  // Subscribe again needs a strictly newer time, an unsubscribe does not (below).
   const older = {
-    OR: [
-      { emailPreferenceAt: null },
-      { emailPreferenceAt: { lt: decidedAt } },
-      ...(subscribed ? [] : [{ emailPreferenceAt: decidedAt }]),
-    ],
+    OR: [{ emailPreferenceAt: null }, { emailPreferenceAt: { lt: decidedAt } }],
   };
   // Every choice applied gets a new version and waits for the provider to be
   // confirmed again (email-preference-sync.ts).
@@ -149,26 +146,19 @@ export async function recordUnsubscribe(
       },
     }));
   } else {
-    // A second unsubscribe keeps the time of the first. The already-unsubscribed
-    // case goes first, so a row the other update changes cannot match it too.
-    const already = await prisma.userOnboarding.updateMany({
-      where: { userId: user.id, unsubscribedAt: { not: null }, ...older },
-      data: {
-        emailPreferenceAt: decidedAt,
-        emailPreferenceVersion: { increment: 1 },
-        emailProviderSettledAt: null,
-      },
-    });
-    const fresh = await prisma.userOnboarding.updateMany({
-      where: { userId: user.id, unsubscribedAt: null, ...older },
-      data: {
-        unsubscribedAt: decidedAt,
-        emailPreferenceAt: decidedAt,
-        emailPreferenceVersion: { increment: 1 },
-        emailProviderSettledAt: null,
-      },
-    });
-    applied = fresh.count + already.count;
+    // One guarded statement: it keeps the time of the first unsubscribe, and
+    // two of them in flight cannot change the row between each other's checks,
+    // so the newer one is always recorded. The time is passed as UTC wall-clock
+    // time, as the column stores it.
+    const at = decidedAt.toISOString().replace("Z", "");
+    applied = await prisma.$executeRaw`
+      UPDATE user_onboarding
+      SET unsubscribed_at = COALESCE(unsubscribed_at, ${at}::timestamp(3)),
+          email_preference_at = ${at}::timestamp(3),
+          email_preference_version = email_preference_version + 1,
+          email_provider_settled_at = NULL
+      WHERE user_id = ${user.id}
+        AND (email_preference_at IS NULL OR email_preference_at <= ${at}::timestamp(3))`;
   }
   const row = await prisma.userOnboarding.findUnique({
     where: { userId: user.id },

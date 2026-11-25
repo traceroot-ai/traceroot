@@ -37,7 +37,9 @@ export async function POST(request: NextRequest) {
   });
   // Finishes the product-email choices whose provider sync did not complete on
   // the unsubscribe page (lib/lifecycle/email-preference-sync.ts). Before the
-  // newsletter, which reads the provider's topic.
+  // newsletter, which reads the provider's topic; bounded in people and time,
+  // like the newsletter, so a slow provider leaves the newsletter its turn
+  // within the worker's timeout.
   const emailPreferences = await syncPendingEmailPreferences().catch((error: unknown) => {
     console.error(`[email-preferences] sync failed: ${String(error)}`);
     return { error: "failed" as const };
