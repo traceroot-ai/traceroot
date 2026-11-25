@@ -71,11 +71,21 @@ function postSignUpDestination(callbackUrl: string): string {
   // Match the /device path exactly, not by prefix: a startsWith check would also
   // catch an unrelated future route like /device-settings and wrongly funnel a
   // new account into the device-authorization flow.
-  const [path] = callbackUrl.split("?");
-  if (path !== "/device") {
-    return "/onboarding";
+  const [path, query = ""] = callbackUrl.split("?");
+  if (path === "/device") {
+    return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   }
-  return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  // Back from "Not you? Sign out" on a sign-up step: /onboarding already carries
+  // the terminal's hand-back, if there is one. Kept, or a terminal sign-up that
+  // switches to a new account ends at the connect step, its terminal stranded.
+  if (path === "/onboarding") {
+    const handBack = new URLSearchParams(query).get("callbackUrl");
+    const [handBackPath] = (handBack ?? "").split("?");
+    if (handBack && handBackPath === "/device") {
+      return `/onboarding?callbackUrl=${encodeURIComponent(handBack)}`;
+    }
+  }
+  return "/onboarding";
 }
 
 function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClientProps) {

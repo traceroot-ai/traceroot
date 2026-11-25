@@ -21,6 +21,22 @@ export const connectStepUrl = (projectId: string, created: CreatedInRun) =>
 export const setupStepUrl = (projectId: string, created: CreatedInRun) =>
   stepUrl("setup", projectId, created);
 
+/**
+ * The questions step, the first after the project exists. `returnTo` is a
+ * waiting terminal's hand-back (`callbackUrl`), carried so the questions can
+ * return it there instead of going on to the connect step.
+ */
+export function questionsStepUrl(
+  projectId: string,
+  created: CreatedInRun,
+  returnTo: string | null,
+): string {
+  const query = new URLSearchParams({ projectId });
+  if (created === "project") query.set("created", "project");
+  if (returnTo !== null) query.set("callbackUrl", returnTo);
+  return `/onboarding/questions?${query}`;
+}
+
 /** What the run made, as the step's address says. */
 export function createdInRun(searchParams: URLSearchParams): CreatedInRun {
   return searchParams.get("created") === "project" ? "project" : "workspace";
