@@ -1,6 +1,6 @@
 # Google ADK Agent
 
-Multi-tool agent using the Google Agent Development Kit (ADK), instrumented with [TraceRoot](https://traceroot.ai).
+Multi-tool agent using the Google Agent Development Kit (ADK), instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

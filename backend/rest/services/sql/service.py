@@ -37,6 +37,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import sqlglot
@@ -345,8 +346,12 @@ class SqlQueryService:
         *,
         parameters: dict[str, Any] | None = None,
         max_rows: int | None = None,
+        retention_floor: datetime | None = None,
     ) -> SqlResult:
         """Validate, scope, execute and shape one query.
+
+        ``retention_floor`` is the earliest instant the query may read: the plan's
+        retention cutoff, as naive UTC. None means the plan has no cutoff.
 
         Raises ``SqlValidationError`` before touching the database if the query
         violates the read-only contract, and ``SqlExecutionError`` if the
@@ -356,7 +361,9 @@ class SqlQueryService:
         caller_params = _scrubbed(parameters)
 
         # Layers 1 to 3. Raises SqlValidationError, which the caller maps to 400.
-        scoped_sql, bind_params = scope_and_render(query, project_id)
+        scoped_sql, bind_params = scope_and_render(
+            query, project_id, retention_floor=retention_floor
+        )
 
         # The scope bind goes on last and wins outright. The scrub above already
         # refuses these names, so the ordering is the second of two independent

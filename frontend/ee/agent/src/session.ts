@@ -418,6 +418,15 @@ export class SessionManager {
 // Low-level CRUD — used by HTTP routes
 // ============================================================
 
+/** The workspace a project belongs to, or null when there is no such project. */
+export async function projectWorkspaceId(projectId: string): Promise<string | null> {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { workspaceId: true },
+  });
+  return project?.workspaceId ?? null;
+}
+
 export async function createSession(params: {
   projectId: string;
   workspaceId: string;
