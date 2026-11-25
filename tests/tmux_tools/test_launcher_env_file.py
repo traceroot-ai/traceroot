@@ -202,3 +202,19 @@ def test_the_launcher_refuses_when_compose_reads_other_env_files(tmp_path, monke
 
     assert "COMPOSE_ENV_FILES" in str(excinfo.value)
     assert not (tmp_path / ".env").exists()
+
+
+def test_the_launcher_explains_a_missing_sh_instead_of_a_traceback(monkeypatch):
+    """PowerShell and cmd have no sh on PATH; the launcher says so and points to Git Bash."""
+    from tmux_tools import launcher
+
+    def no_sh(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "sh")
+
+    monkeypatch.setattr(launcher.subprocess, "run", no_sh)
+
+    with pytest.raises(SystemExit) as excinfo:
+        launcher._env_value("get", "INTERNAL_API_SECRET", ".env")
+
+    assert "sh was not found on PATH" in str(excinfo.value)
+    assert "Git Bash" in str(excinfo.value)
