@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@traceroot/core", () => ({
+  EMAIL_COLORS: {
+    ink: "#0B1015",
+    muted: "#5F646B",
+    border: "#DFDFDF",
+    surface: "#F4F4F6",
+    white: "#FFFFFF",
+    accent: "#14B8B0",
+  },
   escapeHtml: (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
   renderEmailCard: (p: { title: string; bodyHtml: string; buttonUrl: string }) =>
     `<card title="${p.title}" button="${p.buttonUrl}">${p.bodyHtml}</card>`,
@@ -102,7 +110,7 @@ describe("signal digest rendering", () => {
 
   it("builds the email with the same content, escaped", () => {
     const email = buildSignalDigestEmail({ projectId: "p1", projectName: "Shop <x>", items });
-    expect(email.subject).toBe("[TraceRoot] Signals in Shop <x>: 2 new, 1 reopened");
+    expect(email.subject).toBe("[traceroot] Signals in Shop <x>: 2 new, 1 reopened");
     expect(email.text).toContain("New:\n- Timeout <swallowed> · Failure · 3 hits");
     expect(email.text).toContain(
       "New:\n- Timeout <swallowed> · Failure · 3 hits\n  The tool error is <returned> as data.",

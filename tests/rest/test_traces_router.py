@@ -13,6 +13,10 @@ from fastapi.testclient import TestClient
 
 from rest.main import app
 from rest.routers.deps import ProjectAccessInfo, get_project_access
+from rest.routers.internal import detectors
+from rest.routers.public import traces_read as public_traces_read
+from rest.routers.public.deps import AuthResult, authenticate_public_caller
+from shared.config import settings
 
 TRACE_LIST_ITEM = {
     "trace_id": "abc123",
@@ -635,6 +639,47 @@ class TestRetentionGate:
         )
         assert response.status_code == 200
 
+    def test_get_span_io_403_when_root_missing_and_earliest_span_outside_window(
+        self, free_plan_client, mock_trace_reader
+    ):
+        """A trace whose root span never arrived is judged by its earliest span, so a
+        missing root does not let expired span I/O through."""
+        mock_trace_reader.get_trace_start_time.return_value = None
+        mock_trace_reader.get_trace_earliest_span_time.return_value = datetime(2020, 1, 1)
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/old-trace/spans/span-1/io"
+        )
+        assert response.status_code == 403
+        mock_trace_reader.get_span_io.assert_not_called()
+        mock_trace_reader.get_trace_earliest_span_time.assert_called_once_with(
+            "test-project", "old-trace"
+        )
+
+    def test_get_span_io_200_when_root_missing_and_earliest_span_in_window(
+        self, free_plan_client, mock_trace_reader
+    ):
+        mock_trace_reader.get_trace_start_time.return_value = None
+        mock_trace_reader.get_trace_earliest_span_time.return_value = _now_naive() - timedelta(
+            days=1
+        )
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+
+    def test_get_span_io_skips_fallback_when_root_present(
+        self, free_plan_client, mock_trace_reader
+    ):
+        mock_trace_reader.get_trace_start_time.return_value = _now_naive() - timedelta(days=1)
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+        mock_trace_reader.get_trace_earliest_span_time.assert_not_called()
+
 
 class TestRetentionGateEnterprise:
     """Enterprise plan has no retention limit — uses the main client fixture (enterprise)."""
@@ -730,6 +775,54 @@ class TestBlockingReadsRunOffTheEventLoop:
         response = client.get("/api/v1/projects/test-project/traces/metadata-keys")
 
         assert response.status_code == 200
+        assert ran_on_loop == [False]
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/projects/test-project/traces/abc123?fields=full",
+            "/api/v1/public/traces/abc123?fields=full",
+            "/api/v1/public/traces/abc123/export",
+        ],
+    )
+    def test_whole_trace_reads_off_the_loop(self, client, mock_trace_reader, monkeypatch, path):
+        monkeypatch.setattr(
+            public_traces_read, "get_trace_reader_service", lambda: mock_trace_reader
+        )
+        app.dependency_overrides[authenticate_public_caller] = lambda: AuthResult(
+            project_id="test-project",
+            workspace_id="ws-test",
+            billing_plan="enterprise",
+            ingestion_blocked=False,
+        )
+        ran_on_loop: list[bool] = []
+        mock_trace_reader.get_trace.side_effect = self._loop_visible_to(
+            ran_on_loop, copy.deepcopy(TRACE_DETAIL)
+        )
+        mock_trace_reader.get_trace_spans_io.side_effect = self._loop_visible_to(ran_on_loop, {})
+
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False, False]
+
+    def test_spans_jsonl_reads_off_the_loop(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+        ran_on_loop: list[bool] = []
+        ch = MagicMock()
+        ch.query.side_effect = self._loop_visible_to(
+            ran_on_loop, MagicMock(column_names=["span_id"], result_rows=[("span-1",)])
+        )
+        monkeypatch.setattr(detectors, "get_clickhouse_client", lambda: ch)
+
+        response = client.get(
+            "/api/v1/internal/traces/abc123/spans-jsonl",
+            params={"project_id": "test-project"},
+            headers={"X-Internal-Secret": "test-secret"},
+        )
+
+        assert response.status_code == 200
+        assert response.text == '{"span_id": "span-1"}'
         assert ran_on_loop == [False]
 
     def test_a_read_that_raises_in_the_worker_thread_still_maps_to_500(

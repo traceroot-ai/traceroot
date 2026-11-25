@@ -14,9 +14,24 @@ import { ImpersonationError, throwIfImpersonationDenied } from "@/lib/api/errors
 
 interface GitHubConnectButtonProps {
   workspaceId: string;
+  /**
+   * Where GitHub's installation comes back to, as a same-site path. Defaults to
+   * the current page's path; pass one with its query when the page needs it to
+   * pick up where it was, as the sign-up connect step does with its project.
+   */
+  returnTo?: string;
 }
 
-export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
+function githubHref(path: string, workspaceId: string, returnTo: string): string {
+  return `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+/** Starts connecting GitHub to the workspace (sign in, then install); comes back to `returnTo`. */
+export function githubConnectHref(workspaceId: string, returnTo: string): string {
+  return githubHref("/api/github/login", workspaceId, returnTo);
+}
+
+export function GitHubConnectButton({ workspaceId, returnTo }: GitHubConnectButtonProps) {
   const queryClient = useQueryClient();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [open, setOpen] = useState(false);
@@ -56,8 +71,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
 
   // usePathname is consistent on server and client — using window.location here
   // would create an SSR/CSR hydration mismatch in this client component.
-  const buildHref = (path: string) =>
-    `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(pathname || "/")}`;
+  const buildHref = (path: string) => githubHref(path, workspaceId, returnTo ?? (pathname || "/"));
 
   if (impersonating || denial) {
     return (
@@ -119,7 +133,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
             <PopoverContent align="end" className="w-40 p-1">
               <a
                 href={buildHref("/api/github/install")}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors hover:bg-accent"
+                className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] transition-colors hover:bg-muted"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Configure
@@ -127,7 +141,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
               <button
                 onClick={handleDisconnect}
                 disabled={isDisconnecting}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-[12px] text-destructive transition-colors hover:bg-accent disabled:opacity-50"
+                className="flex h-8 w-full items-center gap-2 rounded-[2px] px-2 text-[13px] text-destructive transition-colors hover:bg-muted disabled:opacity-50"
               >
                 <Unlink className="h-3.5 w-3.5" />
                 {isDisconnecting ? "Disconnecting..." : "Disconnect"}
@@ -156,7 +170,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
       {canManage && (
         <a
           href={buildHref("/api/github/login")}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="inline-flex h-7 items-center gap-2 rounded-[2px] bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-foreground hover:text-background"
         >
           Connect
           <ExternalLink className="h-3 w-3" />

@@ -1,12 +1,13 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, getRetentionDays } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isDemoViewer, isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPlainObject } from "@/lib/is-plain-object";
 import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
 import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
@@ -45,25 +46,35 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Workspace not found", 404);
   }
 
+  const isDemo = isDemoWorkspace(workspace.id);
+  // Demo viewers read this for the General page, but not the billing state.
+  const billing = isDemoViewer(workspace.id, membership.role)
+    ? {}
+    : {
+        billingPlan: workspace.billingPlan,
+        billingCustomerId: workspace.billingCustomerId,
+        billingSubscriptionId: workspace.billingSubscriptionId,
+        billingStatus: workspace.billingStatus,
+        currentUsage: workspace.currentUsage,
+      };
   return successResponse({
     id: workspace.id,
     name: workspace.name,
     role: membership.role,
-    member_count: workspace._count.members,
+    is_demo: isDemo,
+    retention_days: getRetentionDays(workspace.billingPlan),
+    // The demo workspace has every user as a member; that count is not shown.
+    member_count: isDemo ? undefined : workspace._count.members,
     projects: workspace.projects.map((p) => ({
       id: p.id,
       name: p.name,
       trace_ttl_days: p.traceTtlDays,
       access_key_count: p._count.accessKeys,
       create_time: p.createTime,
+      last_ingested_at: p.lastIngestedAt,
     })),
     create_time: workspace.createTime,
-    // Billing fields
-    billingPlan: workspace.billingPlan,
-    billingCustomerId: workspace.billingCustomerId,
-    billingSubscriptionId: workspace.billingSubscriptionId,
-    billingStatus: workspace.billingStatus,
-    currentUsage: workspace.currentUsage,
+    ...billing,
   });
 }
 

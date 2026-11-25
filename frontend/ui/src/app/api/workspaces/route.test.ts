@@ -19,9 +19,11 @@ vi.mock("next/server", () => ({
 
 const workspaceCreateMock = vi.fn();
 const memberCreateMock = vi.fn();
+const memberFindManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
+    workspaceMember: { findMany: (...args: unknown[]) => memberFindManyMock(...args) },
     $transaction: async (fn: (tx: unknown) => unknown) =>
       fn({
         workspace: { create: (...args: unknown[]) => workspaceCreateMock(...args) },
@@ -43,18 +45,91 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 function makeRequest(body: unknown) {
   return { json: async () => body } as unknown as Parameters<typeof POST>[0];
 }
 
 beforeEach(() => {
+  memberFindManyMock.mockReset();
   workspaceCreateMock.mockReset();
   memberCreateMock.mockReset();
   memberCreateMock.mockResolvedValue({});
   requireAuthMock.mockReset();
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
+});
+
+describe("GET /api/workspaces with a demo workspace", () => {
+  function membership(id: string, name: string, role: string, members: number) {
+    return {
+      role,
+      workspace: { id, name, createTime: "2026-10-01", projects: [], _count: { members } },
+    };
+  }
+
+  it("uses the latest ingestion across projects instead of workspace metadata", async () => {
+    const member = membership("ws-own", "Acme", "ADMIN", 1);
+    memberFindManyMock.mockResolvedValue([
+      {
+        ...member,
+        workspace: {
+          ...member.workspace,
+          updateTime: new Date("2026-11-13T23:00:00Z"),
+          projects: [
+            { id: "p1", name: "First", lastIngestedAt: new Date("2026-11-12T12:34:56Z") },
+            { id: "p2", name: "Second", lastIngestedAt: new Date("2026-11-13T12:34:56Z") },
+            { id: "p3", name: "Empty", lastIngestedAt: null },
+          ],
+        },
+      },
+    ]);
+    const res = await (GET as unknown as () => Promise<MockResponse>)();
+    const body = JSON.parse(JSON.stringify(await res.json()));
+    expect(body.workspaces[0]).toMatchObject({
+      last_ingested_at: "2026-11-13T12:34:56.000Z",
+      projects: [
+        { id: "p1", name: "First" },
+        { id: "p2", name: "Second" },
+        { id: "p3", name: "Empty" },
+      ],
+    });
+    expect(body.workspaces[0].projects[0]).not.toHaveProperty("lastIngestedAt");
+    expect(memberFindManyMock.mock.calls[0][0].include.workspace.include.projects).toEqual({
+      where: { deleteTime: null },
+      select: { id: true, name: true, lastIngestedAt: true },
+    });
+  });
+
+  it("returns null when the workspace has no ingestion history", async () => {
+    memberFindManyMock.mockResolvedValue([membership("ws-own", "Empty", "ADMIN", 1)]);
+    const res = await (GET as unknown as () => Promise<MockResponse>)();
+    expect(await res.json()).toMatchObject({ workspaces: [{ last_ingested_at: null }] });
+  });
+
+  it("lists the demo last, marks it, and hides its member count", async () => {
+    vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
+    try {
+      memberFindManyMock.mockResolvedValue([
+        membership("ws-demo", "Acme Demo", "VIEWER", 5000),
+        membership("ws-own", "Zeta", "ADMIN", 2),
+      ]);
+
+      const res = (await (GET as unknown as () => Promise<MockResponse>)()) as MockResponse;
+      const body = (await res.json()) as {
+        workspaces: { id: string; is_demo: boolean; member_count?: number }[];
+      };
+
+      expect(body.workspaces.map((w) => [w.id, w.is_demo, w.member_count])).toEqual([
+        ["ws-own", false, 2],
+        ["ws-demo", true, undefined],
+      ]);
+      // The workspace list shows the demo, so the query includes it.
+      expect(memberFindManyMock.mock.calls[0][0].where).toEqual({ userId: "user-1" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe("POST /api/workspaces", () => {

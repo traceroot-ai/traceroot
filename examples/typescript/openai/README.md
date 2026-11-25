@@ -1,6 +1,6 @@
 # OpenAI Tool Agent
 
-ReAct-style agent with OpenAI tool calling, instrumented with [TraceRoot](https://traceroot.ai).
+ReAct-style agent with OpenAI tool calling, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

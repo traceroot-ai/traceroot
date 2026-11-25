@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret-0123456789abcdef");
+
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
@@ -131,6 +133,30 @@ describe("resolveProjectModel", () => {
     });
   });
 
+  it("honors the source for a model available in both hosted and BYOK catalogs", async () => {
+    const model = "gpt-5.6-terra";
+    const config = { adapter: "openai", key: "sk-xxx", baseUrl: null, config: null };
+    modelProviderFindMany.mockResolvedValue([{ provider: "my-openai", customModels: [model] }]);
+    fetchProviderConfigMock.mockResolvedValue(config);
+    resolvePiModelMock.mockReturnValue({ id: model, provider: "openai" });
+
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    expect(await resolveProjectModel(model, "OpenAI", "system", "ws-123")).toEqual({
+      model,
+      providerName: "openai",
+      source: "system",
+    });
+    expect(resolvePiModelMock).toHaveBeenLastCalledWith(model, null);
+    expect(modelProviderFindMany).not.toHaveBeenCalled();
+
+    expect(await resolveProjectModel(model, null, null, "ws-123")).toEqual({
+      model,
+      providerName: "my-openai",
+      source: "byok",
+    });
+    expect(resolvePiModelMock).toHaveBeenLastCalledWith(model, config);
+  });
+
   it("resolves legacy BYOK via model provider lookup when rcaSource is null", async () => {
     modelProviderFindMany.mockResolvedValue([
       { provider: "my-deepseek", customModels: ["deepseek-chat"] },
@@ -256,6 +282,35 @@ describe("runRcaSession", () => {
 
     expect(result.sessionId).toBe("s1");
     expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws1", "my-openai");
+  });
+
+  it("calls the agent service with the internal credential, as a system call", async () => {
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+      ...EXEC,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of mockFetch.mock.calls) {
+      const headers = new Headers(init.headers);
+      expect(headers.get("X-Internal-Secret")).toBe("unit-test-internal-secret-0123456789abcdef");
+      expect(headers.get("x-agent-system-call")).toBe("1");
+      expect(headers.get("x-workspace-id")).toBe("ws1");
+      expect(headers.get("x-user-id")).toBeNull();
+    }
   });
 
   it("throws with the agent's message when the stream carries an `event: error` frame", async () => {

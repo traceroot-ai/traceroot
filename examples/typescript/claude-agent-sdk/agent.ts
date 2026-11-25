@@ -1,8 +1,8 @@
 /**
- * Claude Agent SDK — TraceRoot Observability
+ * Claude Agent SDK — traceroot Observability
  *
  * Multi-agent research pipeline using Claude Code as a library.
- * Demonstrates subagents, multiple built-in tools, and TraceRoot tracing.
+ * Demonstrates subagents, multiple built-in tools, and traceroot tracing.
  *
  * Env vars: ANTHROPIC_API_KEY, TRACEROOT_API_KEY
  *           TRACEROOT_HOST_URL is optional (defaults to https://app.traceroot.ai)
@@ -27,7 +27,7 @@ TraceRoot.initialize({
   disableBatch: true,
 });
 
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 // ── Subagent definitions ──────────────────────────────────────────────────────
 const RESEARCHER: AgentDefinition = {
@@ -106,7 +106,7 @@ async function main() {
       () =>
         observe({ name: 'demo_session' }, async () => {
           console.log('='.repeat(60));
-          console.log('Claude Agent SDK Research Pipeline — Demo (TraceRoot)');
+          console.log('Claude Agent SDK Research Pipeline — Demo (traceroot)');
           console.log('='.repeat(60));
 
           for (let i = 0; i < DEMO_TOPICS.length; i++) {

@@ -1,3 +1,4 @@
+import { AUTH } from "./internal-auth-support.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { TurnAttribution } from "../session.js";
@@ -6,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   createSession: vi.fn(),
   executionBelongsToProject: vi.fn(),
+  projectWorkspaceId: vi.fn(),
   updateSessionTitle: vi.fn(),
   appendMessage: vi.fn(),
   runAgent: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock("../session.js", () => ({
   deleteSession: vi.fn(),
   updateSessionTitle: mocks.updateSessionTitle,
   executionBelongsToProject: mocks.executionBelongsToProject,
+  projectWorkspaceId: mocks.projectWorkspaceId,
 }));
 vi.mock("../agent.js", () => ({
   getOrCreateAgent: async () => ({
@@ -51,20 +54,27 @@ import { app } from "../index.js";
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
 
+// These tests exercise attribution, not self-tracing; the credential every route
+// test runs under would otherwise switch tracing on.
+vi.stubEnv("AGENT_SELF_TRACE", "0");
+
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   mocks.createSession.mockImplementation(async (params: unknown) => ({
     id: "new",
     ...(params as object),
   }));
+  mocks.projectWorkspaceId.mockResolvedValue("w");
   mocks.appendMessage.mockResolvedValue({ id: "row" });
   mocks.updateSessionTitle.mockResolvedValue({});
 });
 
+const SYSTEM = { "x-agent-system-call": "1" };
+
 const json = (path: string, body: unknown, headers: Record<string, string> = {}) =>
   app.request(path, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-workspace-id": "w", ...headers },
+    headers: { ...AUTH, "content-type": "application/json", "x-workspace-id": "w", ...headers },
     body: JSON.stringify(body),
   });
 
@@ -78,7 +88,7 @@ describe("POST /projects/:projectId/sessions", () => {
   ])(
     "rejects %s as executionId with 400 instead of creating an unattributed session",
     async (_, executionId) => {
-      const res = await json("/api/v1/projects/p1/sessions", { executionId });
+      const res = await json("/api/v1/projects/p1/sessions", { executionId }, SYSTEM);
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "executionId must be a non-empty string" });
       expect(mocks.executionBelongsToProject).not.toHaveBeenCalled();
@@ -88,7 +98,7 @@ describe("POST /projects/:projectId/sessions", () => {
 
   it("rejects an execution that does not belong to the project", async () => {
     mocks.executionBelongsToProject.mockResolvedValue(false);
-    const res = await json("/api/v1/projects/p1/sessions", { executionId: "e-from-p2" });
+    const res = await json("/api/v1/projects/p1/sessions", { executionId: "e-from-p2" }, SYSTEM);
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "executionId does not belong to this project" });
     expect(mocks.executionBelongsToProject).toHaveBeenCalledWith(
@@ -101,7 +111,7 @@ describe("POST /projects/:projectId/sessions", () => {
 
   it("creates a system session bound to an execution of this project", async () => {
     mocks.executionBelongsToProject.mockResolvedValue(true);
-    const res = await json("/api/v1/projects/p1/sessions", { executionId: "e1" });
+    const res = await json("/api/v1/projects/p1/sessions", { executionId: "e1" }, SYSTEM);
     expect(res.status).toBe(201);
     expect(mocks.createSession).toHaveBeenCalledWith({
       projectId: "p1",
@@ -179,7 +189,7 @@ function drive(events: AgentEvent[], outcome: "done" | "error") {
   );
 }
 
-async function postMessage(headers: Record<string, string> = {}) {
+async function postMessage(headers: Record<string, string> = SYSTEM) {
   const res = await json(
     "/api/v1/projects/p1/sessions/s1/messages",
     { message: "why?", model: "m" },
@@ -275,7 +285,11 @@ describe("POST /projects/:projectId/sessions/:sessionId/messages — attribution
 
   it("rejects a turn on a session the caller cannot see", async () => {
     mocks.getSession.mockResolvedValue(null);
-    const res = await json("/api/v1/projects/p1/sessions/s1/messages", { message: "why?" });
+    const res = await json(
+      "/api/v1/projects/p1/sessions/s1/messages",
+      { message: "why?" },
+      { "x-user-id": "u1" },
+    );
     expect(res.status).toBe(404);
     expect(mocks.appendMessage).not.toHaveBeenCalled();
   });

@@ -176,7 +176,7 @@ export function createChatModels(apiKey: string, usage: ModelUsage[]): Assignmen
   };
 }
 
-/** Jev calls on TraceRoot's own TypeSafe key. Usage is recorded as ours, not BYOK. */
+/** Jev calls on traceroot's own TypeSafe key. Usage is recorded as ours, not BYOK. */
 export function createJevModels(
   apiKey: string,
   usage: ModelUsage[],

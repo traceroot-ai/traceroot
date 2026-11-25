@@ -67,6 +67,19 @@ export async function tracesExist(
 /** Opt-in read scopes for internal telemetry; omit for customer traffic. */
 export type TraceSource = "detector" | "agent" | "user";
 
+/**
+ * Whether a trace read scope is customer traffic. The UI's one definition of the
+ * rule, mirroring the backend's `customer_traffic_only()`: it names the value that
+ * IS customer traffic rather than listing the internal ones, so a new internal
+ * source is treated as internal the day it is added instead of falling through to
+ * the customer branch. An omitted source counts as customer traffic, because that
+ * is what the reader returns for it. Typed as a guard so the internal branch
+ * narrows to a defined source (the viewer's new-tab link passes it as a string).
+ */
+export function isCustomerTraffic(source?: TraceSource): source is "user" | undefined {
+  return source === undefined || source === "user";
+}
+
 export async function getTrace(
   projectId: string,
   traceId: string,

@@ -16,6 +16,25 @@ const EMPTY = { model: "", provider: "", source: "system" as const, adapter: "" 
 afterEach(cleanup);
 
 describe("MessageInput", () => {
+  it("lets a demo visitor type without a model and explains a blocked send without losing the draft", () => {
+    const onSend = vi.fn();
+    render(
+      <MessageInput
+        onSend={onSend}
+        modelSelection={EMPTY}
+        onModelChange={vi.fn()}
+        blockedReason="This is a demo project. You don’t have permission to send messages."
+      />,
+    );
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
+    fireEvent.change(textarea, { target: { value: "Investigate this trace" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(screen.getByRole("alert").textContent).toContain("demo project");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("Investigate this trace");
+  });
+
   it("is controlled by the selection it is given and sends with it", () => {
     const onSend = vi.fn();
     render(<MessageInput onSend={onSend} modelSelection={PICK} onModelChange={vi.fn()} />);

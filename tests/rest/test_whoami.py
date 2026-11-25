@@ -1,17 +1,21 @@
 """Unit tests for the public whoami endpoint (GET /api/v1/public/whoami)."""
 
+from typing import get_args, get_type_hints
+
 import httpx
+import pytest
 import respx
 from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import ApiKeyScope, AuthResult, authenticate_api_key
+from rest.schemas.public import WhoamiResponse
 
 BASE_URL = "http://localhost:3000"
 
 
-def make_identity_auth() -> AuthResult:
+def make_identity_auth(scope=None) -> AuthResult:
     """An AuthResult carrying the resolved identity fields whoami surfaces."""
     return AuthResult(
         project_id="proj-123",
@@ -22,6 +26,7 @@ def make_identity_auth() -> AuthResult:
         workspace_name="My Workspace",
         key_name="CI key",
         key_hint="tr_ab…yz",
+        scope=scope,
     )
 
 
@@ -43,6 +48,123 @@ class TestWhoami:
         assert data["key_name"] == "CI key"
         assert data["key_hint"] == "tr_ab…yz"
 
+    @pytest.mark.parametrize("scope", ["ingest", "admin"])
+    def test_reports_the_keys_scope(self, scope):
+        """A key holder can ask what their key is allowed to do."""
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth(scope)
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["key_scope"] == scope
+
+    def test_a_key_predating_scoping_reports_the_scope_it_is_treated_as(self):
+        """A key from before scoping existed answers with what it actually gets.
+
+        Such a key was backfilled to ``admin`` by the migration that added the
+        column, so that is what it is treated as and that is what it reports —
+        not a guess, and not an omission the caller has to interpret.
+        """
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("admin")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["key_scope"] == "admin"
+
+    def test_the_scope_is_present_even_when_the_credential_carries_none(self):
+        """The field is never absent and never null, whatever reached the route.
+
+        A credential resolved without a scope — an older control plane, which
+        reports no such field — must still produce a well-formed response. It
+        reports the narrow scope, which is what enforcement would decide for it,
+        so the answer a holder gets and the answer a route gives cannot differ.
+        """
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth(None)
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["key_scope"] == "ingest"
+
+    @respx.mock
+    def test_scope_survives_the_whole_authentication_path(self):
+        """End to end: what the control plane reports is what whoami answers.
+
+        The tests above override the credential, so they would still pass if the
+        scope never came off the validate response. This one goes through
+        ``authenticate_api_key`` for real against a mocked control plane.
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "pro",
+                    "ingestionBlocked": False,
+                    "scope": "admin",
+                },
+            )
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr-key"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["key_scope"] == "admin"
+
+    @respx.mock
+    def test_an_older_control_plane_still_yields_a_well_formed_response(self):
+        """A validate response with no scope field is not an error for this route.
+
+        This is the deployment where the control plane predates the field. A
+        current client must keep working against it, so the response is complete
+        and the scope reads as the narrow one.
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "pro",
+                    "ingestionBlocked": False,
+                },
+            )
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr-key"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["key_scope"] == "ingest"
+
+    def test_reporting_the_scope_needs_no_extra_permission(self):
+        """No new credential and no new route: the same key, the same endpoint.
+
+        A key reads its own scope. If this ever required more than the key that
+        whoami already accepts, a holder could not ask the question the field
+        exists to answer.
+        """
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["key_scope"] == "ingest"
+
     def test_names_hint_and_ui_base_url_present(self):
         """whoami must surface human-readable names, the key hint, and ui_base_url."""
         app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth()
@@ -51,7 +173,14 @@ class TestWhoami:
             "/api/v1/public/whoami",
             headers={"Authorization": "Bearer tr_secrettoken"},
         ).json()
-        for field in ("project_name", "workspace_name", "key_hint", "ui_base_url", "host"):
+        for field in (
+            "project_name",
+            "workspace_name",
+            "key_hint",
+            "key_scope",
+            "ui_base_url",
+            "host",
+        ):
             assert field in data
         assert data["ui_base_url"]  # non-empty
 
@@ -145,3 +274,14 @@ def test_whoami_success_returns_200_with_headers_when_limiter_enabled(monkeypatc
         assert "X-RateLimit-Limit" in resp.headers
     finally:
         app.dependency_overrides.clear()
+
+
+def test_reported_scopes_are_the_auth_layers_scopes():
+    """The response's scope values must be the ones the auth layer resolves.
+
+    ``WhoamiResponse`` spells the two values out rather than importing
+    ``ApiKeyScope``, to keep the schemas module from reaching into a router. That
+    is only safe while the two cannot disagree, which is what this asserts.
+    """
+    reported = get_args(get_type_hints(WhoamiResponse)["key_scope"])
+    assert reported == get_args(ApiKeyScope)

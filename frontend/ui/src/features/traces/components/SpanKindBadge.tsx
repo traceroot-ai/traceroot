@@ -21,7 +21,7 @@ export function SpanKindBadge({ kind }: SpanKindBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+        "inline-flex items-center rounded px-1.5 py-0.5 text-[12px] font-medium uppercase tracking-wide",
         kindStyles[kind.toLowerCase()] || "bg-neutral-500 text-white",
       )}
     >

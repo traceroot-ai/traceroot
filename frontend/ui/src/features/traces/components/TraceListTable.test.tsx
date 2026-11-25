@@ -7,6 +7,17 @@ import { TraceListTable } from "./TraceListTable";
 
 afterEach(cleanup);
 
+// Radix's popover positioning observes its anchor, and jsdom ships no ResizeObserver.
+beforeAll(() => {
+  if (!("ResizeObserver" in globalThis)) {
+    (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
+});
+
 // The ten columns a user who never touches the picker sees. Nothing added, nothing hidden.
 const DEFAULT_COLUMNS = [
   "Timestamp",
@@ -189,16 +200,23 @@ describe("TraceListTable opt-in field columns", () => {
 });
 
 describe("TraceListTable Signal IDs column", () => {
-  it("lists every signal of a trace, each linking to its signal", () => {
-    renderTable({
+  it("shows the first signal on one line and opens the rest from a +N count", () => {
+    const { onSelectTrace } = renderTable({
       traces: [makeTrace({ trace_id: "t-1" }), makeTrace({ trace_id: "t-2" })],
       visibleColumns: visibleFixedColumns(["signal_ids"]),
-      signalIdsByTrace: { "t-1": ["sig-a", "sig-b"] },
+      signalIdsByTrace: { "t-1": ["sig-a", "sig-b", "sig-c"] },
     });
     const cell = cellAt("t-1", "Signal IDs");
     const links = within(cell).getAllByRole("link");
-    expect(links.map((a) => a.textContent)).toEqual(["sig-a", "sig-b"]);
-    expect(links[1].getAttribute("href")).toBe("/projects/p-1/signals?signalId=sig-b");
+    expect(links.map((a) => a.textContent)).toEqual(["sig-a"]);
+    expect(links[0].getAttribute("href")).toBe("/projects/p-1/signals?signalId=sig-a");
+    fireEvent.click(within(cell).getByRole("button", { name: "Show 2 more signals" }));
+    const more = screen.getByRole("dialog", { name: "More signals" });
+    const moreLinks = within(more).getAllByRole("link");
+    expect(moreLinks.map((a) => a.textContent)).toEqual(["sig-b", "sig-c"]);
+    expect(moreLinks[1].getAttribute("href")).toBe("/projects/p-1/signals?signalId=sig-c");
+    fireEvent.click(moreLinks[1]);
+    expect(onSelectTrace).not.toHaveBeenCalled();
     // A trace with no signal shows a dash once its signals are read.
     expect(cellAt("t-2", "Signal IDs").textContent).toBe("-");
   });
@@ -248,7 +266,7 @@ describe("TraceListTable header widths", () => {
       traces: [makeTrace({ trace_id: "t-1", user_id: "u-1" })],
       visibleColumns: visibleFixedColumns(["user_id"]),
     });
-    expect(widthClassesOf(headerCell("User ID"))).toEqual(["w-[140px]", "max-w-[180px]"]);
+    expect(widthClassesOf(headerCell("User ID"))).toEqual(["w-[130px]", "max-w-[130px]"]);
   });
 });
 
@@ -285,17 +303,6 @@ describe("TraceListTable row-ending divider", () => {
  * the other cells' inertness stay cell-scoped.
  */
 describe("TraceListTable metadata reveal", () => {
-  // Radix's popover positioning observes its anchor, and jsdom ships no ResizeObserver.
-  beforeAll(() => {
-    if (!("ResizeObserver" in globalThis)) {
-      (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      };
-    }
-  });
-
   /** A payload the collapsed line provably cannot show in full: the preview is capped at 80
    * characters, so the trailing keys of these five pairs exist only in the reveal. */
   const WIDE_METADATA = {

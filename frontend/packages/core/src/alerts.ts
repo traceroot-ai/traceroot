@@ -38,8 +38,12 @@ export function hasOutstandingAlertPage(state: {
   return (state.severity === "ALERT" || state.severity === "NO_DATA") && state.alertedAt !== null;
 }
 
-/** Why an open page was closed without a recovery: the write that voided its state. */
-export const ALERT_CLOSE_REASONS = ["edited", "resumed"] as const;
+/**
+ * Why an open page was closed without a recovery: the write that voided its state.
+ * A `deleted` close never sits on the rule as a marker, since the row is gone; the
+ * delete sends it itself once it has committed.
+ */
+export const ALERT_CLOSE_REASONS = ["edited", "resumed", "deleted"] as const;
 export type AlertCloseReason = (typeof ALERT_CLOSE_REASONS)[number];
 
 export function isAlertCloseReason(value: string): value is AlertCloseReason {
@@ -319,6 +323,9 @@ export interface AlertMeasure {
   // Only where the bare number would mislead: a token count names itself, and
   // the id measures have no unit to state.
   unit?: AlertMeasureUnit;
+  // A reading that can go below zero. None can today: each is a count, a
+  // distinct count, a duration, money or tokens.
+  signed?: boolean;
 }
 
 export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> = {
@@ -343,6 +350,31 @@ export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> 
 
 export function getMeasure(view: AlertView, measureId: string): AlertMeasure | undefined {
   return ALERT_MEASURES_BY_VIEW[view].find((m) => m.id === measureId);
+}
+
+/**
+ * Why this condition can never decide anything on the measure, or null when it
+ * can. Against a reading that is never below zero, a negative threshold makes
+ * every operator always or never true: `> -5` fires on every window with data.
+ * At zero the same holds for `>= 0`, which fires on every window with data.
+ * `< 0` stays: on a measure that can be empty, under NOTIFY it is a gap-only
+ * rule, paging when data stops and again when it returns. So do `= 0`, `<= 0`,
+ * `!= 0` and `> 0`, the no-traffic and any-traffic rules. The one check the
+ * write service and the form share, so the form refuses exactly what the API
+ * would.
+ */
+export function alertThresholdProblem(
+  measure: AlertMeasure,
+  operator: AlertThresholdOperator,
+  threshold: number,
+): string | null {
+  if (measure.signed) return null;
+  const label = measure.label.toLowerCase();
+  if (threshold < 0) return `Threshold must be zero or more: ${label} can never be negative`;
+  if (threshold === 0 && operator === ">=") {
+    return `This alert would fire on every window with data: ${label} can never be negative`;
+  }
+  return null;
 }
 
 // These count rows or distinct values, so the column's unit does not survive them.

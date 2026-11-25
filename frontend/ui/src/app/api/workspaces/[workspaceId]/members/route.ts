@@ -8,6 +8,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isDemoWorkspace } from "@/lib/demo-workspace";
 
 const addMemberSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -24,7 +25,13 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId);
+  // Every user is a member of the demo workspace, so its member list holds the
+  // email of every user. Only its admins can read it.
+  const membershipResult = await requireWorkspaceMembership(
+    user.id,
+    workspaceId,
+    isDemoWorkspace(workspaceId) ? Role.ADMIN : undefined,
+  );
   if (membershipResult.error) return membershipResult.error;
 
   const memberships = await prisma.workspaceMember.findMany({

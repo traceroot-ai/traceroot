@@ -106,18 +106,43 @@ describe("POST /api/internal/user-memberships", () => {
           id: "ws-1",
           name: "Alpha",
           role: "admin",
+          is_demo: false,
           projects: [
             { id: "proj-1", name: "P1" },
             { id: "proj-2", name: "P2" },
           ],
         },
-        { id: "ws-2", name: "Beta", role: "viewer", projects: [] },
+        { id: "ws-2", name: "Beta", role: "viewer", is_demo: false, projects: [] },
       ],
     });
     // scoped to the forwarded user and ordered by workspace name
     const args = memberFindManyMock.mock.calls[0][0];
     expect(args.where).toEqual({ userId: "user-1" });
     expect(args.orderBy).toEqual({ workspace: { name: "asc" } });
+  });
+
+  it("marks the demo workspace and lists it last, whatever its name", async () => {
+    vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
+    try {
+      memberFindManyMock.mockResolvedValue([
+        { role: "VIEWER", workspace: { id: "ws-demo", name: "Aardvark Demo", projects: [] } },
+        { role: "ADMIN", workspace: { id: "ws-own", name: "Zeta", projects: [] } },
+      ]);
+
+      const res = await POST(makeRequest({ userId: "user-1" }));
+      const body = await res.json();
+
+      expect(
+        body.workspaces.map((w: { id: string; is_demo: boolean }) => [w.id, w.is_demo]),
+      ).toEqual([
+        ["ws-own", false],
+        ["ws-demo", true],
+      ]);
+      // The CLI list shows the demo, so the query includes it.
+      expect(memberFindManyMock.mock.calls[0][0].where).toEqual({ userId: "user-1" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("returns an empty list when the user has no memberships", async () => {

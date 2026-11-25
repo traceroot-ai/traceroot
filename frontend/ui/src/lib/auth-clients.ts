@@ -1,6 +1,6 @@
 // Human-readable names for the consent page, keyed by client id.
 export const DEVICE_CLIENT_NAMES: Record<string, string> = {
-  "traceroot-cli": "TraceRoot CLI",
+  "traceroot-cli": "traceroot CLI",
 };
 
 // client_id is display metadata for the consent screen, NOT a security boundary:

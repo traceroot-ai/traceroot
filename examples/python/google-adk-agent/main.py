@@ -1,5 +1,5 @@
 """
-Google ADK agent with tool use and TraceRoot observability.
+Google ADK agent with tool use and traceroot observability.
 
 Uses the Google Agent Development Kit (ADK) which handles the agent loop,
 tool execution, and multi-turn conversations automatically.

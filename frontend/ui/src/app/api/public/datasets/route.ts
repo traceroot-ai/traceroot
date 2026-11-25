@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma, type Prisma, PublicUpsertDatasetRequestSchema } from "@traceroot/core";
-import { requireApiKeyProject } from "@/lib/eval/auth";
+import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 import { listDatasetsPage } from "@/lib/eval/dataset-read";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { evalReadResponse } from "@/lib/eval/read-result";
@@ -9,7 +9,7 @@ import { evalReadResponse } from "@/lib/eval/read-result";
 // opaque dataset id; results are newest-first with a null next_cursor at the end. The
 // read itself is shared with the internal route (`listDatasetsPage`).
 export async function GET(request: Request) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const url = new URL(request.url);
   return evalReadResponse(
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 // creating them. Scoped to the project, two tenants can each own "prod-eval" and
 // neither can observe the other's.
 export async function POST(request: Request) {
-  const auth = await requireApiKeyProject(request);
+  const auth = await requireEvalApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
 

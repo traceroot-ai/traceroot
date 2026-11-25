@@ -36,8 +36,16 @@ export function createDownloadSessionTool(
         await executor.init();
       }
 
+      // URL parsers normalize standalone dot segments even after percent-encoding.
+      if (params.sessionId === "." || params.sessionId === "..") {
+        return {
+          content: [{ type: "text", text: "Error fetching session: Invalid session ID" }],
+          details: undefined,
+        };
+      }
+
       // Step 1: Fetch session details to get all trace IDs
-      const sessionUrl = `${FASTAPI_URL}/api/v1/projects/${projectId}/sessions/${params.sessionId}`;
+      const sessionUrl = `${FASTAPI_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(params.sessionId)}`;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "x-user-id": userId,

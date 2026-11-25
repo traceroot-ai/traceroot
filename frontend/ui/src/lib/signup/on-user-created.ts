@@ -1,14 +1,17 @@
-// Everything that follows a new account (Resend contact, welcome email, Slack
-// notice), run from better-auth's user.create.after hook. Each arm is on only
-// when its own config is set and never rejects. The contact is created before
-// the welcome because Resend delivers topic mail to non-contacts, and the
-// opt-out needs a record.
+// Everything that follows a new account (demo workspace access, Resend contact,
+// welcome email, Slack notice), run from better-auth's user.create.after hook.
+// Each arm is on only when its own config is set and never rejects. The
+// contact is created before the welcome because Resend delivers topic mail to
+// non-contacts, and the opt-out needs a record.
 import { prisma } from "@traceroot/core";
 import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
+import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
+import { isSelfSignup } from "./attribution";
 
 export interface CreatedUser {
   id: string;
@@ -16,11 +19,15 @@ export interface CreatedUser {
   name: string | null;
 }
 
-export function signupProvider(path: string | undefined): string {
-  if (!path) return "unknown";
-  if (path.includes("/sign-up/email")) return "email";
-  const social = /\/callback\/([a-z0-9-]+)/i.exec(path);
-  return social ? social[1].toLowerCase() : "unknown";
+export interface SignupContext {
+  path?: string;
+  /** The OAuth callback's `:id` route param; better-auth's path is the pattern. */
+  provider?: string;
+}
+
+export function signupProvider(context: SignupContext | null | undefined): string {
+  if (context?.provider) return context.provider.toLowerCase();
+  return context?.path?.includes("/sign-up/email") ? "email" : "unknown";
 }
 
 async function arm<T>(
@@ -38,10 +45,17 @@ async function arm<T>(
 
 export async function onUserCreated(
   user: CreatedUser,
-  context: { path?: string } | null,
+  context: SignupContext | null,
 ): Promise<void> {
-  // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (context?.path === "/admin/create-user") return;
+  // Every account can look at the demo workspace, however it was created.
+  const demo = ensureDemoMembership(user.id);
+
+  // Staff-provisioned users are not sign-ups; agents sign up in bulk, so they
+  // get no welcome email or Slack post.
+  if (!isSelfSignup(context) || signupProvider(context) === AGENTID_PROVIDER_ID) {
+    await demo;
+    return;
+  }
 
   const welcome = isProductMailConfigured()
     ? arm("welcome email", user.id, async () => {
@@ -71,7 +85,7 @@ export async function onUserCreated(
         return notifySignupSlack({
           name: user.name,
           email: user.email,
-          provider: signupProvider(context?.path),
+          provider: signupProvider(context),
           viaInvite: invite != null,
           facts,
           supportConsoleUrl: `${env.NEXT_PUBLIC_APP_URL}/admin`,
@@ -80,5 +94,5 @@ export async function onUserCreated(
       })
     : undefined;
 
-  await Promise.all([welcome, slack]);
+  await Promise.all([demo, welcome, slack]);
 }

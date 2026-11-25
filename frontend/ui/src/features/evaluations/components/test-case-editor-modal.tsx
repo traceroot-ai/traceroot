@@ -182,23 +182,23 @@ export function TestCaseEditorModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="test-case-editor-title"
-        className="relative z-10 flex max-h-[90vh] w-[min(1080px,94vw)] flex-col rounded-lg border border-border bg-background shadow-xl"
+        className="relative z-10 flex max-h-[90vh] w-[min(760px,94vw)] flex-col rounded-[2px] border border-border bg-background shadow-xl"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
-          <h2 id="test-case-editor-title" className="text-[13px] font-semibold">
-            {isEdit ? "Edit Row" : "New Row"}
+        <div className="flex min-h-11 shrink-0 items-center justify-between border-b border-border px-4 py-2">
+          <h2 id="test-case-editor-title" className="text-[15px] font-medium">
+            {isEdit ? "Edit row" : "New row"}
           </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4 text-[12px]">
+        <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4 text-[12px]">
           <EditableValueBlock
             label="Input"
             text={input}
@@ -228,17 +228,15 @@ export function TestCaseEditorModal({
             minRows={2}
           />
           {metadataError && (
-            <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-300">
-              {metadataError}
-            </p>
+            <p className="text-[12px] leading-snug text-warning">{metadataError}</p>
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
-          <Button variant="outline" size="sm" className="h-7 text-[12px]" onClick={onClose}>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" className="h-7 text-[12px]" onClick={handleSave} disabled={!canSave}>
+          <Button onClick={handleSave} disabled={!canSave}>
             {pending ? "Saving…" : "Save"}
           </Button>
         </div>

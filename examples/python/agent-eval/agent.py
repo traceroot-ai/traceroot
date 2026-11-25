@@ -10,12 +10,11 @@ from pydantic_ai import Agent
 # ---------------------------------------------------------------------------
 # Agent & tools
 # ---------------------------------------------------------------------------
-# Deterministic settings (temperature=0) so the same question yields the same
-# tool calls and answer from run to run.
+# Disable reasoning so GPT-6 Luna can call tools over Chat Completions.
 
 agent = Agent(
-    "openai-chat:gpt-4o-mini",
-    model_settings={"temperature": 0.0},
+    "openai-chat:gpt-6-luna",
+    model_settings={"openai_reasoning_effort": "none"},
     system_prompt=(
         "You are a financial research assistant. Use the available tools to look "
         "up stock prices and to perform any arithmetic. Never compute prices or do "
