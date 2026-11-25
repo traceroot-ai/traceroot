@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { runFollowUps } from "@/lib/lifecycle/follow-up-job";
 import { runWelcomeFallback } from "@/lib/email/welcome/welcome-schedule";
+import { runNewsletterJob } from "@/lib/newsletter-job";
 import { reportDailyTraceCounts } from "@/lib/trace-count";
 
 // POST /api/internal/scheduled-tick
@@ -12,7 +13,9 @@ import { reportDailyTraceCounts } from "@/lib/trace-count";
 // workspace owner's daily trace_count (lib/trace-count.ts), the welcome emails
 // that fell due without the sign-up questions sending them
 // (lib/email/welcome/welcome-schedule.ts, cloud only), and the follow-up emails
-// (lib/lifecycle/follow-up-job.ts, off unless enabled). The welcome runs before
+// (lib/lifecycle/follow-up-job.ts, off unless enabled), and adding people to
+// the newsletter segment 14 days after sign-up (lib/newsletter-job.ts, off
+// unless enabled). The welcome runs before
 // the follow-ups, which only go to people who have had it. Each task catches its
 // own failure, so one failing never stops the others. Trust is the X-Internal-Secret. Never log addresses.
 export async function POST(request: NextRequest) {
@@ -31,5 +34,9 @@ export async function POST(request: NextRequest) {
     console.error(`[follow-ups] run failed: ${String(error)}`);
     return { error: "failed" as const };
   });
-  return NextResponse.json({ traceCounts, welcomes, followUps });
+  const newsletter = await runNewsletterJob().catch((error: unknown) => {
+    console.error(`[newsletter] scheduled run failed: ${String(error)}`);
+    return { error: "failed" as const };
+  });
+  return NextResponse.json({ traceCounts, welcomes, followUps, newsletter });
 }
