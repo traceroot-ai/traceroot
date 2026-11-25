@@ -277,6 +277,13 @@ describe("reportHostedDelta", () => {
     expect(baseline).toEqual({ lastReportedUnits: 105, lastReportedPeriodStart: PERIOD });
   });
 
+  it("reports the whole total when this period has no reported units yet", async () => {
+    const { client, create } = makeStripe();
+    const baseline = await report(client, 40, { lastReportedPeriodStart: PERIOD });
+    expect(create.mock.calls[0][0].payload.value).toBe("40");
+    expect(baseline).toEqual({ lastReportedUnits: 40, lastReportedPeriodStart: PERIOD });
+  });
+
   it("leaves the baseline as it was when Stripe refuses, so the next run retries", async () => {
     const { client, create } = makeStripe();
     create.mockRejectedValueOnce(new Error("stripe 503"));
