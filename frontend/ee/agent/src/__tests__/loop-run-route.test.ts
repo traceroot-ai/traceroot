@@ -611,6 +611,28 @@ describe("POST loop-runs/:runId — the turn", () => {
     expect((await (await post(BODY)).json()).status).toBe("no_summary");
   });
 
+  it("answers error (200), without building the agent, when the loop's signals cannot be read", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.findSignals.mockRejectedValueOnce(new Error("connection lost"));
+    const res = await post(BODY);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "error",
+      error: "connection lost",
+      findings: [],
+      modelUsed: null,
+    });
+    expect(mocks.getOrCreateAgent).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledWith(
+      "[Agent] Loop run run-1 could not read its signals:",
+      expect.any(Error),
+    );
+    errors.mockRestore();
+    // The claim was released: a second call can run.
+    runs(() => undefined);
+    expect((await (await post(BODY)).json()).status).toBe("no_summary");
+  });
+
   it("never writes the run's status", async () => {
     runs(() => undefined);
     await post(BODY);
