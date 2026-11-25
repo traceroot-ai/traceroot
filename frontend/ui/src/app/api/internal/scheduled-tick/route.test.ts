@@ -38,6 +38,10 @@ const syncPendingEmailPreferencesMock = vi.fn();
 vi.mock("@/lib/lifecycle/email-preference-sync", () => ({
   syncPendingEmailPreferences: (...args: unknown[]) => syncPendingEmailPreferencesMock(...args),
 }));
+const runNewsletterJobMock = vi.fn();
+vi.mock("@/lib/newsletter-job", () => ({
+  runNewsletterJob: (...args: unknown[]) => runNewsletterJobMock(...args),
+}));
 
 import { POST } from "./route";
 
@@ -52,10 +56,19 @@ beforeEach(() => {
     return { mode: "off" };
   });
   runWelcomeFallbackMock.mockReset().mockResolvedValue({ due: 1, sent: 1 });
+  runNewsletterJobMock.mockReset().mockResolvedValue({ mode: "off" });
   order.length = 0;
 });
 
 describe("POST /api/internal/scheduled-tick", () => {
+  it("still answers, with the other tasks, when the newsletter run fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    runNewsletterJobMock.mockRejectedValue(new Error("provider down"));
+    const body = await (await tick()).json();
+    expect(body.newsletter).toEqual({ error: "failed" });
+    expect(body.followUps).toEqual({ mode: "off" });
+  });
+
   it("runs the daily trace counts and reports what it did", async () => {
     const response = await tick();
 
@@ -65,6 +78,7 @@ describe("POST /api/internal/scheduled-tick", () => {
       welcomes: { due: 1, sent: 1 },
       followUps: { mode: "off" },
       emailPreferences: { synced: 0, pending: 0 },
+      newsletter: { mode: "off" },
     });
     expect(reportDailyTraceCountsMock).toHaveBeenCalledTimes(1);
     // The welcome goes first: the follow-ups only go to people who have had it.
@@ -89,6 +103,7 @@ describe("POST /api/internal/scheduled-tick", () => {
       welcomes: { due: 1, sent: 1 },
       followUps: { error: "failed" },
       emailPreferences: { synced: 0, pending: 0 },
+      newsletter: { mode: "off" },
     });
   });
 
@@ -105,9 +120,11 @@ describe("POST /api/internal/scheduled-tick", () => {
       welcomes: { due: 1, sent: 1 },
       followUps: { mode: "send", sent: 1 },
       emailPreferences: { synced: 0, pending: 0 },
+      newsletter: { mode: "off" },
     });
     expect(runWelcomeFallbackMock).toHaveBeenCalledTimes(1);
     expect(runFollowUpsMock).toHaveBeenCalledTimes(1);
+    expect(runNewsletterJobMock).toHaveBeenCalledTimes(1);
   });
 
   it("answers with every failure when every task rejects", async () => {
@@ -115,6 +132,7 @@ describe("POST /api/internal/scheduled-tick", () => {
     reportDailyTraceCountsMock.mockRejectedValue(new Error("posthog down"));
     runWelcomeFallbackMock.mockRejectedValue(new Error("db down"));
     runFollowUpsMock.mockRejectedValue(new Error("db down"));
+    runNewsletterJobMock.mockRejectedValue(new Error("provider down"));
 
     const response = await tick();
 
@@ -124,6 +142,7 @@ describe("POST /api/internal/scheduled-tick", () => {
       welcomes: { error: "failed" },
       followUps: { error: "failed" },
       emailPreferences: { synced: 0, pending: 0 },
+      newsletter: { error: "failed" },
     });
   });
 
@@ -136,6 +155,7 @@ describe("POST /api/internal/scheduled-tick", () => {
     expect(reportDailyTraceCountsMock).not.toHaveBeenCalled();
     expect(runFollowUpsMock).not.toHaveBeenCalled();
     expect(runWelcomeFallbackMock).not.toHaveBeenCalled();
+    expect(runNewsletterJobMock).not.toHaveBeenCalled();
   });
 
   it("finishes the email-preference syncs, and still answers when that fails", async () => {
