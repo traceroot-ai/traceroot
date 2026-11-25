@@ -674,13 +674,20 @@ class TraceReaderService:
         filters: list[Predicate] | None,
         include_evaluations: bool,
         source_predicate: str,
-    ) -> tuple[str, dict]:
-        """Build the shared scope for trace rows, totals, and labeled candidate IDs."""
-        # Build WHERE conditions
-        conditions = ["t.project_id = {project_id:String}"]
+    ) -> tuple[str, str, dict]:
+        """Build the shared scope for trace rows, totals, and labeled candidate IDs.
+
+        Returns ``(scope, where, params)``. ``scope`` selects the rows to dedup (project,
+        source, trace IDs, time window); ``where`` judges the deduped latest version of
+        each trace. Name, user, search and filter predicates belong in ``where``: before
+        ingest's root row supersedes the eager row a child span wrote, both versions are
+        live, and a predicate applied before the dedup matches the superseded one.
+        """
+        scope = ["t.project_id = {project_id:String}"]
         # Detector self-traces are internal telemetry; the customer trace list
-        # (data AND count, via the shared where_clause) never shows them.
-        conditions.append(source_predicate)
+        # (data AND count, via the shared scope) never shows them.
+        scope.append(source_predicate)
+        conditions: list[str] = []
         params: dict = {"project_id": project_id}
 
         if name:
@@ -692,17 +699,17 @@ class TraceReaderService:
             params["user_id"] = user_id
 
         if trace_ids:
-            conditions.append("t.trace_id IN {trace_ids:Array(String)}")
+            scope.append("t.trace_id IN {trace_ids:Array(String)}")
             params["trace_ids"] = list(trace_ids)
 
         # Date range filtering (convert to UTC naive datetime for ClickHouse)
         if start_after is not None:
-            conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
+            scope.append("t.trace_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = to_utc_naive(start_after)
 
         normalized_end = to_utc_naive(end_before) if end_before is not None else None
         if normalized_end is not None:
-            conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
+            scope.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = normalized_end
 
         # Multi-field keyword search (trace_id, name, session_id, user_id)
@@ -723,7 +730,7 @@ class TraceReaderService:
         # old named traces are still found; with filters the window applies as usual.
         if filters and start_after is None:
             params["start_after"] = default_lookback_start(normalized_end)
-            conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
+            scope.append("t.trace_start_time >= {start_after:DateTime64(3)}")
 
         # Registry-driven attribute filters (model/cost/errors/...). Appended to the
         # SHARED conditions so they land in both the page query and the count query;
@@ -736,7 +743,7 @@ class TraceReaderService:
         if not include_evaluations:
             conditions.append(_evaluation_exclusion(params))
 
-        return " AND ".join(conditions), params
+        return " AND ".join(scope), " AND ".join(conditions) or "1", params
 
     def matching_trace_ids(
         self,
@@ -752,7 +759,7 @@ class TraceReaderService:
         include_evaluations: bool,
     ) -> list[str]:
         """Apply the list scope to a bounded candidate batch without loading trace contents."""
-        where_clause, params = self._trace_list_where(
+        scope, where_clause, params = self._trace_list_where(
             project_id,
             name,
             user_id,
@@ -765,7 +772,16 @@ class TraceReaderService:
             customer_traffic_only("t"),
         )
         rows = self._client.query(
-            f"SELECT DISTINCT t.trace_id FROM traces AS t WHERE {where_clause}",
+            f"""
+            SELECT t.trace_id
+            FROM (
+                SELECT *, metadata_map FROM traces AS t
+                WHERE {scope}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ) AS t
+            WHERE {where_clause}
+            """,
             parameters=params,
             settings=READ_QUERY_SETTINGS,
         ).result_rows
@@ -800,7 +816,7 @@ class TraceReaderService:
         """
         offset = page * limit
 
-        where_clause, params = self._trace_list_where(
+        scope, where_clause, params = self._trace_list_where(
             project_id,
             name,
             user_id,
@@ -820,29 +836,41 @@ class TraceReaderService:
         # and never groups by the large input/output text columns. See #963.
         query = f"""
             WITH page AS (
-                -- Dedup ReplacingMergeTree by latest ch_update_time FIRST (correctness),
-                -- THEN order by start time for pagination.
-                SELECT
-                    trace_id, project_id, name, trace_start_time,
-                    user_id, session_id, input, output, metadata_map
+                -- Dedup ReplacingMergeTree by latest ch_update_time FIRST, THEN filter
+                -- (so a predicate never matches a superseded version), THEN order by
+                -- start time for pagination. Only the page's keys leave this sort,
+                -- which spans the whole window; page_rows reads the page's columns.
+                SELECT t.trace_id, t.trace_start_time
                 FROM (
-                    -- metadata_map is the TRACE row's metadata, and it is what the list's
-                    -- single default-off Metadata cell renders. A metadata FILTER also
-                    -- matches span-level keys, so a matched row can still show a blank
-                    -- cell here; the span detail panel is the reconciliation point.
-                    SELECT
-                        t.trace_id, t.project_id, t.name, t.trace_start_time,
-                        t.user_id, t.session_id, t.input, t.output, t.metadata_map
-                    FROM traces AS t
-                    WHERE {where_clause}
+                    -- `*` leaves out MATERIALIZED columns, so metadata_map (which
+                    -- filters can read) is named. Unused columns are pruned.
+                    SELECT *, metadata_map FROM traces AS t
+                    WHERE {scope}
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
-                )
+                ) AS t
+                WHERE {where_clause}
                 -- trace_id breaks start-time ties (millisecond precision), so OFFSET
                 -- pages are disjoint and repeatable: no tied trace is skipped or
                 -- repeated across pages (#1747).
                 ORDER BY trace_start_time DESC, trace_id DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+            ),
+            page_rows AS (
+                -- Every displayed column comes from this one deduped row, so versions
+                -- tied on ch_update_time (placeholder rows share one) never mix.
+                -- metadata_map is the TRACE row's metadata, and it is what the list's
+                -- single default-off Metadata cell renders. A metadata FILTER also
+                -- matches span-level keys, so a matched row can still show a blank
+                -- cell here; the span detail panel is the reconciliation point.
+                SELECT
+                    t.trace_id, t.project_id, t.name, t.trace_start_time,
+                    t.user_id, t.session_id, t.input, t.output, t.metadata_map
+                FROM traces AS t
+                WHERE trace_id IN (SELECT trace_id FROM page)
+                  AND {scope}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
             ),
             span_agg AS (
                 SELECT
@@ -870,21 +898,22 @@ class TraceReaderService:
             )
             SELECT
                 p.trace_id,
-                p.project_id,
-                p.name,
-                p.trace_start_time,
-                p.user_id,
-                p.session_id,
+                r.project_id,
+                r.name,
+                r.trace_start_time,
+                r.user_id,
+                r.session_id,
                 sa.span_count,
                 sa.duration_ms,
                 sa.error_count,
-                p.input,
-                p.output,
+                r.input,
+                r.output,
                 sa.total_input_tokens,
                 sa.total_output_tokens,
                 sa.total_cost,
-                p.metadata_map
+                r.metadata_map
             FROM page AS p
+            LEFT JOIN page_rows AS r ON p.trace_id = r.trace_id
             LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
             ORDER BY p.trace_start_time DESC, p.trace_id DESC
         """
@@ -899,11 +928,16 @@ class TraceReaderService:
         result = self._client.query(query, parameters=params, settings=READ_QUERY_SETTINGS)
         rows = result.result_rows
 
-        # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL).
-        # The evaluation exclusion rides in {where_clause} — shared with the page above.
+        # Get total count over the same deduped rows and predicates as the page above
+        # (no FINAL). The evaluation exclusion rides in {where_clause}.
         count_query = f"""
-            SELECT count(DISTINCT t.trace_id)
-            FROM traces AS t
+            SELECT count()
+            FROM (
+                SELECT *, metadata_map FROM traces AS t
+                WHERE {scope}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ) AS t
             WHERE {where_clause}
         """
         count_result = self._client.query(
@@ -1259,14 +1293,15 @@ class TraceReaderService:
         """
         offset = page * limit
 
-        # Build WHERE conditions on the traces table
-        conditions = [
+        # The scope selects the trace rows to dedup; the conditions judge each trace's
+        # latest version, so a superseded row's session_id never places a trace in a
+        # session (see _trace_list_where).
+        scope = [
             "t.project_id = {project_id:String}",
             # Self-traces would otherwise inflate session counts and token/cost totals.
             customer_traffic_only("t"),
-            "t.session_id IS NOT NULL",
-            "t.session_id != ''",
         ]
+        conditions = ["t.session_id IS NOT NULL", "t.session_id != ''"]
         params: dict = {"project_id": project_id, "limit": limit, "offset": offset}
 
         if search_query:
@@ -1274,14 +1309,14 @@ class TraceReaderService:
             params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
         if start_after is not None:
-            conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
+            scope.append("t.trace_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = to_utc_naive(start_after)
 
         if end_before is not None:
-            conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
+            scope.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
 
-        # Shared by every CTE below (session_page, traces_dedup) AND the count query, so
+        # Shared by every subquery below (session_page, traces_dedup) AND the count query, so
         # the paged sessions, their aggregates and meta.total all see the same traces.
         # Kept in a local because the I/O-backfill query further down builds its own
         # traces scan and must hide the same traces (an eval trace must not supply a
@@ -1290,35 +1325,48 @@ class TraceReaderService:
         if eval_exclusion:
             conditions.append(eval_exclusion)
 
+        scope_where = " AND ".join(scope)
         where_clause = " AND ".join(conditions)
 
         # Page the sessions FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
         # instead of FINAL), then dedupe the traces for that page of sessions and
         # aggregate spans for only those trace_ids. Avoids the full traces x spans
         # FINAL join + group-by-on-text over the whole project on each call. See #963.
+        # The page is a scalar subquery: ClickHouse computes it once, where a CTE named
+        # twice below would rerun its project-wide dedup for each reference.
         query = f"""
-            WITH session_page AS (
-                SELECT t.session_id
-                FROM (
-                    SELECT t.session_id, t.trace_start_time
-                    FROM traces AS t
+            WITH (
+                SELECT groupArray(session_id) FROM (
+                    SELECT t.session_id
+                    FROM (
+                        SELECT *, metadata_map FROM traces AS t
+                        WHERE {scope_where}
+                        ORDER BY t.ch_update_time DESC
+                        LIMIT 1 BY t.project_id, t.trace_id
+                    ) AS t
                     WHERE {where_clause}
-                    ORDER BY t.ch_update_time DESC
-                    LIMIT 1 BY t.project_id, t.trace_id
-                ) AS t
-                GROUP BY t.session_id
-                ORDER BY max(t.trace_start_time) DESC, t.session_id DESC
-                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
-            ),
+                    GROUP BY t.session_id
+                    ORDER BY max(t.trace_start_time) DESC, t.session_id DESC
+                    LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+                )
+            ) AS session_page,
             traces_dedup AS (
                 SELECT
                     t.session_id, t.trace_id, t.trace_start_time, t.user_id,
                     t.input as trace_input, t.output as trace_output
-                FROM traces AS t
-                WHERE {where_clause}
-                  AND t.session_id IN (SELECT session_id FROM session_page)
-                ORDER BY t.ch_update_time DESC
-                LIMIT 1 BY t.project_id, t.trace_id
+                FROM (
+                    -- Dedup only the traces that have ever been in a paged session,
+                    -- then keep those whose latest version still is.
+                    SELECT *, metadata_map FROM traces AS t
+                    WHERE {scope_where}
+                      AND t.trace_id IN (
+                          SELECT t.trace_id FROM traces AS t
+                          WHERE {scope_where} AND has(session_page, t.session_id)
+                      )
+                    ORDER BY t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                ) AS t
+                WHERE {where_clause} AND has(session_page, t.session_id)
             ),
             span_agg AS (
                 SELECT
@@ -1365,14 +1413,14 @@ class TraceReaderService:
         # Total distinct sessions. Dedup traces to their latest version first (via
         # LIMIT 1 BY) so a session_id changed across versions isn't double-counted.
         count_query = f"""
-            SELECT count(DISTINCT session_id)
+            SELECT count(DISTINCT t.session_id)
             FROM (
-                SELECT t.session_id
-                FROM traces AS t
-                WHERE {where_clause}
+                SELECT *, metadata_map FROM traces AS t
+                WHERE {scope_where}
                 ORDER BY t.ch_update_time DESC
                 LIMIT 1 BY t.project_id, t.trace_id
-            )
+            ) AS t
+            WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -1410,13 +1458,22 @@ class TraceReaderService:
             span_io_query = f"""
                 WITH session_traces AS (
                     SELECT t.session_id, t.trace_id, t.project_id
-                    FROM traces AS t
-                    WHERE t.project_id = {{project_id:String}}
-                      AND {customer_traffic_only("t")}
-                      AND t.session_id IN ({{session_ids:Array(String)}})
+                    FROM (
+                        SELECT t.session_id, t.trace_id, t.project_id
+                        FROM traces AS t
+                        WHERE t.project_id = {{project_id:String}}
+                          AND {customer_traffic_only("t")}
+                          AND t.trace_id IN (
+                              SELECT trace_id FROM traces
+                              WHERE project_id = {{project_id:String}}
+                                AND {customer_traffic_only()}
+                                AND session_id IN ({{session_ids:Array(String)}})
+                          )
+                        ORDER BY t.ch_update_time DESC
+                        LIMIT 1 BY t.project_id, t.trace_id
+                    ) AS t
+                    WHERE t.session_id IN ({{session_ids:Array(String)}})
                       {f"AND {eval_exclusion}" if eval_exclusion else ""}
-                    ORDER BY t.ch_update_time DESC
-                    LIMIT 1 BY t.project_id, t.trace_id
                 ),
                 spans_dedup AS (
                     SELECT trace_id, project_id, input, output, span_start_time, span_end_time

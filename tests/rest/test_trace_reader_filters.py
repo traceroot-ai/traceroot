@@ -102,13 +102,17 @@ def test_metadata_filter_lands_in_both_page_and_count_queries():
     assert svc._client.query.call_args_list[1].kwargs["parameters"] is params
 
 
-def _outer_where_clause(sql: str) -> str:
-    """The trace-level WHERE clause of an assembled list query.
+def _trace_where_clauses(sql: str) -> tuple[str, str]:
+    """The (dedup scope, predicate) WHERE clauses of an assembled list query.
 
-    The one line where every condition the translator produced is AND-joined together —
-    the place where a loosely-bound operator in one condition would reach the others.
+    The scope bounds the rows deduped to each trace's latest version; the predicate line
+    is where every condition the translator produced is AND-joined together — the place
+    where a loosely-bound operator in one condition would reach the others.
     """
-    return next(line.strip() for line in sql.splitlines() if line.strip().startswith("WHERE t."))
+    scope, predicates = (
+        line.strip() for line in sql.splitlines() if line.strip().startswith("WHERE t.")
+    )
+    return scope, predicates
 
 
 def _or_operators_outside_parentheses(clause: str) -> int:
@@ -161,12 +165,12 @@ def test_a_metadata_filter_does_not_widen_the_filters_beside_it():
     )
 
     for call in svc._client.query.call_args_list:
-        clause = _outer_where_clause(call.args[0])
+        scope, clause = _trace_where_clauses(call.args[0])
         assert " OR " in clause  # the metadata predicate is present
         assert _or_operators_outside_parentheses(clause) == 0
-        # ... and the conditions it sits beside are still conjuncts.
-        assert "t.trace_start_time >= {start_after:DateTime64(3)} AND" in clause
-        assert "t.trace_start_time < {end_before:DateTime64(3)} AND" in clause
+        # ... and the conditions it sits beside still apply.
+        assert "t.trace_start_time >= {start_after:DateTime64(3)} AND" in scope
+        assert "t.trace_start_time < {end_before:DateTime64(3)}" in scope
         assert "model_name IN {f_model_name_0:Array(String)}" in clause
 
 
@@ -447,3 +451,78 @@ def test_both_queries_carry_an_execution_ceiling_and_the_readonly_flag():
         settings = call.kwargs["settings"]
         assert settings["max_execution_time"] == QUERY_TIMEOUT_S
         assert settings["readonly"] == 1
+
+
+# ── Version-dependent predicates run after the ReplacingMergeTree dedup ───────────
+#
+# A trace is written more than once: an eager row from the first child span to export,
+# then the root's row with the real name, start time and user. Until ClickHouse merges
+# the parts, both rows are live. A predicate applied before ``LIMIT 1 BY`` matches the
+# superseded row, so a filter for the eager span's name returns the trace under that
+# stale name. The predicates must judge only the latest version.
+
+_DEDUP = "LIMIT 1 BY t.project_id, t.trace_id"
+
+
+def _predicates_follow_dedup(sql: str, *predicates: str) -> bool:
+    dedup = sql.index(_DEDUP)
+    return all(sql.index(p) > dedup for p in predicates)
+
+
+def test_trace_attribute_predicates_judge_the_latest_trace_version():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(
+        project_id="p1",
+        name="openai",
+        user_id="u1",
+        search_query="openai",
+        filters=_MODEL_FILTER,
+    )
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    predicates = (
+        "t.name ILIKE {name:String}",
+        "t.user_id = {user_id:String}",
+        "{search_kw:String}",
+    )
+    assert _predicates_follow_dedup(page_sql, *predicates)
+    assert _predicates_follow_dedup(count_sql, *predicates)
+
+
+def test_label_candidates_judge_the_latest_trace_version():
+    svc = _service_with_mock_client()
+    svc._client.query.return_value.result_rows = []
+
+    svc.matching_trace_ids(
+        ["t1"],
+        project_id="p1",
+        name="openai",
+        user_id=None,
+        start_after=None,
+        end_before=None,
+        search_query=None,
+        filters=[],
+        include_evaluations=True,
+    )
+
+    sql = svc._client.query.call_args.args[0]
+    assert _predicates_follow_dedup(sql, "t.name ILIKE {name:String}")
+
+
+def test_session_search_judges_the_latest_trace_version():
+    svc = _service_with_mock_client()
+    page_res, count_res = MagicMock(), MagicMock()
+    page_res.result_rows = []
+    count_res.result_rows = [[0]]
+    svc._client.query.side_effect = [page_res, count_res]
+
+    svc.list_sessions(project_id="p1", search_query="sess")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    session_page, traces_dedup = page_sql.split("traces_dedup AS", 1)
+    for sql in (session_page, traces_dedup, count_sql):
+        assert _predicates_follow_dedup(sql, "t.session_id ILIKE {search_kw:String}")
