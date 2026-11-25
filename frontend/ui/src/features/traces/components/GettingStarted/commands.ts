@@ -47,7 +47,7 @@ const CLI_DEFAULT_HOST = "https://app.traceroot.ai";
  * and is served from somewhere else therefore already has a broken dashboard —
  * its own session calls go to localhost:3000 — so assuming it here describes
  * the deployment the rest of the app is configured for. The alternative is to
- * omit the flags and hand a self-hosted reader TraceRoot Cloud, which fails by
+ * omit the flags and hand a self-hosted reader traceroot Cloud, which fails by
  * sending their first traces somewhere they will not look for them.
  */
 const DEFAULT_APP_ORIGIN = "http://localhost:3000";
@@ -81,7 +81,7 @@ const PLAIN_PROJECT_ID = /^[A-Za-z0-9._-]+$/;
  * DNS names (`http://app_internal:3000`), and special to no shell — and
  * rejecting it is the one thing this check must not do, because a deployment
  * served under such a name would lose both flags and the bare command would
- * send its operator to TraceRoot Cloud, which is what this file exists to
+ * send its operator to traceroot Cloud, which is what this file exists to
  * prevent.
  *
  * It stops there rather than admitting everything quoting happens to survive,
@@ -167,7 +167,7 @@ export interface UnusableOrigin {
  * the API genuinely *is* the host the CLI defaults to, so the flag would be
  * noise, or the configured value is unusable and this file has nothing to say.
  * The first renders a correct bare command; the second must not render one at
- * all, because the bare command targets TraceRoot Cloud and a self-hosted
+ * all, because the bare command targets traceroot Cloud and a self-hosted
  * reader pasting it signs in against someone else's deployment. Collapsing
  * both into nulls is what let that happen, so the type now forces the caller
  * to separate them.
@@ -299,7 +299,7 @@ export type SdkHostUrl =
  * `/api/v1/...` to `--host`. Both read it from the process environment only,
  * and default to `https://app.traceroot.ai` when it is unset: `DEFAULT_HOST_URL`
  * in traceroot-py, `DEFAULT_BASE_URL` in traceroot-ts, the same origin as
- * `CLI_DEFAULT_HOST`. So a null here is TraceRoot Cloud, where the variable can
+ * `CLI_DEFAULT_HOST`. So a null here is traceroot Cloud, where the variable can
  * be left out, and anywhere else a reader who leaves it out sends their key and
  * their traces to Cloud.
  *
@@ -341,7 +341,7 @@ export function sdkHostUrl(): SdkHostUrl {
  * because the caller already has one in hand: without it a user with more than
  * one project answers "which project?" from memory, and a wrong answer sends
  * their first traces somewhere they will not look for them. The deployment,
- * because the CLI defaults to TraceRoot Cloud — so on a self-hosted install the
+ * because the CLI defaults to traceroot Cloud — so on a self-hosted install the
  * unflagged command signs in against the wrong host entirely. See
  * `cliHostFlags` for why that takes two flags and not one.
  *

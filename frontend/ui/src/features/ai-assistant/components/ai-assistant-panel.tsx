@@ -45,6 +45,12 @@ interface AiAssistantPanelProps {
    * whole panel.
    */
   emptyState?: ReactNode;
+  /**
+   * Page placement only: content at the top of the page column, under the
+   * header, shown whatever the conversation and the model list are doing — the
+   * project home's next steps.
+   */
+  pageTop?: ReactNode;
 }
 
 /**
@@ -63,6 +69,7 @@ export function AiAssistantPanel({
   compact = false,
   variant = "rail",
   emptyState,
+  pageTop,
 }: AiAssistantPanelProps) {
   // In page placement the root spans the full page so the header's bottom
   // border runs edge to edge like every other section header; only the
@@ -215,6 +222,7 @@ export function AiAssistantPanel({
             : "flex min-h-0 flex-1 flex-col"
         }
       >
+        {variant === "page" && pageTop && <div className="px-4 pt-4 empty:hidden">{pageTop}</div>}
         {/* Unsupported model warning */}
         {canInteract && unsupportedModels.length > 0 && (
           <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-[12px]">

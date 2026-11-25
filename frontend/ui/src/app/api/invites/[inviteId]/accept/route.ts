@@ -2,6 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
+import { inviteEmailIsProven } from "@/lib/invite-identity";
 
 type RouteParams = { params: Promise<{ inviteId: string }> };
 
@@ -37,6 +38,15 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
   // Check if the invite is for this user's email
   if (invite.email.toLowerCase() !== user.email?.toLowerCase()) {
     return errorResponse("This invite is not for your email address", 403);
+  }
+
+  // The match above is only as good as the account's address: it has to be one
+  // its owner confirmed (lib/invite-identity.ts).
+  if (!(await inviteEmailIsProven(user.id))) {
+    return errorResponse(
+      "Verify your email address with your sign-in provider, then accept this invite again.",
+      403,
+    );
   }
 
   // Check if user is already a member

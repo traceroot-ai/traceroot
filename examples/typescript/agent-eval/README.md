@@ -1,6 +1,6 @@
 # Agent Eval (TypeScript)
 
-An offline eval of a tool-using [Vercel AI SDK](https://sdk.vercel.ai/) agent, scored with [TraceRoot](https://traceroot.ai) over four tool-use cases whose data is fixed, so every question has an exact ground-truth answer (NVDA at `495.20`, a 10% rise to `544.72`). Mirror of [`examples/python/agent-eval`](../../python/agent-eval), so both runs converge into one history.
+An offline eval of a tool-using [Vercel AI SDK](https://sdk.vercel.ai/) agent, scored with [traceroot](https://traceroot.ai) over four tool-use cases whose data is fixed, so every question has an exact ground-truth answer (NVDA at `495.20`, a 10% rise to `544.72`). Mirror of [`examples/python/agent-eval`](../../python/agent-eval), so both runs converge into one history.
 
 ## Setup
 
@@ -16,7 +16,7 @@ pnpm start   # main.ts — run the eval
 pnpm agent   # agent.ts — the system under evaluation, on its own
 ```
 
-By default the run reports to TraceRoot; with no `TRACEROOT_API_KEY` set, `main.ts` runs locally and reports nowhere. The model keys you need depend on the mode:
+By default the run reports to traceroot; with no `TRACEROOT_API_KEY` set, `main.ts` runs locally and reports nowhere. The model keys you need depend on the mode:
 
 | Mode | Keys |
 | --- | --- |

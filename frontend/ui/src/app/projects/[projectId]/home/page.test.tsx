@@ -18,6 +18,9 @@ const mocks = vi.hoisted(() => {
     handleSend: vi.fn(),
     messages: [] as Array<{ id: string; role: string; content: string }>,
     projectData: undefined as { workspace_id: string } | undefined,
+    nextSteps: { first_trace: true, detector: false, signal: false, eval_run: false } as
+      | { first_trace: boolean; detector: boolean; signal: boolean; eval_run: boolean }
+      | undefined,
     llmModels: undefined as
       | {
           systemModels: Array<{
@@ -61,6 +64,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (queryKey[0] === "workspace") return { data: mocks.workspaceData };
     if (queryKey[0] === "project") return { data: mocks.projectData };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
+    if (queryKey[0] === "project-next-steps") return { data: mocks.nextSteps };
     return { data: undefined };
   },
 }));
@@ -114,6 +118,7 @@ afterEach(() => {
   mocks.workspaceData = { is_demo: false, role: "ADMIN" };
   mocks.projectData = undefined;
   mocks.llmModels = undefined;
+  mocks.nextSteps = { first_trace: true, detector: false, signal: false, eval_run: false };
 });
 
 describe("Home page", () => {
@@ -297,3 +302,35 @@ it.each(["VIEWER", "MEMBER"])(
     expect(mocks.handleSend).not.toHaveBeenCalled();
   },
 );
+
+describe("Home page next steps", () => {
+  it("shows the next steps above the greeting", () => {
+    render(<HomePage />);
+    const card = screen.getByRole("region", { name: "Next steps" });
+    const greeting = screen.getByText("How can I help?");
+    expect(card.compareDocumentPosition(greeting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("1 of 4 done")).toBeDefined();
+  });
+
+  it("shows the next steps when no model is set up and the greeting gives way", () => {
+    mocks.llmModels = { systemModels: [], byokProviders: [] };
+    render(<HomePage />);
+    expect(screen.getByText("No LLM models available")).toBeDefined();
+    expect(screen.queryByText("How can I help?")).toBeNull();
+    expect(screen.getByRole("region", { name: "Next steps" })).toBeDefined();
+  });
+
+  it("shows no next steps to a read-only demo visitor", () => {
+    mocks.workspaceData = { is_demo: true, role: "VIEWER" };
+    render(<HomePage />);
+    expect(screen.queryByRole("region", { name: "Next steps" })).toBeNull();
+    expect(screen.getByText("How can I help?")).toBeDefined();
+  });
+
+  it("shows no card once every step is done", () => {
+    mocks.nextSteps = { first_trace: true, detector: true, signal: true, eval_run: true };
+    render(<HomePage />);
+    expect(screen.queryByRole("region", { name: "Next steps" })).toBeNull();
+    expect(screen.getByText("How can I help?")).toBeDefined();
+  });
+});
