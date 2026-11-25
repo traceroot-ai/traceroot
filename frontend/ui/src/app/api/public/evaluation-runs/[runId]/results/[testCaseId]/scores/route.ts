@@ -88,7 +88,11 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   // A score that arrives after the run finished changes the run's counts.
-  await syncFinishedRunCounts(runId, projectId);
+  try {
+    await syncFinishedRunCounts(runId, projectId);
+  } catch {
+    return NextResponse.json({ error: "Failed to update the run's counts" }, { status: 500 });
+  }
 
   return NextResponse.json({ score_id: scoreId }, { status: 200 });
 }

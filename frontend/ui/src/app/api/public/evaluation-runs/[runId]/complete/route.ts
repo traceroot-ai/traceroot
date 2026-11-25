@@ -64,15 +64,18 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
-  // The counts sent here are kept only while the run is still running. A finished run's
-  // counts are taken from its stored results below.
-  const sentCounts = terminal
-    ? {}
-    : {
-        ...(c.scored_count != null ? { scoredCount: c.scored_count } : {}),
-        ...(c.task_error_count != null ? { taskErrorCount: c.task_error_count } : {}),
-        ...(c.scorer_error_count != null ? { scorerErrorCount: c.scorer_error_count } : {}),
-      };
+  // The counts sent here are kept until the run's stored results are counted: while it is
+  // still running, and on the call that finishes it, so a count that fails below leaves
+  // these rather than zeros. A run that had already finished keeps the counts its stored
+  // results gave.
+  const sentCounts =
+    run.status === "running"
+      ? {
+          ...(c.scored_count != null ? { scoredCount: c.scored_count } : {}),
+          ...(c.task_error_count != null ? { taskErrorCount: c.task_error_count } : {}),
+          ...(c.scorer_error_count != null ? { scorerErrorCount: c.scorer_error_count } : {}),
+        }
+      : {};
 
   const updated = await prisma.evaluationRun.update({
     where: { id: runId },
@@ -88,9 +91,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     select: { id: true, status: true },
   });
 
-  // After the status write, so a result stored from here on finds the run finished and is
-  // counted by its own writer.
-  if (terminal) await syncFinishedRunCounts(runId, projectId);
+  // After the status write has committed, not in one transaction with it: a result stored
+  // from here on must find the run finished, so its own writer counts it.
+  if (terminal) {
+    try {
+      await syncFinishedRunCounts(runId, projectId);
+    } catch {
+      // The status is saved; a retried completion counts again.
+      return NextResponse.json({ error: "Failed to update the run's counts" }, { status: 500 });
+    }
+  }
 
   return NextResponse.json({ evaluation_run_id: updated.id, status: updated.status });
 }

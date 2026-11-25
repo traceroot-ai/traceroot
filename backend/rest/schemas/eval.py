@@ -586,8 +586,7 @@ class CompleteRunRequest(BaseModel):
     """Complete/fail a run, reporting final completeness counts."""
 
     # A finished run's scored, task-error and scorer-error counts are then recounted from its
-    # stored results, so the counts sent here are kept only while the run is running. Mirrors
-    # the Zod schema's note.
+    # stored results, which replace the counts sent here. Mirrors the Zod schema's note.
     status: EvalRunStatus
     case_count: JsonNonNegativeInt | None = None
     scored_count: JsonNonNegativeInt | None = None

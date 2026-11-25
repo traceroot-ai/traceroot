@@ -291,6 +291,17 @@ describe("POST … /results — the run's counts", () => {
 
     expect(store.evaluationRun.rows[0]).toMatchObject({ status: "running", scoredCount: 0 });
   });
+
+  it("answers a JSON 500 when counting a finished run fails, with the result stored", async () => {
+    Object.assign(store.evaluationRun.rows[0], { status: "completed" });
+    vi.spyOn(store.evaluationResult, "count").mockRejectedValueOnce(new Error("lock timeout"));
+
+    const res = await POST(makeRequest(firstReport()), params);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Failed to update the run's counts" });
+    expect(storedResult()).toMatchObject({ testCaseId: "case-1" });
+  });
 });
 
 describe("POST … /results — validation", () => {

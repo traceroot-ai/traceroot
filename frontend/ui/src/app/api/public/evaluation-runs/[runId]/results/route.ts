@@ -154,7 +154,11 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   // A result stored after its run finished changes the run's counts.
-  await syncFinishedRunCounts(runId, projectId);
+  try {
+    await syncFinishedRunCounts(runId, projectId);
+  } catch {
+    return NextResponse.json({ error: "Failed to update the run's counts" }, { status: 500 });
+  }
 
   return NextResponse.json({ evaluation_result_id: resultId } satisfies UpsertResultResponse, {
     status: 200,

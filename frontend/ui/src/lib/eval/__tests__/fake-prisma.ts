@@ -55,6 +55,9 @@ type Row = Record<string, unknown>;
  */
 type Relation = { kind: "hasMany" | "belongsTo"; model: Model; fk: string };
 
+/** Prisma's relation filter operators; `where` supports `some` across a `hasMany` only. */
+const RELATION_OPERATORS = ["some", "none", "every", "is", "isNot"];
+
 /**
  * One declared `@@unique`/`@unique`. `fields` joined by "_" is both the client's
  * compound-key `where` accessor (e.g. `runId_testCaseId`) and how the constraint
@@ -102,9 +105,18 @@ class Model {
         return uk.fields.every((f) => row[f] === (v as Row)[f]);
       }
       // A filter through a declared relation: `{ scores: { some: {...} } }` across a
-      // `hasMany`, `{ result: {...} }` across a `belongsTo`.
+      // `hasMany`, `{ result: {...} }` across a `belongsTo`. Any other relation operator
+      // (`none`, `every`, `is`, `isNot`) throws rather than match the wrong rows.
       const rel = this.relations[k];
       if (rel && v && typeof v === "object") {
+        const ops = Object.keys(v).filter((op) => RELATION_OPERATORS.includes(op));
+        const supported =
+          rel.kind === "hasMany" ? ops.length === 1 && ops[0] === "some" : !ops.length;
+        if (!supported) {
+          throw new Error(
+            `fake-prisma: unsupported ${rel.kind} filter on ${k}: ${JSON.stringify(v)}`,
+          );
+        }
         const related =
           rel.kind === "hasMany"
             ? rel.model.rows.filter((r) => r[rel.fk] === row.id)

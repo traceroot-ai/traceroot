@@ -222,6 +222,40 @@ describe("POST complete — counts come from the stored results", () => {
 
     expect(storedRun()).toMatchObject({ scoredCount: 1, taskErrorCount: 0, scorerErrorCount: 0 });
   });
+
+  it("keeps the counts sent when the count fails on the call that finishes the run", async () => {
+    storeResult("case-1", { scores: [valued("accuracy")] });
+    vi.spyOn(store.evaluationResult, "count").mockRejectedValueOnce(new Error("lock timeout"));
+
+    const res = await POST(makeRequest(FINISHED), params);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Failed to update the run's counts" });
+    // Finished, and carrying the counts it was sent rather than zeros.
+    expect(storedRun()).toMatchObject({
+      status: "completed",
+      scoredCount: 10,
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+    });
+
+    // The retried completion counts the stored results.
+    const retry = await POST(makeRequest(FINISHED), params);
+
+    expect(retry.status).toBe(200);
+    expect(storedRun()).toMatchObject({ scoredCount: 1 });
+  });
+
+  it("leaves a finished run's counts alone when a replay's count fails", async () => {
+    storeResult("case-1", { scores: [valued("accuracy")] });
+    await POST(makeRequest(FINISHED), params);
+    vi.spyOn(store.evaluationResult, "count").mockRejectedValueOnce(new Error("lock timeout"));
+
+    const res = await POST(makeRequest(FINISHED), params);
+
+    expect(res.status).toBe(500);
+    expect(storedRun()).toMatchObject({ scoredCount: 1, taskErrorCount: 0, scorerErrorCount: 0 });
+  });
 });
 
 // A scorer DEFINITION (e.g. `grade`) owns EMITTED METRICS (e.g. `quality`), and which

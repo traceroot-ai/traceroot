@@ -8,12 +8,12 @@
  * assertions on mock arguments do not catch. Supports top-level-equality `where`
  * (including Prisma's compound-unique `{ a_b: { a, b } }` form, `{ not: value }`,
  * and a filter through a relation: `{ scores: { some: {...} } }` on a result,
- * `{ result: {...} }` on a score), `create`, `createMany`, `update`, `upsert`,
- * `deleteMany`, `count`, `findFirst/findMany`, and an interactive `$transaction`
- * (same store, no rollback). A `null` in `where` matches an absent column, as SQL
- * NULL does. `select` is ignored — the row is returned whole. `$queryRaw` answers
- * no rows: the routes use it only to lock a row, and one in-memory store has no
- * concurrent transaction to lock it against.
+ * `{ result: {...} }` on a score; any other relation operator throws), `create`,
+ * `createMany`, `update`, `upsert`, `deleteMany`, `count`, `findFirst/findMany`,
+ * and an interactive `$transaction` (same store, no rollback). A `null` in `where`
+ * matches an absent column, as SQL NULL does. `select` is ignored — the row is
+ * returned whole. `$queryRaw` answers no rows: the routes use it only to lock a
+ * row, and one in-memory store has no concurrent transaction to lock it against.
  */
 import { Prisma } from "@prisma/client";
 
@@ -37,12 +37,22 @@ const isObject = (value: unknown): value is Row =>
 const same = (actual: unknown, expected: unknown) =>
   expected === null ? actual == null : actual === expected;
 
+/** Relation filter operators `matches` does not implement; one throws rather than mis-match. */
+const UNSUPPORTED_RELATION_OPERATORS = ["none", "every", "is", "isNot"];
+
 function matches(row: Row, where: Row = {}, relations: Record<string, Related> = {}): boolean {
   return Object.entries(where).every(([key, value]) => {
     const related = relations[key];
     if (related) {
-      const filter = isObject(value) && isObject(value.some) ? value.some : (value as Row);
-      return related(row).some((other) => matches(other, filter));
+      const filter = value as Row;
+      if (Object.keys(filter).some((op) => UNSUPPORTED_RELATION_OPERATORS.includes(op))) {
+        throw new Error(
+          `eval-store: unsupported relation filter on ${key}: ${JSON.stringify(filter)}`,
+        );
+      }
+      return related(row).some((other) =>
+        matches(other, isObject(filter.some) ? filter.some : filter),
+      );
     }
     if (isObject(value) && "not" in value) return !same(row[key], value.not);
     // `{ runId_testCaseId: { runId, testCaseId } }` reads as plain column equality.
