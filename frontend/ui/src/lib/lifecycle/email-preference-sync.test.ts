@@ -21,6 +21,8 @@ const db = vi.hoisted(() => ({
   row: null as null | Row,
   pending: [] as { user_id: string; email: string }[],
   queries: [] as string[],
+  // Runs once, just before the next lease is taken.
+  hookBeforeLease: null as null | (() => void),
 }));
 const same = (a: unknown, b: unknown) =>
   a instanceof Date && b instanceof Date ? +a === +b : a === b;
@@ -49,6 +51,9 @@ vi.mock("@traceroot/core", () => ({
       db.queries.push(sql);
       const r = db.row;
       if (sql.includes("SET email_provider_lease_until")) {
+        const hook = db.hookBeforeLease;
+        db.hookBeforeLease = null;
+        hook?.();
         if (!r || (r.emailProviderLeaseUntil && +r.emailProviderLeaseUntil > db.clock)) return [];
         r.emailProviderLeaseUntil = new Date((db.clock += 1) + 30_000);
         return [{ until: r.emailProviderLeaseUntil }];
@@ -98,6 +103,7 @@ beforeEach(() => {
   provider = undefined;
   db.clock = 1_000;
   db.queries = [];
+  db.hookBeforeLease = null;
   setTopic.mockReset().mockImplementation(async (_e, choice) => ((provider = choice), "ok"));
   readTopic.mockClear();
   db.row = {
@@ -131,6 +137,37 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
     expect(db.row!.emailProviderLeaseUntil).toBeNull();
     expect(db.row!.emailProviderSettledAt).toBeNull(); // the scheduled run confirms it
   });
+
+  it.each([
+    [
+      "a newer unsubscribe, which it sends instead",
+      true,
+      ["opt_out"],
+      { state: "applied", subscribed: false },
+    ],
+    [
+      "a newer Subscribe again, which it leaves to its own request",
+      false,
+      [],
+      { state: "superseded", subscribed: true },
+    ],
+  ] as const)(
+    "never sends a choice that went stale before it took the lease: %s",
+    async (_case, newerOptOut, sent, result) => {
+      // Read as Subscribe again (v1); before the lease is taken a newer choice is
+      // made and sent by its own request.
+      db.row!.unsubscribedAt = null;
+      db.hookBeforeLease = () => {
+        choose(newerOptOut);
+        db.row!.emailProviderAckVersion = db.row!.emailPreferenceVersion;
+        provider = newerOptOut ? "opt_out" : "opt_in";
+      };
+      expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual(result);
+      expect(setTopic.mock.calls.map((c) => c[1])).toEqual(sent);
+      expect(provider).toBe(newerOptOut ? "opt_out" : "opt_in");
+      expect(db.row!.emailProviderLeaseUntil).toBeNull();
+    },
+  );
 
   it("sends nothing while another write holds the lease, and marks the choice as racing it", async () => {
     db.row!.emailProviderLeaseUntil = new Date(db.clock + 10_000);

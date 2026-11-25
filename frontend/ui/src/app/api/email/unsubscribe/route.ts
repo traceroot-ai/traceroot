@@ -144,6 +144,8 @@ export async function POST(request: Request): Promise<Response> {
     message = `<p>You're unsubscribed. No more product emails will be sent to ${email}.</p>${subscribeAgain}${result && result.state !== "applied" ? later : ""}`;
   } else if (!result || result.state === "applied") {
     message = "<p>You're subscribed again.</p>";
+  } else if (result.state === "superseded") {
+    message = `<p>You're subscribed again.</p>${later}`;
   } else if (result.state === "rejected") {
     message = `<p>You're subscribed again.</p>${later}`;
   } else if (result.state === "queued") {

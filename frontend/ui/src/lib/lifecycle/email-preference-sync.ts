@@ -204,7 +204,9 @@ export type SyncResult =
   /** The provider refused it: the scheduled run sends it again. */
   | { state: "rejected" }
   /** No answer: it may or may not have been applied. */
-  | { state: "unknown" };
+  | { state: "unknown" }
+  /** A newer Subscribe again was made before this could be sent; that one is sent instead. */
+  | { state: "superseded"; subscribed: boolean };
 
 /**
  * On the unsubscribe page: sends the person's choice, unless another write is
@@ -226,6 +228,18 @@ export async function syncEmailPreference(
     if (!lease) {
       await markContended(userId, version);
       return { state: "queued" };
+    }
+    // Read again under the lease: a newer choice may have been made, and even
+    // sent, since this one was read. A stale choice is never sent.
+    const fresh = await readChoice(userId);
+    if (!fresh || fresh.emailPreferenceVersion !== version) {
+      await giveBack(userId, lease, null);
+      if (!fresh) return { state: "rejected" };
+      // A newer opt-out is sent now (always safe); a newer Subscribe again is
+      // its own request's to send.
+      if (choiceOf(fresh) === "opt_in") return { state: "superseded", subscribed: true };
+      row = fresh;
+      continue;
     }
     const { outcome, current } = await sendUnderLease(
       userId,
