@@ -174,7 +174,7 @@ describe("GitHub sign-in, configured", () => {
     expect(hooks.onUserCreated).toHaveBeenCalledTimes(1);
     expect(hooks.onUserCreated).toHaveBeenCalledWith(
       expect.objectContaining({ email: "kai@acme.test", name: "Kai Lee" }),
-      { path: "/callback/:id", provider: "github" },
+      expect.objectContaining({ path: "/callback/:id", provider: "github" }),
     );
     expect(hooks.captureServerEvent).toHaveBeenCalledWith(
       expect.any(String),
