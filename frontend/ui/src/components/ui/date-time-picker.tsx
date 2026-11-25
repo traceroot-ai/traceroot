@@ -39,7 +39,49 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function getDaysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+}
+
+function createValidUTCDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+): Date | null {
+  const date = new Date(Date.UTC(0, 0, 1, hour, minute, 0));
+  date.setUTCFullYear(year);
+  date.setUTCMonth(month - 1);
+  date.setUTCDate(day);
+  if (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  ) {
+    return date;
+  }
+  return null;
+}
+
+function clampDayToMonth(year: string, month: string, day: string): string {
+  const yNum = parseInt(year),
+    mNum = parseInt(month),
+    dNum = parseInt(day);
+  if (
+    year.length !== 4 ||
+    !month ||
+    !day ||
+    isNaN(yNum) ||
+    isNaN(mNum) ||
+    isNaN(dNum) ||
+    mNum < 1 ||
+    mNum > 12
+  ) {
+    return day;
+  }
+  const maxDay = getDaysInMonth(yNum, mNum);
+  return dNum > maxDay ? String(maxDay).padStart(2, "0") : day;
 }
 
 function TimeInput({ label, date, onChange }: TimeInputProps) {
@@ -56,6 +98,7 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
     date ? String(date.getUTCMinutes()).padStart(2, "0") : "",
   );
   const [period, setPeriod] = useState<"AM" | "PM">(() => init12.period);
+  const [invalidDate, setInvalidDate] = useState(false);
 
   const updateDate = useCallback(
     (y: string, m: string, d: string, h: string, min: string, p: "AM" | "PM") => {
@@ -65,23 +108,29 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
       const hNum = parseInt(h),
         minNum = parseInt(min);
 
-      if (y && m && d && !isNaN(yNum) && !isNaN(mNum) && !isNaN(dNum)) {
-        const hour24 = !isNaN(hNum) ? to24Hour(clamp(hNum, 1, 12), p) : 0;
-        // Create UTC date using Date.UTC()
-        const utcMs = Date.UTC(yNum, mNum - 1, dNum, hour24, isNaN(minNum) ? 0 : minNum, 0);
-        const newDate = new Date(utcMs);
-        if (!isNaN(newDate.getTime())) {
+      if (y.length === 4 && m && d && h && min && !isNaN(yNum) && !isNaN(mNum) && !isNaN(dNum)) {
+        const hour24 = to24Hour(clamp(hNum, 1, 12), p);
+        const newDate = createValidUTCDate(yNum, mNum, dNum, hour24, clamp(minNum, 0, 59));
+        if (newDate) {
+          setInvalidDate(false);
           onChange(newDate);
           return;
         }
+        setInvalidDate(true);
+      } else {
+        setInvalidDate(false);
       }
       onChange(null);
     },
     [onChange],
   );
 
+  const numericValue = (value: string, max: number) => value.replace(/\D/g, "").slice(0, max);
+
   const handleNum = (setter: (v: string) => void, value: string, max: number) => {
-    setter(value.replace(/\D/g, "").slice(0, max));
+    const cleaned = numericValue(value, max);
+    setter(cleaned);
+    return cleaned;
   };
 
   // Auto-correct handlers
@@ -91,29 +140,28 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
     if (isNaN(y)) return;
     const corrected = clamp(y, 1900, 2100);
     const str = String(corrected);
+    const clampedDay = clampDayToMonth(str, month, day);
     setYear(str);
-    updateDate(str, month, day, hour, minute, period);
+    if (clampedDay !== day) setDay(clampedDay);
+    updateDate(str, month, clampedDay, hour, minute, period);
   };
 
   const correctMonth = () => {
     if (!month) return;
     const m = parseInt(month);
     if (isNaN(m)) return;
-    const corrected = clamp(m, 1, 12);
-    const str = String(corrected).padStart(2, "0");
+    const str = String(m).padStart(2, "0");
+    const clampedDay = clampDayToMonth(year, str, day);
     setMonth(str);
-    updateDate(year, str, day, hour, minute, period);
+    if (clampedDay !== day) setDay(clampedDay);
+    updateDate(year, str, clampedDay, hour, minute, period);
   };
 
   const correctDay = () => {
     if (!day) return;
     const d = parseInt(day);
     if (isNaN(d)) return;
-    const y = parseInt(year) || new Date().getUTCFullYear();
-    const m = parseInt(month) || 1;
-    const maxDay = getDaysInMonth(y, m);
-    const corrected = clamp(d, 1, maxDay);
-    const str = String(corrected).padStart(2, "0");
+    const str = String(d).padStart(2, "0");
     setDay(str);
     updateDate(year, month, str, hour, minute, period);
   };
@@ -151,8 +199,10 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
           type="text"
           value={year}
           onChange={(e) => {
-            handleNum(setYear, e.target.value, 4);
-            updateDate(e.target.value, month, day, hour, minute, period);
+            const nextYear = handleNum(setYear, e.target.value, 4);
+            const clampedDay = clampDayToMonth(nextYear, month, day);
+            if (clampedDay !== day) setDay(clampedDay);
+            updateDate(nextYear, month, clampedDay, hour, minute, period);
           }}
           onBlur={correctYear}
           placeholder="yyyy"
@@ -163,8 +213,10 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
           type="text"
           value={month}
           onChange={(e) => {
-            handleNum(setMonth, e.target.value, 2);
-            updateDate(year, e.target.value, day, hour, minute, period);
+            const nextMonth = handleNum(setMonth, e.target.value, 2);
+            const clampedDay = clampDayToMonth(year, nextMonth, day);
+            if (clampedDay !== day) setDay(clampedDay);
+            updateDate(year, nextMonth, clampedDay, hour, minute, period);
           }}
           onBlur={correctMonth}
           placeholder="mm"
@@ -175,8 +227,8 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
           type="text"
           value={day}
           onChange={(e) => {
-            handleNum(setDay, e.target.value, 2);
-            updateDate(year, month, e.target.value, hour, minute, period);
+            const nextDay = handleNum(setDay, e.target.value, 2);
+            updateDate(year, month, nextDay, hour, minute, period);
           }}
           onBlur={correctDay}
           placeholder="dd"
@@ -187,8 +239,8 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
           type="text"
           value={hour}
           onChange={(e) => {
-            handleNum(setHour, e.target.value, 2);
-            updateDate(year, month, day, e.target.value, minute, period);
+            const nextHour = handleNum(setHour, e.target.value, 2);
+            updateDate(year, month, day, nextHour, minute, period);
           }}
           onBlur={correctHour}
           placeholder="12"
@@ -199,8 +251,8 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
           type="text"
           value={minute}
           onChange={(e) => {
-            handleNum(setMinute, e.target.value, 2);
-            updateDate(year, month, day, hour, e.target.value, period);
+            const nextMinute = handleNum(setMinute, e.target.value, 2);
+            updateDate(year, month, day, hour, nextMinute, period);
           }}
           onBlur={correctMinute}
           placeholder="00"
@@ -220,6 +272,11 @@ function TimeInput({ label, date, onChange }: TimeInputProps) {
         </button>
         <span className="ml-1.5 text-[13px] text-muted-foreground">UTC</span>
       </div>
+      {invalidDate && (
+        <p role="alert" className="mt-1 text-[12px] text-destructive">
+          Enter a valid date.
+        </p>
+      )}
     </div>
   );
 }
@@ -244,8 +301,12 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const [start, setStart] = useState<Date | null>(() => startDate || getDefaultStart());
   const [end, setEnd] = useState<Date | null>(() => endDate || getDefaultEnd());
+  const rangeError =
+    start && end && start.getTime() >= end.getTime() ? "Start date must be before end date." : null;
+  const canApply = Boolean(start && end && !rangeError);
 
   const handleApply = useCallback(() => {
+    if (!start || !end || start.getTime() >= end.getTime()) return;
     let s = start;
     let e = end;
     // Clamp into the retention window so the applied (and displayed) range never
@@ -264,8 +325,15 @@ export function DateRangePicker({
     <div className={cn("p-4", className)}>
       <TimeInput label="Start time" date={start} onChange={setStart} />
       <TimeInput label="End time" date={end} onChange={setEnd} />
-      <div className="-mx-4 -mb-4 mt-4 flex justify-end border-t border-border px-4 py-3">
-        <Button onClick={handleApply}>Apply</Button>
+      <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-3 border-t border-border px-4 py-3">
+        {rangeError && (
+          <p role="alert" className="mr-auto text-[12px] text-destructive">
+            {rangeError}
+          </p>
+        )}
+        <Button onClick={handleApply} disabled={!canApply}>
+          Apply
+        </Button>
       </div>
     </div>
   );
