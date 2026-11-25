@@ -34,6 +34,19 @@ const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const sendPasswordResetEmailMock = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => undefined),
+);
+// Work handed to Next's after() runs once the response has been sent; the tests
+// hold it here and run it themselves.
+const afterResponse = vi.hoisted(() => [] as (() => unknown)[]);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => void afterResponse.push(task),
+}));
+vi.mock("@/lib/email/send-password-reset-email", () => ({
+  sendPasswordResetEmail: sendPasswordResetEmailMock,
+}));
 const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
 vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
@@ -68,6 +81,10 @@ const options = betterAuthMock.mock.calls[0]?.[0] as {
   plugins: { id: string }[];
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  emailAndPassword: {
+    sendResetPassword: (data: { user: { email: string }; url: string }) => Promise<void>;
+    revokeSessionsOnPasswordReset: boolean;
+  };
   databaseHooks: {
     user: {
       create: {
@@ -177,6 +194,48 @@ describe("auth options", () => {
     reject(error);
     await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
     spy.mockRestore();
+  });
+});
+
+describe("password reset", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    afterResponse.length = 0;
+  });
+
+  // Only known emails reach this callback, so any work in it would make their
+  // responses slower than unknown ones.
+  it("prepares and sends nothing until the response has been sent", async () => {
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "a@example.com" },
+      url: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+    expect(sendPasswordResetEmailMock).not.toHaveBeenCalled();
+    expect(afterResponse).toHaveLength(1);
+
+    await afterResponse[0]!();
+    expect(sendPasswordResetEmailMock).toHaveBeenCalledExactlyOnceWith({
+      to: "a@example.com",
+      resetUrl: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+  });
+
+  it("logs a failed send", async () => {
+    const error = new Error("smtp down");
+    sendPasswordResetEmailMock.mockRejectedValueOnce(error);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "b@example.com" },
+      url: "u",
+    });
+
+    await expect(afterResponse[0]!()).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith("[auth] password reset email failed:", error);
+    spy.mockRestore();
+  });
+
+  it("signs out every session once the password changes", () => {
+    expect(options.emailAndPassword.revokeSessionsOnPasswordReset).toBe(true);
   });
 });
 
