@@ -383,39 +383,52 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     void never;
   });
 
-  it("tells a queued Subscribe again it is not confirmed yet, and lets a new click through", async () => {
-    const p = await person();
-    await post(p.email, "opt_in");
-    await sleep(5);
-    let release!: () => void;
-    provider.hold = {
-      choice: "opt_out",
-      gate: new Promise<void>((r) => (release = r)),
-      lost: false,
-      failAfter: 0,
-    };
-    const unsubscribing = post(p.email, "opt_out");
-    await sleep(80);
-    await sleep(5);
-    // A Subscribe again while the unsubscribe is on its way: queued, not confirmed.
-    const queued = await post(p.email, "opt_in");
-    expect(queued.status).toBe(200);
-    expect(queued.text).not.toContain("You're subscribed again.");
-    expect(queued.text).toContain("still unsubscribed");
-    expect(queued.text).toContain('name="action" value="opt_in"'); // a new explicit choice
-    release();
-    await unsubscribing;
-    // A new click, with nothing on its way, goes through at once.
-    await sleep(5);
-    const again = await post(p.email, "opt_in");
-    expect(again.text).toContain("You're subscribed again.");
-    expect(provider.topic.get(p.email)).toBe("opt_in");
-    expect(await unsubscribed(p.id)).toBe(false);
-    await windowPassed(p.id);
-    await tick();
-    expect(provider.topic.get(p.email)).toBe("opt_in");
-    expect(await settled(p.id)).toBe(true);
-  });
+  it.each([
+    ["behind an opposite unsubscribe", "opt_out", "opt_out"],
+    ["behind a matching Subscribe again", "opt_in", "opt_in"],
+  ] as const)(
+    "tells a Subscribe again queued %s that it is not confirmed yet, without claiming either way, and lets a new click through",
+    async (_case, inFlight, settlesOn) => {
+      const p = await person();
+      await post(p.email, inFlight === "opt_out" ? "opt_in" : "opt_out");
+      await windowPassed(p.id);
+      await tick();
+      await sleep(5);
+      let release!: () => void;
+      provider.hold = {
+        choice: inFlight,
+        gate: new Promise<void>((r) => (release = r)),
+        lost: false,
+        failAfter: 0,
+      };
+      const first = post(p.email, inFlight);
+      await sleep(80);
+      await sleep(5);
+      // A Subscribe again while the other write is on its way: queued.
+      const queued = await post(p.email, "opt_in");
+      expect(queued.status).toBe(200);
+      expect(queued.text).not.toContain("You're subscribed again.");
+      expect(queued.text).not.toContain("still unsubscribed");
+      expect(queued.text).toContain("couldn't confirm this one yet");
+      expect(queued.text).toContain('name="action" value="opt_in"'); // the choice again
+      release();
+      await first;
+      // Without a new click, the scheduled run settles it: an opposite opt-out
+      // wins over the queued Subscribe again; a matching one simply holds.
+      await windowPassed(p.id);
+      await tick();
+      expect(provider.topic.get(p.email)).toBe(settlesOn);
+      expect(await unsubscribed(p.id)).toBe(settlesOn === "opt_out");
+      expect(await settled(p.id)).toBe(true);
+      // A new click, with nothing on its way, goes through at once.
+      await sleep(5);
+      const again = await post(p.email, "opt_in");
+      expect(again.text).toContain("You're subscribed again.");
+      expect(again.text).not.toContain("few minutes");
+      expect(provider.topic.get(p.email)).toBe("opt_in");
+      expect(await unsubscribed(p.id)).toBe(false);
+    },
+  );
 
   it("retries a Subscribe again the provider rejected, and says so; an unknown outcome is not promised", async () => {
     const p = await person();

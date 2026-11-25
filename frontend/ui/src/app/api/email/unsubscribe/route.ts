@@ -133,8 +133,8 @@ export async function POST(request: Request): Promise<Response> {
   // - A Subscribe again holds once the provider took it, or once the scheduled
   //   run resends one the provider refused.
   // - A Subscribe again that raced another write, or got no answer, is not
-  //   promised: the scheduled run keeps an opt-out over it. The person can
-  //   choose again.
+  //   promised either way (it may hold, or the scheduled run may keep an
+  //   opt-out over it); the page says so neutrally and offers the choice again.
   const email = escapeHtml(check.email);
   const subscribeAgain = form(token, "opt_in", "Subscribe again");
   const later = "<p>It can take a few minutes to apply everywhere.</p>";
@@ -149,7 +149,7 @@ export async function POST(request: Request): Promise<Response> {
   } else if (result.state === "rejected") {
     message = `<p>You're subscribed again.</p>${later}`;
   } else if (result.state === "queued") {
-    message = `<p>Another change to your email preferences was still being applied, so this one didn't go through and you're still unsubscribed. Choose Subscribe again to try once more.</p>${subscribeAgain}`;
+    message = `<p>Another change to your email preferences is still being applied, so we couldn't confirm this one yet. Choose Subscribe again to try once more.</p>${subscribeAgain}`;
   } else {
     message = `<p>We couldn't confirm this with our email service, so it may not have gone through. Choose Subscribe again to try once more.</p>${subscribeAgain}`;
   }

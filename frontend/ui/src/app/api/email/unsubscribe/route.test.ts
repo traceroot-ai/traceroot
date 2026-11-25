@@ -138,7 +138,7 @@ describe("a Subscribe again the provider has not taken", () => {
   });
 
   it.each([
-    ["queued behind another write", "queued", "still unsubscribed"],
+    ["queued behind another write", "queued", "couldn't confirm this one yet"],
     ["with no answer", "unknown", "may not have gone through"],
   ] as const)(
     "does not promise one %s, and offers the choice again",
