@@ -494,8 +494,8 @@ export const ReadRunResponseSchema = z.object({
   /** The OBSERVED population — every result the run reported. */
   result_count: z.number().int().nonnegative(),
   /**
-   * The SDK reports these three when the run completes. Null until then, so a count nobody
-   * has reported yet isn't read as a real 0.
+   * Counted from the run's stored results once it finishes. Null until then, so a count
+   * not taken yet isn't read as a real 0.
    */
   scored_count: z.number().int().nonnegative().nullable(),
   task_error_count: z.number().int().nonnegative().nullable(),
@@ -575,7 +575,11 @@ export const UpsertResultResponseSchema = z.object({
 });
 export type UpsertResultResponse = z.infer<typeof UpsertResultResponseSchema>;
 
-/** Complete/fail a run, reporting final completeness counts. */
+/**
+ * Complete/fail a run, reporting final completeness counts. A finished run's scored, task-error
+ * and scorer-error counts are then recounted from its stored results, so the counts sent here
+ * are kept only while the run is running.
+ */
 export const CompleteRunRequestSchema = z
   .object({
     status: EvalRunStatusSchema,

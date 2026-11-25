@@ -2,17 +2,20 @@ import { NextResponse } from "next/server";
 import { prisma, Prisma, CompleteRunRequestSchema } from "@traceroot/core";
 import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 import { mergeScorerManifests, scorerManifestsEqual } from "@/lib/eval/metrics";
+import { syncFinishedRunCounts } from "@/lib/eval/run-counts";
 
 type RouteParams = { params: Promise<{ runId: string }> };
 
 // POST /api/public/evaluation-runs/[runId]/complete — SDK marks a run
-// completed/completed_with_errors/failed/incomplete with final counts.
+// completed/completed_with_errors/failed/incomplete.
 //
 // Metric-first: a run has no single headline score and no run-level pass/fail, so
 // completion neither resolves a headline-metric name nor reconciles per-case pass/fail. Each
 // case's terminal status is what the SDK reported through the results endpoint; completion
 // only fixes the run's status + counts, and folds in the scorer manifest the SDK resolved
-// while running (see `mergeScorerManifests`).
+// while running (see `mergeScorerManifests`). A finished run's scored / task-error /
+// scorer-error counts come from its stored results, not from the counts sent here (see
+// `syncFinishedRunCounts`).
 //
 // Completion is one-way and idempotent: a replay keeps the completion timestamp the first
 // call stamped, and a finished run cannot be moved back to running.
@@ -61,21 +64,33 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
+  // The counts sent here are kept only while the run is still running. A finished run's
+  // counts are taken from its stored results below.
+  const sentCounts = terminal
+    ? {}
+    : {
+        ...(c.scored_count != null ? { scoredCount: c.scored_count } : {}),
+        ...(c.task_error_count != null ? { taskErrorCount: c.task_error_count } : {}),
+        ...(c.scorer_error_count != null ? { scorerErrorCount: c.scorer_error_count } : {}),
+      };
+
   const updated = await prisma.evaluationRun.update({
     where: { id: runId },
     data: {
       status: c.status,
       ...(scorersChanged ? { scorers: mergedScorers as unknown as Prisma.InputJsonValue } : {}),
       ...(c.case_count != null ? { caseCount: c.case_count } : {}),
-      ...(c.scored_count != null ? { scoredCount: c.scored_count } : {}),
-      ...(c.task_error_count != null ? { taskErrorCount: c.task_error_count } : {}),
-      ...(c.scorer_error_count != null ? { scorerErrorCount: c.scorer_error_count } : {}),
+      ...sentCounts,
       // Keep the first completion's timestamp: a retried /complete must not move
       // the run's recorded finish time (and with it its reported duration).
       ...(terminal ? { completedAt: run.completedAt ?? new Date() } : {}),
     },
     select: { id: true, status: true },
   });
+
+  // After the status write, so a result stored from here on finds the run finished and is
+  // counted by its own writer.
+  if (terminal) await syncFinishedRunCounts(runId, projectId);
 
   return NextResponse.json({ evaluation_run_id: updated.id, status: updated.status });
 }

@@ -7,7 +7,9 @@ import { Prisma } from "@prisma/client";
  * database, matching the repo convention of never touching a real DB in tests.
  *
  * Supports top-level-equality `where` (incl. compound-unique-key objects, e.g.
- * `{ runId_testCaseId: { runId, testCaseId } }`), single-key `orderBy`, `create`,
+ * `{ runId_testCaseId: { runId, testCaseId } }`, `{ in: [...] }`, `{ not: value }`,
+ * and a filter through a declared relation, e.g. `{ scores: { some: {...} } }`),
+ * where `null` matches a column the row never set, single-key `orderBy`, `create`,
  * `createMany`, `update`, `updateMany` (a real compare-and-swap: it re-checks
  * `where` per matched row), `upsert`, `delete` (cascading through declared
  * `hasMany` relations, e.g. deleting a `dataset` takes its `datasetVersion`s and
@@ -99,10 +101,26 @@ class Model {
       if (uk && v && typeof v === "object") {
         return uk.fields.every((f) => row[f] === (v as Row)[f]);
       }
+      // A filter through a declared relation: `{ scores: { some: {...} } }` across a
+      // `hasMany`, `{ result: {...} }` across a `belongsTo`.
+      const rel = this.relations[k];
+      if (rel && v && typeof v === "object") {
+        const related =
+          rel.kind === "hasMany"
+            ? rel.model.rows.filter((r) => r[rel.fk] === row.id)
+            : rel.model.rows.filter((r) => r.id === row[rel.fk]);
+        const filter = rel.kind === "hasMany" ? (v as { some: Row }).some : (v as Row);
+        return related.some((r) => rel.model.matches(r, filter));
+      }
       if (v && typeof v === "object" && "in" in (v as Row)) {
         return (v as { in: unknown[] }).in.includes(row[k]);
       }
-      return row[k] === v;
+      // Here and in `not`, `null` matches a column the row never set, as SQL NULL does.
+      if (v && typeof v === "object" && "not" in (v as Row)) {
+        const not = (v as { not: unknown }).not;
+        return not === null ? row[k] != null : row[k] !== not;
+      }
+      return v === null ? row[k] == null : row[k] === v;
     });
   }
 
@@ -417,9 +435,20 @@ export class FakePrisma {
     return Object.entries(this).filter((e): e is [string, Model] => e[1] instanceof Model);
   }
 
+  /**
+   * Answers no rows: the routes use raw SQL inside a transaction only to lock a row, and
+   * this store's transactions have nothing to lock it against.
+   */
+  async $queryRaw(): Promise<Row[]> {
+    return [];
+  }
+
   /** A `this`-shaped view whose models are `TxModel`s sharing one undo log. */
   private txView(log: UndoEntry[]): this {
-    const view: Record<string, unknown> = { $transaction: this.$transaction.bind(this) };
+    const view: Record<string, unknown> = {
+      $transaction: this.$transaction.bind(this),
+      $queryRaw: this.$queryRaw.bind(this),
+    };
     for (const [key, model] of this.modelEntries()) view[key] = new TxModel(model, log);
     return view as this;
   }
@@ -449,6 +478,9 @@ export class FakePrisma {
     };
     this.evaluationResult.relations = {
       scores: { kind: "hasMany", model: this.score, fk: "resultId" },
+    };
+    this.score.relations = {
+      result: { kind: "belongsTo", model: this.evaluationResult, fk: "resultId" },
     };
   }
 

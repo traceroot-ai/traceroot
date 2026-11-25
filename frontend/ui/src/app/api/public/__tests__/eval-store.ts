@@ -6,14 +6,21 @@
  * Deliberately row-oriented rather than call-count-oriented: the bugs these
  * routes shipped with were about *which rows survive a follow-up call*, which
  * assertions on mock arguments do not catch. Supports top-level-equality `where`
- * (including Prisma's compound-unique `{ a_b: { a, b } }` form), `create`,
- * `createMany`, `update`, `upsert`, `deleteMany`, `findFirst/findMany`, and an
- * interactive `$transaction` (same store, no rollback). `select` is ignored — the
- * row is returned whole.
+ * (including Prisma's compound-unique `{ a_b: { a, b } }` form, `{ not: value }`,
+ * and a filter through a relation: `{ scores: { some: {...} } }` on a result,
+ * `{ result: {...} }` on a score), `create`, `createMany`, `update`, `upsert`,
+ * `deleteMany`, `count`, `findFirst/findMany`, and an interactive `$transaction`
+ * (same store, no rollback). A `null` in `where` matches an absent column, as SQL
+ * NULL does. `select` is ignored — the row is returned whole. `$queryRaw` answers
+ * no rows: the routes use it only to lock a row, and one in-memory store has no
+ * concurrent transaction to lock it against.
  */
 import { Prisma } from "@prisma/client";
 
 export type Row = Record<string, unknown>;
+
+/** The rows on the other side of a relation a `where` can filter through. */
+type Related = (row: Row) => Row[];
 
 /** The unique-constraint violation Prisma raises when two writers race. */
 export function uniqueViolation(target: string): Prisma.PrismaClientKnownRequestError {
@@ -23,25 +30,31 @@ export function uniqueViolation(target: string): Prisma.PrismaClientKnownRequest
   );
 }
 
-/** `{ runId_testCaseId: { runId, testCaseId } }` reads as plain column equality. */
-function flatten(where: Row = {}): Row {
-  const out: Row = {};
-  for (const [key, value] of Object.entries(where)) {
-    if (value !== null && typeof value === "object" && !(value instanceof Date)) {
-      Object.assign(out, value as Row);
-    } else {
-      out[key] = value;
-    }
-  }
-  return out;
-}
+const isObject = (value: unknown): value is Row =>
+  value !== null && typeof value === "object" && !(value instanceof Date);
 
-function matches(row: Row, where?: Row): boolean {
-  return Object.entries(flatten(where)).every(([key, value]) => row[key] === value);
+/** Column equality, where `null` also matches a column the row never set. */
+const same = (actual: unknown, expected: unknown) =>
+  expected === null ? actual == null : actual === expected;
+
+function matches(row: Row, where: Row = {}, relations: Record<string, Related> = {}): boolean {
+  return Object.entries(where).every(([key, value]) => {
+    const related = relations[key];
+    if (related) {
+      const filter = isObject(value) && isObject(value.some) ? value.some : (value as Row);
+      return related(row).some((other) => matches(other, filter));
+    }
+    if (isObject(value) && "not" in value) return !same(row[key], value.not);
+    // `{ runId_testCaseId: { runId, testCaseId } }` reads as plain column equality.
+    if (isObject(value)) return matches(row, value);
+    return same(row[key], value);
+  });
 }
 
 class Table {
   rows: Row[] = [];
+  /** Relations a `where` can filter through, keyed by the relation's field name. */
+  relations: Record<string, Related> = {};
   private seq = 0;
   private failure: unknown;
 
@@ -58,11 +71,18 @@ class Table {
     if (failure) throw failure;
   }
 
+  private matches(row: Row, where?: Row) {
+    return matches(row, where, this.relations);
+  }
+
   findFirst = async (args: { where?: Row } = {}) =>
-    this.rows.find((row) => matches(row, args.where)) ?? null;
+    this.rows.find((row) => this.matches(row, args.where)) ?? null;
 
   findMany = async (args: { where?: Row } = {}) =>
-    this.rows.filter((row) => matches(row, args.where));
+    this.rows.filter((row) => this.matches(row, args.where));
+
+  count = async (args: { where?: Row } = {}) =>
+    this.rows.filter((row) => this.matches(row, args.where)).length;
 
   create = async (args: { data: Row }) => {
     this.throwIfArmed();
@@ -79,7 +99,7 @@ class Table {
 
   update = async (args: { where: Row; data: Row }) => {
     this.throwIfArmed();
-    const row = this.rows.find((candidate) => matches(candidate, args.where));
+    const row = this.rows.find((candidate) => this.matches(candidate, args.where));
     if (!row) throw new Error(`${this.prefix}: no row matches ${JSON.stringify(args.where)}`);
     Object.assign(row, args.data);
     return row;
@@ -87,7 +107,7 @@ class Table {
 
   upsert = async (args: { where: Row; create: Row; update: Row }) => {
     this.throwIfArmed();
-    const row = this.rows.find((candidate) => matches(candidate, args.where));
+    const row = this.rows.find((candidate) => this.matches(candidate, args.where));
     if (!row) return this.create({ data: args.create });
     Object.assign(row, args.update);
     return row;
@@ -95,7 +115,7 @@ class Table {
 
   deleteMany = async (args: { where?: Row } = {}) => {
     const before = this.rows.length;
-    this.rows = this.rows.filter((row) => !matches(row, args.where));
+    this.rows = this.rows.filter((row) => !this.matches(row, args.where));
     return { count: before - this.rows.length };
   };
 }
@@ -105,6 +125,7 @@ export type EvalStore = {
   evaluationResult: Table;
   score: Table;
   $transaction: <T>(fn: (tx: EvalStore) => Promise<T>) => Promise<T>;
+  $queryRaw: (...args: unknown[]) => Promise<Row[]>;
 };
 
 export function makeEvalStore(): EvalStore {
@@ -113,7 +134,12 @@ export function makeEvalStore(): EvalStore {
     evaluationResult: new Table("result"),
     score: new Table("score"),
     $transaction: <T>(fn: (tx: EvalStore) => Promise<T>): Promise<T> => fn(store),
+    $queryRaw: async (): Promise<Row[]> => [],
   };
+  store.evaluationResult.relations.scores = (result) =>
+    store.score.rows.filter((score) => score.resultId === result.id);
+  store.score.relations.result = (score) =>
+    store.evaluationResult.rows.filter((result) => result.id === score.resultId);
   return store;
 }
 
@@ -133,6 +159,7 @@ export function prismaFacade(currentStore: () => EvalStore) {
     update: (args: { where: Row; data: Row }) => currentStore()[name].update(args),
     upsert: (args: { where: Row; create: Row; update: Row }) => currentStore()[name].upsert(args),
     deleteMany: (args?: { where?: Row }) => currentStore()[name].deleteMany(args),
+    count: (args?: { where?: Row }) => currentStore()[name].count(args),
   });
   return {
     evaluationRun: model("evaluationRun"),

@@ -6,6 +6,7 @@ import {
   type UpsertResultResponse,
 } from "@traceroot/core";
 import { requireEvalApiKeyProject } from "@/lib/eval/auth";
+import { syncFinishedRunCounts } from "@/lib/eval/run-counts";
 
 type RouteParams = { params: Promise<{ runId: string }> };
 
@@ -151,6 +152,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Failed to record result" }, { status: 500 });
     }
   }
+
+  // A result stored after its run finished changes the run's counts.
+  await syncFinishedRunCounts(runId, projectId);
 
   return NextResponse.json({ evaluation_result_id: resultId } satisfies UpsertResultResponse, {
     status: 200,

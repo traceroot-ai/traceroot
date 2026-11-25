@@ -38,6 +38,31 @@ function storedRun(): Row {
   return store.evaluationRun.rows[0];
 }
 
+/** Store one of the run's results and its score rows, as the results route writes them. */
+function storeResult(
+  testCaseId: string,
+  { taskError = null, scores = [] }: { taskError?: string | null; scores?: Row[] } = {},
+) {
+  const id = `result-${testCaseId}`;
+  store.evaluationResult.rows.push({
+    id,
+    runId: "run-1",
+    projectId: "proj-1",
+    testCaseId,
+    taskError,
+  });
+  for (const score of scores) {
+    store.score.rows.push({ resultId: id, projectId: "proj-1", error: null, ...score });
+  }
+}
+
+const valued = (scorerName: string): Row => ({ scorerName, numericValue: 1 });
+const errored = (scorerName: string): Row => ({
+  scorerName,
+  numericValue: null,
+  error: "judge timed out",
+});
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-07-31T12:00:00.000Z"));
@@ -66,7 +91,7 @@ describe("POST /api/public/evaluation-runs/[runId]/complete", () => {
     expect(await res.json()).toEqual({ evaluation_run_id: "run-1", status: "completed" });
     expect(storedRun()).toMatchObject({
       status: "completed",
-      scoredCount: 10,
+      caseCount: 10,
       completedAt: new Date("2026-07-31T12:00:00.000Z"),
     });
   });
@@ -108,7 +133,7 @@ describe("POST /api/public/evaluation-runs/[runId]/complete", () => {
     expect(storedRun()).toMatchObject({ status: "running", completedAt: null, scoredCount: 4 });
   });
 
-  it("leaves counts the caller omitted untouched", async () => {
+  it("leaves the case count untouched when the caller omits it", async () => {
     await POST(makeRequest(FINISHED), params);
 
     await POST(makeRequest({ status: "completed_with_errors" }), params);
@@ -116,7 +141,6 @@ describe("POST /api/public/evaluation-runs/[runId]/complete", () => {
     expect(storedRun()).toMatchObject({
       status: "completed_with_errors",
       caseCount: 10,
-      scoredCount: 10,
       completedAt: new Date("2026-07-31T12:00:00.000Z"),
     });
   });
@@ -128,6 +152,75 @@ describe("POST /api/public/evaluation-runs/[runId]/complete", () => {
 
     expect(res.status).toBe(404);
     expect(storedRun()).toMatchObject({ status: "running", completedAt: null });
+  });
+});
+
+// The SDK counts only the results whose upload it saw acknowledged, so its counts can leave
+// out a result that was stored anyway. A finished run reports what was stored.
+describe("POST complete — counts come from the stored results", () => {
+  it("counts a stored result the SDK's counts leave out", async () => {
+    storeResult("case-1", { scores: [valued("accuracy")] });
+    storeResult("case-2", { scores: [valued("accuracy"), errored("tone")] });
+    storeResult("case-3", { taskError: "TimeoutError: lookup_invoice timed out" });
+    // Stored, but the SDK never saw the reply, so the counts it sends leave this case out.
+    storeResult("case-4", { scores: [valued("accuracy"), errored("tone")] });
+
+    const res = await POST(
+      makeRequest({
+        status: "incomplete",
+        case_count: 4,
+        scored_count: 2,
+        task_error_count: 1,
+        scorer_error_count: 1,
+      }),
+      params,
+    );
+
+    expect(res.status).toBe(200);
+    expect(storedRun()).toMatchObject({
+      status: "incomplete",
+      caseCount: 4,
+      scoredCount: 3,
+      taskErrorCount: 1,
+      scorerErrorCount: 2,
+    });
+  });
+
+  it("takes the stored results' counts over higher ones the SDK sends", async () => {
+    storeResult("case-1", { scores: [valued("accuracy")] });
+
+    await POST(makeRequest(FINISHED), params);
+
+    expect(storedRun()).toMatchObject({ scoredCount: 1, taskErrorCount: 0, scorerErrorCount: 0 });
+  });
+
+  it("counts a case as scored only when it has no task error and a score that did not error", async () => {
+    // Every scorer failed: two scorer errors, nothing scored.
+    storeResult("case-1", { scores: [errored("accuracy"), errored("tone")] });
+    // The task failed: a task error, never scored, whatever scores it carries.
+    storeResult("case-2", { taskError: "ValueError: bad input", scores: [valued("accuracy")] });
+    // No scorer reported anything.
+    storeResult("case-3");
+
+    await POST(makeRequest(FINISHED), params);
+
+    expect(storedRun()).toMatchObject({ scoredCount: 0, taskErrorCount: 1, scorerErrorCount: 2 });
+  });
+
+  it("counts only this run's results", async () => {
+    storeResult("case-1", { scores: [valued("accuracy")] });
+    store.evaluationResult.rows.push({
+      id: "result-other",
+      runId: "run-2",
+      projectId: "proj-1",
+      testCaseId: "case-1",
+      taskError: "TimeoutError",
+    });
+    store.score.rows.push({ resultId: "result-other", projectId: "proj-1", error: "timed out" });
+
+    await POST(makeRequest(FINISHED), params);
+
+    expect(storedRun()).toMatchObject({ scoredCount: 1, taskErrorCount: 0, scorerErrorCount: 0 });
   });
 });
 

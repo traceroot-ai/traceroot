@@ -256,6 +256,43 @@ describe("POST … /results — concurrency and failure", () => {
   });
 });
 
+describe("POST … /results — the run's counts", () => {
+  it("counts a result stored after its run completed", async () => {
+    Object.assign(store.evaluationRun.rows[0], {
+      status: "completed",
+      scoredCount: 0,
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+    });
+
+    const res = await POST(
+      makeRequest({
+        ...firstReport(),
+        scores: [
+          { scorer_name: "exact_match", scorer_version: "1", numeric_value: 1 },
+          { scorer_name: "judge", scorer_version: "1", error: "judge timed out" },
+        ],
+      }),
+      params,
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.evaluationRun.rows[0]).toMatchObject({
+      scoredCount: 1,
+      taskErrorCount: 0,
+      scorerErrorCount: 1,
+    });
+  });
+
+  it("leaves a running run's counts to its completion", async () => {
+    Object.assign(store.evaluationRun.rows[0], { scoredCount: 0 });
+
+    await POST(makeRequest(firstReport()), params);
+
+    expect(store.evaluationRun.rows[0]).toMatchObject({ status: "running", scoredCount: 0 });
+  });
+});
+
 describe("POST … /results — validation", () => {
   it("rejects a body that reports the same scorer twice", async () => {
     const res = await POST(

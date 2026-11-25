@@ -298,7 +298,9 @@ describe("SDK reporting: full run lifecycle", () => {
       1,
     );
 
-    // 5. Complete the run with final completeness counts.
+    // 5. Complete the run. The counts it reports are the stored results', not the ones sent:
+    //    case-1 and case-3 scored, case-2 a task error, and three scorer errors (one on
+    //    case-3, two on case-4).
     const done = await completeRun(
       req({
         status: "completed_with_errors",
@@ -312,9 +314,26 @@ describe("SDK reporting: full run lifecycle", () => {
     expect(done.status).toBe(200);
     const run = fakePrisma.evaluationRun.rows.find((r) => r.id === runId)!;
     expect(run.status).toBe("completed_with_errors");
-    expect(run.scoredCount).toBe(22);
-    expect(run.caseCount).toBe(24);
+    expect(run).toMatchObject({
+      caseCount: 24,
+      scoredCount: 2,
+      taskErrorCount: 1,
+      scorerErrorCount: 3,
+    });
     expect(run.completedAt).toBeInstanceOf(Date);
+
+    // 6. A result stored after the run completed is counted too.
+    await upsertResult(
+      req({
+        test_case_id: "case-6",
+        input: "change my plan",
+        candidate_output: "billing",
+        status: "passed",
+        scores: [{ scorer_name: "routing-accuracy", scorer_version: "v3", numeric_value: 1 }],
+      }),
+      params(runId),
+    );
+    expect(run).toMatchObject({ scoredCount: 3, taskErrorCount: 1, scorerErrorCount: 3 });
   });
 });
 
