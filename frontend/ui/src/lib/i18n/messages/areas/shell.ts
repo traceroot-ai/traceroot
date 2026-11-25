@@ -550,8 +550,7 @@ export const shellZh: PartialGroups<typeof shellEn> = {
   },
   modelProviders: {
     subtitle: "配置你自己的 LLM API key",
-    byokText:
-      "自带密钥（BYOK）让你为这个工作空间配置自己的 LLM API key。Pro 和 Startups 套餐可用。",
+    byokText: "BYOK 让你为这个工作空间配置自己的 LLM API key。Pro 和 Startups 套餐可用。",
     upgradePlan: "升级套餐",
     addProvider: "添加供应商",
     configured: "已配置的供应商",
