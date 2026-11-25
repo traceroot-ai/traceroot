@@ -47,14 +47,17 @@ it("warns before deleting and refreshes only the affected project's label and tr
   client.setQueryData(listKey, []);
   client.setQueryData(otherProjectKey, []);
 
-  const trigger = await screen.findByRole("button", { name: "Delete Needs review" });
+  const row = await screen.findByRole("row", { name: /Needs review/ });
+  const trigger = within(row).getByRole("button", { name: "Row actions" });
   fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   let dialog = screen.getByRole("dialog", { name: "Delete label" });
   expect(dialog.textContent).toContain("every trace and span where it was applied");
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(fetchNextApi).not.toHaveBeenCalledWith(labelPath, { method: "DELETE" });
 
   fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   dialog = screen.getByRole("dialog", { name: "Delete label" });
   fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete label" })).toBeNull());
@@ -67,12 +70,22 @@ it("warns before deleting and refreshes only the affected project's label and tr
   expect(client.getQueryState(otherProjectKey)?.isInvalidated).toBe(false);
 });
 
-it("lets a viewer see the labels with no delete action", async () => {
+it("lets a viewer see label names and descriptions without management actions", async () => {
   role = "VIEWER";
-  vi.mocked(fetchNextApi).mockResolvedValue({ labels: [savedLabel] });
+  vi.mocked(fetchNextApi).mockResolvedValue({
+    labels: [{ ...savedLabel, description: "Flag for review." }],
+  });
   renderLabelsTab();
-  expect(await screen.findByText(savedLabel.name)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Delete Needs review" })).toBeNull();
+  const table = screen.getByRole("table", { name: "Labels" });
+  expect(
+    within(table)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent),
+  ).toEqual(["Name", "Description"]);
+  const row = await within(table).findByRole("row", { name: /Needs review/ });
+  expect(within(row).getByRole("cell", { name: "Flag for review." })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Row actions" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Create label" })).toBeNull();
 });
 
 it("creates a label and edits its description through the project API", async () => {
@@ -99,7 +112,10 @@ it("creates a label and edits its description through the project API", async ()
     body: '{"name":"Needs review"}',
   });
 
-  fireEvent.click(screen.getByRole("button", { name: "Edit Needs review" }));
+  const row = await screen.findByRole("row", { name: /Needs review/ });
+  expect(within(row).getByRole("cell", { name: "–" })).toBeTruthy();
+  fireEvent.click(within(row).getByRole("button", { name: "Row actions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   const edit = screen.getByRole("dialog", { name: "Edit label" });
   expect(within(edit).getByRole<HTMLInputElement>("textbox", { name: "Name" }).readOnly).toBe(true);
   fireEvent.change(within(edit).getByRole("textbox", { name: /Description/ }), {
@@ -111,4 +127,5 @@ it("creates a label and edits its description through the project API", async ()
     method: "PATCH",
     body: '{"description":"Updated"}',
   });
+  expect(within(row).getByRole("cell", { name: "Updated" })).toBeTruthy();
 });

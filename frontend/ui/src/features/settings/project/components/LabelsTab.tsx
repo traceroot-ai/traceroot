@@ -4,7 +4,6 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DeleteIconButton } from "@/components/ui/delete-button";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Table, TableEmpty, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import {
   createProjectLabel,
   deleteProjectLabel,
@@ -25,6 +25,7 @@ import {
   useCanManageProjectLabels,
   useProjectLabels,
 } from "@/features/labels/queries";
+import { DatasetActionsMenu } from "@/features/offline-eval/components/dataset-actions-menu";
 
 interface LabelDraft {
   id?: string;
@@ -36,6 +37,7 @@ export function LabelsTab({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const { data: labels, isPending, isError } = useProjectLabels(projectId);
   const canManage = useCanManageProjectLabels(projectId);
+  const columnCount = canManage ? 3 : 2;
   const [draft, setDraft] = useState<LabelDraft | null>(null);
   const [labelToDelete, setLabelToDelete] = useState<Pick<ProjectLabel, "id" | "name"> | null>(
     null,
@@ -83,7 +85,7 @@ export function LabelsTab({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div>
       <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <h2 className="text-[15px] font-medium">Labels</h2>
         {canManage && (
@@ -98,46 +100,60 @@ export function LabelsTab({ projectId }: { projectId: string }) {
         )}
       </div>
 
-      {isPending ? (
-        <p className="text-[13px] text-muted-foreground">Loading labels…</p>
-      ) : isError ? (
-        <p role="alert" className="text-[13px] text-destructive">
-          Could not load labels.
-        </p>
-      ) : labels.length ? (
-        <ul className="divide-y border">
-          {labels.map((label) => (
-            <li
-              key={label.id}
-              className="flex min-h-10 items-center justify-between gap-3 px-4 py-1"
-            >
-              <span className="min-w-0 break-words text-[13px]">{label.name}</span>
+      <div className="-mx-4">
+        <Table aria-label="Labels" className="table-fixed">
+          <THead>
+            <TRHead>
+              <Th className="w-1/3">Name</Th>
+              <Th>Description</Th>
               {canManage && (
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-[12px]"
-                    aria-label={`Edit ${label.name}`}
-                    onClick={() => editLabel({ ...label, description: label.description ?? "" })}
-                  >
-                    Edit
-                  </Button>
-                  <DeleteIconButton
-                    aria-label={`Delete ${label.name}`}
-                    onClick={() => {
-                      remove.reset();
-                      setLabelToDelete(label);
-                    }}
-                  />
-                </div>
+                <Th className="w-[56px] text-right">
+                  <span className="sr-only">Actions</span>
+                </Th>
               )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-[13px] text-muted-foreground">No project labels yet.</p>
-      )}
+            </TRHead>
+          </THead>
+          <TBody>
+            {isPending ? (
+              <TableEmpty colSpan={columnCount}>Loading labels…</TableEmpty>
+            ) : isError ? (
+              <TableEmpty colSpan={columnCount}>
+                <span role="alert" className="text-destructive">
+                  Could not load labels.
+                </span>
+              </TableEmpty>
+            ) : labels.length ? (
+              labels.map((label) => (
+                <TR key={label.id} className="hover:bg-muted">
+                  <Td>
+                    <span className="block truncate" title={label.name}>
+                      {label.name}
+                    </span>
+                  </Td>
+                  <Td className="text-muted-foreground">
+                    <span className="block truncate" title={label.description ?? undefined}>
+                      {label.description || "–"}
+                    </span>
+                  </Td>
+                  {canManage && (
+                    <Td className="text-right">
+                      <DatasetActionsMenu
+                        onEdit={() => editLabel({ ...label, description: label.description ?? "" })}
+                        onDelete={() => {
+                          remove.reset();
+                          setLabelToDelete(label);
+                        }}
+                      />
+                    </Td>
+                  )}
+                </TR>
+              ))
+            ) : (
+              <TableEmpty colSpan={columnCount}>No project labels yet.</TableEmpty>
+            )}
+          </TBody>
+        </Table>
+      </div>
 
       <Dialog open={!!draft && canManage} onOpenChange={(open) => !open && closeDialog()}>
         {draft && (
