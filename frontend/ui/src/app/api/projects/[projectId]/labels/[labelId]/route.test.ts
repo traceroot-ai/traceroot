@@ -52,12 +52,11 @@ describe("PATCH project label", () => {
 
     expect(await response.json()).toEqual({ label });
     expect(mocks.requireProjectAccess).toHaveBeenCalledWith("member-a", "project-a", "MEMBER");
-    expect(mocks.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "label-a", projectId: "project-a" },
-        data: { description: "New description" },
-      }),
-    );
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: "label-a", projectId: "project-a" },
+      data: { description: "New description" },
+      select: { id: true, name: true, description: true },
+    });
   });
 
   it("rejects a rename and returns 404 when the project label is missing", async () => {

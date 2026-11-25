@@ -254,6 +254,7 @@ model Label {
   // The SQL migration enforces one HUMAN assignment per author, target, and value.
   // SDK assignments are deduplicated by their project-scoped idempotency key.
   @@index([projectId, value, traceId], map: "ix_label_project_value_trace")
+  @@index([projectId, traceId, spanId], map: "ix_label_target")
   @@map("labels")
 }
 

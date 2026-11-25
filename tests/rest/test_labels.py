@@ -113,12 +113,16 @@ def test_target_reader_failure_returns_fixed_error(client, trace_reader, caplog)
 
 
 @respx.mock
-async def test_label_lookup_reads_trace_ids():
-    respx.get(f"{settings.traceroot_ui_url.rstrip('/')}/api/internal/labels").mock(
+async def test_label_lookup_reads_trace_ids(monkeypatch):
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    route = respx.get(f"{settings.traceroot_ui_url.rstrip('/')}/api/internal/labels").mock(
         return_value=Response(200, json={"traceIds": ["trace"], "overflow": False})
     )
 
     result = await find_labeled_trace_ids("project", "review")
+    sent = route.calls.last.request
+    assert dict(sent.url.params) == {"projectId": "project", "value": "review"}
+    assert sent.headers["X-Internal-Secret"] == "test-secret"
     assert result.trace_ids == ["trace"]
     assert result.overflow is False
 

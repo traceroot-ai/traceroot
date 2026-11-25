@@ -93,6 +93,11 @@ describe("trace label assignment eligibility", () => {
         source: "HUMAN",
       },
     });
+    expect(mocks.read).toHaveBeenCalledWith({
+      where: { projectId: "project-a", traceId: "trace-a", spanId: "span-a" },
+      select: { value: true, authorId: true, source: true },
+      orderBy: { value: "asc" },
+    });
     expect(mocks.transaction).toHaveBeenCalledWith([writeQuery, readQuery]);
     expect(await result.json()).toEqual({ values: ["Needs review"], appliedByMe: [] });
   });

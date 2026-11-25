@@ -59,7 +59,9 @@ it("warns before deleting and refreshes only the affected project's label and tr
   fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete label" })).toBeNull());
   expect(screen.queryByText(savedLabel.name)).toBeNull();
-  expect(fetchNextApi).toHaveBeenCalledWith(labelPath, { method: "DELETE" });
+  expect(
+    vi.mocked(fetchNextApi).mock.calls.filter(([, options]) => options?.method === "DELETE"),
+  ).toEqual([[labelPath, { method: "DELETE" }]]);
   expect(client.getQueryState(targetKey)?.isInvalidated).toBe(true);
   expect(client.getQueryState(listKey)?.isInvalidated).toBe(true);
   expect(client.getQueryState(otherProjectKey)?.isInvalidated).toBe(false);
