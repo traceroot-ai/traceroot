@@ -276,8 +276,9 @@ export function AuthDivider({ className }: { className?: string }) {
 /**
  * The provider buttons above the email form, then the "or" divider. Sign-in and
  * sign-up both render this from the same `social`, so an option is available on
- * both pages or on neither. GitHub has no sign-in provider yet and stays disabled;
- * Google shows when its client is configured.
+ * both pages or on neither. GitHub always shows, and works when its OAuth app is
+ * configured (disabled, with the reason, otherwise); Google shows when its client
+ * is configured.
  */
 export function AuthProviderOptions({ social }: { social: SocialSignIn }) {
   const button = "h-10 gap-[10px] text-[14px]";
@@ -287,7 +288,10 @@ export function AuthProviderOptions({ social }: { social: SocialSignIn }) {
         <AuthProviderButton
           icon={<GitHubLogo />}
           label="Continue with GitHub"
-          unavailableReason="GitHub sign-in isn't available yet"
+          onClick={social.providers.includes("github") ? () => social.signIn("github") : undefined}
+          isLoading={social.redirectingTo === "github"}
+          disabled={social.redirectingTo !== null}
+          unavailableReason="GitHub sign-in isn't set up on this deployment"
           className={button}
         />
         {social.providers.includes("google") && (
