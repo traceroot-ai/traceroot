@@ -1,7 +1,6 @@
-import { createHash, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { env } from "@/env";
+import { isLeadServiceRequest } from "@/lib/lead-service-auth";
 import { PAUSE_REASONS, setFollowUpPause } from "@/lib/lifecycle/pause";
 
 const bodySchema = z
@@ -15,17 +14,6 @@ const bodySchema = z
   })
   .strict();
 
-function authorized(request: NextRequest): boolean {
-  const expected = env.LIFECYCLE_PAUSE_SECRET;
-  const header = request.headers.get("authorization") ?? "";
-  const provided = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-  if (!expected || !provided) return false;
-  return timingSafeEqual(
-    createHash("sha256").update(provided).digest(),
-    createHash("sha256").update(expected).digest(),
-  );
-}
-
 // POST /api/internal/follow-ups/pause
 // Pauses or resumes one person's follow-up emails; the lead service calls it when
 // outreach starts, when someone presses Pause or Resume on a lead card, and when
@@ -35,7 +23,7 @@ function authorized(request: NextRequest): boolean {
 // one older than the latest applied is ignored, so a late or retried call can
 // never undo a newer one. Its own secret (LIFECYCLE_PAUSE_SECRET), as a bearer token.
 export async function POST(request: NextRequest) {
-  if (!authorized(request)) {
+  if (!isLeadServiceRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
