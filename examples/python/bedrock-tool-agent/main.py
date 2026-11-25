@@ -9,8 +9,7 @@ Usage:
 
 import json
 import logging
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import find_dotenv, load_dotenv
