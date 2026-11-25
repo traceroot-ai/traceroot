@@ -7,7 +7,7 @@ import { EmptyState } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRunDetails } from "../hooks";
 import { COMPARISON_TABLE } from "../compare/cells";
-import { hasPairedCases, noResultsText } from "../compare/coverage";
+import { cutAtLimit, hasPairedCases, noResultsText, partialRunNotes } from "../compare/coverage";
 import { NoSharedInputs, RunsNotLoaded } from "../compare/empty-states";
 import {
   clearLabel,
@@ -140,6 +140,7 @@ export function CompareRunsView({
   const labelOf = React.useMemo(() => runLabeler(ordered, tagOf), [ordered, tagOf]);
   // Runs with no results; with fewer than two runs left, that is why nothing is compared.
   const emptyTags = ordered.filter((b) => b.results.length === 0).map((b) => tagOf(b.run.id));
+  const tooFewWithResults = emptyTags.length > 0 && ordered.length - emptyTags.length < 2;
   // Runs to add are suggested from before the newest one compared.
   const newest = newestRun(ordered);
   // Export covers the table, so it waits for one: why, while the branches below show
@@ -261,12 +262,15 @@ export function CompareRunsView({
           <div className="p-3">
             <NoSharedInputs
               detail={
-                emptyTags.length > 0 && ordered.length - emptyTags.length < 2
+                tooFewWithResults
                   ? noResultsText(emptyTags)
                   : crossDataset
                     ? `These runs are on different datasets (${datasetNames.join(", ")}) and share no inputs in common.`
                     : "These runs share no dataset rows — their dataset versions have no rows in common."
               }
+              // A run cut off at the result limit may share inputs past what loaded; with
+              // fewer than two runs holding results, none could pair anyway.
+              cutNotes={tooFewWithResults ? [] : partialRunNotes(ordered.filter(cutAtLimit), tagOf)}
               canRemove={runIds.length > 2}
               onAddRuns={() => setRunsMenu("add")}
             />
