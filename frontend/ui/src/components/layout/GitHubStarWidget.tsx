@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Github } from "lucide-react";
+import { ArrowUpRight, Github, Star, X } from "lucide-react";
 import { clientEnv } from "@/env.client";
 import { PixelStrip } from "@/components/layout/PixelStrip";
 
@@ -55,11 +55,14 @@ export function GitHubStarWidget() {
     // Sits over the section's top rule: the pixel band is the card's upper edge,
     // so no line is drawn above it.
     <div className="relative -mt-px border-b bg-background p-3">
-      <div className="border border-t-0">
-        <PixelStrip className="border-b" />
+      <PixelStrip className="rounded-t-[2px]" />
+      <div className="rounded-b-[2px] border border-t-0">
         <div className="px-3 pb-3 pt-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-[13px] font-medium">Star traceroot</span>
+            <span className="flex items-center gap-2 text-[13px] font-semibold">
+              <Github aria-hidden className="h-4 w-4 shrink-0" />
+              traceroot
+            </span>
             <button
               className="-mr-1 flex h-5 w-5 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               onClick={() => {
@@ -71,25 +74,21 @@ export function GitHubStarWidget() {
               <X className="h-3 w-3" />
             </button>
           </div>
-          <p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">
-            Open source and shipping fast.
-            <br />
-            Made with ❤️ by contributors.
-          </p>
-          <a
-            href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-group mt-2.5 flex w-full text-[12px] font-medium"
-          >
-            <span className="flex h-7 flex-1 items-center justify-center gap-1.5 bg-background px-2 transition-colors hover:bg-muted">
-              <Github className="h-3.5 w-3.5 shrink-0" />
-              traceroot
+          <div className="mt-2 flex items-center justify-between text-[13px]">
+            <a
+              href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 font-medium text-brand underline-offset-4 hover:underline"
+            >
+              Star on GitHub
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+            </a>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Star aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              {starCount !== null ? formatStarCount(starCount) : "—"}
             </span>
-            <span className="flex h-7 shrink-0 items-center gap-1 bg-background px-3 text-muted-foreground">
-              ★ {starCount !== null ? formatStarCount(starCount) : "—"}
-            </span>
-          </a>
+          </div>
         </div>
       </div>
     </div>
