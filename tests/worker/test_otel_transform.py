@@ -13,6 +13,7 @@ from tests.fixtures.otel_payloads import (
     make_span,
 )
 from worker.otel_transform import (
+    _extract_llm_provider,
     attributes_to_dict,
     decode_otel_id,
     extract_attribute_value,
@@ -548,6 +549,74 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["output_tokens"] == 50
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
+
+    @pytest.mark.parametrize(
+        "attrs,expected",
+        [
+            ({"llm.provider": "groq", "gen_ai.system": "openai"}, "groq"),
+            ({"gen_ai.provider.name": "groq"}, "groq"),
+            ({"gen_ai.system": "groq"}, "groq"),
+            ({"llm.system": "groq"}, "groq"),
+            ({}, None),
+        ],
+    )
+    def test_extract_llm_provider_prefers_host_over_api_system(self, attrs, expected):
+        assert _extract_llm_provider(attrs) == expected
+
+    def test_llm_provider_is_passed_to_host_aware_pricing(self):
+        """OpenInference Groq spans carry llm.provider=groq; pricing must see it."""
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.provider", "groq"),
+                        make_attr("llm.model_name", "openai/gpt-oss-120b"),
+                        make_attr("llm.token_count.prompt", 100),
+                        make_attr("llm.token_count.completion", 50),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.groq",
+        )
+        mock_prices = {"input": 0.00000015, "output": 0.0000006}
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices) as get_price:
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        get_price.assert_called_once_with("openai/gpt-oss-120b", provider="groq")
+        assert spans[0]["cost"] == pytest.approx(100 * 0.00000015 + 50 * 0.0000006)
+
+    def test_estimated_llm_cost_receives_the_reported_provider(self):
+        """The text-estimation fallback uses the same host boundary as API usage."""
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.provider", "groq"),
+                        make_attr("llm.model_name", "openai/gpt-oss-120b"),
+                        make_attr("input.value", "hello"),
+                        make_attr("output.value", "hi"),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.groq",
+        )
+        usage = {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2, "cost": 0.1}
+        with patch("worker.tokens.calculate_cost", return_value=usage) as calculate:
+            transform_otel_to_clickhouse(payload, "proj-1")
+
+        calculate.assert_called_once_with(
+            model="openai/gpt-oss-120b", input_text="hello", output_text="hi", provider="groq"
+        )
 
     def test_decision_span_tokens_and_cost(self):
         """OpenInference DECISION spans report model and usage under decision.*."""

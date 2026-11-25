@@ -83,22 +83,42 @@ async function loadCache(): Promise<CachedModel[]> {
   return cache;
 }
 
+function lookupCandidates(modelId: string, provider?: string | null): string[] {
+  const candidates = [modelId];
+  const host = provider?.trim().toLowerCase();
+  if (host) {
+    const qualified = `${host}/${modelId}`;
+    if (qualified.toLowerCase() !== modelId.toLowerCase()) candidates.unshift(qualified);
+  }
+  return candidates;
+}
+
 /**
  * Look up pricing for a model by name.
- * Tries exact match on modelName first, then regex matchPattern fallback.
+ * Tries exact match on modelName first, then regex matchPattern fallback. When
+ * the caller knows the hosting provider, a host-qualified `provider/model` row
+ * is considered first; host-specific rows therefore cannot price traffic from
+ * another host, or traffic whose host is unknown.
  * Returns prices in USD per token, or null if not found.
  */
-export async function getModelPricing(modelId: string): Promise<ModelPricing | null> {
+export async function getModelPricing(
+  modelId: string,
+  provider?: string | null,
+): Promise<ModelPricing | null> {
   const models = await loadCache();
+  const candidates = lookupCandidates(modelId, provider);
 
-  // Exact match
-  const exact = models.find((m) => m.modelName === modelId);
-  if (exact) return exact.prices;
+  for (const candidate of candidates) {
+    const exact = models.find((m) => m.modelName === candidate);
+    if (exact) return exact.prices;
+  }
 
   // Regex fallback — catches provider-prefixed and Bedrock/Vertex-style aliases
   // (e.g. "anthropic/claude-opus-5", "us.anthropic.claude-opus-5-v1:0").
-  for (const m of models) {
-    if (m.matcher?.test(modelId)) return m.prices;
+  for (const candidate of candidates) {
+    for (const m of models) {
+      if (m.matcher?.test(candidate)) return m.prices;
+    }
   }
 
   return null;
@@ -156,8 +176,9 @@ export async function calculateCost(
   cacheReadTokens: number = 0,
   cacheWriteTokens: number = 0,
   cacheWrite1hTokens: number = 0,
+  provider?: string | null,
 ): Promise<number> {
-  const pricing = await getModelPricing(modelId);
+  const pricing = await getModelPricing(modelId, provider);
   if (!pricing) return 0;
 
   return calculateCostFromPricing(

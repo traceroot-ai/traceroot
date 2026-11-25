@@ -188,6 +188,27 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
+def _extract_llm_provider(attrs: dict[str, Any]) -> str | None:
+    """Extract the hosting provider instrumentation reports for an LLM call.
+
+    OpenInference separates ``llm.provider`` (who hosts the model) from
+    ``llm.system`` (whose API shape the client speaks); the GenAI semantic
+    conventions make the same distinction with ``gen_ai.provider.name`` and the
+    legacy ``gen_ai.system``. Host keys win because they are the pricing boundary.
+    """
+    return str_or_none(
+        first_present(
+            attrs,
+            [
+                "llm.provider",
+                "gen_ai.provider.name",
+                "gen_ai.system",
+                "llm.system",
+            ],
+        )
+    )
+
+
 # Upper sanity bound per token field, shared by the manual-usage and instrumentor
 # paths. Sized by the tightest downstream column, which is `cost`, not the token
 # columns: every accepted count is priced into Decimal64(9) — Decimal(18,9), nine
@@ -920,6 +941,7 @@ def transform_otel_to_clickhouse(
                         else None
                     )
                 )
+                llm_provider = _extract_llm_provider(span_attrs)
                 # Agent-invocation and step spans stamp aggregate
                 # gen_ai.usage.* totals restating the SUM of their LLM
                 # children — the same wrapper pattern as the raw ai.usage.*
@@ -1133,7 +1155,12 @@ def transform_otel_to_clickhouse(
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
                             )
-                        cost = cost_from_buckets(get_model_price(model_name), buckets)
+                        prices = (
+                            get_model_price(model_name, provider=llm_provider)
+                            if llm_provider
+                            else get_model_price(model_name)
+                        )
+                        cost = cost_from_buckets(prices, buckets)
                         if cost is not None:
                             span_record["cost"] = cost
                     elif (
@@ -1189,6 +1216,7 @@ def transform_otel_to_clickhouse(
                             model=model_name,
                             input_text=span_record.get("input"),
                             output_text=span_record.get("output"),
+                            provider=llm_provider,
                         )
                         if usage["input_tokens"] is not None:
                             span_record["input_tokens"] = usage["input_tokens"]
