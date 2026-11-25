@@ -1,8 +1,8 @@
 // Everything that follows a new account (demo workspace access, Resend contact,
-// welcome email, Slack notice), run from better-auth's user.create.after hook.
-// Each arm is on only when its own config is set and never rejects. The
-// contact is created before the welcome because Resend delivers topic mail to
-// non-contacts, and the opt-out needs a record.
+// welcome email, Slack notice, sign-up webhook), run from better-auth's
+// user.create.after hook. Each arm is on only when its own config is set and
+// never rejects. The contact is created before the welcome because Resend
+// delivers topic mail to non-contacts, and the opt-out needs a record.
 import { prisma } from "@traceroot/core";
 import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
@@ -11,18 +11,24 @@ import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
+import { buildSignupWebhookEvent, sendSignupWebhook } from "./signup-webhook";
 import { isSelfSignup } from "./attribution";
 
 export interface CreatedUser {
   id: string;
   email: string;
   name: string | null;
+  createdAt: Date;
 }
 
+// What the follow-ups read about the sign-up request: better-auth's matched
+// route, the provider from the OAuth callback's `:id` route param, and the
+// campaign attribution the request carried.
 export interface SignupContext {
   path?: string;
   /** The OAuth callback's `:id` route param; better-auth's path is the pattern. */
   provider?: string;
+  attribution?: Record<string, string>;
 }
 
 export function signupProvider(context: SignupContext | null | undefined): string {
@@ -70,15 +76,26 @@ export async function onUserCreated(
       })
     : undefined;
 
-  const slack = env.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL?.trim()
+  const slackOn = Boolean(env.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL?.trim());
+  const webhookOn = Boolean(
+    env.TRACEROOT_SIGNUP_WEBHOOK_URL?.trim() && env.TRACEROOT_SIGNUP_WEBHOOK_SECRET?.trim(),
+  );
+
+  // The Slack post and the webhook both say whether the user was invited.
+  const invited =
+    slackOn || webhookOn
+      ? arm("invite lookup", user.id, () =>
+          prisma.invite.findFirst({
+            where: { email: { equals: user.email, mode: "insensitive" } },
+            select: { id: true },
+          }),
+        ).then((invite) => invite != null)
+      : Promise.resolve(false);
+
+  const slack = slackOn
     ? arm("slack", user.id, async () => {
-        const [invite, facts, totalUsers] = await Promise.all([
-          arm("invite lookup", user.id, () =>
-            prisma.invite.findFirst({
-              where: { email: { equals: user.email, mode: "insensitive" } },
-              select: { id: true },
-            }),
-          ),
+        const [viaInvite, facts, totalUsers] = await Promise.all([
+          invited,
           findPostHogPerson(user.id),
           arm("user count", user.id, () => prisma.user.count()),
         ]);
@@ -86,7 +103,7 @@ export async function onUserCreated(
           name: user.name,
           email: user.email,
           provider: signupProvider(context),
-          viaInvite: invite != null,
+          viaInvite,
           facts,
           supportConsoleUrl: `${env.NEXT_PUBLIC_APP_URL}/admin`,
           totalUsers,
@@ -94,5 +111,18 @@ export async function onUserCreated(
       })
     : undefined;
 
-  await Promise.all([demo, welcome, slack]);
+  const webhook = webhookOn
+    ? arm("signup webhook", user.id, async () =>
+        sendSignupWebhook(
+          buildSignupWebhookEvent({
+            user,
+            provider: signupProvider(context),
+            viaInvite: await invited,
+            attribution: context?.attribution,
+          }),
+        ),
+      )
+    : undefined;
+
+  await Promise.all([demo, welcome, slack, webhook]);
 }
