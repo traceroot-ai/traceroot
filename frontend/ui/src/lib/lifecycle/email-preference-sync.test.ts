@@ -138,6 +138,23 @@ describe("syncEmailPreference, on the unsubscribe page", () => {
     expect(db.row!.emailProviderAckVersion).toBe(2);
   });
 
+  it("leaves a newer acknowledgement of the same choice alone, and writes nothing more", async () => {
+    db.row!.unsubscribedAt = null;
+    setTopic.mockImplementationOnce(async (_e, choice) => {
+      provider = choice;
+      // A newer Subscribe again is applied and acknowledged meanwhile...
+      choose(false);
+      db.row!.emailProviderAckVersion = db.row!.emailPreferenceVersion;
+      // ...and the person opts out at the provider.
+      provider = "opt_out";
+      return true;
+    });
+    expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toEqual({ subscribed: true });
+    expect(setTopic).toHaveBeenCalledTimes(1);
+    expect(db.row!.emailProviderAckVersion).toBe(2);
+    expect(provider).toBe("opt_out");
+  });
+
   it("gives up after three rounds of choices changing underneath it", async () => {
     setTopic.mockImplementation(async () => (choose(false), true));
     expect(await syncEmailPreference("u1", "kai@acme.dev", setTopic)).toBeNull();

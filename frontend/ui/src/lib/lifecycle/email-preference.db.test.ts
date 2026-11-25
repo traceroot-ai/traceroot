@@ -52,9 +52,17 @@ const provider = {
   // Contacts whose topics do not list the product topic: their state is unknown.
   noTopic: new Set<string>(),
   slowMs: 0,
+  writes: 0, // topic writes that reached the provider
   // The next write of this choice waits for the gate, lands, and then either
   // answers or (lost) never answers its request.
-  hold: null as null | { choice: string; gate: Promise<void>; lost: boolean; failAfter: number },
+  hold: null as null | {
+    choice: string;
+    gate: Promise<void>;
+    lost: boolean;
+    failAfter: number;
+    // The write lands at once; only its answer waits for the gate.
+    landFirst?: boolean;
+  },
 };
 const handle = async (url: URL, init: { method: string; body: string }) => {
   const parts = url.pathname.split("/").map(decodeURIComponent);
@@ -81,12 +89,14 @@ const handle = async (url: URL, init: { method: string; body: string }) => {
     return Response.json({ id: parts[4] });
   }
   const choice = body[0].subscription as string;
+  provider.writes += 1;
   if (provider.slowMs) await sleep(provider.slowMs);
   if (provider.hold?.choice === choice) {
     const held = provider.hold;
     provider.hold = null;
+    if (held.landFirst) provider.topic.set(parts[2], choice);
     await held.gate;
-    provider.topic.set(parts[2], choice);
+    if (!held.landFirst) provider.topic.set(parts[2], choice);
     // A correction right after a stale write lands can fail too.
     provider.failNext += held.failAfter;
     if (held.lost) return new Promise<Response>(() => {});
@@ -268,6 +278,56 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     for (let i = 0; i < 2; i += 1) await tick();
     for (const p of unreadable) expect(await agree(p)).toBe(true);
   });
+
+  it.each([
+    ["a corrective write would fail", 1],
+    ["a corrective write would succeed", 0],
+  ])(
+    "keeps a newer acknowledged Subscribe again, and the provider opt-out after it, when an older answer arrives late and %s",
+    async (_case, failures) => {
+      const p = await person();
+      await post(p.email, "opt_out");
+      await windowPassed(p.id);
+      await tick();
+      await sleep(5);
+      // An older Subscribe again: its write lands, its answer is held.
+      let answer!: () => void;
+      provider.hold = {
+        choice: "opt_in",
+        gate: new Promise<void>((r) => (answer = r)),
+        lost: false,
+        failAfter: 0,
+        landFirst: true,
+      };
+      const older = post(p.email, "opt_in");
+      await sleep(80);
+      // A newer Subscribe again, acknowledged by the provider.
+      await sleep(5);
+      expect((await post(p.email, "opt_in")).status).toBe(200);
+      const acked = await account(p.id);
+      expect(acked?.emailProviderAckVersion).toBe(acked?.emailPreferenceVersion);
+      // The person then opts out at the provider itself.
+      provider.topic.set(p.email, "opt_out");
+      // The older answer arrives; a corrective write would fail or succeed.
+      provider.failNext = failures;
+      const writesBefore = provider.writes;
+      answer();
+      expect((await older).status).toBe(200);
+      // No repair was sent: the provider opt-out stands right away, before any tick.
+      expect(provider.writes).toBe(writesBefore);
+      provider.failNext = 0;
+      const after = await account(p.id);
+      expect(after?.emailProviderAckVersion).toBe(acked?.emailPreferenceVersion); // not cleared
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      // The real scheduled reconciliation keeps the provider opt-out.
+      await windowPassed(p.id);
+      await tick();
+      await tick();
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      expect(await unsubscribed(p.id)).toBe(true);
+      expect(await settled(p.id)).toBe(true);
+    },
+  );
 
   // Release criteria: both orderings, the stale write landing after the newer
   // choice completed, and the correction of it failing with a 503.

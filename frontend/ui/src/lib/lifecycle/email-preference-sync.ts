@@ -5,9 +5,10 @@
  *
  * - The unsubscribe page sets the provider at once (syncEmailPreference). A
  *   write that succeeds with no other choice applied meanwhile is acknowledged
- *   (emailProviderAckVersion). A request that finds its write was of an older
- *   choice clears the acknowledgement before correcting it, since that stale
- *   write is now at the provider.
+ *   (emailProviderAckVersion). A request that finds a different, newer choice
+ *   applied meanwhile clears the acknowledgement before correcting it, since
+ *   its older write may now be at the provider; one whose choice is the same as
+ *   the newer one leaves a newer acknowledgement alone and writes nothing more.
  * - Every provider write is recorded before it is sent (emailProviderWriteAt).
  *   The scheduled run (syncPendingEmailPreferences) looks at each changed
  *   preference once its latest write is older than SETTLE_AFTER_MS, far longer
@@ -122,12 +123,23 @@ export async function syncEmailPreference(
     if (!(await startWrite(userId))) return null;
     if (!(await setTopic(email, subscribed ? "opt_in" : "opt_out"))) return null;
     if (await acknowledge(userId, before.emailPreferenceVersion)) return { subscribed };
-    // A newer choice was applied while this one was on its way: what the
-    // provider now holds may be this older one, so nothing stays acknowledged.
-    await prisma.userOnboarding.updateMany({
-      where: { userId },
-      data: { emailProviderAckVersion: null },
-    });
+    // A newer choice was applied while this one was on its way.
+    const now = await readChoice(userId);
+    if (!now) return null;
+    if (!now.unsubscribedAt === subscribed) {
+      // It is the same choice as this write, so this write cannot have left a
+      // wrong one at the provider. If a newer request already had it
+      // acknowledged, that stands, and anything the person changed at the
+      // provider since is theirs: nothing more to write.
+      if (now.emailProviderAckVersion === now.emailPreferenceVersion) return { subscribed };
+    } else {
+      // A different choice: this older write may have landed after it, so it
+      // is no longer known what the provider holds.
+      await prisma.userOnboarding.updateMany({
+        where: { userId, emailPreferenceVersion: now.emailPreferenceVersion },
+        data: { emailProviderAckVersion: null },
+      });
+    }
   }
   return null;
 }
