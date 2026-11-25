@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * The "Add to datasets" modal is intentionally minimal: pick an existing dataset,
- * then Input / Expected output / Metadata. This mounts it against a stubbed trace + datasets
- * and asserts those four sections render and that an edited expected output saves as
+ * then Input / Output / Metadata. This mounts it against a stubbed trace + datasets
+ * and asserts those four sections render and that an edited Output saves as
  * `expected` while the recorded output is retained.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -27,7 +27,7 @@ vi.mock("@/lib/api/traces", () => ({
   })),
 }));
 
-// The span's production output the drawer seeds the expected output from and, unedited, sends
+// The span's production output the drawer seeds Output from and, unedited, sends
 // back as `expected`. Stable identity (vi.hoisted) so the drawer's re-seed effect
 // (keyed on this object) doesn't refire and clobber an in-progress edit — see
 // save-test-case-format.smoke.test.tsx.
@@ -118,13 +118,13 @@ describe("Add to datasets drawer", () => {
     await screen.findByDisplayValue("I was charged twice");
     expect(screen.getByText("Dataset")).toBeDefined();
     expect(screen.getByText("Input")).toBeDefined();
-    expect(screen.getByText("Expected output")).toBeDefined();
+    expect(screen.getByText("Output")).toBeDefined();
     expect(screen.getByText("Metadata")).toBeDefined();
   });
 });
 
 // ---------------------------------------------------------------------------
-// The expected output is the outcome used for evaluation (edited or
+// The headline behaviour: the Output field IS the expected outcome (edited or
 // not). Following the dataset-item model, the raw production output is
 // NOT copied onto the case — to see what actually happened, follow the source
 // trace/span link. So the payload carries `expected` (+ input/metadata) and
@@ -134,13 +134,14 @@ describe("Add to datasets drawer", () => {
 // dropped column) is caught below.
 // ---------------------------------------------------------------------------
 describe("Save as test case drawer — submit", () => {
-  it("submits an edited expected output as `expected`", async () => {
+  it("submits an edited Output as `expected`, with no separate recorded output", async () => {
     const fetchMock = stubFetch();
     mount(<SaveTestCaseDrawer projectId="p1" traceId="t1" open onOpenChange={() => {}} />);
     await screen.findByDisplayValue("I was charged twice");
 
     fireEvent.change(screen.getByLabelText("Dataset"), { target: { value: "ds1" } });
-    fireEvent.change(screen.getByLabelText("Expected output"), {
+    // The span's production output seeds Output at "billing"; correct it.
+    fireEvent.change(screen.getByLabelText("Output"), {
       target: { value: "billing (corrected: two charges refunded)" },
     });
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
@@ -156,7 +157,7 @@ describe("Save as test case drawer — submit", () => {
     expect(body.recorded_output).toBeUndefined();
   });
 
-  it("submits the captured output as `expected` when left unchanged", async () => {
+  it("submits an unedited Output as `expected`", async () => {
     const fetchMock = stubFetch();
     mount(<SaveTestCaseDrawer projectId="p1" traceId="t1" open onOpenChange={() => {}} />);
     await screen.findByDisplayValue("I was charged twice");

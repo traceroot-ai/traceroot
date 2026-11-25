@@ -15,7 +15,7 @@ import {
   SquareArrowOutUpRight,
   X,
 } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
@@ -538,20 +538,6 @@ function CasePanel({
           />
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {testCase.sourceTraceId && (
-            <Link
-              href={{
-                pathname: `/projects/${projectId}/traces`,
-                query: {
-                  traceId: testCase.sourceTraceId,
-                  ...(testCase.sourceSpanId && { spanId: testCase.sourceSpanId }),
-                },
-              }}
-              className={buttonVariants({ variant: "ghost", size: "sm" })}
-            >
-              View source
-            </Link>
-          )}
           <Button
             variant="ghost"
             size="sm"

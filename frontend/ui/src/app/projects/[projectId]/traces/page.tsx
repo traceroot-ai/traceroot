@@ -90,9 +90,6 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
-  const [initialSpanId, setInitialSpanId] = useState(
-    () => (traceIdFromUrl && searchParams.get("spanId")) || undefined,
-  );
   // Scope of the open trace. The list is customer-only, so selecting a row
   // always means "user"; the one way to open an internal trace here is the
   // ?traceId=&source=agent deep link (an RCA agent trace popped out of a
@@ -103,7 +100,6 @@ export default function TracesPage() {
   const selectTrace = (traceId: string | null, source: TraceSource = "user") => {
     setSelectedTraceId(traceId);
     setSelectedSource(source);
-    setInitialSpanId(undefined);
   };
   // Warm the span→dataset chip data as soon as a trace is selected, so the
   // "Dataset:" chip is ready before the user opens a span (no per-span latency).
@@ -447,7 +443,6 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
-          initialSpanId={initialSpanId}
           spanLabels={(selection) =>
             selectedSource === "user" && (selection.type === "trace" || !selection.span.pending) ? (
               <TraceLabelChips

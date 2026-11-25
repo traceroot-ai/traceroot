@@ -63,21 +63,8 @@ vi.mock("@/components/layout/app-layout", () => ({
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/features/traces/components", () => ({
-  TraceViewerPanel: ({
-    traceId,
-    source,
-    initialSpanId,
-  }: {
-    traceId: string;
-    source?: string;
-    initialSpanId?: string;
-  }) => (
-    <div
-      data-testid="trace-panel"
-      data-trace-id={traceId}
-      data-source={String(source)}
-      data-span-id={initialSpanId}
-    />
+  TraceViewerPanel: ({ traceId, source }: { traceId: string; source?: string }) => (
+    <div data-testid="trace-panel" data-trace-id={traceId} data-source={String(source)} />
   ),
   GettingStarted: () => null,
 }));
@@ -142,14 +129,6 @@ describe("TracesPage by-id scoping", () => {
     const panel = screen.getByTestId("trace-panel");
     expect(panel.getAttribute("data-trace-id")).toBe("aaaaaaaabbbbccccddddeeeeeeeeeeee");
     expect(panel.getAttribute("data-source")).toBe("user");
-  });
-
-  it("seeds the selected span from a Dataset source link", () => {
-    searchParamsValue = "traceId=trace-from-dataset&spanId=saved-span";
-    render(<TracesPage />, { wrapper: Wrapper });
-    const panel = screen.getByTestId("trace-panel");
-    expect(panel.getAttribute("data-trace-id")).toBe("trace-from-dataset");
-    expect(panel.getAttribute("data-span-id")).toBe("saved-span");
   });
 });
 

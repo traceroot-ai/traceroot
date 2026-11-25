@@ -291,6 +291,8 @@ export function SaveTestCaseDrawer({
         onClick={() => onOpenChange(false)}
         aria-hidden
       />
+      {/* Centered modal panel: a wide sheet with Input/Output
+          side by side, rather than a narrow right-side drawer. */}
       <div
         ref={rootRef}
         role="dialog"
@@ -355,6 +357,9 @@ export function SaveTestCaseDrawer({
             )}
           </FormCard>
 
+          {/* Stacked Dataset → Input → Output → Metadata (mirrors the trace detail
+              panel this modal is launched from); each field is only as tall as its
+              content, so a short input never leaves a tall empty box. */}
           <EditableValueBlock
             label="Input"
             text={input}
@@ -370,7 +375,7 @@ export function SaveTestCaseDrawer({
           />
 
           <EditableValueBlock
-            label="Expected output"
+            label="Output"
             text={output}
             onChange={setOutput}
             copyable

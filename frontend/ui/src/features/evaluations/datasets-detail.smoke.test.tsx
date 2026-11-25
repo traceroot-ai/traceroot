@@ -765,9 +765,6 @@ describe("Dataset detail — the slide-in case panel", () => {
     expect(within(dialog).getAllByText(/account-management/).length).toBeGreaterThan(0);
     // The Metadata section shows the case's metadata.
     expect(within(dialog).getAllByText(/channel/).length).toBeGreaterThan(0);
-    expect(within(dialog).getByRole("link", { name: "View source" }).getAttribute("href")).toBe(
-      "/projects/p1/traces?traceId=tr_9&spanId=sp_9",
-    );
     // No separate "what happened in production" block — the source span link
     // preserves the actual output (the dataset-item model).
     expect(screen.queryByLabelText("What happened in production")).toBeNull();
@@ -776,7 +773,6 @@ describe("Dataset detail — the slide-in case panel", () => {
   it("navigates between cases with the up/down controls", async () => {
     mountDetail();
     await openCase(/charged twice/);
-    expect(screen.queryByRole("link", { name: "View source" })).toBeNull();
     // First row: up is disabled, down moves to the second case.
     expect(screen.getByTitle("Previous row").hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByTitle("Next row"));

@@ -94,10 +94,10 @@ describe("save-as-test-case seed formats", () => {
     expect(valueOf("Metadata")).toBe('{"suite":"smoke"}');
   });
 
-  it("expands the editable expected output", async () => {
+  it("expands Output — the editable field that becomes the expected outcome", async () => {
     mount();
     await waitFor(() => expect(valueOf("Input")).toContain("I was charged twice"));
-    const output = valueOf("Expected output");
+    const output = valueOf("Output");
     expect(output).toContain("\n");
     expect(output).toContain('  "route": "billing"');
   });
