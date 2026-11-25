@@ -347,6 +347,12 @@ model UserOnboarding {
   // When the scheduled run last looked at this preference, read or not: it takes
   // the least recently looked at first, so a provider it cannot read goes to the back.
   emailProviderCheckedAt  DateTime? @map("email_provider_checked_at") @db.Timestamp(3)
+  // One provider write per person at a time: held until then by the writer
+  // sending it (a crashed writer's lease runs out). And the version of a choice
+  // made while another write was on its way, whose order at the provider
+  // cannot be known.
+  emailProviderLeaseUntil      DateTime? @map("email_provider_lease_until") @db.Timestamp(3)
+  emailProviderContendedVersion Int?     @map("email_provider_contended_version")
   // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
   // null for a question skipped or not asked.
   role                 String?    @db.VarChar

@@ -175,6 +175,12 @@ const windowPassed = (id: string) =>
     `update user_onboarding set email_provider_write_at = email_provider_write_at - interval '1 hour', email_provider_settled_at = email_provider_settled_at - interval '1 hour' where user_id = $1`,
     id,
   );
+// A lost writer's lease has run out (it does after LEASE_MS).
+const leaseExpired = (id: string) =>
+  prisma.$executeRawUnsafe(
+    `update user_onboarding set email_provider_lease_until = now() - interval '1 second' where user_id = $1`,
+    id,
+  );
 const settled = async (id: string) => {
   const row = await account(id);
   return !!row?.emailProviderSettledAt && +row.emailProviderWriteAt! <= +row.emailProviderSettledAt;
@@ -279,47 +285,51 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     for (const p of unreadable) expect(await agree(p)).toBe(true);
   });
 
+  // Delayed answers: an older choice's write reaches the provider at once but its
+  // answer is held; a newer Subscribe again is made meanwhile; the person opts
+  // out at the provider; then the old answer arrives, with a repair that would
+  // fail or succeed.
   it.each([
-    ["a corrective write would fail", 1],
-    ["a corrective write would succeed", 0],
-  ])(
-    "keeps a newer acknowledged Subscribe again, and the provider opt-out after it, when an older answer arrives late and %s",
-    async (_case, failures) => {
+    ["an older unsubscribe", "a repair would fail", "opt_out", 1],
+    ["an older unsubscribe", "a repair would succeed", "opt_out", 0],
+    ["an older Subscribe again", "a repair would fail", "opt_in", 1],
+    ["an older Subscribe again", "a repair would succeed", "opt_in", 0],
+  ] as const)(
+    "keeps the provider opt-out when %s is answered late after a newer Subscribe again and %s",
+    async (_case, _repair, older, failures) => {
       const p = await person();
-      await post(p.email, "opt_out");
+      await post(p.email, older === "opt_out" ? "opt_in" : "opt_out");
       await windowPassed(p.id);
       await tick();
       await sleep(5);
-      // An older Subscribe again: its write lands, its answer is held.
       let answer!: () => void;
       provider.hold = {
-        choice: "opt_in",
+        choice: older,
         gate: new Promise<void>((r) => (answer = r)),
         lost: false,
         failAfter: 0,
         landFirst: true,
       };
-      const older = post(p.email, "opt_in");
+      const old = post(p.email, older);
       await sleep(80);
-      // A newer Subscribe again, acknowledged by the provider.
+      expect(provider.topic.get(p.email)).toBe(older); // landed; its answer is held
+      // A newer Subscribe again: one write per person at a time, so it is not
+      // sent while the older one is on its way.
       await sleep(5);
-      expect((await post(p.email, "opt_in")).status).toBe(200);
-      const acked = await account(p.id);
-      expect(acked?.emailProviderAckVersion).toBe(acked?.emailPreferenceVersion);
-      // The person then opts out at the provider itself.
-      provider.topic.set(p.email, "opt_out");
-      // The older answer arrives; a corrective write would fail or succeed.
-      provider.failNext = failures;
       const writesBefore = provider.writes;
-      answer();
-      expect((await older).status).toBe(200);
-      // No repair was sent: the provider opt-out stands right away, before any tick.
+      expect((await post(p.email, "opt_in")).status).toBe(200);
       expect(provider.writes).toBe(writesBefore);
-      provider.failNext = 0;
-      const after = await account(p.id);
-      expect(after?.emailProviderAckVersion).toBe(acked?.emailPreferenceVersion); // not cleared
+      expect(await unsubscribed(p.id)).toBe(false);
+      // The person opts out at the provider.
+      provider.topic.set(p.email, "opt_out");
+      // The old answer arrives; nothing sends a Subscribe again over it.
+      provider.failNext = failures;
+      answer();
+      expect((await old).status).toBe(200);
+      expect(provider.writes).toBe(writesBefore);
       expect(provider.topic.get(p.email)).toBe("opt_out");
-      // The real scheduled reconciliation keeps the provider opt-out.
+      provider.failNext = 0;
+      // The real scheduled reconciliation keeps the opt-out, on the account too.
       await windowPassed(p.id);
       await tick();
       await tick();
@@ -329,13 +339,26 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     },
   );
 
+  it("still sends a Subscribe again at once when nothing else is on its way", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await sleep(5);
+    const response = await post(p.email, "opt_in");
+    expect(response.text).toContain("You're subscribed again.");
+    expect(response.text).not.toContain("few minutes");
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    const row = await account(p.id);
+    expect(row?.emailProviderAckVersion).toBe(row?.emailPreferenceVersion);
+    expect(row?.emailProviderLeaseUntil).toBeNull();
+  });
+
   // Release criteria: both orderings, the stale write landing after the newer
   // choice completed, and the correction of it failing with a 503.
   it.each([
     ["an old Subscribe again", "opt_in", "opt_out"],
     ["an old unsubscribe", "opt_out", "opt_in"],
   ] as const)(
-    "%s held, a newer choice completes, the stale write lands and its correction gets a 503: the next run restores the newer choice",
+    "%s held, a newer choice is made, the stale write lands and its repair gets a 503: the next runs settle on opt-out",
     async (_case, older, newer) => {
       const p = await person();
       await post(p.email, older === "opt_in" ? "opt_out" : "opt_in");
@@ -349,18 +372,21 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
       };
       const stale = post(p.email, older);
       await sleep(80);
+      // The newer choice is not sent while the older write is on its way.
       expect((await post(p.email, newer)).status).toBe(200);
-      expect(provider.topic.get(p.email)).toBe(newer);
       release();
       await stale;
-      // The stale write is at the provider, its correction failed.
+      // The stale write is at the provider; a newer opt-out's repair got a 503.
       expect(provider.topic.get(p.email)).toBe(older);
       expect(await unsubscribed(p.id)).toBe(newer === "opt_out");
-      // Two real scheduled ticks, each after the settle window has passed.
+      // Two real scheduled ticks, each after the settle window has passed. A
+      // newer opt-out is sent; a newer Subscribe again raced an opt-out at the
+      // provider, which came last cannot be known, so the opt-out wins.
       await windowPassed(p.id);
       const first = await tick();
       expect(first.emailPreferences.synced).toBeGreaterThanOrEqual(1);
-      expect(provider.topic.get(p.email)).toBe(newer);
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      expect(await unsubscribed(p.id)).toBe(true);
       expect(await agree(p)).toBe(true);
       expect(await settled(p.id)).toBe(true);
       await windowPassed(p.id);
@@ -404,11 +430,14 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     await sleep(50);
     expect(provider.topic.get(p.email)).toBe("opt_in");
     expect(await unsubscribed(p.id)).toBe(true);
+    await run(); // the lost writer still holds the lease: nothing yet
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    await leaseExpired(p.id);
     await run();
     expect(provider.topic.get(p.email)).toBe("opt_out");
   });
 
-  it("keeps the newer choice when a Subscribe again lands after it, and the reverse", async () => {
+  it("sends a newer opt-out at once after a held Subscribe again, and keeps the opt-out a newer Subscribe again raced", async () => {
     for (const [older, newer] of [
       ["opt_in", "opt_out"],
       ["opt_out", "opt_in"],
@@ -429,9 +458,20 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
       release();
       const late = await slow;
       expect(late.status).toBe(200);
-      expect(await unsubscribed(p.id)).toBe(newer === "opt_out");
-      expect(provider.topic.get(p.email)).toBe(newer);
-      expect(late.text.includes("You're unsubscribed.")).toBe(newer === "opt_out");
+      if (newer === "opt_out") {
+        // The writer in flight sends the newer opt-out as soon as its own write is back.
+        expect(provider.topic.get(p.email)).toBe("opt_out");
+        expect(await unsubscribed(p.id)).toBe(true);
+        expect(late.text).toContain("You're unsubscribed.");
+      } else {
+        // A newer Subscribe again is left to the scheduled run, which keeps the
+        // opt-out it raced: which came last at the provider cannot be known.
+        expect(provider.topic.get(p.email)).toBe("opt_out");
+        await windowPassed(p.id);
+        await tick();
+        expect(provider.topic.get(p.email)).toBe("opt_out");
+        expect(await unsubscribed(p.id)).toBe(true);
+      }
     }
   });
 

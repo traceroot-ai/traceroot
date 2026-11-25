@@ -1,29 +1,34 @@
 /**
  * Keeps the provider's product-email topic in line with the account, which
  * holds the person's own choices (pause.ts, recordUnsubscribe), while keeping
- * an opt-out the person makes at the provider itself.
+ * an opt-out the person makes at the provider itself. The provider gives no
+ * times, so the order of what reaches it is kept here:
  *
- * - The unsubscribe page sets the provider at once (syncEmailPreference). A
- *   write that succeeds with no other choice applied meanwhile is acknowledged
- *   (emailProviderAckVersion). A request that finds a different, newer choice
- *   applied meanwhile clears the acknowledgement before correcting it, since
- *   its older write may now be at the provider; one whose choice is the same as
- *   the newer one leaves a newer acknowledgement alone and writes nothing more.
- * - Every provider write is recorded before it is sent (emailProviderWriteAt).
- *   The scheduled run (syncPendingEmailPreferences) looks at each changed
- *   preference once its latest write is older than SETTLE_AFTER_MS, far longer
- *   than a provider request may take (resend.ts), so writes still on their way
- *   have landed. It reads the provider first:
+ * - One write per person at a time. A writer takes a lease
+ *   (emailProviderLeaseUntil) with a short conditional update before sending,
+ *   and gives it back when the answer comes; no database connection is held
+ *   while it waits. A crashed writer's lease runs out after LEASE_MS, longer
+ *   than a provider request may take (resend.ts). So a write never lands
+ *   after one that started later.
+ * - A choice made while another write holds the lease is not sent alongside
+ *   it: it is marked as racing that write (emailProviderContendedVersion), and
+ *   when the write in flight comes back the writer sends a newer opt-out at
+ *   once (an opt-out is always safe to send) and leaves a newer opt-in for the
+ *   scheduled run.
+ * - A write that comes back with its own choice still in force is
+ *   acknowledged (emailProviderAckVersion).
+ * - The scheduled run (syncPendingEmailPreferences) looks at each changed
+ *   preference once its latest write is older than SETTLE_AFTER_MS, takes the
+ *   lease and reads the provider first:
  *   - it already holds the account's choice: confirmed;
- *   - the account's choice was never acknowledged (its write failed, is
- *     pending, or a stale write may have replaced it): the account's choice is
- *     the newer one, and is set at the provider;
- *   - the account's choice was acknowledged and the provider has changed since:
- *     the person (or something else) changed it there, and which came last
- *     cannot be known, so the opt-out wins: an opt-out at the provider is
- *     recorded on the account, or the provider is set back to opt-out.
- * - Nobody has to try again by hand, and one person the provider keeps refusing
- *   does not hold up the others: the run takes the least recently looked at first.
+ *   - the choice raced a write, or was acknowledged and the provider changed
+ *     since: which came last cannot be known, so the opt-out wins (an opt-out
+ *     at the provider is recorded on the account; an opt-in there under an
+ *     account opt-out is set back);
+ *   - otherwise its write failed or is pending: the account's choice is set at
+ *     the provider, so a failed request recovers with no action by the person.
+ * - The run takes the least recently looked at first and is bounded per tick,
+ *   so nobody holds up the others.
  */
 import { prisma } from "@traceroot/core";
 import {
@@ -67,14 +72,22 @@ export const readProviderTopic: ReadProviderTopic = async (email) => {
 
 /** How long after the latest provider write the scheduled run looks at it. */
 export const SETTLE_AFTER_MS = 10 * 60 * 1000;
+/** How long a writer may hold the lease; longer than any provider request. */
+export const LEASE_MS = 30_000;
 /** Per scheduled tick: at most this many people, and no new one after this long. */
 export const PER_TICK = 20;
 export const TICK_BUDGET_MS = 15_000;
 
-// Rounds of "set the provider, then check the account" on the unsubscribe page.
-const ATTEMPTS = 3;
+type Choice = {
+  unsubscribedAt: Date | null;
+  emailPreferenceAt: Date | null;
+  emailPreferenceVersion: number;
+  emailProviderWriteAt: Date | null;
+  emailProviderAckVersion: number | null;
+  emailProviderContendedVersion: number | null;
+};
 
-async function readChoice(userId: string) {
+async function readChoice(userId: string): Promise<Choice | null> {
   return prisma.userOnboarding.findUnique({
     where: { userId },
     select: {
@@ -83,122 +96,164 @@ async function readChoice(userId: string) {
       emailPreferenceVersion: true,
       emailProviderWriteAt: true,
       emailProviderAckVersion: true,
+      emailProviderContendedVersion: true,
     },
   });
 }
 
-/** Records, by the database's clock, that a provider write is about to start. */
-async function startWrite(userId: string): Promise<Date | null> {
+const choiceOf = (row: Choice): TopicSubscription => (row.unsubscribedAt ? "opt_out" : "opt_in");
+
+/**
+ * Takes the lease for provider writes, by the database's clock, if nobody holds
+ * it. Answers the lease's end, which is its token, or null when another write
+ * is on its way.
+ */
+async function takeLease(userId: string): Promise<Date | null> {
+  const [row] = await prisma.$queryRaw<{ until: Date }[]>`
+    UPDATE user_onboarding
+    SET email_provider_lease_until = clock_timestamp() + ${LEASE_MS} * interval '1 millisecond'
+    WHERE user_id = ${userId}
+      AND (email_provider_lease_until IS NULL OR email_provider_lease_until < clock_timestamp())
+    RETURNING email_provider_lease_until AS until`;
+  return row?.until ?? null;
+}
+
+/** Records, under the lease, that a provider write is about to start. */
+async function startWrite(userId: string, lease: Date): Promise<Date | null> {
+  const at = lease.toISOString().replace("Z", "");
   const [row] = await prisma.$queryRaw<{ at: Date }[]>`
     UPDATE user_onboarding SET email_provider_write_at = clock_timestamp()
-    WHERE user_id = ${userId}
+    WHERE user_id = ${userId} AND email_provider_lease_until = ${at}::timestamp(3)
     RETURNING email_provider_write_at AS at`;
   return row?.at ?? null;
 }
 
-/** The provider holds this version, if no other choice was applied meanwhile. */
-async function acknowledge(userId: string, version: number): Promise<boolean> {
-  const { count } = await prisma.userOnboarding.updateMany({
-    where: { userId, emailPreferenceVersion: version },
-    data: { emailProviderAckVersion: version },
+/** Gives the lease back, and acknowledges `version` if the write succeeded with it still in force. */
+async function giveBack(userId: string, lease: Date, ackVersion: number | null) {
+  await prisma.userOnboarding.updateMany({
+    where: { userId, emailProviderLeaseUntil: lease },
+    data: { emailProviderLeaseUntil: null },
   });
-  return count > 0;
+  if (ackVersion !== null) {
+    await prisma.userOnboarding.updateMany({
+      where: { userId, emailPreferenceVersion: ackVersion },
+      data: { emailProviderAckVersion: ackVersion },
+    });
+  }
+}
+
+/** Marks a choice as made while another write was on its way. */
+async function markContended(userId: string, version: number) {
+  await prisma.userOnboarding.updateMany({
+    where: { userId, emailPreferenceVersion: version },
+    data: { emailProviderContendedVersion: version },
+  });
 }
 
 /**
- * Sets the provider to the account's choice in force, going round again if
- * another choice is applied meanwhile. Answers that choice once the provider
- * acknowledged it, or null (the scheduled run finishes it). Repeating it is
- * harmless.
+ * Sends one choice under the lease. Answers whether the provider took it and
+ * whether it was still the choice in force when the answer came.
+ */
+async function sendUnderLease(
+  userId: string,
+  email: string,
+  lease: Date,
+  choice: TopicSubscription,
+  version: number,
+  setTopic: SetProviderTopic,
+): Promise<{ sent: boolean; current: Choice | null }> {
+  const sent = !!(await startWrite(userId, lease)) && (await setTopic(email, choice));
+  const current = await readChoice(userId);
+  const stillInForce = !!current && current.emailPreferenceVersion === version;
+  await giveBack(userId, lease, sent && stillInForce ? version : null);
+  return { sent, current };
+}
+
+/**
+ * On the unsubscribe page: sends the person's choice, unless another write is
+ * on its way (then the choice is marked as racing it and left to the writer in
+ * flight and the scheduled run). When the answer comes and a newer opt-out was
+ * made meanwhile, that is sent too. Answers the choice the provider was given
+ * and still in force, or null (the scheduled run finishes it).
  */
 export async function syncEmailPreference(
   userId: string,
   email: string,
   setTopic: SetProviderTopic = setProviderTopic,
 ): Promise<{ subscribed: boolean } | null> {
-  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    const before = await readChoice(userId);
-    if (!before?.emailPreferenceAt) return null;
-    const subscribed = !before.unsubscribedAt;
-    if (!(await startWrite(userId))) return null;
-    if (!(await setTopic(email, subscribed ? "opt_in" : "opt_out"))) return null;
-    if (await acknowledge(userId, before.emailPreferenceVersion)) return { subscribed };
-    // A newer choice was applied while this one was on its way.
-    const now = await readChoice(userId);
-    if (!now) return null;
-    if (!now.unsubscribedAt === subscribed) {
-      // It is the same choice as this write, so this write cannot have left a
-      // wrong one at the provider. If a newer request already had it
-      // acknowledged, that stands, and anything the person changed at the
-      // provider since is theirs: nothing more to write.
-      if (now.emailProviderAckVersion === now.emailPreferenceVersion) return { subscribed };
-    } else {
-      // A different choice: this older write may have landed after it, so it
-      // is no longer known what the provider holds.
-      await prisma.userOnboarding.updateMany({
-        where: { userId, emailPreferenceVersion: now.emailPreferenceVersion },
-        data: { emailProviderAckVersion: null },
-      });
+  let row = await readChoice(userId);
+  if (!row?.emailPreferenceAt) return null;
+  for (;;) {
+    const version: number = row.emailPreferenceVersion;
+    const choice = choiceOf(row);
+    const lease = await takeLease(userId);
+    if (!lease) {
+      await markContended(userId, version);
+      return null;
     }
+    const { sent, current } = await sendUnderLease(userId, email, lease, choice, version, setTopic);
+    if (!sent || !current) return null;
+    if (current.emailPreferenceVersion === version) return { subscribed: choice === "opt_in" };
+    // A newer choice was made while this write was on its way, and could not
+    // be sent then. A newer opt-out is sent now; a newer opt-in is left to the
+    // scheduled run, which decides between it and anything at the provider.
+    if (choiceOf(current) === "opt_in") return null;
+    row = current;
   }
-  return null;
 }
 
 type Settle = { setTopic: SetProviderTopic; readTopic: ReadProviderTopic };
 
 /**
  * Looks at one preference for the scheduled run (see the top of this file).
- * Marks it settled only if no other choice or write came along meanwhile;
- * otherwise a later run looks again.
+ * Marks it settled only if no other choice came along meanwhile; otherwise a
+ * later run looks again.
  */
 async function settleEmailPreference(userId: string, email: string, io: Settle): Promise<boolean> {
-  // Looked at now, whatever comes of it: a person whose provider cannot be read
-  // goes behind the others next time, and stays pending.
-  await prisma.userOnboarding.updateMany({
-    where: { userId },
-    data: { emailProviderCheckedAt: new Date() },
-  });
-  const before = await readChoice(userId);
-  if (!before?.emailPreferenceAt) return false;
-  const version = before.emailPreferenceVersion;
-  const want: TopicSubscription = before.unsubscribedAt ? "opt_out" : "opt_in";
-  const held = await io.readTopic(email);
-  if (!held) return false;
+  const lease = await takeLease(userId);
+  if (!lease) return false; // a write is on its way; a later run looks again
+  let ackVersion: number | null = null;
+  try {
+    const row = await readChoice(userId);
+    if (!row?.emailPreferenceAt) return false;
+    const version = row.emailPreferenceVersion;
+    const want = choiceOf(row);
+    const held = await io.readTopic(email);
+    if (!held) return false;
 
-  const settle = (writeAt: Date | null, ackVersion: number) =>
-    prisma.userOnboarding
-      .updateMany({
+    // Settled at the latest write, if the choice is still the one looked at.
+    const settle = async (writeAt: Date | null) => {
+      const { count } = await prisma.userOnboarding.updateMany({
         where: { userId, emailPreferenceVersion: version, emailProviderWriteAt: writeAt },
-        data: {
-          emailProviderSettledAt: writeAt ?? new Date(0),
-          emailProviderAckVersion: ackVersion,
-        },
-      })
-      .then(({ count }) => count > 0);
+        data: { emailProviderSettledAt: writeAt ?? new Date(0) },
+      });
+      if (count > 0) ackVersion = version;
+      return count > 0;
+    };
+    if (held === want) return await settle(row.emailProviderWriteAt);
 
-  if (held === want) return settle(before.emailProviderWriteAt, version);
-
-  const acknowledged = before.emailProviderAckVersion === version;
-  if (acknowledged && held === "opt_out") {
-    // The provider changed after it held the account's Subscribe again: keep
-    // the opt-out, on the account too. Guarded by the version, so a choice made
-    // meanwhile is not overwritten.
-    const recorded = await prisma.$executeRaw`
-      UPDATE user_onboarding
-      SET unsubscribed_at = COALESCE(unsubscribed_at, clock_timestamp()::timestamp(3)),
-          email_preference_version = email_preference_version + 1,
-          email_provider_ack_version = email_preference_version + 1,
-          email_provider_settled_at = COALESCE(email_provider_write_at, 'epoch'::timestamp)
-      WHERE user_id = ${userId} AND email_preference_version = ${version}`;
-    return recorded > 0;
+    const unknowable =
+      row.emailProviderContendedVersion === version || row.emailProviderAckVersion === version;
+    if (unknowable && held === "opt_out") {
+      // The opt-out wins: record it on the account, guarded by the version so a
+      // choice made meanwhile is not overwritten.
+      const recorded = await prisma.$executeRaw`
+        UPDATE user_onboarding
+        SET unsubscribed_at = COALESCE(unsubscribed_at, clock_timestamp()::timestamp(3)),
+            email_preference_version = email_preference_version + 1,
+            email_provider_ack_version = email_preference_version + 1,
+            email_provider_settled_at = COALESCE(email_provider_write_at, 'epoch'::timestamp)
+        WHERE user_id = ${userId} AND email_preference_version = ${version}`;
+      return recorded > 0;
+    }
+    // A pending or failed write of the account's choice is finished; an opt-in
+    // at the provider under an account opt-out is set back (the opt-out wins).
+    const writeAt = await startWrite(userId, lease);
+    if (!writeAt || !(await io.setTopic(email, want))) return false;
+    return await settle(writeAt);
+  } finally {
+    await giveBack(userId, lease, ackVersion);
   }
-  // Not acknowledged: the account's choice is newer than what the provider
-  // holds. Acknowledged with the provider at opt-in (or no contact) while the
-  // account says opt-out: the opt-out wins. Either way the account's choice.
-  const started = await startWrite(userId);
-  if (!started) return false;
-  if (!(await io.setTopic(email, want))) return false;
-  return settle(started, version);
 }
 
 /**
@@ -206,10 +261,10 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
  * a choice or a provider write since it was last confirmed, once its latest
  * write is SETTLE_AFTER_MS old. Least recently looked at first, so a person the
  * provider keeps refusing, or whose state it cannot give, goes to the back each
- * time and is tried again later. Stops starting new
- * people after budgetMs, so a slow provider leaves time for the tick's other
- * jobs; the rest wait for the next run. Answers how many it confirmed, how many
- * it tried without confirming, and how many it left for the next run.
+ * time and is tried again later. Stops starting new people after budgetMs, so a
+ * slow provider leaves time for the tick's other jobs; the rest wait for the
+ * next run. Answers how many it confirmed, how many it tried without
+ * confirming, and how many it left for the next run.
  */
 export async function syncPendingEmailPreferences(
   options: {
@@ -243,6 +298,12 @@ export async function syncPendingEmailPreferences(
   for (const row of rows) {
     if (Date.now() - started > budgetMs) break;
     tried += 1;
+    // Looked at now, whatever comes of it: a person whose provider cannot be
+    // read, or whose write is still on its way, goes behind the others next time.
+    await prisma.userOnboarding.updateMany({
+      where: { userId: row.user_id },
+      data: { emailProviderCheckedAt: new Date() },
+    });
     const ok = await settleEmailPreference(row.user_id, row.email, io).catch(() => false);
     if (ok) synced += 1;
   }
