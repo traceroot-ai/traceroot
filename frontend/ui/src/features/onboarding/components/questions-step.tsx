@@ -208,6 +208,7 @@ function Questions({
           <Options
             name="What best describes you?"
             options={ROLE_OPTIONS}
+            wide={["leadership"]}
             picked={draft.role ? [draft.role] : []}
             onPick={(id) => setDraft({ ...draft, role: draft.role === id ? null : id })}
           />
@@ -238,6 +239,7 @@ function Questions({
           <Options
             name="What will you use traceroot for?"
             multiple
+            columns={1}
             options={USE_OPTIONS}
             picked={draft.uses}
             full={draft.uses.length >= MAX_USES}
@@ -260,6 +262,7 @@ function Questions({
           <Options
             name="Where did you hear about us?"
             options={SOURCE_OPTIONS}
+            wide={["friend", "search_ai"]}
             picked={draft.source ? [draft.source] : []}
             onPick={(id) => setDraft({ ...draft, source: draft.source === id ? null : id })}
           />
@@ -352,6 +355,8 @@ function Options<Id extends string>({
   onPick,
   multiple = false,
   full = false,
+  columns = 2,
+  wide = [],
 }: {
   name: string;
   options: readonly { id: Id; label: string }[];
@@ -360,30 +365,46 @@ function Options<Id extends string>({
   multiple?: boolean;
   /** Every pick allowed is made: the rest wait until one is let go. */
   full?: boolean;
+  /**
+   * Short choices sit two to a row once the options are at least 20rem wide
+   * (the width of the options, not of the window), one to a row below that;
+   * long ones take one column throughout.
+   */
+  columns?: 1 | 2;
+  /** Choices too long for half a row, which take a whole one. */
+  wide?: readonly Id[];
 }) {
+  // The order on screen is the order of `options`, so the keyboard order is too.
   return (
-    <div role="group" aria-label={name} className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-      {options.map((option) => {
-        const on = picked.includes(option.id);
-        return (
-          <button
-            key={option.id}
-            type="button"
-            role={multiple ? "checkbox" : "radio"}
-            aria-checked={on}
-            disabled={!on && full}
-            onClick={() => onPick(option.id)}
-            className={cn(
-              "min-h-8 rounded-[4px] border px-2.5 py-1.5 text-left text-[12.5px] transition-colors",
-              on
-                ? "border-primary bg-primary/10 font-medium text-foreground"
-                : "border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
-            )}
-          >
-            {option.label}
-          </button>
-        );
-      })}
+    <div className="@container">
+      <div
+        role="group"
+        aria-label={name}
+        className={cn("grid grid-cols-1 gap-1.5", columns === 2 && "@[20rem]:grid-cols-2")}
+      >
+        {options.map((option) => {
+          const on = picked.includes(option.id);
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role={multiple ? "checkbox" : "radio"}
+              aria-checked={on}
+              disabled={!on && full}
+              onClick={() => onPick(option.id)}
+              className={cn(
+                "min-h-8 rounded-[4px] border px-2.5 py-1.5 text-left text-[12.5px] transition-colors",
+                wide.includes(option.id) && "@[20rem]:col-span-2",
+                on
+                  ? "border-primary bg-primary/10 font-medium text-foreground"
+                  : "border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
