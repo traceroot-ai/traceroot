@@ -16,7 +16,7 @@ Pass static metadata to `observe` for values known at definition time:
 
     @observe(name="process", type="agent", metadata={"version": "v2", "tier": "premium"})
     def process(query: str):
-        return result
+        return f"Processed: {query}"
     ```
   </Tab>
   <Tab title="TypeScript">

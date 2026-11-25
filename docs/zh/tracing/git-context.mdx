@@ -55,7 +55,7 @@ ENV TRACEROOT_GIT_REF=$GIT_SHA              # 动态值，每次构建不同
   run: docker build --build-arg GIT_SHA=${{ github.sha }} -t myapp:${{ github.sha }} .
 ```
 
-在 **GitHub Actions** 里，traceroot 会自动读取标准的 `GITHUB_REPOSITORY` 和 `GITHUB_SHA`，不需要修改 Dockerfile。在其他 CI 或平台上，请使用上面的构建时注入。
+如果你的应用直接运行在 **GitHub Actions** 的 runner 上，traceroot 会自动读取标准的 `GITHUB_REPOSITORY` 和 `GITHUB_SHA`。在那里构建、再部署到别处的镜像，运行时并没有这些变量，所以仍然需要上面的构建时注入。其他 CI 或平台也一样。
 
 请为**每一个被追踪的服务**做这项配置，包括后台 worker、定时任务和队列消费者，API 服务之外的进程同样需要。每个进程各自解析 git 上下文。
 

@@ -55,7 +55,7 @@ ENV TRACEROOT_GIT_REF=$GIT_SHA              # dynamic, per build
   run: docker build --build-arg GIT_SHA=${{ github.sha }} -t myapp:${{ github.sha }} .
 ```
 
-In **GitHub Actions**, traceroot reads the standard `GITHUB_REPOSITORY` and `GITHUB_SHA` automatically — no Dockerfile change needed. On other CI/platform providers, use the build-time injection above.
+When your application runs directly on a **GitHub Actions** runner, traceroot reads the standard `GITHUB_REPOSITORY` and `GITHUB_SHA` automatically. An image built there and deployed elsewhere does not carry those variables at runtime, so it still needs the build-time injection above, as do other CI/platform providers.
 
 Apply this to **every traced service**, including background workers and cron/queue consumers — not just your API server. Each process resolves git context independently.
 

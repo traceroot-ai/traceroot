@@ -16,7 +16,7 @@ description: 为 trace 和 span 附加任意键值对
 
     @observe(name="process", type="agent", metadata={"version": "v2", "tier": "premium"})
     def process(query: str):
-        return result
+        return f"Processed: {query}"
     ```
   </Tab>
   <Tab title="TypeScript">

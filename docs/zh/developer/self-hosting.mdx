@@ -58,7 +58,7 @@ make prod
 ### 升级已有的安装
 
 1. 拉取最新版本并运行 `make prod-lite`（或 `make prod`）。如果 `.env` 里的 ClickHouse、SQL gateway 或对象存储密码是从 `.env.example` 复制来的，这一步会把它们替换成自动生成的密码。
-2. 如果服务停止启动并提到 `ENCRYPTION_KEY`，说明你的 `.env` 里还是 `.env.example` 里的那个 key。运行一次 `make rotate-encryption-key`。它会在一个事务里用新 key 重新加密已保存的模型提供商 key 和 Slack token，把新 key 写入 `.env`，并把旧 key 保存在 `.env.encryption-key.d` 目录里。如果它在数据库更新之前失败，不会有任何改动，你可以重新运行。如果数据库已经更新但 `.env` 无法写入，命令会给出提示，并把新 key 保留在 `.env.encryption-key.d/pending` 里。解决问题后再运行一次即可完成。如果你的 shell 环境里设置了 `ENCRYPTION_KEY`，或者设置了 `COMPOSE_ENV_FILES`，它会拒绝运行，因为这种情况下 Docker Compose 不会使用 `.env` 里的 key。在轮换进行中或尚未完成时，用来启动服务的 `make` 目标会等待或拒绝执行，这样各个服务就不会用数据库正在弃用的 key 运行。如果想自己用 `docker compose` 启动服务，请先完成轮换。
+2. 如果服务停止启动并提到 `ENCRYPTION_KEY`，说明你的 `.env` 里还是 `.env.example` 里的那个 key。运行一次 `make rotate-encryption-key`。它会在一个事务里用新 key 重新加密已保存的模型提供商 key 和 Slack token，把新 key 写入 `.env`，并把旧 key 保存在 `.env.encryption-key.d` 目录里。如果它在数据库更新之前失败，不会有任何改动，你可以重新运行。如果数据库已经更新但 `.env` 无法写入，命令会给出提示，并把新 key 保留在 `.env.encryption-key.d/pending` 里。解决问题后再运行一次即可完成。如果你的 shell 环境里设置了 `ENCRYPTION_KEY`，或者 `COMPOSE_ENV_FILES` 指向了 `.env` 以外的文件，它会拒绝运行，因为这种情况下 Docker Compose 不会使用 `.env` 里的 key。在轮换进行中或尚未完成时，用来启动服务的 `make` 目标会等待或拒绝执行，这样各个服务就不会用数据库正在弃用的 key 运行。如果想自己用 `docker compose` 启动服务，请先完成轮换。
 3. 再次用 `make prod-lite`（或 `make prod`）启动服务。如果之前是用 `make prod` 启动的，它的 tmux 会话还在，`make prod` 会询问是否重新连接。请回答 `N`，让它启动一个新的会话。重新连接会跳过设置步骤，已停止的服务会一直保持停止。
 
 轮换会先停止 web、worker、agent、detector 和 billing 服务。如果轮换失败，这些服务会保持停止，在轮换完成之前无法启动：请解决问题后再次运行 `make rotate-encryption-key`（如果要放弃一次没有改动数据库的未完成轮换，请删除 `.env.encryption-key.d/pending`，然后按第 3 步启动）。
