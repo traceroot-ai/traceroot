@@ -1,6 +1,6 @@
 ---
 title: 概览
-description: 为 trace 附加上下文：用户、session、tag、metadata 等
+description: 为 trace 附加上下文：用户、session、标签、元数据等
 ---
 
 初始化 traceroot 之后，LLM 调用会被自动追踪。如果想更进一步，比如追踪自定义函数、标识用户、把 session 归组或跟踪成本，可以使用 `observe`，并为每条 trace 附加丰富的上下文。
@@ -69,7 +69,7 @@ description: 为 trace 附加上下文：用户、session、tag、metadata 等
 |---|---|---|
 | 标识是哪个用户触发了 trace | User ID | [用户](/zh/tracing/users) |
 | 把同一段对话的 trace 归到一起 | Session ID | [Session](/zh/tracing/sessions) |
-| 给 trace 打标签，方便筛选 | Tags | [Tag](/zh/tracing/tags) |
-| 附加结构化的键值对上下文 | Metadata | [Metadata](/zh/tracing/metadata) |
+| 给 trace 打标签，方便筛选 | 标签 | [标签](/zh/tracing/tags) |
+| 附加结构化的键值对上下文 | 元数据 | [元数据](/zh/tracing/metadata) |
 | 跟踪 token 用量和 LLM 成本 | 通过插桩自动完成 | [成本跟踪](/zh/tracing/cost-tracking) |
 | 把 trace 关联到源代码和 commit | 通过 `observe` 自动完成 | [Git 上下文](/zh/tracing/git-context) |

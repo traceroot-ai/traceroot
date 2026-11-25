@@ -73,14 +73,14 @@ traceroot 会从已插桩的 LLM 调用里采集 token 用量。只要上报的 
 
 | 指标 | 说明 |
 |--------|-------------|
-| 输入 token | prompt/messages 里的 token |
+| 输入 token | 提示词/messages 里的 token |
 | 输出 token | completion/response 里的 token |
 | 总 token | 输入与输出之和 |
 | 成本（USD） | model ID 匹配价格表时计算得出，或者是你上报的成本 |
 
 ## 查看成本
 
-在 dashboard 里，span 级别和 trace 级别都能看到成本：
+在仪表盘里，span 级别和 trace 级别都能看到成本：
 - **每个 span**：查看每一次 LLM、工具或 API 调用的成本
 - **每条 trace**：查看这条 trace 里所有调用汇总后的总成本
 

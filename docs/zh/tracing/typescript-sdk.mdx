@@ -40,8 +40,8 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 |-----------|------|---------|-------------|
 | `name` | `string` | 函数名 | span 名称 |
 | `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | span 类型：`'agent'` 用于多步骤 agent，`'tool'` 用于函数调用，`'llm'` 用于模型推理，`'span'` 用于通用场景 |
-| `metadata` | `Record<string, unknown>` | — | 要附加的静态 metadata |
-| `tags` | `string[]` | — | 要附加的 tag |
+| `metadata` | `Record<string, unknown>` | — | 要附加的静态元数据 |
+| `tags` | `string[]` | — | 要附加的标签 |
 | `captureInput` | `boolean` | `true` | 把函数参数采集为 span 输入 |
 | `captureOutput` | `boolean` | `true` | 把返回值采集为 span 输出 |
 
@@ -76,8 +76,8 @@ await usingAttributes(
 |-----------|------|-------------|
 | `sessionId` | `string` | session / 对话 ID |
 | `userId` | `string` | 用户标识 |
-| `tags` | `string[]` | 要附加到所有 span 的 tag |
-| `metadata` | `Record<string, unknown>` | 任意 metadata |
+| `tags` | `string[]` | 要附加到所有 span 的标签 |
+| `metadata` | `Record<string, unknown>` | 任意元数据 |
 
 ## 更新 span 和 trace
 
@@ -110,12 +110,12 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `name` | `string` | 在 span 创建后重命名 |
 | `input` | `unknown` | 输入数据 |
 | `output` | `unknown` | 输出数据 |
-| `metadata` | `Record<string, unknown>` | 自定义 metadata |
+| `metadata` | `Record<string, unknown>` | 自定义元数据 |
 | `model` | `string` | LLM 模型名称 |
 | `modelParameters` | `Record<string, unknown>` | LLM 模型参数 |
 | `usage` | `TokenUsage` | token 用量（`{ input, output, cacheRead, cacheWrite, total }`） |
 | `cost` | `number` | 这次调用的总成本（USD），适用于 LLM 调用，也适用于付费的工具或 API 调用。它会替换 traceroot 为这个 span 计算出的价格 |
-| `prompt` | `unknown` | 发送给 LLM 的 prompt 或 messages |
+| `prompt` | `unknown` | 发送给 LLM 的提示词或 messages |
 | `attributes` | `Record<string, string \| number \| boolean>` | 任意 span 属性 |
 
 ### `updateCurrentTrace` 参数
@@ -124,8 +124,8 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 |-----------|------|-------------|
 | `userId` | `string` | 用户标识 |
 | `sessionId` | `string` | session 标识 |
-| `tags` | `string[]` | trace 的 tag |
-| `metadata` | `Record<string, unknown>` | trace 级别的 metadata |
+| `tags` | `string[]` | trace 的标签 |
+| `metadata` | `Record<string, unknown>` | trace 级别的元数据 |
 
 ## Flush 与关闭
 
@@ -167,7 +167,7 @@ TraceRoot.initialize({ disableBatch: true });
 |----------|---------|-------------|
 | `TRACEROOT_API_KEY` | （必填） | API key |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | API 端点 |
-| `TRACEROOT_ENABLED` | `true` | 开启或关闭 tracing |
+| `TRACEROOT_ENABLED` | `true` | 开启或关闭追踪 |
 | `TRACEROOT_ENVIRONMENT` | — | 部署环境标签（例如 `production`、`staging`） |
 | `TRACEROOT_GIT_REPO` | 自动检测 | Git 仓库（`owner/repo`） |
 | `TRACEROOT_GIT_REF` | 自动检测 | Git ref |

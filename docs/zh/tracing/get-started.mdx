@@ -1,5 +1,5 @@
 ---
-title: 为你的 AI agent 设置 tracing
+title: 为你的 AI agent 设置追踪
 sidebarTitle: 快速上手
 description: 在仓库里运行 CLI，或者用 Python 或 TypeScript SDK 给应用插桩。
 ---
@@ -10,7 +10,7 @@ description: 在仓库里运行 CLI，或者用 Python 或 TypeScript SDK 给应
 npx -y traceroot-cli@latest setup
 ```
 
-setup 需要 Node.js 20.12 或更高版本，以及一个 Python 或 TypeScript/JavaScript 应用。在用 coding agent？[Coding agent](/zh/getting-started/coding-agents#设置-tracing) 页面有一段可以直接粘贴的 prompt。想自己添加 SDK？直接跳到[手动设置](#手动设置)。
+setup 需要 Node.js 20.12 或更高版本，以及一个 Python 或 TypeScript/JavaScript 应用。在用 coding agent？[Coding agent](/zh/getting-started/coding-agents#设置追踪) 页面有一段可以直接粘贴的提示词。想自己添加 SDK？直接跳到[手动设置](#手动设置)。
 
 ## setup 做了什么
 
@@ -55,8 +55,8 @@ npx -y traceroot-cli@latest setup --host "http://localhost:8000" --auth-host "ht
 
 ### 3. 设置环境变量
 
-<Frame caption="Tracing 设置：侧边栏、Manual 标签页、API key 输入框、Generate 按钮">
-  <img src="/images/tracing_api_key_v1.png" alt="traceroot Tracing 页面，高亮显示 Create an API key 步骤" />
+<Frame caption="追踪设置：侧边栏、Manual 标签页、API key 输入框、Generate 按钮">
+  <img src="/images/tracing_api_key_v1.png" alt="traceroot 追踪页面，高亮显示 Create an API key 步骤" />
 </Frame>
 
 两个 SDK 都不会自动加载 `.env` 文件，它们读取的是进程的环境变量。在 shell 里导出这些变量：
@@ -115,7 +115,7 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # 自托管：填你的 AP
 
 ### 5. 查看第一条 trace
 
-运行你的应用，并触发已经插桩的代码。打开 [traceroot Cloud](https://app.traceroot.ai)（或你自托管的 dashboard），进入你的项目，就能看到完整的 span 层级、token 用量、成本和耗时。
+运行你的应用，并触发已经插桩的代码。打开 [traceroot Cloud](https://app.traceroot.ai)（或你自托管的仪表盘），进入你的项目，就能看到完整的 span 层级、token 用量、成本和耗时。
 
 更习惯用终端？[traceroot CLI](/cli/get-started) 可以在 shell 里处理同样的 trace，还能查看 detector 的 finding 和 eval。
 
@@ -150,7 +150,7 @@ npx -y traceroot-cli@latest setup --resume
     TypeScript SDK 的完整 API 参考。
   </Card>
   <Card title="功能" icon="sparkles" href="/zh/tracing/overview">
-    为 trace 附加用户、session、tag、metadata 等信息。
+    为 trace 附加用户、session、标签、元数据等信息。
   </Card>
   <Card title="Detectors" icon="shield-halved" href="/zh/detectors/introduction#如何创建-detector">
     创建第一个 detector，开始发现 trace 里的失败。

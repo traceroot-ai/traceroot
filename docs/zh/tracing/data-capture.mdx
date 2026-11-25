@@ -11,10 +11,10 @@ traceroot 的 span 里可能包含应用数据。如果你要追踪的工作负�
 |---|---|---|
 | 被 observe 的函数的参数 | 作为 span 输入采集 | 在 Python 里设置 `capture_input=False`，在 TypeScript 里设置 `captureInput: false` |
 | 被 observe 的函数的返回值 | 作为 span 输出采集 | 在 Python 里设置 `capture_output=False`，在 TypeScript 里设置 `captureOutput: false` |
-| 自动插桩的 LLM prompt 和 completion | 集成暴露内容时采集 | 用 [`redact`](#导出前脱敏个人数据) 改写或清空这些值；TypeScript 的 Pi 集成还提供内容过滤器（`captureContent`） |
+| 自动插桩的 LLM 提示词和 completion | 集成暴露内容时采集 | 用 [`redact`](#导出前脱敏个人数据) 改写或清空这些值；TypeScript 的 Pi 集成还提供内容过滤器（`captureContent`） |
 | 工具的参数和结果 | 集成暴露工具 I/O 时采集 | 用 [`redact`](#导出前脱敏个人数据) 改写或清空这些值；TypeScript 的 Pi 集成还提供工具 I/O 采集选项（`captureToolIo: false`） |
-| Git 仓库和 ref | 解析成功时作为 trace 级别的 metadata | 即使没有显式提供也会自动解析，git 上下文没有单独的关闭选项。要阻止导出，只能完全关闭 tracing，详见 [Git 上下文](/zh/tracing/git-context) |
-| 源文件、代码行和函数 | 由 `observe` / `@observe` 添加 | 如果源代码位置不能离开进程，请完全关闭 tracing |
+| Git 仓库和 ref | 解析成功时作为 trace 级别的元数据 | 即使没有显式提供也会自动解析，git 上下文没有单独的关闭选项。要阻止导出，只能完全关闭追踪，详见 [Git 上下文](/zh/tracing/git-context) |
+| 源文件、代码行和函数 | 由 `observe` / `@observe` 添加 | 如果源代码位置不能离开进程，请完全关闭追踪 |
 
 采集设置会阻止选定的值写入 span。它不会改变你的应用传给 LLM 提供商或工具的内容。
 
@@ -103,13 +103,13 @@ traceroot 的 span 里可能包含应用数据。如果你要追踪的工作负�
 它的工作方式：
 
 - 它在你的应用里运行，处理每一个已结束的 span，包括其他库产生的 span。在 Python 里，请保证它执行快、同步并且线程安全。在 TypeScript 里，它在导出时运行，不占用请求处理的时间，可以是异步函数；每个批次有 5 秒的时间。
-- 它会收到 span 的内容：`observe` 的输入、输出和 metadata，LLM prompt，异常信息这类事件属性，以及状态信息。结构化的值会以 JSON 文本的形式传入，如果你的检测逻辑漏掉了 JSON 里的姓名，请先解析再处理。
-- 它不会收到记录性质的字段：user ID 和 session ID、模型名称和 token 用量、tag、环境、span 名称等。这些字段会原样发送，所以不要在里面放个人数据。user ID 请使用内部 ID，不要用邮箱地址。
+- 它会收到 span 的内容：`observe` 的输入、输出和元数据，LLM 提示词，异常信息这类事件属性，以及状态信息。结构化的值会以 JSON 文本的形式传入，如果你的检测逻辑漏掉了 JSON 里的姓名，请先解析再处理。
+- 它不会收到记录性质的字段：user ID 和 session ID、模型名称和 token 用量、标签、环境、span 名称等。这些字段会原样发送，所以不要在里面放个人数据。user ID 请使用内部 ID，不要用邮箱地址。
 - 请返回所有你想保留的 key。
 - 只有 traceroot 收到的这一份会被改写。你的应用里的其他 exporter 拿到的仍然是原始 span。
 
 <Warning>
-如果这个函数抛出异常，或者返回的不是 dict（Python）或 object（TypeScript），metadata 会被丢弃，除数字和布尔值之外的所有值都会以 `[redaction failed]` 发送。TypeScript 里的 promise 如果被 reject，或者 5 秒内没有完成，也按同样的方式处理。SDK 会输出一条警告日志。在 TypeScript 里，给 `initialize()` 传入 `logLevel: 'warn'` 才能看到它。
+如果这个函数抛出异常，或者返回的不是 dict（Python）或 object（TypeScript），元数据会被丢弃，除数字和布尔值之外的所有值都会以 `[redaction failed]` 发送。TypeScript 里的 promise 如果被 reject，或者 5 秒内没有完成，也按同样的方式处理。SDK 会输出一条警告日志。在 TypeScript 里，给 `initialize()` 传入 `logLevel: 'warn'` 才能看到它。
 </Warning>
 
 eval 的结果也会被脱敏。数据集和 scorer 的定义不会，所以不要在里面放个人数据。
@@ -188,7 +188,7 @@ TraceRoot.initialize({
 
 回调这种形式只在 TypeScript 的 Pi 插桩里提供。其他集成和 Python 请使用上文的 [`redact`](#导出前脱敏个人数据)。
 
-## 完全关闭 tracing
+## 完全关闭追踪
 
 在 SDK 初始化之前设置 `TRACEROOT_ENABLED`：
 
@@ -207,9 +207,9 @@ TRACEROOT_ENABLED=false
 
 ## 隐私检查清单
 
-- 在生产环境启用 tracing 之前，先对 prompt、completion、函数参数、工具 I/O、metadata、tag 和源代码路径做数据分级。
+- 在生产环境启用追踪之前，先对提示词、completion、函数参数、工具 I/O、元数据、标签和源代码路径做数据分级。
 - 在尽量靠近处理敏感数据的函数或集成的位置关闭采集。
 - 对于必须保留在采集内容里的部分，用 `redact` 去掉其中的个人数据。
-- 不要把密钥放进 metadata 或手动的 span 更新里。
+- 不要把密钥放进元数据或手动的 span 更新里。
 - 上线之前，先在非生产项目里检查一条有代表性的已导出 trace。
 - 对你使用的 traceroot 部署，落实你所在组织的数据保留、访问控制和数据处理要求。

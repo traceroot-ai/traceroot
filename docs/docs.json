@@ -301,7 +301,7 @@
                 ]
               },
               {
-                "group": "Tracing",
+                "group": "追踪",
                 "pages": [
                   "zh/tracing/introduction",
                   "zh/tracing/get-started",

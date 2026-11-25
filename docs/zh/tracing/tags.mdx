@@ -1,13 +1,13 @@
 ---
-title: Tag
-description: 用字符串 tag 标记 trace，方便筛选和分类
+title: 标签
+description: 用字符串标签标记 trace，方便筛选和分类
 ---
 
-**Tag** 是 trace 上的字符串标签，用于筛选和分类。你可以按环境、实验、功能或任何你关心的维度来打 tag。
+**标签**是附加在 trace 上的字符串，用于筛选和分类。你可以按环境、实验、功能或任何你关心的维度来打标签。
 
 ## 使用 `observe`
 
-把静态 tag 直接传给 `observe`：
+把静态标签直接传给 `observe`：
 
 <Tabs>
   <Tab title="Python">
@@ -33,7 +33,7 @@ description: 用字符串 tag 标记 trace，方便筛选和分类
 
 ## 使用 `using_attributes` / `usingAttributes`
 
-把 tag 传递给代码块内的所有 trace：
+把标签传递给代码块内的所有 trace：
 
 <Tabs>
   <Tab title="Python">

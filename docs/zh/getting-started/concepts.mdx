@@ -7,7 +7,7 @@ description: 组织 trace 数据、邀请团队成员并选择工作空间角色
 
 一个工作空间包含你的团队和团队的所有项目。成员身份和角色都属于工作空间，你的角色对其中所有项目生效。工作空间设置里包括成员管理，以及 Slack、模型提供商等集成。
 
-一个项目汇集了某个应用的 trace、detector、eval、数据集、dashboard 和 alert。打开产品页面之前，先选好要使用的工作空间和项目。
+一个项目汇集了某个应用的 trace、detector、eval、数据集、仪表盘和告警。打开产品页面之前，先选好要使用的工作空间和项目。
 
 项目 API key 只对一个项目有效。在项目的设置里创建 key，然后在需要向该项目发送数据的应用里配合 SDK 使用。一个项目的 key 无法访问其他项目的数据。请妥善保管 key，不要泄露。
 
@@ -32,10 +32,10 @@ description: 组织 trace 数据、邀请团队成员并选择工作空间角色
 
 | 操作 | VIEWER | MEMBER | ADMIN |
 | :-- | :--: | :--: | :--: |
-| 查看项目的 trace、detector、dashboard 和 alert | 是 | 是 | 是 |
+| 查看项目的 trace、detector、仪表盘和告警 | 是 | 是 | 是 |
 | 创建和编辑 detector | 否 | 是 | 是 |
-| 创建和编辑 dashboard 及组件 | 否 | 是 | 是 |
-| 创建、编辑、暂停和恢复 alert | 否 | 是 | 是 |
+| 创建和编辑仪表盘及组件 | 否 | 是 | 是 |
+| 创建、编辑、暂停和恢复告警 | 否 | 是 | 是 |
 | 创建项目 | 否 | 是 | 是 |
 | 创建和编辑项目 API key | 否 | 是 | 是 |
 | 删除项目 API key | 否 | 否 | 是 |
@@ -48,7 +48,7 @@ description: 组织 trace 数据、邀请团队成员并选择工作空间角色
 
 ## 选择下一步
 
-- [Tracing](/zh/tracing/get-started)：发送第一条 trace。
-- [Evaluations](/evals/get-started)：用数据集测试 agent。
-- [Dashboards](/dashboards/get-started)：查看项目的指标。
-- [Alerts](/alerts/overview)：监控某个指标的阈值。
+- [追踪](/zh/tracing/get-started)：发送第一条 trace。
+- [评测](/evals/get-started)：用数据集测试 agent。
+- [仪表盘](/dashboards/get-started)：查看项目的指标。
+- [告警](/alerts/overview)：监控某个指标的阈值。
