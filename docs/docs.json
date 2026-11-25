@@ -285,6 +285,58 @@
       },
       {
         "language": "zh",
+        "navbar": {
+          "links": [
+            { "label": "示例", "href": "https://github.com/traceroot-ai/traceroot/tree/main/examples" },
+            { "label": "traceroot Cloud", "href": "https://app.traceroot.ai" }
+          ]
+        },
+        "footer": {
+          "socials": {
+            "x": "https://x.com/TraceRootAI",
+            "github": "https://github.com/traceroot-ai/traceroot",
+            "linkedin": "https://www.linkedin.com/company/traceroot-ai",
+            "discord": "https://discord.gg/TM2m3CtKuC"
+          },
+          "links": [
+            {
+              "header": "产品",
+              "items": [
+                { "label": "登录", "href": "https://app.traceroot.ai/" },
+                { "label": "文档", "href": "https://traceroot.ai/docs/zh/getting-started/introduction" },
+                { "label": "集成", "href": "https://traceroot.ai/docs/zh/integrations/overview" },
+                { "label": "价格", "href": "https://traceroot.ai/pricing" },
+                { "label": "更新日志", "href": "https://traceroot.ai/changelog" }
+              ]
+            },
+            {
+              "header": "公司",
+              "items": [
+                { "label": "博客", "href": "https://traceroot.ai/blog" },
+                { "label": "服务说明", "href": "https://traceroot.ai/service" },
+                { "label": "联系销售", "href": "https://cal.com/traceroot/30min" }
+              ]
+            },
+            {
+              "header": "信任与合规",
+              "items": [
+                { "label": "安全", "href": "https://traceroot.ai/security" },
+                { "label": "信任中心", "href": "https://trust.traceroot.ai" },
+                { "label": "隐私政策", "href": "https://traceroot.ai/privacy" },
+                { "label": "服务条款", "href": "https://traceroot.ai/terms" }
+              ]
+            },
+            {
+              "header": "社区",
+              "items": [
+                { "label": "GitHub", "href": "https://github.com/traceroot-ai/traceroot" },
+                { "label": "Discord", "href": "https://discord.gg/TM2m3CtKuC" },
+                { "label": "X", "href": "https://x.com/TraceRootAI" },
+                { "label": "LinkedIn", "href": "https://www.linkedin.com/company/traceroot-ai" }
+              ]
+            }
+          ]
+        },
         "tabs": [
           {
             "tab": "文档",
