@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.routers.internal.signals import _parse_data
 from shared.config import settings
 
 HEADERS = {"X-Internal-Secret": "test-secret"}
@@ -162,6 +163,32 @@ class TestWaitingHits:
         ).json()
         assert body["data"][0]["summary"] == "" and body["data"][0]["data"] == {}
 
+    def test_a_deeply_nested_payload_does_not_fail_the_other_hits(self, client, mock_ch):
+        nested = "[" * 1000 + "]" * 1000
+        deep_entry = '{"detectorId":"d1","summary":"bad","data":' + nested + "}"
+        mock_ch.query.side_effect = [
+            _result([("r1", "t1", "f1", 1000), ("r2", "t2", "f2", 2000)], RUN_COLS),
+            _result(
+                [
+                    ("f1", deep_entry),
+                    ("f2", _entry("d1", "tool timed out", {"tool": "search"})),
+                ]
+            ),
+            _result([]),
+        ]
+
+        resp = client.get(
+            f"{BASE}/waiting-hits",
+            params={"project_id": "p1", "detector_id": "d1", "since_ms": 0},
+            headers=HEADERS,
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()["data"]
+        assert body[0]["summary"] == "" and body[0]["data"] == {}
+        assert body[1]["summary"] == "tool timed out"
+        assert body[1]["data"] == {"tool": "search"}
+
     @pytest.mark.parametrize("params", [{"since_ms": -1}, {"since_ms": 0, "limit": 501}, {}])
     def test_rejects_bad_parameters(self, client, mock_ch, params):
         resp = client.get(
@@ -171,6 +198,11 @@ class TestWaitingHits:
         )
         assert resp.status_code == 422
         mock_ch.query.assert_not_called()
+
+
+def test_parse_data_returns_deeply_nested_text_instead_of_raising():
+    nested = "[" * 1000 + "]" * 1000
+    assert _parse_data(nested) == nested
 
 
 class TestWriteAssignments:

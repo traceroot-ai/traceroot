@@ -236,6 +236,23 @@ def test_a_non_json_request_body_is_rejected_before_any_write():
     assert not internal.called
 
 
+@respx.mock
+def test_a_deeply_nested_request_body_is_rejected_before_any_write():
+    _mock_account_auth()
+    internal = _mock_internal("user-create-project-key", CREATED_PROJECT)
+    nested = "[" * 1000 + "]" * 1000
+
+    resp = TestClient(app).post(
+        "/api/v1/public/projects/proj-1/api-keys",
+        content=nested,
+        headers={**USER_HEADER, "Content-Type": "application/json"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Request body must be JSON"}
+    assert not internal.called
+
+
 # ── CLI access JWT: the minting write is gated on session liveness ──────
 
 
