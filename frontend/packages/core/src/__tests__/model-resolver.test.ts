@@ -15,6 +15,7 @@ vi.mock("../lib/encryption", () => ({
 }));
 
 import {
+  byokProviderMissingMessage,
   resolvePiModel,
   isSystemModelId,
   fetchProviderConfig,
@@ -351,5 +352,13 @@ describe("isSystemModelId", () => {
   it("rejects a retired or invented id", () => {
     expect(isSystemModelId("claude-retired-1")).toBe(false);
     expect(isSystemModelId("")).toBe(false);
+  });
+});
+
+describe("byokProviderMissingMessage", () => {
+  it("names the provider the workspace no longer has", () => {
+    expect(byokProviderMissingMessage("my-openai")).toBe(
+      'BYOK provider "my-openai" not found or disabled in workspace settings',
+    );
   });
 });
