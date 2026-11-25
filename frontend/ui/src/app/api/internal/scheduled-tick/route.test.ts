@@ -84,6 +84,39 @@ describe("POST /api/internal/scheduled-tick", () => {
     });
   });
 
+  it("still runs the email tasks, and answers, when the trace report rejects", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    reportDailyTraceCountsMock.mockRejectedValue(new Error("posthog down"));
+    runFollowUpsMock.mockResolvedValue({ mode: "send", sent: 1 });
+
+    const response = await tick();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      traceCounts: { error: "failed" },
+      welcomes: { due: 1, sent: 1 },
+      followUps: { mode: "send", sent: 1 },
+    });
+    expect(runWelcomeFallbackMock).toHaveBeenCalledTimes(1);
+    expect(runFollowUpsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers with every failure when every task rejects", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    reportDailyTraceCountsMock.mockRejectedValue(new Error("posthog down"));
+    runWelcomeFallbackMock.mockRejectedValue(new Error("db down"));
+    runFollowUpsMock.mockRejectedValue(new Error("db down"));
+
+    const response = await tick();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      traceCounts: { error: "failed" },
+      welcomes: { error: "failed" },
+      followUps: { error: "failed" },
+    });
+  });
+
   it("rejects a caller without the internal secret before doing any work", async () => {
     verifyInternalSecretMock.mockReturnValue(false);
 
