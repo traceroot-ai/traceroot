@@ -13,9 +13,16 @@ import {
   hasActiveRun,
   lockLoop,
   projectAtLoopCap,
+  renameLoopDetector,
   upsertMemory,
 } from "../writes.ts";
-import { existingLoopSignals, getLoopSummary, listLoops, listMemory } from "../queries.ts";
+import {
+  existingLoopSignals,
+  getLoopRun,
+  getLoopSummary,
+  listLoops,
+  listMemory,
+} from "../queries.ts";
 import { COUNTED_RUN_STATUSES, LOOP_LIMITS } from "../contracts.ts";
 import { listSignals } from "../../ee/signals/reads.ts";
 
@@ -360,5 +367,35 @@ describe.skipIf(!url)("Loops on Postgres", () => {
       },
     ]);
     expect(await existingLoopSignals(db, ids.project, `${loop.detectorId}_none`)).toEqual([]);
+  });
+
+  it("finds Loops by name, renames the hidden detector, and reads one run only in its Loop", async () => {
+    const loop = await db.$transaction((tx) =>
+      createLoopWithDetector(tx, newLoop("Search Target")),
+    );
+    const other = await db.$transaction((tx) =>
+      createLoopWithDetector(tx, newLoop("Search Other")),
+    );
+
+    const found = await listLoops(db, {
+      projectId: ids.project,
+      search: "search tar",
+      page: 0,
+      limit: 50,
+    });
+    expect(found.data.map((l) => l.name)).toEqual(["Search Target"]);
+    // A Loop that never ran has no last run and no mean cost.
+    expect(found.data[0]).toMatchObject({ lastRun: null, runCount: 0, avgCostUsd: null });
+
+    await db.$transaction((tx) => renameLoopDetector(tx, loop, "Search Renamed"));
+    expect(await db.detector.findUniqueOrThrow({ where: { id: loop.detectorId } })).toMatchObject({
+      name: "loop:Search Renamed",
+    });
+
+    const run = await db.$transaction((tx) =>
+      createRun(tx, { loopId: loop.id, projectId: ids.project, trigger: "manual" }),
+    );
+    expect(await getLoopRun(db, loop.id, run.id)).toMatchObject({ id: run.id, seq: 1 });
+    expect(await getLoopRun(db, other.id, run.id)).toBeNull();
   });
 });
