@@ -16,13 +16,16 @@ import { reportDailyTraceCounts } from "@/lib/trace-count";
 // (lib/lifecycle/follow-up-job.ts, off unless enabled), and adding people to
 // the newsletter segment 14 days after sign-up (lib/newsletter-job.ts, off
 // unless enabled). The welcome runs before
-// the follow-ups, which only go to people who have had it. One failing does not
-// stop the others. Trust is the X-Internal-Secret. Never log addresses.
+// the follow-ups, which only go to people who have had it. Each task catches its
+// own failure, so one failing never stops the others. Trust is the X-Internal-Secret. Never log addresses.
 export async function POST(request: NextRequest) {
   if (!verifyInternalSecret(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const traceCounts = await reportDailyTraceCounts();
+  const traceCounts = await reportDailyTraceCounts().catch((error: unknown) => {
+    console.error(`[trace-count] daily report failed: ${String(error)}`);
+    return { error: "failed" as const };
+  });
   const welcomes = await runWelcomeFallback().catch((error: unknown) => {
     console.error(`[welcome] scheduled run failed: ${String(error)}`);
     return { error: "failed" as const };
