@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import Iterator
 from datetime import datetime
+from functools import partial
 from typing import Annotated, Literal
 
 from botocore.response import StreamingBody
@@ -27,7 +28,7 @@ from rest.rate_limit import (
 )
 from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.deps import RateLimitedProjectAccess
-from rest.routers.labels_common import MAX_LABEL_LENGTH, find_labeled_trace_ids
+from rest.routers.labels_common import MAX_LABEL_LENGTH, resolve_labeled_trace_ids
 from rest.schemas.traces import (
     FilterFieldsResponse,
     FilterValuesResponse,
@@ -132,6 +133,7 @@ async def list_traces(
 
     label_field = filter_columns.LABEL_FILTER_COLUMN.name
     label_filters = [predicate for predicate in parsed_filters if predicate.field == label_field]
+    label = None
     if label_filters:
         values = label_filters[0].value
         if (
@@ -144,26 +146,40 @@ async def list_traces(
                 detail="Select one project label",
             )
 
-        matches = await find_labeled_trace_ids(project_id, values[0])
-        if matches.overflow or len(matches.trace_ids) > MAX_TRACE_IDS:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"This label matches more than {MAX_TRACE_IDS} traces",
-            )
-
-        matched_ids = set(matches.trace_ids)
-        if trace_ids is not None:
-            matched_ids.intersection_update(trace_ids)
-        if not matched_ids:
-            return {"data": [], "meta": {"page": page, "limit": limit, "total": 0}}
-        trace_ids = sorted(matched_ids)
+        label = values[0]
         parsed_filters = [
             predicate for predicate in parsed_filters if predicate.field != label_field
         ]
         include_evaluations = False
 
+    scope = {
+        "project_id": project_id,
+        "name": name,
+        "user_id": user_id,
+        "start_after": start_after,
+        "end_before": end_before,
+        "search_query": search_query,
+        "filters": parsed_filters,
+        "include_evaluations": include_evaluations,
+    }
     try:
         service = get_trace_reader_service()
+        if label is not None:
+            trace_ids = await resolve_labeled_trace_ids(
+                project_id,
+                label,
+                trace_ids,
+                MAX_TRACE_IDS,
+                partial(service.matching_trace_ids, **scope),
+            )
+            if len(trace_ids) > MAX_TRACE_IDS:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=f"This label matches more than {MAX_TRACE_IDS} traces in the current filters",
+                )
+            if not trace_ids:
+                return {"data": [], "meta": {"page": page, "limit": limit, "total": 0}}
+
         # Off the event loop: clickhouse-connect is synchronous, and this is the widest
         # scan the dashboard issues (a filtered list runs a page query and a count query
         # back to back, both capped at the shared execution timeout). Awaiting it inline
@@ -171,19 +187,14 @@ async def list_traces(
         # uvicorn worker, single replica, so there is no second process to absorb it.
         result = await asyncio.to_thread(
             service.list_traces,
-            project_id=project_id,
             page=page,
             limit=limit,
-            name=name,
-            user_id=user_id,
             trace_ids=trace_ids,
-            start_after=start_after,
-            end_before=end_before,
-            search_query=search_query,
-            filters=parsed_filters,
-            include_evaluations=include_evaluations,
+            **scope,
         )
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
         raise HTTPException(

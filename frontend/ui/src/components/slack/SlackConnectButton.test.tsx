@@ -64,4 +64,29 @@ describe("SlackConnectButton", () => {
     expect(screen.getByText("Acme")).toBeDefined();
     expect(screen.queryByText(/Upgrade/i)).toBeNull();
   });
+
+  it("sends the authorization back to the current page by default", () => {
+    mocks.workspace = { role: "ADMIN" };
+    mocks.status = { connected: false };
+    render(<SlackConnectButton workspaceId="ws_1" />);
+    const href = new URL(
+      screen.getByText("Connect").closest("a")!.getAttribute("href")!,
+      "http://x",
+    );
+    expect(href.searchParams.get("returnTo")).toBe("/projects/p1");
+  });
+
+  it("sends it back to the page it is given, query included", () => {
+    mocks.workspace = { role: "ADMIN" };
+    mocks.status = { connected: false };
+    render(
+      <SlackConnectButton workspaceId="ws_1" returnTo="/onboarding/connect?projectId=proj_1" />,
+    );
+    const href = new URL(
+      screen.getByText("Connect").closest("a")!.getAttribute("href")!,
+      "http://x",
+    );
+    expect(href.pathname).toBe("/api/workspaces/ws_1/slack/install");
+    expect(href.searchParams.get("returnTo")).toBe("/onboarding/connect?projectId=proj_1");
+  });
 });

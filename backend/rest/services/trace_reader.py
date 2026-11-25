@@ -659,41 +659,26 @@ class TraceReaderService:
         ).result_rows
         return rows[0][0] if rows else None
 
-    def list_traces(
-        self,
+    @staticmethod
+    def _trace_list_where(
         project_id: str,
-        page: int = 0,
-        limit: int = 50,
-        name: str | None = None,
-        user_id: str | None = None,
-        trace_ids: list[str] | None = None,
-        start_after: datetime | None = None,
-        end_before: datetime | None = None,
-        search_query: str | None = None,
-        filters: list[Predicate] | None = None,
-        include_evaluations: bool = False,
-    ) -> dict:
-        """List traces with aggregated metrics from spans.
-
-        Offline-evaluation traces are excluded by default so they do not pollute the
-        production/staging Traces list; pass ``include_evaluations=True`` to include
-        them. The exclusion goes into the SHARED ``conditions`` list, so it reaches the
-        page query and the count query identically and ``meta.total`` always matches the
-        rows the caller can page through. See :func:`_evaluation_exclusion`.
-
-        ``trace_ids`` looks up a known set of traces (e.g. a signal's member traces).
-        On its own it applies no time window, since those traces can be weeks old.
-        An explicit ``start_after``/``end_before`` still applies, and ``filters`` keep
-        their default lookback because their span scans need a lower bound.
-        """
-        offset = page * limit
-
+        name: str | None,
+        user_id: str | None,
+        trace_ids: list[str] | None,
+        start_after: datetime | None,
+        end_before: datetime | None,
+        search_query: str | None,
+        filters: list[Predicate] | None,
+        include_evaluations: bool,
+        source_predicate: str,
+    ) -> tuple[str, dict]:
+        """Build the shared scope for trace rows, totals, and labeled candidate IDs."""
         # Build WHERE conditions
         conditions = ["t.project_id = {project_id:String}"]
         # Detector self-traces are internal telemetry; the customer trace list
         # (data AND count, via the shared where_clause) never shows them.
-        conditions.append(customer_traffic_only("t"))
-        params = {"project_id": project_id, "limit": limit, "offset": offset}
+        conditions.append(source_predicate)
+        params: dict = {"project_id": project_id}
 
         if name:
             conditions.append("t.name ILIKE {name:String}")
@@ -748,7 +733,83 @@ class TraceReaderService:
         if not include_evaluations:
             conditions.append(_evaluation_exclusion(params))
 
-        where_clause = " AND ".join(conditions)
+        return " AND ".join(conditions), params
+
+    def matching_trace_ids(
+        self,
+        trace_ids: list[str],
+        *,
+        project_id: str,
+        name: str | None,
+        user_id: str | None,
+        start_after: datetime | None,
+        end_before: datetime | None,
+        search_query: str | None,
+        filters: list[Predicate],
+        include_evaluations: bool,
+    ) -> list[str]:
+        """Apply the list scope to a bounded candidate batch without loading trace contents."""
+        where_clause, params = self._trace_list_where(
+            project_id,
+            name,
+            user_id,
+            trace_ids,
+            start_after,
+            end_before,
+            search_query,
+            filters,
+            include_evaluations,
+            customer_traffic_only("t"),
+        )
+        rows = self._client.query(
+            f"SELECT DISTINCT t.trace_id FROM traces AS t WHERE {where_clause}",
+            parameters=params,
+            settings=READ_QUERY_SETTINGS,
+        ).result_rows
+        return [row[0] for row in rows]
+
+    def list_traces(
+        self,
+        project_id: str,
+        page: int = 0,
+        limit: int = 50,
+        name: str | None = None,
+        user_id: str | None = None,
+        trace_ids: list[str] | None = None,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+        search_query: str | None = None,
+        filters: list[Predicate] | None = None,
+        include_evaluations: bool = False,
+    ) -> dict:
+        """List traces with aggregated metrics from spans.
+
+        Offline-evaluation traces are excluded by default so they do not pollute the
+        production/staging Traces list; pass ``include_evaluations=True`` to include
+        them. The exclusion goes into the SHARED ``conditions`` list, so it reaches the
+        page query and the count query identically and ``meta.total`` always matches the
+        rows the caller can page through. See :func:`_evaluation_exclusion`.
+
+        ``trace_ids`` looks up a known set of traces (e.g. a signal's member traces).
+        On its own it applies no time window, since those traces can be weeks old.
+        An explicit ``start_after``/``end_before`` still applies, and ``filters`` keep
+        their default lookback because their span scans need a lower bound.
+        """
+        offset = page * limit
+
+        where_clause, params = self._trace_list_where(
+            project_id,
+            name,
+            user_id,
+            trace_ids,
+            start_after,
+            end_before,
+            search_query,
+            filters,
+            include_evaluations,
+            customer_traffic_only("t"),
+        )
+        params.update(limit=limit, offset=offset)
 
         # Page the traces FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
         # instead of FINAL), then aggregate spans for ONLY that page's trace_ids.

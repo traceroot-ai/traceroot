@@ -4,11 +4,18 @@ import { errorResponse, successResponse, verifyInternalSecret } from "@/lib/auth
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { labelTargetIdSchema, labelValueSchema } from "@/lib/labels";
 
-// Match the trace reader's existing trace_ids input limit.
-const MAX_TRACE_IDS = 100;
+const TRACE_ID_BATCH_SIZE = 500;
+const MAX_REQUESTED_TRACE_IDS = 100;
 
-const filterSchema = z.strictObject({ projectId: labelTargetIdSchema, value: labelValueSchema });
-const sdkAssignmentSchema = filterSchema.extend({
+const labelScopeSchema = z.strictObject({
+  projectId: labelTargetIdSchema,
+  value: labelValueSchema,
+});
+const filterSchema = labelScopeSchema.extend({
+  traceIds: z.array(z.string().min(1)).max(MAX_REQUESTED_TRACE_IDS),
+  afterTraceId: labelTargetIdSchema.optional(),
+});
+const sdkAssignmentSchema = labelScopeSchema.extend({
   traceId: labelTargetIdSchema,
   spanId: labelTargetIdSchema.optional(),
   authorId: z.string().trim().min(1).max(128),
@@ -22,18 +29,25 @@ export async function GET(request: Request) {
   const query = filterSchema.safeParse({
     projectId: searchParams.get("projectId"),
     value: searchParams.get("value"),
+    traceIds: searchParams.getAll("traceId"),
+    afterTraceId: searchParams.get("afterTraceId") ?? undefined,
   });
   if (!query.success) return errorResponse("A project ID and label are required", 400);
 
+  const { projectId, value, traceIds, afterTraceId } = query.data;
   const traces = await prisma.label.groupBy({
     by: ["traceId"],
-    where: query.data,
+    where: {
+      projectId,
+      value,
+      traceId: { in: traceIds.length ? traceIds : undefined, gt: afterTraceId },
+    },
     orderBy: { traceId: "asc" },
-    take: MAX_TRACE_IDS + 1,
+    take: TRACE_ID_BATCH_SIZE + 1,
   });
   return successResponse({
-    traceIds: traces.slice(0, MAX_TRACE_IDS).map(({ traceId }) => traceId),
-    overflow: traces.length > MAX_TRACE_IDS,
+    traceIds: traces.slice(0, TRACE_ID_BATCH_SIZE).map(({ traceId }) => traceId),
+    overflow: traces.length > TRACE_ID_BATCH_SIZE,
   });
 }
 

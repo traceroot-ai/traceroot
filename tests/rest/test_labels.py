@@ -1,8 +1,9 @@
 """Production-label gateway and target scope checks."""
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import respx
@@ -11,8 +12,13 @@ from fastapi.testclient import TestClient
 from httpx import ReadTimeout, Response
 
 from rest.main import app
-from rest.routers.labels_common import find_labeled_trace_ids
+from rest.routers.labels_common import (
+    LabeledTraceIds,
+    find_labeled_trace_ids,
+    resolve_labeled_trace_ids,
+)
 from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.services.filters.translate import Predicate
 from rest.services.trace_reader import TraceReaderService
 from shared.config import settings
 from shared.enums import EVALUATION_SPAN_KINDS
@@ -119,9 +125,17 @@ async def test_label_lookup_reads_trace_ids(monkeypatch):
         return_value=Response(200, json={"traceIds": ["trace"], "overflow": False})
     )
 
-    result = await find_labeled_trace_ids("project", "review")
+    result = await find_labeled_trace_ids(
+        "project", "review", trace_ids=["trace", "other"], after_trace_id="cursor"
+    )
     sent = route.calls.last.request
-    assert dict(sent.url.params) == {"projectId": "project", "value": "review"}
+    assert dict(sent.url.params) == {
+        "projectId": "project",
+        "value": "review",
+        "afterTraceId": "cursor",
+        "traceId": "trace",
+    }
+    assert sent.url.params.get_list("traceId") == ["trace", "other"]
     assert sent.headers["X-Internal-Secret"] == "test-secret"
     assert result.trace_ids == ["trace"]
     assert result.overflow is False
@@ -168,3 +182,63 @@ def test_label_target_query_checks_source_evaluation_markers_and_span_membership
         "trace_id": "trace",
         "span_id": "span",
     }
+
+
+def test_matching_label_candidates_uses_the_trace_list_scope():
+    reader = TraceReaderService.__new__(TraceReaderService)
+    reader._client = MagicMock()
+    reader._client.query.return_value.result_rows = [("recent",)]
+    end = datetime(2026, 11, 25, tzinfo=UTC)
+    start = end - timedelta(hours=1)
+
+    assert reader.matching_trace_ids(
+        ["old", "recent"],
+        project_id="project",
+        name=None,
+        user_id="customer-42",
+        start_after=start,
+        end_before=end,
+        search_query=None,
+        filters=[Predicate(field="model_name", op="in", value=["gpt-4"])],
+        include_evaluations=False,
+    ) == ["recent"]
+
+    command = reader._client.query.call_args
+    sql = command.args[0]
+    assert "SELECT DISTINCT t.trace_id" in sql
+    assert "t.source = 'user'" in sql
+    assert "t.user_id = {user_id:String}" in sql
+    assert "t.trace_start_time >= {start_after:DateTime64(3)}" in sql
+    assert "t.trace_start_time < {end_before:DateTime64(3)}" in sql
+    assert "NOT IN (SELECT trace_id FROM traces" in sql
+    assert command.kwargs["parameters"]["trace_ids"] == ["old", "recent"]
+    assert ["gpt-4"] in command.kwargs["parameters"].values()
+
+
+async def test_label_lookup_enforces_the_overall_time_budget(monkeypatch, caplog):
+    monkeypatch.setattr("rest.routers.labels_common.LABEL_LOOKUP_TIMEOUT_S", 0.01)
+
+    async def stalled_lookup(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("rest.routers.labels_common.find_labeled_trace_ids", stalled_lookup)
+    match_batch = MagicMock()
+    with pytest.raises(HTTPException) as exc:
+        await resolve_labeled_trace_ids("project", "review", None, 100, match_batch)
+
+    assert exc.value.status_code == 503
+    assert "Label lookup exceeded its time budget in project project" in caplog.text
+    match_batch.assert_not_called()
+
+
+async def test_label_lookup_rejects_a_repeated_page_from_an_older_control_plane(monkeypatch):
+    lookup = AsyncMock(return_value=LabeledTraceIds(traceIds=["trace"], overflow=True))
+    monkeypatch.setattr("rest.routers.labels_common.find_labeled_trace_ids", lookup)
+    match_batch = MagicMock(return_value=["trace"])
+
+    with pytest.raises(HTTPException) as exc:
+        await resolve_labeled_trace_ids("project", "review", None, 100, match_batch)
+
+    assert exc.value.status_code == 503
+    assert lookup.await_count == 2
+    match_batch.assert_called_once_with(["trace"])

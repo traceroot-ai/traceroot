@@ -149,7 +149,7 @@ describe("internal label writes", () => {
 });
 
 it("looks up a bounded set of distinct trace IDs by project and label", async () => {
-  const groups = Array.from({ length: 101 }, (_, index) => ({ traceId: `trace-${index}` }));
+  const groups = Array.from({ length: 501 }, (_, index) => ({ traceId: `trace-${index}` }));
   mocks.groupBy.mockResolvedValue(groups);
 
   const response = await GET(
@@ -158,12 +158,35 @@ it("looks up a bounded set of distinct trace IDs by project and label", async ()
 
   expect(mocks.groupBy).toHaveBeenCalledWith({
     by: ["traceId"],
-    where: { projectId: "project-a", value: "Needs review" },
+    where: { projectId: "project-a", value: "Needs review", traceId: {} },
     orderBy: { traceId: "asc" },
-    take: 101,
+    take: 501,
   });
   expect(await response.json()).toEqual({
-    traceIds: groups.slice(0, 100).map(({ traceId }) => traceId),
+    traceIds: groups.slice(0, 500).map(({ traceId }) => traceId),
     overflow: true,
   });
+});
+
+it("applies requested IDs and the next-page cursor before limiting the lookup", async () => {
+  mocks.groupBy.mockResolvedValue([{ traceId: "trace-b" }]);
+  const url = new URL("http://localhost/api/internal/labels");
+  url.searchParams.set("projectId", "project-a");
+  url.searchParams.set("value", "Needs review");
+  url.searchParams.set("afterTraceId", "trace-a");
+  url.searchParams.append("traceId", "trace-a");
+  url.searchParams.append("traceId", "trace-b");
+  const response = await GET(new Request(url));
+
+  expect(mocks.groupBy).toHaveBeenCalledExactlyOnceWith({
+    by: ["traceId"],
+    where: {
+      projectId: "project-a",
+      value: "Needs review",
+      traceId: { in: ["trace-a", "trace-b"], gt: "trace-a" },
+    },
+    orderBy: { traceId: "asc" },
+    take: 501,
+  });
+  expect(await response.json()).toEqual({ traceIds: ["trace-b"], overflow: false });
 });
