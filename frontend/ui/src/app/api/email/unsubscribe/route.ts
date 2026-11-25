@@ -5,13 +5,12 @@
 // logged, since a burst of them means the signing secret was rotated out.
 import { escapeHtml } from "@traceroot/core";
 import {
-  setTopicSubscription,
   UNSUBSCRIBE_PATH,
-  ensureContact,
   verifyUnsubscribeToken,
   type TopicSubscription,
 } from "@traceroot/core/email";
-import { recordUnsubscribe, type EmailPreference } from "@/lib/lifecycle/pause";
+import { emailChoiceTime, recordUnsubscribe, type EmailPreference } from "@/lib/lifecycle/pause";
+import { setProviderTopic, syncEmailPreference } from "@/lib/lifecycle/email-preference-sync";
 
 const HTML_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
@@ -86,69 +85,49 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(null, { status: 200, headers: HTML_HEADERS });
   }
 
-  // When the person made this choice. The account keeps the latest choice by
-  // this time, so a slow request that lands after a newer one changes nothing.
-  const decidedAt = new Date();
-  // The choice is kept in two places: on the account, which the follow-up
-  // emails read, and on the provider's contact, which every product email is
-  // sent against. The more restrictive state is written first, so a failure
-  // part way leaves the person getting fewer emails, never more: an opt-out
-  // lands on the account before the provider, a "Subscribe again" on the
-  // provider before the account. When the account already holds a newer
-  // choice, the provider is set back to that choice, so the two agree. Either
-  // failure answers an error, never a confirmation, and both writes can simply
-  // be repeated, so trying again finishes the job.
-  const subscribed = action === "opt_in";
-  const onAccount = () =>
-    recordUnsubscribe(check.email, subscribed, decidedAt).then(
-      (preference) => ({ ok: true as const, preference }),
-      (error: unknown) => {
-        console.error("[unsubscribe] %s not recorded on the account: %s", action, String(error));
-        return { ok: false as const, preference: null };
-      },
-    );
-  // The topic choice lives on a contact record, so make sure one exists first.
-  const atProvider = async (choice: TopicSubscription) => {
-    try {
-      const contact = await ensureContact({ email: check.email });
-      return contact.ok ? await setTopicSubscription(check.email, choice) : { ok: false };
-    } catch {
-      return { ok: false };
-    }
-  };
-
   const failed = () =>
     html(
       "<p>Could not update your preference right now. Please try again in a moment, or reply to the email and we'll do it by hand.</p>",
       502,
     );
+  const subscribed = action === "opt_in";
+  // The account holds the person's choice and decides; the provider follows it.
+  // 1. Record the choice on the account, stamped with when it was made by the
+  //    database's clock, so it orders the same whichever web server takes the
+  //    request. Only a choice newer than the latest one applied takes effect
+  //    (pause.ts). If this fails, nothing has changed anywhere: an error answer.
+  // 2. Bring the provider in line with the choice now in force. If that does not
+  //    finish, the choice is already kept, and the scheduled run completes the
+  //    sync (email-preference-sync.ts): nobody has to try again.
   let preference: EmailPreference | null;
-  if (subscribed) {
-    if (!(await atProvider("opt_in")).ok) return failed();
-    const account = await onAccount();
-    if (!account.ok) return failed();
-    preference = account.preference;
-    // A newer unsubscribe is in force: undo this request's provider write.
-    if (preference && !preference.subscribed && !(await atProvider("opt_out")).ok) return failed();
-  } else {
-    const account = await onAccount();
-    if (!account.ok) return failed();
-    preference = account.preference;
-    const inForce = preference && preference.subscribed ? "opt_in" : "opt_out";
-    if (!(await atProvider(inForce)).ok) return failed();
+  try {
+    preference = await recordUnsubscribe(check.email, subscribed, await emailChoiceTime());
+  } catch (error) {
+    console.error("[unsubscribe] %s not recorded on the account: %s", action, String(error));
+    return failed();
   }
-  // The choice now in force: this request's, or a newer one it found.
-  const nowSubscribed = preference ? preference.subscribed : subscribed;
+  let nowSubscribed = subscribed;
+  let syncing = false;
+  if (preference) {
+    const synced = await syncEmailPreference(preference.userId, check.email).catch(() => null);
+    nowSubscribed = synced ? synced.subscribed : preference.subscribed;
+    syncing = !synced;
+  } else if (!(await setProviderTopic(check.email, action))) {
+    // No account to keep the choice on: the provider is the only place, so ask
+    // for another try.
+    return failed();
+  }
   // The address stays out of the log.
   console.log(
     "[unsubscribe] %s %s%s",
     action,
     preference && !preference.applied ? "ignored, a newer choice is in force" : "recorded",
-    preference ? ` for user ${preference.userId}` : "",
+    `${preference ? ` for user ${preference.userId}` : ""}${syncing ? ", provider sync left to the scheduled run" : ""}`,
   );
   const email = escapeHtml(check.email);
   const message = !nowSubscribed
     ? `<p>You're unsubscribed. No more product emails will be sent to ${email}.</p>${form(token, "opt_in", "Subscribe again")}`
     : "<p>You're subscribed again.</p>";
-  return html(`${message}${NOTE}`);
+  const later = syncing ? "<p>It can take a few minutes to apply everywhere.</p>" : "";
+  return html(`${message}${later}${NOTE}`);
 }

@@ -3,6 +3,7 @@ import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { runFollowUps } from "@/lib/lifecycle/follow-up-job";
 import { runWelcomeFallback } from "@/lib/email/welcome/welcome-schedule";
 import { reportDailyTraceCounts } from "@/lib/trace-count";
+import { syncPendingEmailPreferences } from "@/lib/lifecycle/email-preference-sync";
 
 // POST /api/internal/scheduled-tick
 //
@@ -31,5 +32,11 @@ export async function POST(request: NextRequest) {
     console.error(`[follow-ups] run failed: ${String(error)}`);
     return { error: "failed" as const };
   });
-  return NextResponse.json({ traceCounts, welcomes, followUps });
+  // Finishes the product-email choices whose provider sync did not complete on
+  // the unsubscribe page (lib/lifecycle/email-preference-sync.ts).
+  const emailPreferences = await syncPendingEmailPreferences().catch((error: unknown) => {
+    console.error(`[email-preferences] sync failed: ${String(error)}`);
+    return { error: "failed" as const };
+  });
+  return NextResponse.json({ traceCounts, welcomes, followUps, emailPreferences });
 }

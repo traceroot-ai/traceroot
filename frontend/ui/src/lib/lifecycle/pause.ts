@@ -90,6 +90,15 @@ export async function setFollowUpPause(
   return { ...hold, applied: applied > 0 };
 }
 
+/**
+ * When a product-email choice is made, read from the database's clock, so the
+ * order of choices does not depend on which web server took each request.
+ */
+export async function emailChoiceTime(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+  return row.now;
+}
+
 /** Where a person's product-email choice stands after recording one. */
 export interface EmailPreference {
   userId: string;
@@ -102,10 +111,10 @@ export interface EmailPreference {
 /**
  * Records an unsubscribe (or a "Subscribe again") from the product-email
  * unsubscribe page, which identifies the person by address. `decidedAt` is when
- * the person made the choice (when the request arrived): only a choice newer
- * than the latest one applied takes effect, so a slow request that lands late
- * can never undo a newer choice. An address with no account records nothing
- * and answers null.
+ * the person made the choice (emailChoiceTime(), when the request arrived): only
+ * a choice newer than the latest one applied takes effect, so a slow request
+ * that lands late can never undo a newer choice; at the same instant an
+ * unsubscribe wins. An address with no account records nothing and answers null.
  */
 export async function recordUnsubscribe(
   email: string,
@@ -118,8 +127,13 @@ export async function recordUnsubscribe(
   });
   if (!user) return null;
   await ensureRow(user.id);
+  // Two choices made at the same instant: the unsubscribe wins.
   const older = {
-    OR: [{ emailPreferenceAt: null }, { emailPreferenceAt: { lt: decidedAt } }],
+    OR: [
+      { emailPreferenceAt: null },
+      { emailPreferenceAt: { lt: decidedAt } },
+      ...(subscribed ? [] : [{ emailPreferenceAt: decidedAt }]),
+    ],
   };
   let applied: number;
   if (subscribed) {

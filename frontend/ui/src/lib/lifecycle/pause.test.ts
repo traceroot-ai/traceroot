@@ -216,4 +216,17 @@ describe("the latest unsubscribe or Subscribe again wins", () => {
     db.rows[0].emailPreferenceAt = null;
     expect(await recordUnsubscribe("kai@acme.dev", true, T2)).toMatchObject({ applied: true });
   });
+
+  it("lets an unsubscribe win over a Subscribe again made at the same instant, in either order", async () => {
+    await recordUnsubscribe("kai@acme.dev", true, T1);
+    expect(await recordUnsubscribe("kai@acme.dev", false, T1)).toMatchObject({
+      applied: true,
+      subscribed: false,
+    });
+    expect(await recordUnsubscribe("kai@acme.dev", true, T1)).toMatchObject({
+      applied: false,
+      subscribed: false,
+    });
+    expect(db.rows[0].unsubscribedAt).toEqual(T1);
+  });
 });
