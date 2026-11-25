@@ -118,6 +118,20 @@ describe("GeneralTab workspace delete dialog", () => {
     expect(mocks.deleteWorkspace).not.toHaveBeenCalled();
   });
 
+  it("does not delete while confirming an IME candidate", () => {
+    renderTab();
+
+    fireEvent.click(screen.getByRole("button", { name: /delete workspace/i }));
+
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Workspace name");
+    fireEvent.change(input, { target: { value: "Acme Corp" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+
+    expect(mocks.deleteWorkspace).not.toHaveBeenCalled();
+  });
+
   it("pressing Enter while a delete is already pending does not double-submit", async () => {
     // Make deleteWorkspace return a promise that never resolves
     mocks.deleteWorkspace.mockReturnValue(new Promise(() => {}));

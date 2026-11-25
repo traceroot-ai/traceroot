@@ -69,6 +69,25 @@ describe("NumberField", () => {
     fireEvent.keyDown(screen.getByLabelText("value"), { key: "Enter" });
   });
 
+  it("does not submit while an IME composition is being confirmed", () => {
+    const onEnter = vi.fn();
+    render(
+      <NumberField
+        ariaLabel="value"
+        placeholder="Enter value"
+        value="5"
+        onChange={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const input = screen.getByLabelText("value");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    expect(onEnter).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onEnter).toHaveBeenCalledTimes(1);
+  });
+
   it("renders the unit prefix and suffix around the input", () => {
     render(
       <NumberField
@@ -92,6 +111,25 @@ describe("TextField", () => {
     fireEvent.change(input, { target: { value: "abc" } });
     expect(onChange).toHaveBeenCalledWith("abc");
     fireEvent.keyDown(input, { key: "Enter" });
+  });
+
+  it("does not submit while an IME composition is being confirmed", () => {
+    const onEnter = vi.fn();
+    render(
+      <TextField
+        ariaLabel="value"
+        placeholder="Enter value"
+        value="abc"
+        onChange={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const input = screen.getByLabelText("value");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    expect(onEnter).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onEnter).toHaveBeenCalledTimes(1);
   });
 
   it("clamps typed and pasted text at the backend's value cap", () => {

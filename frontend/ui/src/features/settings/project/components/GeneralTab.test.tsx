@@ -119,6 +119,20 @@ describe("GeneralTab project delete dialog", () => {
     expect(mocks.deleteProject).not.toHaveBeenCalled();
   });
 
+  it("does not delete while confirming an IME candidate", () => {
+    renderTab();
+
+    fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
+
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Project name");
+    fireEvent.change(input, { target: { value: "Acme Project" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+
+    expect(mocks.deleteProject).not.toHaveBeenCalled();
+  });
+
   it("pressing Enter while a delete is already pending does not double-submit", async () => {
     // Make deleteProject return a promise that never resolves
     mocks.deleteProject.mockReturnValue(new Promise(() => {}));

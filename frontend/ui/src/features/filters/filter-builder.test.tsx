@@ -492,6 +492,23 @@ describe("FilterBuilder (Metadata key)", () => {
     });
   });
 
+  it("does not apply the filter while confirming an IME candidate in the key field", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("session_id", "s-1");
+    const input = screen.getByLabelText("metadata key");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
   it("clears the key along with the rest of the row after adding", () => {
     const onSubmit = renderBuilder([METADATA]);
     pickField(/Metadata/);
