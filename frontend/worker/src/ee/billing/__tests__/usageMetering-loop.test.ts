@@ -140,6 +140,58 @@ describe("Loop metering", () => {
     expect(written().loopBlocked).toBeUndefined(); // unchanged
   });
 
+  it("breaks the Loop and detector cost down by model, naming a missing model unknown", async () => {
+    mocks.workspaceFindMany.mockResolvedValue([workspace()]);
+    const rows = [
+      {
+        model: "claude-sonnet-4-5",
+        provider: "anthropic",
+        isByok: false,
+        _count: { id: 3 },
+        _sum: { inputTokens: 900, outputTokens: 90, cost: 0.2 },
+      },
+      // A row whose fields Postgres left empty.
+      { model: null, provider: null, isByok: null, _count: { id: 1 }, _sum: {} },
+    ];
+    const groupBy = vi.mocked(prisma.aIMessage.groupBy);
+    const sessionsOnly = groupBy.getMockImplementation()!;
+    groupBy.mockImplementation((async ({
+      by,
+      where,
+    }: {
+      by: string[];
+      where: { kind: string; isByok: boolean };
+    }) => (by.includes("sessionId") || where.isByok ? [] : rows)) as never);
+    try {
+      await runBillingJob();
+    } finally {
+      groupBy.mockImplementation(sessionsOnly);
+    }
+
+    const expected = [
+      {
+        model: "claude-sonnet-4-5",
+        provider: "anthropic",
+        isByok: false,
+        messages: 3,
+        inputTokens: 900,
+        outputTokens: 90,
+        cost: 0.2,
+      },
+      {
+        model: "unknown",
+        provider: "unknown",
+        isByok: false,
+        messages: 1,
+        inputTokens: 0,
+        outputTokens: 0,
+        cost: 0,
+      },
+    ];
+    expect(written().currentUsage.loop.byModel).toEqual(expected);
+    expect(written().currentUsage.detector.byModel).toEqual(expected);
+  });
+
   it("blocks a Free workspace at its cap", async () => {
     mocks.workspaceFindMany.mockResolvedValue([workspace()]);
     mocks.loopRunSessions.mockReturnValue(runSessions(30));
