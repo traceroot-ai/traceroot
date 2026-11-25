@@ -286,6 +286,9 @@ model UserOnboarding {
   // succeeded with no other choice applied meanwhile. Cleared when a write of an
   // older choice may have landed after it.
   emailProviderAckVersion Int?      @map("email_provider_ack_version")
+  // When the scheduled run last looked at this preference, read or not: it takes
+  // the least recently looked at first, so a provider it cannot read goes to the back.
+  emailProviderCheckedAt  DateTime? @map("email_provider_checked_at") @db.Timestamp(3)
   // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
   // null for a question skipped or not asked.
   role                 String?    @db.VarChar

@@ -49,6 +49,8 @@ const provider = {
   failNext: 0,
   failAlways: new Set<string>(),
   segments: new Map<string, Set<string>>(),
+  // Contacts whose topics do not list the product topic: their state is unknown.
+  noTopic: new Set<string>(),
   slowMs: 0,
   // The next write of this choice waits for the gate, lands, and then either
   // answers or (lost) never answers its request.
@@ -69,6 +71,7 @@ const handle = async (url: URL, init: { method: string; body: string }) => {
   }
   // The newsletter job's reads and segment adds.
   if (parts[3] === "topics" && method === "GET") {
+    if (provider.noTopic.has(parts[2])) return Response.json({ data: [], has_more: false });
     const subscription = provider.topic.get(parts[2]) ?? "opt_in";
     return Response.json({ data: [{ id: "topic_local", subscription }], has_more: false });
   }
@@ -209,6 +212,7 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     provider.failAlways.clear();
     provider.hold = null;
     provider.slowMs = 0;
+    provider.noTopic.clear();
     Object.assign(jobs, { traceCountsFail: false, newsletterFail: false, newsletterRuns: 0 });
   });
 
@@ -218,6 +222,51 @@ describe.skipIf(!DATABASE_URL)("product-email choices against a real database", 
     await prisma.$disconnect();
     server?.closeAllConnections();
     server?.close();
+  });
+
+  it("does not let unreadable contacts hold up a healthy recovery under the default scheduler", async () => {
+    const backdate = (id: string, hours: number) =>
+      prisma.$executeRawUnsafe(
+        `update user_onboarding set email_provider_write_at = email_provider_write_at - make_interval(hours => $2::int) where user_id = $1`,
+        id,
+        hours,
+      );
+    // Twenty older contacts whose product topic the provider does not list.
+    const unreadable = [];
+    for (let i = 0; i < 20; i += 1) {
+      const p = await person();
+      provider.failNext = 1;
+      await post(p.email, "opt_out"); // pending
+      provider.noTopic.add(p.email);
+      await backdate(p.id, 2);
+      unreadable.push(p);
+    }
+    // Then a healthy opt-out whose provider write failed: the provider still says opt_in.
+    const healthy = await person();
+    await post(healthy.email, "opt_in");
+    await sleep(5);
+    provider.failNext = 1;
+    await post(healthy.email, "opt_out");
+    expect(provider.topic.get(healthy.email)).toBe("opt_in");
+    await backdate(healthy.id, 1);
+
+    // Two ticks with the default scheduler.
+    await tick();
+    await tick();
+    expect(provider.topic.get(healthy.email)).toBe("opt_out");
+    expect(await settled(healthy.id)).toBe(true);
+    // The unreadable stay pending and retryable: looked at, not acknowledged or settled.
+    for (const p of unreadable) {
+      const row = await account(p.id);
+      expect(row?.emailProviderCheckedAt).toBeInstanceOf(Date);
+      expect(row?.emailProviderAckVersion).toBeNull();
+      expect(row?.emailProviderSettledAt).toBeNull();
+      expect(row?.unsubscribedAt).toBeInstanceOf(Date);
+    }
+    // Once readable again, a later tick finishes them.
+    provider.noTopic.clear();
+    for (let i = 0; i < 2; i += 1) await tick();
+    for (const p of unreadable) expect(await agree(p)).toBe(true);
   });
 
   // Release criteria: both orderings, the stale write landing after the newer

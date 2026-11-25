@@ -10,6 +10,7 @@ type Row = {
   emailProviderWriteAt: Date | null;
   emailProviderSettledAt: Date | null;
   emailProviderAckVersion: number | null;
+  emailProviderCheckedAt?: Date | null;
 };
 const db = vi.hoisted(() => ({
   clock: 0,
@@ -183,10 +184,13 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
     expect(provider).toBe("opt_out");
   });
 
-  it("leaves it for later when the provider cannot be read", async () => {
+  it("leaves it for later, looked at but not acknowledged or settled, when the provider cannot be read", async () => {
     readTopic.mockResolvedValueOnce(null as never);
     expect(await runOnce()).toEqual({ synced: 0, pending: 1, remaining: 0 });
     expect(setTopic).not.toHaveBeenCalled();
+    expect(db.row!.emailProviderCheckedAt).toBeInstanceOf(Date);
+    expect(db.row!.emailProviderAckVersion).toBeNull();
+    expect(db.row!.emailProviderSettledAt).toBeNull();
   });
 
   it("does not mark it settled when a choice came along meanwhile", async () => {
@@ -205,7 +209,9 @@ describe("syncPendingEmailPreferences, the scheduled run", () => {
   it("asks for the least recently written first, after the settle window, in bounded batches", async () => {
     await syncPendingEmailPreferences({ setTopic, readTopic, limit: 7, settleAfterMs: 1234 });
     const select = db.queries.find((q) => q.includes("SELECT"))!;
-    expect(select).toContain("ORDER BY o.email_provider_write_at NULLS FIRST");
+    expect(select).toContain(
+      "ORDER BY o.email_provider_checked_at NULLS FIRST, o.email_provider_write_at",
+    );
     expect(select).toContain(
       "email_provider_write_at <= clock_timestamp() - ? * interval '1 millisecond'",
     );

@@ -22,7 +22,7 @@
  *     cannot be known, so the opt-out wins: an opt-out at the provider is
  *     recorded on the account, or the provider is set back to opt-out.
  * - Nobody has to try again by hand, and one person the provider keeps refusing
- *   does not hold up the others: the run takes the least recently written first.
+ *   does not hold up the others: the run takes the least recently looked at first.
  */
 import { prisma } from "@traceroot/core";
 import {
@@ -140,6 +140,12 @@ type Settle = { setTopic: SetProviderTopic; readTopic: ReadProviderTopic };
  * otherwise a later run looks again.
  */
 async function settleEmailPreference(userId: string, email: string, io: Settle): Promise<boolean> {
+  // Looked at now, whatever comes of it: a person whose provider cannot be read
+  // goes behind the others next time, and stays pending.
+  await prisma.userOnboarding.updateMany({
+    where: { userId },
+    data: { emailProviderCheckedAt: new Date() },
+  });
   const before = await readChoice(userId);
   if (!before?.emailPreferenceAt) return false;
   const version = before.emailPreferenceVersion;
@@ -186,8 +192,9 @@ async function settleEmailPreference(userId: string, email: string, io: Settle):
 /**
  * The scheduled run: looks, a bounded batch at a time, at each preference with
  * a choice or a provider write since it was last confirmed, once its latest
- * write is SETTLE_AFTER_MS old. Least recently written first, so a person the
- * provider keeps refusing goes to the back each time. Stops starting new
+ * write is SETTLE_AFTER_MS old. Least recently looked at first, so a person the
+ * provider keeps refusing, or whose state it cannot give, goes to the back each
+ * time and is tried again later. Stops starting new
  * people after budgetMs, so a slow provider leaves time for the tick's other
  * jobs; the rest wait for the next run. Answers how many it confirmed, how many
  * it tried without confirming, and how many it left for the next run.
@@ -216,7 +223,7 @@ export async function syncPendingEmailPreferences(
            OR o.email_provider_write_at > o.email_provider_settled_at)
       AND (o.email_provider_write_at IS NULL
            OR o.email_provider_write_at <= clock_timestamp() - ${settleAfterMs} * interval '1 millisecond')
-    ORDER BY o.email_provider_write_at NULLS FIRST, o.user_id
+    ORDER BY o.email_provider_checked_at NULLS FIRST, o.email_provider_write_at, o.user_id
     LIMIT ${limit}`;
   const started = Date.now();
   let synced = 0;
