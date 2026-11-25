@@ -43,6 +43,13 @@ describe("windowHasTraces", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("sends an empty secret when INTERNAL_API_SECRET is unset", async () => {
+    vi.stubEnv("INTERNAL_API_SECRET", undefined);
+    fetchMock.mockResolvedValue(Response.json({ data: [] }));
+    await windowHasTraces("p1", 24, NOW);
+    expect(fetchMock.mock.calls[0]![1].headers).toEqual({ "X-Internal-Secret": "" });
+  });
+
   it("says no for an empty window", async () => {
     fetchMock.mockResolvedValue(Response.json({ data: [], meta: { total: 0 } }));
     expect(await windowHasTraces("p1", 24, NOW)).toBe(false);

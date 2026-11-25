@@ -459,6 +459,21 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       });
     });
 
+    it("fails the run without calling the agent when its session cannot be created", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      fetchMock.mockImplementation(async () => new Response("down", { status: 503 }));
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "failed",
+        error: "Failed to create the loop session: HTTP 503",
+        sessionId: null,
+      });
+      expect(fetchMock.mock.calls.map(([target]) => String(target))).not.toContainEqual(
+        expect.stringContaining("/loop-runs/"),
+      );
+    });
+
     it("records the agent's outcome: a failed answer fails the run", async () => {
       const ids = await setup();
       const run = await addRun(ids);

@@ -208,9 +208,34 @@ describe("POST loop-runs/:runId — refusals", () => {
     [{ sessionId: "sess-1", deadlineMs: -1 }],
     [{ sessionId: "sess-1", deadlineMs: 1000, source: "other" }],
     [{ sessionId: "other", deadlineMs: 1000 }],
+    [{ sessionId: "sess-1", deadlineMs: 1000, model: 5 }],
+    [{ sessionId: "sess-1", deadlineMs: 1000, providerName: {} }],
   ])("400s an invalid request %j", async (body) => {
     expect((await post(body)).status).toBe(400);
     expect(mocks.getOrCreateAgent).not.toHaveBeenCalled();
+  });
+
+  it("400s a body that is not JSON, or not an object", async () => {
+    const res = await app.request(URL_, { method: "POST", headers: SYSTEM, body: "{not json" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid JSON body" });
+    expect((await app.request(URL_, { method: "POST", headers: SYSTEM, body: "[]" })).status).toBe(
+      400,
+    );
+    expect(mocks.findRun).not.toHaveBeenCalled();
+  });
+
+  it("409s a second call for a session whose run is still going", async () => {
+    let second: Response | undefined;
+    runs(async () => {
+      second = await post(BODY);
+    });
+    expect((await post(BODY)).status).toBe(200);
+    expect(second?.status).toBe(409);
+    expect(await second?.json()).toEqual({
+      error: "a run is already in progress for this session",
+    });
+    expect(mocks.getOrCreateAgent).toHaveBeenCalledTimes(1);
   });
 
   it("400s a call that is not the system's", async () => {
@@ -291,6 +316,13 @@ describe("POST loop-runs/:runId — the turn", () => {
       modelUsed: { model: "m1", provider: "openai", source: "byok" },
       findings: [],
     });
+  });
+
+  it("tells the agent a scheduled run was started by its schedule", async () => {
+    mocks.findRun.mockResolvedValue({ ...RUN, trigger: "schedule" });
+    runs(() => call("loop_submit_summary", { summary: "Nothing new." }).then(() => undefined));
+    expect((await post(BODY)).status).toBe(200);
+    expect(config!.systemPrompt).toContain("Run: #7 of this loop, started by its schedule");
   });
 
   it("answers with the agent service's default model when the worker sent none", async () => {
