@@ -4,7 +4,7 @@ import type { ApiClient } from "@traceroot-ai/tools";
 import { UNTRUSTED_TAG } from "../../untrusted.js";
 import { newLoopRunState } from "../loop/budget.js";
 import { LOOP_TOOL_NAMES, createLoopTools, type LoopToolsParams } from "../loop/index.js";
-import { formatTraceDetail } from "../loop/format.js";
+import { TRACE_SPAN_CAP, clip, formatTraceDetail } from "../loop/format.js";
 import { SIGNAL_READ_PATH } from "../loop/signals.js";
 
 const NOW = new Date("2026-11-18T12:00:00.000Z");
@@ -363,5 +363,132 @@ describe("formatTraceDetail", () => {
     expect(text).toContain("- root [AGENT] | OK");
     expect(text).toContain("  - llm [LLM] | ERROR | 1000ms | error Timeout");
     expect(text.indexOf("root")).toBeLessThan(text.indexOf("llm"));
+  });
+});
+
+describe("formatTraceDetail's limits and gaps", () => {
+  it("fills a span's missing fields and lists its model, tokens and texts", () => {
+    const text = formatTraceDetail({
+      trace_id: "t1",
+      input: "question",
+      output: "answer",
+      spans: [
+        {
+          span_id: "a",
+          model_name: "gpt-x",
+          input_tokens: 12,
+          output_tokens: null,
+          status_message: "rate limited",
+          input: "prompt",
+          output: "reply",
+          span_start_time: "2026-01-01T00:00:00Z",
+          span_end_time: "not a time",
+        },
+      ],
+    });
+    expect(text).toContain("Trace t1 — (unnamed) | started ? | session none | user none | 1 spans");
+    expect(text).toContain("Input: question");
+    expect(text).toContain("Output: answer");
+    expect(text).toContain("- (unnamed) [?] | ? | ? | gpt-x | 12 in / 0 out tokens");
+    expect(text).toContain("  status: rate limited");
+    expect(text).toContain("  in: prompt");
+    expect(text).toContain("  out: reply");
+  });
+
+  it("shows at most TRACE_SPAN_CAP spans and says how many it left out", () => {
+    const spans = Array.from({ length: TRACE_SPAN_CAP + 3 }, (_, i) => ({
+      span_id: `s${i}`,
+      name: `span ${i}`,
+    }));
+    const text = formatTraceDetail({ trace_id: "t1", name: "big", spans });
+    expect(text).toContain("(3 more spans not shown)");
+  });
+
+  it("keeps the whole rendering within its byte budget", () => {
+    const spans = Array.from({ length: TRACE_SPAN_CAP }, (_, i) => ({
+      span_id: `s${i}`,
+      name: "x".repeat(300),
+      input: "y".repeat(1000),
+    }));
+    const text = formatTraceDetail({ trace_id: "t1", spans });
+    expect(text.endsWith("(trace text truncated)")).toBe(true);
+    expect(Buffer.byteLength(text)).toBeLessThan(41 * 1024);
+  });
+
+  it("reads an empty body as a trace with no spans", () => {
+    expect(formatTraceDetail(null)).toContain("| 0 spans");
+  });
+});
+
+describe("clip", () => {
+  it("keeps a short text and cuts a long one, saying how much it cut", () => {
+    expect(clip("short", 10)).toBe("short");
+    expect(clip("abcdefghij", 4)).toBe("abcd… (6 more chars)");
+  });
+
+  it("never splits a surrogate pair", () => {
+    // "a" then U+1F600, two UTF-16 units: a cut after 2 units would split it.
+    expect(clip("a\u{1F600}bc", 2)).toBe("a… (4 more chars)");
+  });
+});
+
+describe("get_signal", () => {
+  it("fills a signal's missing fields and adds when it was resolved and where it was merged", async () => {
+    const { tool, signalHttp } = build();
+    signalHttp.request.mockResolvedValueOnce({
+      signal: {
+        id: "s1",
+        status: "resolved",
+        detectorName: null,
+        resolvedAt: "2026-11-18T10:00:00Z",
+        mergedIntoId: "s0",
+      },
+    } as never);
+    const text = textOf(await tool("get_signal").execute("tc", { label: "x", signal_id: "s1" }));
+    expect(text).toContain("s1 | resolved | (untitled) | detector |");
+    expect(text).toContain("0 hits, reopened 0x | first ?, last ? | RCA: none");
+    expect(text).toContain("Resolved at: 2026-11-18T10:00:00Z");
+    expect(text).toContain("Merged into: s0");
+  });
+
+  it("says so when the signal is not found", async () => {
+    const { tool, signalHttp } = build();
+    signalHttp.request.mockResolvedValueOnce({} as never);
+    const text = textOf(await tool("get_signal").execute("tc", { label: "x", signal_id: "s9" }));
+    expect(text).toContain("Signal not found.");
+  });
+});
+
+describe("loop memory notes", () => {
+  it("loop_recall shows a note's expiry and leaves out a missing loop", async () => {
+    const { tool, db } = build();
+    db.loopMemory.findMany.mockResolvedValueOnce([
+      {
+        id: "m2",
+        loopId: null,
+        loop: null,
+        key: "known-issue",
+        content: "search tool times out on Mondays",
+        expiresAt: new Date("2026-11-25T12:00:00.000Z"),
+        updatedByRunId: null,
+        updateTime: NOW,
+      },
+    ] as never);
+    const text = textOf(await tool("loop_recall").execute("tc", {}));
+    expect(text).toContain(
+      `## known-issue\n(updated ${NOW.toISOString()}, expires 2026-11-25T12:00:00.000Z)`,
+    );
+  });
+
+  it("loop_recall says when there are no notes yet", async () => {
+    const { tool, db } = build();
+    db.loopMemory.findMany.mockResolvedValueOnce([] as never);
+    expect(textOf(await tool("loop_recall").execute("tc", {}))).toContain("No memory notes yet");
+  });
+
+  it("loop_remember refuses a call without a key or content", async () => {
+    const { tool, db } = build();
+    expect(textOf(await tool("loop_remember").execute("tc", {}))).toContain("Not saved");
+    expect(db.loopMemory.upsert).not.toHaveBeenCalled();
   });
 });
