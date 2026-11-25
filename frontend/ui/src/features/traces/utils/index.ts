@@ -342,13 +342,15 @@ export function getTraceTokenUsage(trace: TraceDetail): {
   cacheWriteTokens: number;
   reasoningTokens: number;
 } | null {
-  const spansWithTokens = trace.spans.filter((s) => s.total_tokens !== null);
+  // A streamed span that hasn't reported usage lacks the keys altogether, so a missing key
+  // reads like a null one: until a span reports usage, the trace's is unknown, not 0.
+  const spansWithTokens = trace.spans.filter((s) => s.total_tokens != null);
   if (spansWithTokens.length === 0) return null;
   // Preserve the unknown-vs-zero distinction: only coerce input/output to a
   // number when at least one span actually reports it, so a total-only trace
   // renders "-" (via formatTokenFlow) instead of a misleading 0.
-  const hasInput = spansWithTokens.some((s) => s.input_tokens !== null);
-  const hasOutput = spansWithTokens.some((s) => s.output_tokens !== null);
+  const hasInput = spansWithTokens.some((s) => s.input_tokens != null);
+  const hasOutput = spansWithTokens.some((s) => s.output_tokens != null);
   const acc = spansWithTokens.reduce(
     (acc, s) => {
       acc.inputTokens += s.input_tokens ?? 0;

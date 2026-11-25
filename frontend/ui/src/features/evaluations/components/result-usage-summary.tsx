@@ -125,8 +125,9 @@ function tokenText(
   pendingText: React.ReactNode,
 ): React.ReactNode {
   if (u.state === "pending") return pendingText;
-  if (u.state === "unknown") return unknownText;
   const b = u[bucket];
+  // No span on this side reported usage: unknown, even when the other side's did.
+  if (b.spanCount === 0) return unknownText;
   return `${b.totalTokens.toLocaleString("en-US")} total · ${b.inputTokens.toLocaleString(
     "en-US",
   )} in · ${b.outputTokens.toLocaleString("en-US")} out`;

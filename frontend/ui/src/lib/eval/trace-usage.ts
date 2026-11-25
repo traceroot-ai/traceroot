@@ -94,13 +94,11 @@ function emptyBucket(): UsageBucket {
   };
 }
 
-/** A span carries provider usage if any token count or a cost is present. */
+/** A span carries provider usage if any token count or a cost is present. A streamed span
+ *  that hasn't reported usage lacks the keys altogether, so a missing key reads like a null one. */
 function hasUsage(s: UsageSpan): boolean {
   return (
-    s.input_tokens !== null ||
-    s.output_tokens !== null ||
-    s.total_tokens !== null ||
-    s.cost !== null
+    s.input_tokens != null || s.output_tokens != null || s.total_tokens != null || s.cost != null
   );
 }
 
@@ -120,7 +118,7 @@ function addUsage(bucket: UsageBucket, s: UsageSpan, models: Set<string>): void 
   bucket.outputTokens += s.output_tokens ?? 0;
   bucket.totalTokens += spanTotalTokens(s) ?? 0;
   bucket.cost += s.cost ?? 0;
-  if (s.cost !== null) bucket.costKnown = true;
+  if (s.cost != null) bucket.costKnown = true;
   bucket.spanCount += 1;
   if (s.model_name) models.add(s.model_name);
 }
@@ -179,5 +177,9 @@ export function attributeTraceUsage(spans: UsageSpan[] | null | undefined): Trac
   scorer.models = [...scorerModels].sort();
   combined.models = [...combinedModels].sort();
 
+  // `present` once any span reported usage, on either side. A side no span reported usage
+  // on (`spanCount` 0) has unknown tokens, not 0: a task that made no instrumented model
+  // call reads unknown next to a judge that reported usage, as an uninstrumented call can't
+  // be told from none.
   return { task, scorer, combined, state: found ? "present" : "unknown" };
 }

@@ -121,6 +121,26 @@ describe("ResultUsageSummary", () => {
     expect(rowText("Judge model")).toContain("gpt-4o-mini");
   });
 
+  it("reads the task's tokens as unknown, not 0, when only the judge reported usage", () => {
+    // A task that made no instrumented model call, graded by an LLM judge.
+    renderUsage([
+      span("r", null, "EVALUATION"),
+      span("t", "r", "TASK"),
+      span("s", "r", "SCORER"),
+      span("jl", "s", "LLM", {
+        input_tokens: 40,
+        output_tokens: 5,
+        total_tokens: 45,
+        cost: 0.001,
+        model_name: "judge",
+      }),
+    ]);
+    expect(rowText("Tokens")).toBe("TokensUnknown");
+    // The judge's own figures are untouched.
+    expect(rowText("Judge tokens")).toBe("Judge tokens45");
+    expect(rowText("Judge cost")).toBe("Judge cost$0.0010");
+  });
+
   it("stays pending when the trace has not been ingested yet", () => {
     renderUsage(null);
     // Tokens/overhead are pending, not zero.

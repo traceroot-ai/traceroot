@@ -9,6 +9,7 @@ import {
   getTraceDuration,
   summarizeCostDetails,
   getTraceCostBreakdown,
+  getTraceTokenUsage,
   spanMetadataPaths,
 } from "./index";
 import { mergeSpans } from "../hooks/use-trace-stream";
@@ -474,6 +475,39 @@ describe("getTraceCostBreakdown", () => {
       spans: [priced, makeSpan({ span_id: "c", cost: 0, cost_details: {} })],
     } as unknown as TraceDetail;
     expect(getTraceCostBreakdown(withFree)?.output_cost).toBeCloseTo(0.03, 6);
+  });
+});
+
+describe("getTraceTokenUsage", () => {
+  /** A span as the live stream sends it before it reports usage: no usage keys at all. */
+  const streamed = (overrides: Partial<Span> & { span_id: string }): Span => {
+    const span: Partial<Span> = makeSpan(overrides);
+    delete span.input_tokens;
+    delete span.output_tokens;
+    delete span.total_tokens;
+    return span as Span;
+  };
+
+  it("is unknown while none of a streaming trace's spans has reported usage", () => {
+    const trace = {
+      spans: [streamed({ span_id: "root" }), streamed({ span_id: "llm", parent_span_id: "root" })],
+    } as unknown as TraceDetail;
+    expect(getTraceTokenUsage(trace)).toBeNull();
+  });
+
+  it("sums the spans that reported usage, leaving input unknown when none of them reported it", () => {
+    const trace = {
+      spans: [
+        streamed({ span_id: "root" }),
+        { ...streamed({ span_id: "plan", parent_span_id: "root" }), total_tokens: 30 },
+        makeSpan({ span_id: "answer", parent_span_id: "root", output_tokens: 5, total_tokens: 20 }),
+      ],
+    } as unknown as TraceDetail;
+    expect(getTraceTokenUsage(trace)).toMatchObject({
+      totalTokens: 50,
+      inputTokens: null,
+      outputTokens: 5,
+    });
   });
 });
 

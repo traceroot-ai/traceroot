@@ -459,6 +459,37 @@ describe("Comparison case — usage", () => {
     expect(metric("Tokens")).toBe("—");
   });
 
+  it("reads the task's tokens — in the chip and the breakdown alike when only the judge reported usage", async () => {
+    // The candidate's task made no instrumented model call; its judge still reported usage.
+    traces.byId.set(
+      "trace-c1",
+      traceOf("trace-c1", [
+        ["cr", null, "evaluation-item", SpanKind.EVALUATION, 0, 1000],
+        ["ct", "cr", "task", SpanKind.TASK, 10, 600],
+        ["cj0", "cr", "faithfulness", SpanKind.SCORER, 610, 990],
+        [
+          "cj",
+          "cj0",
+          "judge",
+          SpanKind.LLM,
+          620,
+          980,
+          { ...llm(300, 0, 0.001), model_name: "judge-model" },
+        ],
+      ]),
+    );
+    open("sso");
+    await within(inspector()).findByRole("button", { name: "Save to dataset" });
+    expect(metric("Tokens")).toBe("1,200 → —");
+
+    fireEvent.click(within(inspector()).getByRole("button", { name: "Usage breakdown" }));
+    const usage = within(inspector()).getByRole("region", { name: "Usage breakdown" });
+    const tokens = within(usage)
+      .getAllByText("Tokens")
+      .map((label) => label.parentElement?.textContent);
+    expect(tokens).toEqual(["Tokens1,200 total · 1,000 in · 200 out", "Tokens—"]);
+  });
+
   it("says the tokens are loading while the traces load, apart from unknown", async () => {
     traces.useTrace.mockImplementation((_p: string, _traceId: string, enabled: boolean) => ({
       data: undefined,
