@@ -31,6 +31,12 @@ describe("middleware matcher exemptions", () => {
     expect(matchesProxy("/api/csp-report")).toBe(false);
   });
 
+  it("exempts the site icons so signed-out visitors get them, not a sign-in redirect", () => {
+    expect(matchesProxy("/favicon.ico")).toBe(false);
+    expect(matchesProxy("/icon.png")).toBe(false);
+    expect(matchesProxy("/apple-icon.png")).toBe(false);
+  });
+
   it("exempts only the exact health path, not neighbours", () => {
     expect(matchesProxy("/api/healthcheck")).toBe(true);
     expect(matchesProxy("/api/health/deep")).toBe(true);

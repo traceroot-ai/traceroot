@@ -433,6 +433,92 @@ describe("updateAlert", () => {
     });
   });
 
+  describe("the merged condition, not the patch alone, is what must be able to fire and clear", () => {
+    it("refuses a threshold-only edit below zero on the stored latency measure", async () => {
+      mockAccess();
+      expect(await update({ threshold: -5 })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current().threshold).toBe(500);
+    });
+
+    it("renames a rule stored with a negative threshold when the PATCH repeats its condition, as the form does", async () => {
+      mockAccess();
+      // Stored as the Decimal the column reads back, compared as the number the patch carries.
+      store.set("alert-1", { ...row(), threshold: new Prisma.Decimal(-5) });
+      expect(
+        await update({
+          name: "Renamed",
+          view: "SPANS",
+          measure: "latency",
+          thresholdOperator: ">",
+          threshold: -5,
+        }),
+      ).toMatchObject({ ok: true, changed: ["name"] });
+      expect(current().name).toBe("Renamed");
+    });
+
+    it("refuses a PATCH that moves a stored negative threshold to another negative one", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ threshold: -6, name: "Renamed" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current()).toMatchObject({ name: baseRow.name, threshold: -5 });
+    });
+
+    it("refuses a measure-only edit on a rule stored with a negative threshold, naming the new measure", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ measure: "cost" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: cost can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current()).toMatchObject({ measure: "latency", threshold: -5 });
+    });
+
+    it("refuses an operator-only edit to `>=` against the stored zero threshold", async () => {
+      mockAccess();
+      // Stored as the Decimal the column reads back, which is not `=== 0`.
+      store.set("alert-1", { ...row(), threshold: new Prisma.Decimal(0) });
+      expect(await update({ thresholdOperator: ">=" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "This alert would fire on every window with data: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("still renames and pauses a rule stored with a negative threshold, since neither touches its condition", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(await setStatus("PAUSED")).toMatchObject({ ok: true, changed: ["status"] });
+      expect(current()).toMatchObject({ name: "Renamed", status: "PAUSED", threshold: -5 });
+    });
+
+    it("renames a stored `< -5` NOTIFY rule and accepts a threshold-only edit onto `< 0`", async () => {
+      mockAccess();
+      store.set("alert-1", row({ thresholdOperator: "<", threshold: -5, noDataMode: "NOTIFY" }));
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(await update({ threshold: 0 })).toMatchObject({ ok: true, changed: ["threshold"] });
+      expect(current()).toMatchObject({
+        name: "Renamed",
+        thresholdOperator: "<",
+        threshold: 0,
+        noDataMode: "NOTIFY",
+      });
+    });
+  });
+
   describe("a parked rule re-arms on the edit that replaces what it was parked on", () => {
     beforeEach(() => {
       mockAccess();

@@ -30,6 +30,8 @@ Key sqlglot empirical findings (confirmed before writing tests)
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import sqlglot.expressions as exp
 
@@ -48,6 +50,45 @@ PID = "acme_corp:proj.123-abc"
 def _has_placeholder(sql: str) -> bool:
     """Return True if the ClickHouse bound-parameter placeholder is present."""
     return "scope_project_id" in sql
+
+
+# ---------------------------------------------------------------------------
+# Comments are not part of the rendered query. The checks above run on the
+# parsed tree, and a comment isn't in that tree, so ClickHouse must receive
+# exactly the query without them.
+# ---------------------------------------------------------------------------
+class TestCommentsAreNotRendered:
+    @pytest.mark.parametrize(
+        ("query", "without_comments"),
+        [
+            ("-- note\nSELECT 1", "SELECT 1"),
+            ("/* note */ SELECT 1", "SELECT 1"),
+            ("SELECT 1 -- note\n", "SELECT 1"),
+            ("SELECT 1 /* note */", "SELECT 1"),
+            (
+                "SELECT count() /* a */ FROM spans -- b\nWHERE 1 = 1",
+                "SELECT count() FROM spans WHERE 1 = 1",
+            ),
+        ],
+    )
+    def test_a_query_renders_as_it_would_without_its_comments(
+        self, query: str, without_comments: str
+    ) -> None:
+        rendered, binds = scope_and_render(query, PID)
+        assert (rendered, binds) == scope_and_render(without_comments, PID)
+        assert "note" not in rendered
+        assert "--" not in rendered
+        assert "/*" not in rendered
+
+    def test_the_query_after_a_comment_is_still_scoped(self) -> None:
+        rendered, binds = scope_and_render("-- note\nSELECT count() FROM spans", PID)
+        assert "note" not in rendered
+        assert "spans_public_v1(" in rendered
+        assert binds == {"scope_project_id": PID}
+
+    def test_comment_markers_inside_a_string_are_kept(self) -> None:
+        rendered, _ = scope_and_render("SELECT '-- a /* b */' AS a", PID)
+        assert rendered == "SELECT '-- a /* b */' AS a"
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +334,7 @@ class TestLayer3FailClosed:
             cte_aliases: set,
             param_value: exp.Expression,
             bounds: dict | None = None,
+            floor: exp.Expression | None = None,
         ) -> exp.Expression:
             return node  # deliberately skip the rewrite
 
@@ -306,6 +348,7 @@ class TestLayer3FailClosed:
             cte_aliases: set,
             param_value: exp.Expression,
             bounds: dict | None = None,
+            floor: exp.Expression | None = None,
         ) -> exp.Expression:
             return node
 
@@ -1143,3 +1186,181 @@ class TestLayer3ViewCallArguments:
         )
         assert "toDateTime64({since: DateTime64(3)}, 3)" in _view_call(rendered, "spans_public_v1")
         assert binds == {"scope_project_id": PID}
+
+
+# ---------------------------------------------------------------------------
+# Retention floor: every injected view call's start_time is raised to at least
+# the plan's retention cutoff, and Layer 3 fails closed if any view call lacks it.
+# ---------------------------------------------------------------------------
+class TestRetentionFloor:
+    FLOOR = datetime(2026, 11, 4, 12, 0, 0)
+    FLOOR_LITERAL = "toDateTime64('2026-11-04 12:00:00.000', 3, 'UTC')"
+    FLOOR_BOUND = f"toTimeZone(toDateTime64({FLOOR_LITERAL}, 3), timezone())"
+
+    def test_unbounded_query_uses_floor_alone_as_start_time(self) -> None:
+        rendered, binds = scope_and_render(
+            "SELECT count() FROM traces", PID, retention_floor=self.FLOOR
+        )
+        call = _view_call(rendered, "traces_public_v1")
+        assert self.FLOOR_LITERAL in rendered
+        assert f"start_time = {self.FLOOR_BOUND}" in call
+        assert "1900-01-01" not in call
+        assert "GREATEST(" not in call.upper()
+        assert (
+            "end_time = toTimeZone(toDateTime64('2299-12-31 23:59:59.999', 3), timezone())" in call
+        )
+        assert binds == {"scope_project_id": PID}
+
+    def test_caller_lower_bound_combines_with_floor_via_greatest(self) -> None:
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= '2026-01-01'",
+            PID,
+            retention_floor=self.FLOOR,
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        caller_bound = "toTimeZone(toDateTime64('2026-01-01', 3), timezone())"
+        assert f"start_time = greatest({caller_bound}, {self.FLOOR_BOUND})" in call
+
+    def test_multiple_caller_lower_bounds_flatten_into_one_greatest(self) -> None:
+        # Layer 3 accepts only a single level of greatest over normalised bounds,
+        # so several caller lower bounds plus the floor must stay flat.
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= '2026-01-01'"
+            " AND span_start_time >= '2026-06-01'",
+            PID,
+            retention_floor=self.FLOOR,
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        assert call.upper().count("GREATEST(") == 1
+        b1 = "toTimeZone(toDateTime64('2026-01-01', 3), timezone())"
+        b2 = "toTimeZone(toDateTime64('2026-06-01', 3), timezone())"
+        assert f"start_time = greatest({b1}, {b2}, {self.FLOOR_BOUND})" in call
+
+    def test_caller_upper_bound_is_unchanged(self) -> None:
+        # Even when the caller's upper bound sits earlier than the floor, end_time
+        # is left untouched so the resulting empty window silently returns no rows.
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= '2026-01-01'"
+            " AND span_start_time < '2026-02-01'",
+            PID,
+            retention_floor=self.FLOOR,
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        assert "end_time = toTimeZone(toDateTime64('2026-02-01', 3), timezone())" in call
+        assert self.FLOOR_BOUND in call
+
+    @pytest.mark.parametrize(
+        ("label", "sql", "expected_calls"),
+        [
+            (
+                "join of spans and traces",
+                "SELECT s.span_id FROM spans s JOIN traces t ON s.trace_id = t.trace_id",
+                2,
+            ),
+            (
+                "cte body",
+                "WITH x AS (SELECT trace_id FROM traces) SELECT count() FROM x",
+                1,
+            ),
+            (
+                "subquery in where in",
+                "SELECT trace_id FROM traces WHERE trace_id IN (SELECT trace_id FROM spans)",
+                2,
+            ),
+            (
+                "cte plus subquery",
+                "WITH x AS (SELECT trace_id FROM traces) "
+                "SELECT count() FROM x WHERE trace_id IN (SELECT trace_id FROM spans)",
+                2,
+            ),
+            (
+                "union all arms",
+                "SELECT span_id FROM spans UNION ALL SELECT span_id FROM spans",
+                2,
+            ),
+        ],
+        ids=[
+            "join of spans and traces",
+            "cte body",
+            "subquery in where in",
+            "cte plus subquery",
+            "union all arms",
+        ],
+    )
+    def test_floor_reaches_every_view_call(self, label: str, sql: str, expected_calls: int) -> None:
+        rendered, _ = scope_and_render(sql, PID, retention_floor=self.FLOOR)
+        assert rendered.count("_public_v1(") == expected_calls, label
+        assert rendered.count(self.FLOOR_BOUND) == expected_calls, label
+        assert "1900-01-01" not in rendered, label
+
+    @pytest.mark.parametrize(
+        ("floor", "expected_literal"),
+        [
+            (
+                datetime(2026, 11, 4, 12, 0, 0, 123456),
+                "toDateTime64('2026-11-04 12:00:00.124', 3, 'UTC')",
+            ),
+            (
+                datetime(2026, 11, 4, 12, 0, 0, 123000),
+                "toDateTime64('2026-11-04 12:00:00.123', 3, 'UTC')",
+            ),
+            (
+                datetime(2026, 11, 4, 12, 0, 0, 999500),
+                "toDateTime64('2026-11-04 12:00:01.000', 3, 'UTC')",
+            ),
+        ],
+        ids=["rounds_up_sub_ms", "exact_ms_unchanged", "carries_into_next_second"],
+    )
+    def test_sub_millisecond_rounding_up(self, floor: datetime, expected_literal: str) -> None:
+        rendered, _ = scope_and_render("SELECT count() FROM traces", PID, retention_floor=floor)
+        assert expected_literal in _view_call(rendered, "traces_public_v1")
+
+    def test_timezone_aware_floor_converts_to_utc(self) -> None:
+        aware = datetime(2026, 11, 4, 14, 0, 0, tzinfo=timezone(timedelta(hours=2)))
+        rendered, _ = scope_and_render("SELECT count() FROM traces", PID, retention_floor=aware)
+        call = _view_call(rendered, "traces_public_v1")
+        assert self.FLOOR_LITERAL in call
+        assert "14:00:00" not in call
+
+    def test_callers_own_parameter_still_works_with_floor(self) -> None:
+        rendered, binds = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= {since:DateTime64(3)}",
+            PID,
+            retention_floor=self.FLOOR,
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        assert "toDateTime64({since: DateTime64(3)}, 3)" in call
+        assert self.FLOOR_BOUND in call
+        assert call.upper().count("GREATEST(") == 1
+        assert binds == {"scope_project_id": PID}
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT count() FROM traces",
+            "SELECT count() FROM spans WHERE span_start_time >= '2026-11-05'",
+        ],
+        ids=["unbounded", "caller_lower_bound_without_floor"],
+    )
+    def test_layer3_fails_closed_when_view_call_misses_floor(
+        self, sql: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Build the view call without the floor while Layer 3 still verifies the
+        # active retention floor; verification must refuse the rewritten AST.
+        real_rewrite = rewriter_mod._rewrite_table
+
+        def _without_floor(
+            node: exp.Table,
+            cte_aliases: set[str],
+            param_value: exp.Expression,
+            bounds: dict | None = None,
+            floor: exp.Expression | None = None,
+        ) -> exp.Expression:
+            return real_rewrite(node, cte_aliases, param_value, bounds, floor=None)
+
+        monkeypatch.setattr(rewriter_mod, "_rewrite_table", _without_floor)
+        with pytest.raises(
+            SqlValidationError,
+            match="Post-rewrite verification failed: a view call is not bounded by the retention window",
+        ):
+            scope_and_render(sql, PID, retention_floor=self.FLOOR)

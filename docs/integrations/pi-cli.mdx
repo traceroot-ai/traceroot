@@ -1,0 +1,94 @@
+---
+title: pi CLI
+description: Trace interactive pi sessions with the traceroot extension
+---
+
+Trace interactive [pi](https://pi.dev) sessions — turns, model calls, tool calls and token usage — with the [traceroot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension).
+
+<Note>
+  Embedding pi in your own Node process with `@earendil-works/pi-coding-agent`? Use the [pi SDK](/integrations/pi) integration instead.
+</Note>
+
+## Install
+
+Requires Node.js 22.19 or later and pi 0.79 or later.
+
+```bash
+pi install npm:@traceroot-ai/pi-extension
+```
+
+## Set up
+
+Tracing is opt-in. Set these before starting pi, then restart pi:
+
+```bash
+export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY="tr-..."
+# Optional: only needed for self-hosted deployments
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"
+```
+
+| Setting | Env var | Default | Description |
+|---|---|---|---|
+| Enabled | `TRACEROOT_ENABLED` | `false` | Required. Turns tracing on. |
+| API key | `TRACEROOT_API_KEY` | — | Required. |
+| Host | `TRACEROOT_HOST_URL` | hosted service | Set only when self-hosting. |
+| Capture content | `TRACEROOT_CAPTURE_CONTENT` | `true` | Send prompts and responses. `false` keeps only metadata. |
+| Capture tool I/O | `TRACEROOT_CAPTURE_TOOL_IO` | `true` | Send tool arguments and results. |
+| Debug | `TRACEROOT_PI_DEBUG` | `false` | Log to stderr. `TRACEROOT_LOG_FILE` writes a JSON-lines log. |
+
+Inside pi, `/traceroot status` shows whether tracing is on and where it sends; `/traceroot disable` and `/traceroot enable` switch it for the current session.
+
+## Usage
+
+Use pi as usual. Each session becomes one trace, with one span per turn.
+
+```
+pi.session                   # one per session
+├── pi.turn                  # one per prompt
+│   ├── openai/gpt-…         # LLM span — tokens, cache, cost
+│   │   ├── bash: …          # TOOL span — command and result
+│   │   └── edit: …
+└── pi.turn
+```
+
+## Verify
+
+Run one prompt in pi and confirm the trace arrives:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `pi.session`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+|---|---|
+| Sessions | One trace per session; resumed and forked sessions are linked |
+| Turns | One span per prompt, marked when interrupted |
+| Model calls | Provider and model, prompt and response; errors and aborts marked |
+| Tokens | Input, output, cache read and write counts, and cost |
+| Tool calls | Tool name, arguments and result; failed tools marked |
+| Compaction | Each compaction as a span on the session |
+
+With content capture on, prompts and tool I/O are sent as they are. Nothing is redacted; set `TRACEROOT_CAPTURE_CONTENT=false` and `TRACEROOT_CAPTURE_TOOL_IO=false` to send metadata only. See [Data Capture and Privacy](/tracing/data-capture#what-is-captured-by-default).
+
+## Limitations
+
+- The exporter ignores `HTTPS_PROXY`, so exports can fail on proxy-only networks.
+- If no trace arrives, run `/traceroot status` and set `TRACEROOT_PI_DEBUG=true` to log to stderr.
+
+## Run the example
+
+<Card title="traceroot-pi-extension" icon="github" href="https://github.com/traceroot-ai/traceroot-pi-extension">
+  Source and full settings
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="pi SDK" icon="code" href="/integrations/pi">
+    Trace pi sessions you run from your own code.
+  </Card>
+  <Card title="Data Capture and Privacy" icon="shield-halved" href="/tracing/data-capture">
+    Control what leaves your machine.
+  </Card>
+</CardGroup>

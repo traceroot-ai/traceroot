@@ -1,5 +1,5 @@
 /**
- * Pure scorer-registry aggregation. TraceRoot has no dedicated Scorer table — a
+ * Pure scorer-registry aggregation. traceroot has no dedicated Scorer table — a
  * scorer's definition lives in the customer's SDK. The catalog is therefore DERIVED,
  * at read time, from what runs reported: the per-run `scorers` manifests (name +
  * version + optional value_type/direction/threshold) and the denormalized Score rows.

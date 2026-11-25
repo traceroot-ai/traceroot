@@ -10,7 +10,8 @@
  * Requires the dev stack to be up; this never starts or stops anything. The
  * fixture project is seeded with the deterministic ClickHouse dataset (see
  * `seed.ts`) so read scenarios have real figures to assert on.
- * Env: EVAL_USER_EMAIL (required — the account to run as), AGENT_SERVICE_URL,
+ * Env: EVAL_USER_EMAIL (required — the account to run as), INTERNAL_API_SECRET
+ * (required — the same value the agent service runs with), AGENT_SERVICE_URL,
  * TRACE_API_URL (or NEXT_PUBLIC_API_URL), CLICKHOUSE_* (the seeder's
  * connection, already in .env), EVAL_MODEL, EVAL_TIMEOUT_MS, and --keep to
  * retain the fixture project — spans included — for inspection.

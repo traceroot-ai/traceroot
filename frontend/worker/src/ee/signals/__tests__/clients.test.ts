@@ -265,7 +265,7 @@ describe("Jev models", () => {
       state: { hit: "hit" },
     });
     expect(Object.keys(call.questions.signal.criteria)).toEqual(["s1", "none"]);
-    // TraceRoot's own key: usage is ours, not the customer's.
+    // traceroot's own key: usage is ours, not the customer's.
     expect(usage[0]).toMatchObject({ provider: "typesafe", isByok: false, inputTokens: 50 });
   });
 

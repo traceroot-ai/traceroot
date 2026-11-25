@@ -35,9 +35,9 @@ traceroot: the open-source platform that continuously improves your ai agents.
 
 ## traceroot
 
-Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
+Open source Braintrust alternative. Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
 
-https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
+https://github.com/user-attachments/assets/e6e4bcb9-8415-4dc8-a534-3ed257c98552
 
 ## Core Features
 
@@ -75,6 +75,8 @@ Run this from the root of the repository you want to trace:
 ```bash
 npx -y traceroot-cli@latest setup
 ```
+
+Works with Claude Code, Codex, Cursor, OpenCode, Pi, Antigravity, and more.
 
 The [traceroot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) signs you in through your browser (where you can create a free account), writes a project API key into your application's env file, has Claude Code or Codex add the SDK, and waits for your first trace. It needs Node.js 20.12 or later.
 
@@ -155,7 +157,11 @@ cp .env.example .env
 make prod-lite
 ```
 
+`make prod-lite` generates your own credentials in `.env`; keep a backup of that file. Upgrading an existing install is covered in the guide below.
+
 Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
+
+For production, deploy on Kubernetes with the [Helm chart](https://github.com/traceroot-ai/traceroot-k8s), or on AWS with the [Terraform module](https://github.com/traceroot-ai/traceroot-terraform-aws), which provisions the infrastructure and installs the chart.
 
 ## Integrations
 
@@ -167,7 +173,7 @@ Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
 <details open>
-<summary>Supported frameworks and model providers</summary>
+<summary>Supported frameworks, model providers and coding agents</summary>
 
 ### Agent Frameworks
 
@@ -197,6 +203,14 @@ Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Automated instrumentation of Mistral chat completions, tool calls, and streaming responses. |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI-compatible tracing via the OpenAI SDK base URL; see the [Python](./examples/python/openrouter-tool-agent) and [TypeScript](./examples/typescript/openrouter) examples. |
+
+### Coding Agents
+
+| Integration | Supports | Description |
+| ----------- | -------- | ----------- |
+| [Claude Code](https://traceroot.ai/docs/integrations/claude-code) | Plugin | Trace Claude Code requests, tool calls, sub-agents, and token usage with the traceroot plugin. |
+| [Codex](https://traceroot.ai/docs/integrations/codex) | Plugin | Trace Codex turns, tool calls, sub-agents, and token usage live with the traceroot plugin. |
+| [pi CLI](https://traceroot.ai/docs/integrations/pi-cli) | Extension | Trace interactive pi CLI sessions, turns, tool calls, and token usage with the traceroot extension. |
 
 </details>
 

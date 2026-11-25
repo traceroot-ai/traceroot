@@ -1,8 +1,8 @@
 /**
- * OpenRouter ReAct agent with tool use and TraceRoot observability.
+ * OpenRouter ReAct agent with tool use and traceroot observability.
  *
  * OpenRouter provides a unified API to 200+ models from a single endpoint.
- * Since OpenRouter is OpenAI-compatible, TraceRoot's OpenAI integration
+ * Since OpenRouter is OpenAI-compatible, traceroot's OpenAI integration
  * captures all calls automatically — no extra configuration needed.
  *
  * Usage:
@@ -15,7 +15,7 @@ import 'dotenv/config';
 import OpenAI from 'openai';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
   instrumentModules: { openAI: OpenAI },
 });
@@ -205,7 +205,7 @@ async function main() {
       },
       () => observe({ name: 'demo_session' }, async () => {
         console.log('='.repeat(60));
-        console.log('OpenRouter ReAct Agent — Demo (TraceRoot)');
+        console.log('OpenRouter ReAct Agent — Demo (traceroot)');
         console.log('='.repeat(60));
 
         for (let i = 0; i < DEMO_QUERIES.length; i++) {

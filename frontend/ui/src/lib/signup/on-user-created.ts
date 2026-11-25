@@ -8,6 +8,7 @@ import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
 import { buildSignupWebhookEvent, sendSignupWebhook } from "./signup-webhook";
@@ -21,19 +22,18 @@ export interface CreatedUser {
 }
 
 // What the follow-ups read about the sign-up request: better-auth's matched
-// route and its params, and the campaign attribution the request carried.
+// route, the provider from the OAuth callback's `:id` route param, and the
+// campaign attribution the request carried.
 export interface SignupContext {
   path?: string;
-  params?: Record<string, string | undefined>;
+  /** The OAuth callback's `:id` route param; better-auth's path is the pattern. */
+  provider?: string;
   attribution?: Record<string, string>;
 }
 
-// better-auth reports the matched route, not the URL: an OAuth sign-up's path
-// is "/callback/:id", and the provider is the route's `id` param.
-export function signupProvider(context: SignupContext | null): string {
-  if (context?.path?.includes("/sign-up/email")) return "email";
-  const social = context?.path?.startsWith("/callback/") ? context.params?.id : undefined;
-  return social ? social.toLowerCase() : "unknown";
+export function signupProvider(context: SignupContext | null | undefined): string {
+  if (context?.provider) return context.provider.toLowerCase();
+  return context?.path?.includes("/sign-up/email") ? "email" : "unknown";
 }
 
 async function arm<T>(
@@ -56,8 +56,9 @@ export async function onUserCreated(
   // Every account can look at the demo workspace, however it was created.
   const demo = ensureDemoMembership(user.id);
 
-  // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (!isSelfSignup(context)) {
+  // Staff-provisioned users are not sign-ups; agents sign up in bulk, so they
+  // get no welcome email or Slack post.
+  if (!isSelfSignup(context) || signupProvider(context) === AGENTID_PROVIDER_ID) {
     await demo;
     return;
   }

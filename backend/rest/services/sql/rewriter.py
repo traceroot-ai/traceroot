@@ -16,8 +16,10 @@ Public interface
     Literal-fallback guard — accepts only alphanumerics plus ``_``, ``:``,
     ``.``, and ``-``.
 
-``scope_and_render(sql, project_id) -> (str, dict[str, str])``
-    Validate → rewrite → verify → render.
+``scope_and_render(sql, project_id, retention_floor=None) -> (str, dict[str, str])``
+    Validate → rewrite → verify → render.  When *retention_floor* is given,
+    every injected curated-view call's ``start_time`` is raised to at least
+    that UTC instant, and Layer-3 verification refuses any call without it.
 
 Sqlglot empirical findings (confirmed by probing before implementation)
 -----------------------------------------------------------------------
@@ -43,6 +45,7 @@ dependency, no I/O, no side effects.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 
 import sqlglot.expressions as exp
 from sqlglot.optimizer.scope import build_scope
@@ -153,6 +156,55 @@ def _next_millisecond(value: exp.Expression) -> exp.Expression:
 def _open(value: str) -> exp.Expression:
     """The sentinel for a side the caller did not usefully constrain."""
     return _as_bound(exp.Literal.string(value))
+
+
+def _floor_bound(floor: datetime) -> exp.Expression:
+    """Build the normalised UTC bound node for a plan's *retention_floor*.
+
+    Aware datetimes are converted to naive UTC first.  Sub-millisecond digits
+    are rounded up to the next whole millisecond so no row earlier than the
+    cutoff can ever be admitted, and ``'UTC'`` is passed explicitly because a
+    bare string literal would be parsed in the ClickHouse server's timezone.
+    """
+    if floor.tzinfo is not None and floor.utcoffset() is not None:
+        floor = floor.astimezone(UTC).replace(tzinfo=None)
+    sub_ms = floor.microsecond % 1000
+    if sub_ms:
+        floor = floor + timedelta(microseconds=1000 - sub_ms)
+    # This timestamp literal is server-computed and digit-only, so it is not an
+    # injection surface.
+    literal = f"{floor.strftime('%Y-%m-%d %H:%M:%S')}.{floor.microsecond // 1000:03d}"
+    return _as_bound(
+        exp.Anonymous(
+            this="toDateTime64",
+            expressions=[
+                exp.Literal.string(literal),
+                exp.Literal.number(3),
+                exp.Literal.string("UTC"),
+            ],
+        )
+    )
+
+
+def _floored(start: exp.Expression, floor_node: exp.Expression) -> exp.Expression:
+    """Raise *start* to at least *floor_node*, keeping the bound flat.
+
+    The open sentinel carries no caller constraint, so it is replaced outright.
+    Multiple caller lower bounds are flattened into a single ``greatest`` call
+    rather than nested, because Layer-3 verification only accepts one level of
+    ``greatest`` over normalised bounds.
+    """
+    if start == _open(_OPEN_START):
+        return floor_node.copy()
+    if _call_name(start) == "greatest":
+        return exp.Anonymous(
+            this="greatest",
+            expressions=[*(bound.copy() for bound in start.expressions), floor_node.copy()],
+        )
+    return exp.Anonymous(
+        this="greatest",
+        expressions=[start.copy(), floor_node.copy()],
+    )
 
 
 def _is_constant_bound(node: exp.Expression) -> bool:
@@ -476,6 +528,7 @@ def _rewrite_table(
     cte_aliases: set[str],
     param_value: exp.Expression,
     bounds: dict[int, tuple[exp.Expression, exp.Expression]] | None = None,
+    floor: exp.Expression | None = None,
 ) -> exp.Expression:
     """Rewrite a single whitelisted physical ``exp.Table`` to its curated view.
 
@@ -509,6 +562,8 @@ def _rewrite_table(
     else:
         alias_node = exp.TableAlias(this=exp.Identifier(this=table_name, quoted=False))
     start, end = (bounds or {}).get(id(node), (_open(_OPEN_START), _open(_OPEN_END)))
+    if floor is not None:
+        start = _floored(start, floor)
     return _build_view_table(view_name, alias_node, param_value, start, end)
 
 
@@ -578,12 +633,17 @@ def _is_verified_bound(node: exp.Expression, combiner: str) -> bool:
     )
 
 
-def _verify_view_call(call: exp.Anonymous, param_value: exp.Expression) -> exp.Expression:
+def _verify_view_call(
+    call: exp.Anonymous,
+    param_value: exp.Expression,
+    floor: exp.Expression | None = None,
+) -> exp.Expression:
     """Check one injected view call's arguments, returning its tenant argument.
 
     Raises ``SqlValidationError`` unless the call carries exactly ``project_id``,
     ``start_time`` and ``end_time``, the tenant argument is the scope value this
-    render bound, and both time bounds are in the normalised shape.
+    render bound, both time bounds are in the normalised shape, and (when
+    *floor* is given) ``start_time`` is bounded by *floor*.
     """
     arguments: dict[str, exp.Expression] = {}
     for argument in call.expressions:
@@ -614,11 +674,25 @@ def _verify_view_call(call: exp.Anonymous, param_value: exp.Expression) -> exp.E
         raise SqlValidationError(
             "Post-rewrite verification failed: a view call carries an unverified time bound"
         )
+    if floor is not None:
+        start_time = arguments["start_time"]
+        has_floor = start_time == floor or (
+            _call_name(start_time) == "greatest"
+            and any(bound == floor for bound in start_time.expressions)
+        )
+        if not has_floor:
+            raise SqlValidationError(
+                "Post-rewrite verification failed: "
+                "a view call is not bounded by the retention window"
+            )
     return arguments["project_id"]
 
 
 def _verify_rewritten_ast(
-    tree: exp.Expression, cte_aliases: set[str], param_value: exp.Expression
+    tree: exp.Expression,
+    cte_aliases: set[str],
+    param_value: exp.Expression,
+    floor: exp.Expression | None = None,
 ) -> None:
     """Walk the rewritten AST and raise ``SqlValidationError`` if any security
     invariant is violated (fail-closed policy).
@@ -639,8 +713,12 @@ def _verify_rewritten_ast(
        argument is *param_value*, and its time bounds are normalised constants.
     5. A reserved parameter appears nowhere except as a view call's tenant
        argument, so nothing else in the query can read or displace the scope.
+    6. When a retention *floor* is supplied, every injected view call's
+       ``start_time`` argument is either *floor* itself or a ``greatest`` call
+       containing *floor*, so no query can scan earlier than the retention
+       window.
     """
-    # --- Invariant 4: view call arguments ------------------------------------
+    # --- Invariant 4 & 6: view call arguments and retention floor ------------
     # Collected in a pass of its own, so invariant 5 below knows every tenant
     # argument before it meets a placeholder, whatever order the walk takes.
     tenant_arguments: set[int] = set()
@@ -650,7 +728,7 @@ def _verify_rewritten_ast(
             and isinstance(node.this, exp.Anonymous)
             and _call_name(node.this) in _VIEW_NAMES
         ):
-            tenant_arguments.add(id(_verify_view_call(node.this, param_value)))
+            tenant_arguments.add(id(_verify_view_call(node.this, param_value, floor=floor)))
 
     for node in tree.walk():
         # --- Invariant 5: reserved parameters only as tenant arguments ---------
@@ -692,8 +770,17 @@ def _verify_rewritten_ast(
 # ---------------------------------------------------------------------------
 
 
-def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
+def scope_and_render(
+    sql: str, project_id: str, retention_floor: datetime | None = None
+) -> tuple[str, dict[str, str]]:
     """Validate, scope, and render *sql* for *project_id*.
+
+    Args:
+        sql: Caller-supplied ClickHouse SQL query.
+        project_id: Authenticated project identifier to scope every view call to.
+        retention_floor: Earliest instant the caller may read, as a naive UTC
+            ``datetime`` (timezone-aware values are converted to naive UTC), or
+            ``None`` when the plan has no retention limit.
 
     Steps
     -----
@@ -708,11 +795,16 @@ def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
        - Literal mode: validate *project_id* with ``PROJECT_ID_RE``
          (raises ``SqlValidationError`` on failure), then
          ``exp.Literal.string(project_id)``.  ``bind_map = {}``.
+       Extract each public table's time window from its own scope and, when
+       *retention_floor* is given, build the UTC floor bound node once.
     5. Layer-2 rewrite: ``tree.transform(_rewrite_table)`` — visits all
-       ``exp.Table`` nodes in JOINs, CTE bodies, subqueries, and UNION arms.
-       ARRAY JOIN right-hand sides are column/alias nodes, not ``exp.Table``,
-       so they are untouched.
-    6. Layer-3 post-rewrite AST verification (fail closed).
+       ``exp.Table`` nodes in JOINs, CTE bodies, subqueries, and UNION arms,
+       raising each view call's ``start_time`` to at least the retention floor
+       when one is active.  ARRAY JOIN right-hand sides are column/alias nodes,
+       not ``exp.Table``, so they are untouched.
+    6. Layer-3 post-rewrite AST verification (fail closed), including verifying
+       that every view call's ``start_time`` carries the retention floor when
+       one is supplied.
     7. Render with ``dialect="clickhouse"``.
 
     Returns
@@ -762,13 +854,14 @@ def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
     # transform below runs with copy=False: the tree was already copied at step 2,
     # and a second copy would hand the callback nodes these keys do not match.
     bounds = _bounds_by_table(tree)
+    floor_node = _floor_bound(retention_floor) if retention_floor is not None else None
 
     # Step 5 — Layer-2 rewrite.
     # The lambda looks up ``_rewrite_table`` in module globals on every call,
     # so ``monkeypatch.setattr(rewriter, '_rewrite_table', noop)`` takes effect.
     rewritten = tree.transform(
         lambda node: (
-            _rewrite_table(node, cte_aliases, param_value, bounds)
+            _rewrite_table(node, cte_aliases, param_value, bounds, floor=floor_node)
             if isinstance(node, exp.Table)
             else node
         ),
@@ -776,7 +869,8 @@ def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
     )
 
     # Step 6 — Layer-3 post-rewrite verification (AST-based, fail closed).
-    _verify_rewritten_ast(rewritten, cte_aliases, param_value)
+    _verify_rewritten_ast(rewritten, cte_aliases, param_value, floor=floor_node)
 
-    # Step 7 — render.
-    return rewritten.sql(dialect="clickhouse"), bind_map
+    # Step 7 — render. Comments are not part of the tree the checks above
+    # verified, so none is rendered: ClickHouse runs only what was checked.
+    return rewritten.sql(dialect="clickhouse", comments=False), bind_map

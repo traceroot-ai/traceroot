@@ -13,6 +13,11 @@ interface CodeBlockProps {
   mono?: boolean;
   /** When set, apply lightweight syntax highlighting for that language. */
   language?: "python" | "typescript";
+  /**
+   * Called once the value is on the clipboard. Not called when the browser
+   * refuses the write: the copy button shows its error instead.
+   */
+  onCopy?: () => void;
 }
 
 const KEYWORDS: Record<NonNullable<CodeBlockProps["language"]>, string[]> = {
@@ -157,20 +162,25 @@ function highlightCommands(value: string) {
 /**
  * The onboarding code-snippet box: a bordered card with a header row carrying a
  * sub-heading label and the copy button, and the content in a <pre> below. This
- * mirrors the Manual tab's "Initialize TraceRoot" block so every snippet across
+ * mirrors the Manual tab's "Initialize traceroot" block so every snippet across
  * onboarding shares one style and copy-button placement.
  */
-export function CodeBlock({ label, value, mono = true, language }: CodeBlockProps) {
+export function CodeBlock({ label, value, mono = true, language, onCopy }: CodeBlockProps) {
   const body = language ? highlightCode(value, language) : mono ? highlightCommands(value) : value;
   return (
     <div className="overflow-hidden rounded-md border border-border">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+      <div className="flex h-8 items-center justify-between border-b border-border px-4">
         <span className="text-[12px] text-muted-foreground">{label}</span>
-        <CopyButton value={value} className="h-6 w-6" />
+        <CopyButton
+          aria-label={`Copy ${label} snippet`}
+          value={value}
+          onCopy={onCopy}
+          className="h-7 w-7"
+        />
       </div>
       <pre
         className={cn(
-          "overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 text-[12px] leading-relaxed text-foreground",
+          "overflow-x-auto whitespace-pre-wrap bg-muted px-4 py-2.5 text-[12px] leading-relaxed text-foreground",
           mono && "font-mono",
         )}
       >
