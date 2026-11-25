@@ -676,9 +676,9 @@ export const shellZh: PartialGroups<typeof shellEn> = {
   },
   projectHome: {
     greeting: "有什么可以帮你？",
-    greetingText: "可以问这个项目的 trace、session、错误和 detector finding。",
+    greetingText: "可以问这个项目的 trace、会话、错误和 detector finding。",
     promptErroredTrace: "排查最近一条出错的 trace",
-    promptSessions: "总结今天的 session",
+    promptSessions: "总结今天的会话",
     promptFindings: "这周 detector 的 finding 标记了哪些问题？",
   },
   device: {

@@ -552,6 +552,7 @@ export const detectZh: PartialGroups<typeof detectEn> = {
     previewFailed: "预览加载失败。",
   },
   alertsMeasures: {
+    unitSessions: "会话",
     unit: "单位：{unit}",
     type: "类型：{type}",
     typeNumber: "数值",
@@ -565,7 +566,7 @@ export const detectZh: PartialGroups<typeof detectEn> = {
     labelTotalTokens: "token 总数",
     labelTokensPerSecond: "每秒 token 总数",
     labelUniqueUsers: "去重用户 ID",
-    labelUniqueSessions: "去重 session ID",
+    labelUniqueSessions: "去重会话 ID",
     unitMilliseconds: "毫秒",
     unitTokensPerSecond: "每秒 token 数",
     unitUsers: "用户",
@@ -579,7 +580,7 @@ export const detectZh: PartialGroups<typeof detectEn> = {
     docTokensPerSecond:
       "span 的 token 总数除以它的耗时（毫秒），换算成每秒速率；没有记录耗时的 span 没有这个值。",
     docUniqueUsers: "trace 所属用户的标识；用 uniq 聚合可统计不重复的用户数。",
-    docUniqueSessions: "trace 所属 session 的标识；用 uniq 聚合可统计不重复的 session 数。",
+    docUniqueSessions: "trace 所属会话的标识；用 uniq 聚合可统计不重复的会话数。",
   },
   alertsDisplay: {
     labelNoData: "无数据",
