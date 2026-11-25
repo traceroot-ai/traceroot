@@ -90,32 +90,58 @@ export async function setFollowUpPause(
   return { ...hold, applied: applied > 0 };
 }
 
+/** Where a person's product-email choice stands after recording one. */
+export interface EmailPreference {
+  userId: string;
+  /** False when a newer choice was already recorded; this one changed nothing. */
+  applied: boolean;
+  /** The choice now in force on the account. */
+  subscribed: boolean;
+}
+
 /**
  * Records an unsubscribe (or a "Subscribe again") from the product-email
- * unsubscribe page, which identifies the person by address. An address with no
- * account records nothing. Answers the user id it recorded for.
+ * unsubscribe page, which identifies the person by address. `decidedAt` is when
+ * the person made the choice (when the request arrived): only a choice newer
+ * than the latest one applied takes effect, so a slow request that lands late
+ * can never undo a newer choice. An address with no account records nothing
+ * and answers null.
  */
 export async function recordUnsubscribe(
   email: string,
   subscribed: boolean,
-  now: Date = new Date(),
-): Promise<string | null> {
+  decidedAt: Date = new Date(),
+): Promise<EmailPreference | null> {
   const user = await prisma.user.findFirst({
     where: { email: { equals: email.trim(), mode: "insensitive" } },
     select: { id: true },
   });
   if (!user) return null;
   await ensureRow(user.id);
+  const older = {
+    OR: [{ emailPreferenceAt: null }, { emailPreferenceAt: { lt: decidedAt } }],
+  };
+  let applied: number;
   if (subscribed) {
-    await prisma.userOnboarding.updateMany({
-      where: { userId: user.id },
-      data: { unsubscribedAt: null },
-    });
+    ({ count: applied } = await prisma.userOnboarding.updateMany({
+      where: { userId: user.id, ...older },
+      data: { unsubscribedAt: null, emailPreferenceAt: decidedAt },
+    }));
   } else {
-    await prisma.userOnboarding.updateMany({
-      where: { userId: user.id, unsubscribedAt: null },
-      data: { unsubscribedAt: now },
+    // A second unsubscribe keeps the time of the first.
+    const fresh = await prisma.userOnboarding.updateMany({
+      where: { userId: user.id, unsubscribedAt: null, ...older },
+      data: { unsubscribedAt: decidedAt, emailPreferenceAt: decidedAt },
     });
+    const already = await prisma.userOnboarding.updateMany({
+      where: { userId: user.id, unsubscribedAt: { not: null }, ...older },
+      data: { emailPreferenceAt: decidedAt },
+    });
+    applied = fresh.count + already.count;
   }
-  return user.id;
+  const row = await prisma.userOnboarding.findUnique({
+    where: { userId: user.id },
+    select: { unsubscribedAt: true },
+  });
+  return { userId: user.id, applied: applied > 0, subscribed: !row?.unsubscribedAt };
 }

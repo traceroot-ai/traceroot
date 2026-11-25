@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const core = vi.hoisted(() => ({
   verifyUnsubscribeToken: vi.fn(),
@@ -28,7 +28,11 @@ beforeEach(() => {
   core.verifyUnsubscribeToken.mockImplementation((t) => ({ valid: t === "good", email: EMAIL }));
   core.ensureContact.mockResolvedValue({ ok: true });
   core.setTopicSubscription.mockResolvedValue({ ok: true });
-  account.recordUnsubscribe.mockResolvedValue("user_1");
+  account.recordUnsubscribe.mockImplementation(async (_email: string, subscribed: boolean) => ({
+    userId: "user_1",
+    applied: true,
+    subscribed,
+  }));
 });
 
 it.each([
@@ -37,7 +41,7 @@ it.each([
   ["t=good&action=opt_in", "", true],
 ])("POST %j%s records the choice on the account too", async (body, query, subscribed) => {
   await post(body, query);
-  expect(account.recordUnsubscribe).toHaveBeenCalledWith(EMAIL, subscribed);
+  expect(account.recordUnsubscribe).toHaveBeenCalledWith(EMAIL, subscribed, expect.any(Date));
 });
 
 it("POST keeps the address out of the log", async () => {
@@ -83,7 +87,7 @@ it("POST keeps an opt-out recorded on the account when the provider then fails",
   core.setTopicSubscription.mockResolvedValue({ ok: false });
   const response = await post("List-Unsubscribe=One-Click", "?t=good");
   expect(response.status).toBe(502);
-  expect(account.recordUnsubscribe).toHaveBeenCalledWith(EMAIL, false);
+  expect(account.recordUnsubscribe).toHaveBeenCalledWith(EMAIL, false, expect.any(Date));
 });
 
 it("POST leaves the account unsubscribed when the provider refuses a resubscribe", async () => {
@@ -148,4 +152,44 @@ it.each(["ensureContact", "setTopicSubscription"] as const)("502 when %s fails",
   core[fn].mockResolvedValue({ ok: false });
   expect((await post("t=good&action=opt_out")).status).toBe(502);
   expect(core.setTopicSubscription).toHaveBeenCalledTimes(fn === "ensureContact" ? 0 : 1);
+});
+
+describe("a choice that lands after a newer one", () => {
+  const newer = (subscribed: boolean) =>
+    account.recordUnsubscribe.mockResolvedValue({ userId: "user_1", applied: false, subscribed });
+  const providerCalls = () => core.setTopicSubscription.mock.calls.map((c) => c[1]);
+
+  it("sets the provider back when a late Subscribe again finds a newer unsubscribe", async () => {
+    newer(false);
+    const response = await post("t=good&action=opt_in");
+    expect(response.status).toBe(200);
+    expect(providerCalls()).toEqual(["opt_in", "opt_out"]);
+    const html = await response.text();
+    expect(html).toContain(BYE);
+    expect(html).not.toContain("You're subscribed again.");
+  });
+
+  it("leaves the provider subscribed when a late unsubscribe finds a newer Subscribe again", async () => {
+    newer(true);
+    const response = await post("List-Unsubscribe=One-Click", "?t=good");
+    expect(response.status).toBe(200);
+    expect(providerCalls()).toEqual(["opt_in"]);
+    expect(await response.text()).toContain("You're subscribed again.");
+  });
+
+  it("answers an error when the provider cannot be set back, so it can be retried", async () => {
+    newer(false);
+    core.setTopicSubscription
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false });
+    expect((await post("t=good&action=opt_in")).status).toBe(502);
+  });
+
+  it("passes the time the request arrived as when the choice was made", async () => {
+    const before = Date.now();
+    await post("List-Unsubscribe=One-Click", "?t=good");
+    const decidedAt = account.recordUnsubscribe.mock.calls[0][2] as Date;
+    expect(decidedAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(decidedAt.getTime()).toBeLessThanOrEqual(Date.now());
+  });
 });

@@ -11,7 +11,7 @@ import {
   verifyUnsubscribeToken,
   type TopicSubscription,
 } from "@traceroot/core/email";
-import { recordUnsubscribe } from "@/lib/lifecycle/pause";
+import { recordUnsubscribe, type EmailPreference } from "@/lib/lifecycle/pause";
 
 const HTML_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
@@ -86,28 +86,32 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(null, { status: 200, headers: HTML_HEADERS });
   }
 
+  // When the person made this choice. The account keeps the latest choice by
+  // this time, so a slow request that lands after a newer one changes nothing.
+  const decidedAt = new Date();
   // The choice is kept in two places: on the account, which the follow-up
   // emails read, and on the provider's contact, which every product email is
   // sent against. The more restrictive state is written first, so a failure
   // part way leaves the person getting fewer emails, never more: an opt-out
   // lands on the account before the provider, a "Subscribe again" on the
-  // provider before the account. Either failure answers an error, never a
-  // confirmation, and both writes can simply be repeated, so trying again
-  // finishes the job.
+  // provider before the account. When the account already holds a newer
+  // choice, the provider is set back to that choice, so the two agree. Either
+  // failure answers an error, never a confirmation, and both writes can simply
+  // be repeated, so trying again finishes the job.
   const subscribed = action === "opt_in";
   const onAccount = () =>
-    recordUnsubscribe(check.email, subscribed).then(
-      (userId) => ({ ok: true as const, userId }),
+    recordUnsubscribe(check.email, subscribed, decidedAt).then(
+      (preference) => ({ ok: true as const, preference }),
       (error: unknown) => {
-        console.error(`[unsubscribe] ${action} not recorded on the account: ${String(error)}`);
-        return { ok: false as const, userId: null };
+        console.error("[unsubscribe] %s not recorded on the account: %s", action, String(error));
+        return { ok: false as const, preference: null };
       },
     );
   // The topic choice lives on a contact record, so make sure one exists first.
-  const atProvider = async () => {
+  const atProvider = async (choice: TopicSubscription) => {
     try {
       const contact = await ensureContact({ email: check.email });
-      return contact.ok ? await setTopicSubscription(check.email, action) : { ok: false };
+      return contact.ok ? await setTopicSubscription(check.email, choice) : { ok: false };
     } catch {
       return { ok: false };
     }
@@ -118,24 +122,33 @@ export async function POST(request: Request): Promise<Response> {
       "<p>Could not update your preference right now. Please try again in a moment, or reply to the email and we'll do it by hand.</p>",
       502,
     );
-  let userId: string | null;
+  let preference: EmailPreference | null;
   if (subscribed) {
-    if (!(await atProvider()).ok) return failed();
+    if (!(await atProvider("opt_in")).ok) return failed();
     const account = await onAccount();
     if (!account.ok) return failed();
-    userId = account.userId;
+    preference = account.preference;
+    // A newer unsubscribe is in force: undo this request's provider write.
+    if (preference && !preference.subscribed && !(await atProvider("opt_out")).ok) return failed();
   } else {
     const account = await onAccount();
     if (!account.ok) return failed();
-    userId = account.userId;
-    if (!(await atProvider()).ok) return failed();
+    preference = account.preference;
+    const inForce = preference && preference.subscribed ? "opt_in" : "opt_out";
+    if (!(await atProvider(inForce)).ok) return failed();
   }
+  // The choice now in force: this request's, or a newer one it found.
+  const nowSubscribed = preference ? preference.subscribed : subscribed;
   // The address stays out of the log.
-  console.log(`[unsubscribe] ${action} recorded${userId ? ` for user ${userId}` : ""}`);
+  console.log(
+    "[unsubscribe] %s %s%s",
+    action,
+    preference && !preference.applied ? "ignored, a newer choice is in force" : "recorded",
+    preference ? ` for user ${preference.userId}` : "",
+  );
   const email = escapeHtml(check.email);
-  const message =
-    action === "opt_out"
-      ? `<p>You're unsubscribed. No more product emails will be sent to ${email}.</p>${form(token, "opt_in", "Subscribe again")}`
-      : "<p>You're subscribed again.</p>";
+  const message = !nowSubscribed
+    ? `<p>You're unsubscribed. No more product emails will be sent to ${email}.</p>${form(token, "opt_in", "Subscribe again")}`
+    : "<p>You're subscribed again.</p>";
   return html(`${message}${NOTE}`);
 }

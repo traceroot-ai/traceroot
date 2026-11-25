@@ -270,6 +270,10 @@ model UserOnboarding {
   // The person unsubscribed from product email; "Subscribe again" clears it.
   // Kept apart from the pause, so neither undoes the other.
   unsubscribedAt       DateTime?  @map("unsubscribed_at") @db.Timestamp(6)
+  // When the person made the latest unsubscribe or "Subscribe again" choice that
+  // applied. One that was made earlier but lands later is ignored, so a slow
+  // resubscribe can never undo a newer unsubscribe, nor the other way round.
+  emailPreferenceAt    DateTime?  @map("email_preference_at") @db.Timestamp(3)
   // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
   // null for a question skipped or not asked.
   role                 String?    @db.VarChar
