@@ -24,6 +24,7 @@ from typing import Any, NoReturn
 from pydantic import BaseModel, ValidationError
 
 from rest.services.filters.columns import (
+    LABEL_FILTER_COLUMN,
     FilterColumn,
     FilterLevel,
     FilterOperator,
@@ -62,12 +63,13 @@ class Predicate(BaseModel):
 MAX_FILTERS = 20
 
 
-def parse_filters_param(raw: str | None) -> list[Predicate]:
+def parse_filters_param(raw: str | None, *, allow_label: bool = False) -> list[Predicate]:
     """Parse the URL-encoded ``?filters=`` JSON array into validated predicates.
 
     Args:
         raw (str | None): The raw query-param value — a JSON array of
             ``{field, op, value}`` objects, or ``None``/empty for no filters.
+        allow_label (bool): The app trace router resolves label predicates separately.
 
     Returns:
         list[Predicate]: The parsed, registry-validated predicates.
@@ -102,16 +104,17 @@ def parse_filters_param(raw: str | None) -> list[Predicate]:
             pred = Predicate(**item)
         except ValidationError as e:
             raise ValueError(f"invalid filter predicate: {e}") from e
-        validate_predicate(pred)  # registry field/op whitelist
+        validate_predicate(pred, allow_label=allow_label)  # registry field/op whitelist
         predicates.append(pred)
     return predicates
 
 
-def validate_predicate(pred: Predicate) -> FilterColumn:
+def validate_predicate(pred: Predicate, *, allow_label: bool = False) -> FilterColumn:
     """Resolve a predicate's field to a registry column and check its operator.
 
     Args:
         pred (Predicate): The predicate to validate.
+        allow_label (bool): Also accept the app-only label field.
 
     Returns:
         FilterColumn: The matching registry entry.
@@ -121,6 +124,8 @@ def validate_predicate(pred: Predicate) -> FilterColumn:
             that field, or the key/value doesn't match the field's shape.
     """
     col = get_column(pred.field)
+    if allow_label and pred.field == LABEL_FILTER_COLUMN.name:
+        col = LABEL_FILTER_COLUMN
     if col is None:
         raise ValueError(f"unknown filter field: {pred.field!r}")
     if pred.op not in col.operators:
