@@ -591,6 +591,7 @@ def _fetch_sample_summaries(
                             max(timestamp)                AS ts
                         FROM detector_runs
                         WHERE project_id = {{project_id:String}}
+                          AND source = 'detector'
                         GROUP BY detector_id, run_id
                     )
                     WHERE {window_clause} AND latest_finding_id IS NOT NULL
@@ -625,6 +626,7 @@ def _fetch_sample_summaries(
                     -- project's whole finding history.
                     SELECT finding_id, payload FROM detector_findings FINAL
                     WHERE project_id = {{project_id:String}}
+                      AND source = 'detector'
                       AND finding_id IN (
                         SELECT latest_finding_id FROM ({sampled_probe})
                       )
@@ -745,6 +747,7 @@ async def list_detector_window_summary(
                 max(timestamp)              AS ts
             FROM detector_runs
             WHERE project_id = {{project_id:String}}
+              AND source = 'detector'
             GROUP BY detector_id, run_id
         )
         WHERE {window_clause}
