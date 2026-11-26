@@ -1619,6 +1619,25 @@ class TestGenAIInputOutputFallback:
         assert "簡潔に答えて" in spans[0]["input"]
         assert "東京の天気" in spans[0]["input"]
 
+    def test_gen_ai_system_instructions_with_lone_surrogate_stays_utf8_encodable(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.system_instructions", '[{"type":"text","content":"x"}]'),
+                        make_attr(
+                            "gen_ai.input.messages", '[{"role":"user","content":"\\ud800 hi"}]'
+                        ),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        spans[0]["input"].encode("utf-8")
+        assert json.loads(spans[0]["input"])[1] == {"role": "user", "content": "\ud800 hi"}
+
     def test_gen_ai_system_instructions_ignored_when_input_comes_from_higher_tier(self):
         payload = make_otel_payload(
             [

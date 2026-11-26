@@ -236,7 +236,9 @@ def _format_input_with_system_instructions(input_messages: Any, system_instructi
     ):
         return input_messages
     key = "parts" if isinstance(instructions, list) else "content"
-    return json.dumps([{"role": "system", key: instructions}, *messages], ensure_ascii=False)
+    combined = json.dumps([{"role": "system", key: instructions}, *messages], ensure_ascii=False)
+    # A lone surrogate (from a JSON \ud800 escape) can't be UTF-8 encoded; re-escape it.
+    return combined.encode("utf-8", "backslashreplace").decode("utf-8")
 
 
 # Upper sanity bound per token field, shared by the manual-usage and instrumentor
