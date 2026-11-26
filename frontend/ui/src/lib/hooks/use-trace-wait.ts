@@ -38,6 +38,7 @@ export const WAIT_BUDGET_MS = 10 * 60 * 1000;
  */
 export type TraceWait =
   | { kind: "waiting" }
+  | { kind: "already-received"; fallbackUrl: string }
   | { kind: "found"; found: FirstTrace }
   | { kind: "gave-up"; fallbackUrl: string; unreadable?: boolean };
 
@@ -59,6 +60,7 @@ const WAITING: TraceWait = { kind: "waiting" };
  * where: it is the thing that just read the account.
  */
 export type RoundResult =
+  | { kind: "already-received"; fallbackUrl: string }
   | { kind: "found"; found: FirstTrace }
   | { kind: "again"; fallbackUrl: string }
   /** `unreadable` when the round is stopping because it could not read, not
@@ -216,8 +218,8 @@ export function useTraceWait(
       if (cancelled || result === null) {
         return;
       }
-      if (result.kind === "found") {
-        settle({ kind: "found", found: result.found });
+      if (result.kind === "found" || result.kind === "already-received") {
+        settle(result);
         return;
       }
       // Every other answer carries the way out the round found, which is a

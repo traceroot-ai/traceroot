@@ -188,16 +188,20 @@ describe("the hand-back step's first-trace watch", () => {
     expect([...watched]).toEqual(["proj-1"]);
   });
 
-  it("does not count a trace the project already had", async () => {
+  it("shows that tracing is set up on a direct visit to a project with traces", async () => {
     // Creating a project is idempotent on its name within a workspace, so a run
     // that lands on a name already in use is handed the existing project back.
     // The first round draws the line; nothing older than it can win.
     tracePage = [trace("t-before", "2026-05-01T10:00:00Z")];
     await reachHandback();
+    expect(screen.getByText("This project has already received traces.")).toBeDefined();
+    expect(screen.getByRole("link", { name: "View traces" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces",
+    );
+    expect(screen.queryByText(/Waiting for your first trace/)).toBeNull();
     await rounds(3);
-
-    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
-    expect(screen.queryByText(/Your first trace arrived/)).toBeNull();
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.getTraces).toHaveBeenCalledTimes(1);
   });
 
   it("opens the trace that arrives", async () => {

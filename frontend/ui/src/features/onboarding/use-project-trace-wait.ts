@@ -81,23 +81,21 @@ export function useProjectTraceWait(
       if (!watched) {
         return { kind: "stop", fallbackUrl };
       }
-      if (baseline === null) {
-        // Drawn before anything can match, because the project may turn out
-        // not to be new.
-        baseline = await captureTraceBaseline([watched], userRef.current);
-        // A tab that left part-way through a round does not go on to fetch the
-        // rest of it.
-        return isCancelled() ? null : { kind: "again", fallbackUrl };
+      const firstRead = baseline === null;
+      baseline =
+        baseline === null
+          ? await captureTraceBaseline([watched], userRef.current)
+          : await retryUnknownBaseline(baseline, userRef.current);
+      if (isCancelled()) return null;
+      const entry = baseline.get(watched);
+      if (entry?.kind === "newest") {
+        // The project was already receiving traces. Show its list without
+        // opening an older trace as though it had just arrived.
+        return { kind: "already-received", fallbackUrl };
       }
-      // A baseline read that failed gets another go: until it settles nothing
-      // in the project can match, and there is no second project to fall back
-      // on.
-      baseline = await retryUnknownBaseline(baseline, userRef.current);
-      if (isCancelled()) {
-        return null;
-      }
+      if (firstRead) return { kind: "again", fallbackUrl };
 
-      if (baseline.get(watched)?.kind === "unknown") {
+      if (entry?.kind === "unknown") {
         // Still no line, so there is nothing a search could match against and
         // nothing to gain by making one. Counted rather than acted on at once,
         // because one failed read is a blip and three in a row is a tab that
