@@ -517,6 +517,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/sessions": {"get": "list_sessions"},
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
+    "/api/v1/public/labels": {"post": "write_label"},
     "/api/v1/public/traces/filter-values/{field}": {"get": "list_trace_filter_values"},
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
@@ -581,6 +582,7 @@ def test_x_tool_enabled_set_and_shape():
                 disabled.add(op["operationId"])
     assert disabled == {
         "ingest_traces",
+        "write_label",
         "register_run",
         "upsert_result",
         "complete_run",
@@ -1396,8 +1398,7 @@ def test_reference_pages_have_short_summaries_and_keep_usage_notes():
 
 
 def test_docs_copy_labels_the_sdk_driven_operations():
-    """Every operation hidden from the tool registry is one the SDKs call, and
-    its reference page says so; the ingest page also names its content type."""
+    """Only operations called by the SDKs receive the SDK note."""
     docs = build_docs_schema(_schema())
     labelled = {
         op["operationId"]: op["x-mint"]["content"]
@@ -1407,6 +1408,15 @@ def test_docs_copy_labels_the_sdk_driven_operations():
     }
     assert set(labelled) == {"ingest_traces", "register_run", "upsert_result", "complete_run"}
     assert "application/x-protobuf" in labelled["ingest_traces"]
+
+
+def test_label_write_documents_validation_and_rate_limit_errors():
+    responses = _schema()["paths"][f"{PUBLIC_PREFIX}labels"]["post"]["responses"]
+    for code in ("422", "429", "500"):
+        assert responses[code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorResponse"
+        }
+    assert responses["429"]["headers"]["Retry-After"]["schema"] == {"type": "integer"}
 
 
 def test_each_resource_has_one_tag():
@@ -1430,6 +1440,7 @@ def test_each_resource_has_one_tag():
         "Alerts",
         "Dashboards",
         "Detectors",
+        "Labels",
         "Offline Eval",
         "Sessions",
         "Signals",
