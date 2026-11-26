@@ -272,6 +272,17 @@ describe("Loop detail", () => {
     expect(screen.queryByText(/looks again/)).toBeNull();
   });
 
+  it("says Running once the worker has started the run", () => {
+    const started = run({ id: "r2", seq: 2, status: "running", finishedAt: null });
+    mocks.loop = { data: loop({ lastRun: started }), isLoading: false, error: null };
+    withRuns([started, run()]);
+    render(<LoopDetailPage />);
+    expect((screen.getByRole("button", { name: "Running…" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.queryByRole("button", { name: "Run queued" })).toBeNull();
+  });
+
   it("knows about a run queued on an earlier page, and keeps the runs polling", () => {
     const queued = run({
       id: "r60",

@@ -53,6 +53,14 @@ describe("RunLoop", () => {
     expect(button.parentElement?.title).toBe(LOOP_RUN_PAUSED);
   });
 
+  it("says Running once the active run has started", () => {
+    render(<RunLoop projectId="p1" loopId="l1" active running />);
+    const button = screen.getByRole("button", { name: "Running…" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.parentElement?.title).toBe(LOOP_RUN_IN_PROGRESS);
+    expect(screen.queryByRole("button", { name: "Run queued" })).toBeNull();
+  });
+
   it("names an active run before the plan or a pause", () => {
     render(<RunLoop projectId="p1" loopId="l1" active planBlocked paused />);
     expect(screen.getByRole("button", { name: "Run queued" }).parentElement?.title).toBe(

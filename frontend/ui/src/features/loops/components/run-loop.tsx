@@ -13,6 +13,8 @@ interface RunLoopProps {
   loopId: string;
   /** A run is queued or running: a Loop never has two. */
   active: boolean;
+  /** The active run has started: the button says so instead of "Run queued". */
+  running?: boolean;
   /** The workspace's plan has no Loop runs left: a queued run would only be skipped. */
   planBlocked?: boolean;
   /** Paused by a person or by the system: it runs again once resumed. */
@@ -21,11 +23,12 @@ interface RunLoopProps {
 
 /**
  * Run now. Queues a manual run; a worker picks it up on its next tick, so until
- * one does the run stays Queued (the runs table shows it, and looks again every 10 s).
+ * one does the run stays Queued (the runs table shows it, and looks again every 10 s),
+ * then Running.
  * Disabled, with the reason, while a run is active, the Loop is paused, or the
  * plan's runs are used up.
  */
-export function RunLoop({ projectId, loopId, active, planBlocked, paused }: RunLoopProps) {
+export function RunLoop({ projectId, loopId, active, running, planBlocked, paused }: RunLoopProps) {
   const run = useRunLoop(projectId, loopId);
   const busy = active || run.isPending;
   // The same order the run route checks: an active run, then a pause, then the plan.
@@ -46,7 +49,7 @@ export function RunLoop({ projectId, loopId, active, planBlocked, paused }: RunL
       {/* A disabled button shows no tooltip in every browser: the wrapper carries it. */}
       <span title={reason ?? undefined} className="inline-flex">
         <Button size="sm" disabled={busy || reason !== null} onClick={() => run.mutate()}>
-          {busy ? "Run queued" : "Run now"}
+          {running ? "Running…" : busy ? "Run queued" : "Run now"}
         </Button>
       </span>
     </div>
