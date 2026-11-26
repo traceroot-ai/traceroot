@@ -549,3 +549,25 @@ class TestTraceSummaryEvaluationFlag:
         # ingest flag does not — the trace is NOT an evaluation trace.
         assert summaries[TRACE]["is_evaluation"] is False
         assert summaries[TRACE]["environment"] == ["evaluation"]
+
+
+@pytest.mark.parametrize("op", [[], {}, None, 42, True])
+def test_non_string_operator_fails_closed_without_dropping_other_detectors(
+    fake_redis, mock_add_job, monkeypatch, op
+):
+    _patch_detectors(
+        monkeypatch,
+        [
+            _detector("bad", conditions=[{"field": "cost", "op": op, "value": 1}]),
+            _detector("good", conditions=[{"field": "cost", "op": ">", "value": 1}]),
+        ],
+    )
+    _patch_summaries(monkeypatch, {TRACE: {"cost": 5}})
+
+    dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+    mock_add_job.assert_called_once_with(
+        f"{PROJECT}--{TRACE}",
+        {"traceId": TRACE, "detectorIds": ["good"], "projectId": PROJECT},
+    )
+    assert _lock_state(fake_redis)["detector_ids"] == ["good"]
