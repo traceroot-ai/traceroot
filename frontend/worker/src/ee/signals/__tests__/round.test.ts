@@ -411,6 +411,80 @@ describe("runAssignmentRound", () => {
     expect(written[0].embedding).toEqual([]);
   });
 
+  describe("a Loop's detector", () => {
+    const loopDetector = {
+      name: "loop:Coding agents",
+      template: "loop",
+      enableSignals: true,
+      enableRca: false,
+      signalsEnabledAt: ENABLED_AT,
+      project: { workspaceId: "ws" },
+    };
+    const finding = (key: string, title: string, covers: string) => ({
+      loopFindingKey: key,
+      title,
+      covers,
+    });
+
+    it("groups its hits by finding key with the finding's title and covers, never via the models", async () => {
+      const models = vi.fn();
+      const { backend, written } = fakeBackend([
+        row(1, { data: finding("tool-timeouts", "Tool calls time out", "Traces where a tool...") }),
+        row(2, { data: finding("wrong-city", "Wrong city booked", "Bookings for...") }),
+      ]);
+      const { db } = fakeDb({ detector: loopDetector });
+      const stats = await runAssignmentRound(
+        { ...deps(db, backend), models: models as never },
+        "p",
+        "d",
+      );
+      expect(embed).not.toHaveBeenCalled();
+      expect(models).not.toHaveBeenCalled();
+      expect(mockApply.mock.calls.map((c) => c[2])).toEqual([
+        {
+          kind: "group",
+          groupKey: "loop:tool-timeouts",
+          signal: { title: "Tool calls time out", covers: "Traces where a tool...", excludes: "" },
+          anchorText: "Tool calls time out",
+        },
+        {
+          kind: "group",
+          groupKey: "loop:wrong-city",
+          signal: { title: "Wrong city booked", covers: "Bookings for...", excludes: "" },
+          anchorText: "Wrong city booked",
+        },
+      ]);
+      // RCA stays off: the loop detector has it off.
+      expect(mockApply.mock.calls[0][3]).toMatchObject({ rca: false, embedding: [] });
+      expect(written.map((w) => w.embedding)).toEqual([[], []]);
+      expect(stats).toMatchObject({ created: 2, failed: 0 });
+    });
+
+    it.each([
+      ["no finding key", { title: "no key", covers: "c" }],
+      ["no title", { loopFindingKey: "a-key", covers: "c" }],
+    ])("never sends a hit with %s to the models", async (_name, data) => {
+      const models = vi.fn();
+      const { backend } = fakeBackend([row(1, { data })]);
+      const { db } = fakeDb({ detector: loopDetector });
+      await expect(
+        runAssignmentRound({ ...deps(db, backend), models: models as never }, "p", "d"),
+      ).rejects.toBeInstanceOf(UnusableAnswerError);
+      expect(embed).not.toHaveBeenCalled();
+      expect(models).not.toHaveBeenCalled();
+      expect(mockApply).not.toHaveBeenCalled();
+    });
+
+    it("leaves a user detector's hit with loop-shaped data to the models", async () => {
+      const { backend } = fakeBackend([
+        row(1, { data: finding("tool-timeouts", "Tool calls time out", "x") }),
+      ]);
+      await runAssignmentRound(deps(fakeDb().db, backend), "p", "d");
+      expect(embed).toHaveBeenCalledTimes(1);
+      expect(mockApply.mock.calls[0][2].kind).toBe("create");
+    });
+  });
+
   it("embeds in chunks as the round reaches them", async () => {
     const { backend } = fakeBackend(Array.from({ length: 30 }, (_, i) => row(i + 1)));
     await runAssignmentRound(deps(fakeDb().db, backend), "p", "d");

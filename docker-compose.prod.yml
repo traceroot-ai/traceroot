@@ -329,6 +329,8 @@ services:
       MODEL_PROVIDER_TEST_TIMEOUT_MS: ${MODEL_PROVIDER_TEST_TIMEOUT_MS:-10000}
       # --- Encryption ---
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?required, generate with openssl rand -hex 32}
+      # --- Loops (off unless "true") ---
+      LOOPS_ENABLED: ${LOOPS_ENABLED:-false}
       # --- Billing ---
       ENABLE_BILLING: ${ENABLE_BILLING:-true}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -571,6 +573,13 @@ services:
       # and digest consumers with it. Notifications already queued still deliver
       # on their own retry budget afterwards.
       ALERTS_SCHEDULER_ENABLED: ${ALERTS_SCHEDULER_ENABLED:-true}
+      # --- Loops config ---
+      # The Loop tick and run worker share this worker. Off unless "true"
+      # (LOOPS_ENABLED on the web service only shows the UI).
+      LOOP_SCHEDULER_ENABLED: ${LOOP_SCHEDULER_ENABLED:-false}
+      LOOP_TICK_CRON: ${LOOP_TICK_CRON:-*/5 * * * *}
+      LOOP_RUN_TIMEOUT_MS: ${LOOP_RUN_TIMEOUT_MS:-1200000}
+      LOOP_RUN_CONCURRENCY: ${LOOP_RUN_CONCURRENCY:-2}
     depends_on:
       preflight:
         condition: service_completed_successfully

@@ -4,6 +4,7 @@ import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import { tracedComplete as complete } from "./traced-complete.js";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
+  byokProviderMissingMessage,
   findByokKeyForPiProvider,
   fetchProviderConfig,
   resolvePiModel,
@@ -164,10 +165,7 @@ export async function runDetectionForTrace(params: {
     }
     providerConfig = await fetchProviderConfig(workspaceId, detector.detectionProvider);
     if (!providerConfig) {
-      return errorResult(
-        `BYOK provider "${detector.detectionProvider}" not found or disabled in workspace settings`,
-        source,
-      );
+      return errorResult(byokProviderMissingMessage(detector.detectionProvider), source);
     }
     // A decision-model provider (TypeSafe) is judged by Jev, not a chat LLM.
     if (isDecisionAdapter(providerConfig.adapter)) {

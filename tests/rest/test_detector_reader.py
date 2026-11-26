@@ -288,6 +288,35 @@ def test_get_finding_rca_lookup_failure_still_returns_finding(reader, monkeypatc
     assert detail.results[0].template is None
 
 
+DETECTORS_ONLY = "source = 'detector'"
+
+
+def _finding_queries(reader) -> list[str]:
+    return [q for q, _ in reader._client.calls if "from detector_findings" in q.lower()]
+
+
+def test_get_finding_by_trace_and_by_id_skip_loop_rows(reader, monkeypatch):
+    """A Loop's rows (source 'loop') sit next to the trace's detector finding and
+    can be newer, so the newest-first fetch must exclude them or it returns the Loop's."""
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
+    reader.get_finding_by_trace("p1", "t9")
+    reader.get_finding("p1", "f1")
+    queries = _finding_queries(reader)
+    assert len(queries) == 2
+    assert all(DETECTORS_ONLY in q for q in queries)
+
+
+def test_list_findings_skips_loop_rows_before_the_dedup(reader):
+    reader.list_findings(
+        project_id="p1", limit=50, start_after=None, end_before=None, detector=None, trace_id=None
+    )
+    queries = _finding_queries(reader)
+    assert len(queries) == 2  # count + page
+    for q in queries:
+        inner = q.split("FROM detector_findings", 1)[1].split("LIMIT 1 BY", 1)[0]
+        assert DETECTORS_ONLY in inner
+
+
 def test_get_finding_by_trace_is_project_and_trace_scoped(reader, monkeypatch):
     payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
     reader._client.rows = [("f1", "p1", "t9", "sum", payload, datetime(2026, 6, 29))]
@@ -374,6 +403,24 @@ def test_list_detectors_applies_create_time_window(reader, monkeypatch):
         assert "create_time < %s" in sql
 
 
+def test_list_detectors_leaves_out_hidden_loop_detectors(reader, monkeypatch):
+    captured: list[tuple] = []
+
+    def fake_pg(sql, params):
+        captured.append((sql.lower(), params))
+        return [(0,)] if "count(" in sql.lower() else []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+
+    reader.list_detectors(project_id="p1", limit=50)
+
+    # Both the count and the page skip Loop detectors, so the total matches the page.
+    assert len(captured) == 2
+    for sql, params in captured:
+        assert "template <> %s" in sql
+        assert params[:2] == ("p1", "loop")
+
+
 def test_get_detector_reader_service_is_singleton(monkeypatch):
     import rest.services.detector_reader as mod
 
@@ -409,7 +456,8 @@ def test_get_detector_returns_full_config_with_trigger(reader, monkeypatch):
     monkeypatch.setattr(reader, "_pg_rows", fake_pg_rows)
     detail = reader.get_detector("proj-A", "det-1")
 
-    assert captured["params"] == ("proj-A", "det-1")
+    assert captured["params"] == ("proj-A", "det-1", "loop")
+    assert "d.template <> %s" in captured["sql"]
     assert "LEFT JOIN detector_triggers" in captured["sql"]
     assert detail.detector_id == "det-1"
     assert detail.prompt == "Flag traces with elevated error rates"

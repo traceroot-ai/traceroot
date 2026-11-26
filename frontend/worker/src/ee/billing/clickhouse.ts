@@ -51,7 +51,8 @@ function emptyBreakdown(): SourceBreakdown {
  * Detector runs are counted from ClickHouse `detector_runs` so the billing
  * cron is the single source of truth — matching how spans/AI runs work.
  * The backend always seeds all three `by_source` buckets, so the breakdown
- * is returned as-is.
+ * is returned as-is. It leaves out the runs of Loop detectors (a Loop's
+ * findings), which are metered as loop runs.
  */
 export async function getWorkspaceUsageDetails(params: {
   projectIds: string[];

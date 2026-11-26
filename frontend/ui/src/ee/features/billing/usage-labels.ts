@@ -10,7 +10,7 @@ export interface QuotaConfig {
 
 export { RCA_RUN_QUOTAS };
 
-export function formatRcaQuotaLabel(quota: QuotaConfig, runsUsed: number): string {
+export function formatQuotaLabel(quota: QuotaConfig, runsUsed: number): string {
   if (quota.included === Infinity) {
     return `${runsUsed} (Unlimited)`;
   }

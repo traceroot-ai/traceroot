@@ -28,6 +28,7 @@ import {
   type MovedHits,
   type SignalStatus,
 } from "@traceroot/core/signals";
+import { isValidTimeZone } from "@traceroot/core/timezone";
 import { z } from "zod";
 import { env } from "@/env";
 import {
@@ -98,7 +99,7 @@ const MAX_WINDOW_DAYS = 10_000;
 
 /**
  * The list page's filter chips, in the predicate shape the trace filters use:
- * status and detector name are picked from lists; signal name and both IDs are typed.
+ * status, detector name and Loop name are picked from lists; signal name and both IDs are typed.
  */
 const signalFilterSchema = z.array(
   z.discriminatedUnion("field", [
@@ -108,6 +109,8 @@ const signalFilterSchema = z.array(
       value: z.array(z.enum(SIGNAL_STATUSES)),
     }),
     z.object({ field: z.literal("detector"), op: z.literal("in"), value: z.array(z.string()) }),
+    // Loops by name, each read as its hidden detector; a Loop's name is unique in its project.
+    z.object({ field: z.literal("loop"), op: z.literal("in"), value: z.array(z.string()) }),
     z.object({ field: z.literal("title"), op: z.literal("contains"), value: z.string() }),
     z.object({ field: z.literal("signal_id"), op: z.literal("eq"), value: z.string() }),
     z.object({ field: z.literal("detector_id"), op: z.literal("eq"), value: z.string() }),
@@ -189,12 +192,14 @@ async function listResponse(
   }
   const statuses = new Set<string>(status ? [status] : []);
   const detectorNames: string[] = [];
+  const loopNames: string[] = [];
   let detectorIds = detectorId ? [detectorId] : undefined;
   let title: string | undefined;
   let signalId: string | undefined;
   for (const f of filters) {
     if (f.field === "status") f.value.forEach((v) => statuses.add(v));
     else if (f.field === "detector") detectorNames.push(...f.value);
+    else if (f.field === "loop") loopNames.push(...f.value);
     else if (f.field === "title") title = f.value.trim() || undefined;
     else if (f.field === "signal_id") signalId = f.value.trim() || undefined;
     else {
@@ -210,6 +215,7 @@ async function listResponse(
     projectId,
     detectorIds,
     detectorNames: detectorNames.length > 0 ? detectorNames : undefined,
+    loopNames: loopNames.length > 0 ? loopNames : undefined,
     statuses: statuses.size > 0 ? [...statuses] : undefined,
     title,
     signalId,
@@ -240,16 +246,6 @@ export async function handleListDetectorSignals(
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
   return listResponse(req, projectId, auth.project.workspaceId, detectorId);
-}
-
-/** Whether `tz` is an IANA zone name this runtime (and so Postgres and ClickHouse) knows. */
-function isValidTimeZone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -286,7 +282,9 @@ async function tracesPerBucket(
 
 // GET /api/projects/[projectId]/signals/[signalId]?start_after=&end_before=&tz=
 // Buckets are the viewer's local hours or days. Each carries the signal's traces
-// and, when the backend answers, the other traces its detector checked.
+// and, when the backend answers, the other traces its detector checked. A Loop's
+// detector checks no traces (its hits are the examples a run cited), so a Loop
+// signal's buckets carry no unaffected count.
 export async function handleGetSignal(
   req: NextRequest,
   { params }: Params<{ projectId: string; signalId: string }>,
@@ -309,7 +307,11 @@ export async function handleGetSignal(
   });
   if (!result) return errorResponse("Signal not found", 404);
   if (result.merged) return successResponse(result);
-  const counted = await tracesPerBucket(projectId, result.signal.detectorId, result.window, tz);
+  // A loop signal's hits are the examples it cited: no share of checked traces to count.
+  const counted =
+    result.signal.source.kind === "detector"
+      ? await tracesPerBucket(projectId, result.signal.detectorId, result.window, tz)
+      : null;
   return successResponse({
     ...result,
     // Without the key the worker runs no signal RCA, so the panel offers none.

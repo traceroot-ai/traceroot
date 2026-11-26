@@ -35,6 +35,10 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
+# A Loop's hidden detector is never listed or read as a detector. Keep in step
+# with USER_DETECTOR_WHERE in frontend/packages/core/src/loops/keys.ts.
+LOOP_DETECTOR_TEMPLATE = "loop"
+
 
 class DetectorReaderService:
     """Read detector findings (ClickHouse) plus RCA/templates (Postgres)."""
@@ -102,8 +106,8 @@ class DetectorReaderService:
             by ``create_time`` DESC, plus the total number of catalog rows matching
             the filters (for pagination).
         """
-        conditions = ["project_id = %s"]
-        params: list[Any] = [project_id]
+        conditions = ["project_id = %s", "template <> %s"]
+        params: list[Any] = [project_id, LOOP_DETECTOR_TEMPLATE]
         if start_after is not None:
             conditions.append("create_time >= %s")
             params.append(to_utc_naive(start_after))
@@ -153,8 +157,8 @@ class DetectorReaderService:
             "d.detection_provider, d.detection_source, d.update_time, t.conditions "
             "FROM detectors d "
             "LEFT JOIN detector_triggers t ON t.detector_id = d.id "
-            "WHERE d.project_id = %s AND d.id = %s",
-            (project_id, detector_id),
+            "WHERE d.project_id = %s AND d.id = %s AND d.template <> %s",
+            (project_id, detector_id, LOOP_DETECTOR_TEMPLATE),
         )
         if not rows:
             return None
@@ -199,6 +203,8 @@ class DetectorReaderService:
           there because a finding's latest version carries the max timestamp, so it
           survives ``timestamp >= start`` iff its latest version does — this scopes
           the expensive dedup + count to the window instead of all history.
+          Only detectors' rows (``source = 'detector'``) are kept there too: a
+          finding id is a Loop's or a detector's in every version.
         * ``end_before`` and the payload-based ``detector`` predicate are
           version-sensitive and applied AFTER the dedup; on raw pre-merge rows an
           older version ``< end_before`` (or an outdated payload) could otherwise
@@ -222,7 +228,7 @@ class DetectorReaderService:
         params: dict[str, Any] = {"project_id": project_id, "limit": limit}
 
         # Pre-dedup filters (see the docstring: safe here + they prune the scan).
-        base_conditions = ["project_id = {project_id:String}"]
+        base_conditions = ["project_id = {project_id:String}", "source = 'detector'"]
         if trace_id is not None:
             base_conditions.append("trace_id = {trace_id:String}")
             params["trace_id"] = trace_id
@@ -389,10 +395,12 @@ class DetectorReaderService:
         return self._build_detail(project_id, row, billing_plan) if row else None
 
     def _fetch_finding(self, predicate: str, params: dict) -> tuple | None:
+        """The newest detector finding row matching ``predicate``, never a Loop's."""
         query = f"""
             SELECT finding_id, project_id, trace_id, summary, payload, timestamp
             FROM detector_findings
             WHERE project_id = {{project_id:String}} AND {predicate}
+              AND source = 'detector'
             ORDER BY timestamp DESC
             LIMIT 1
         """

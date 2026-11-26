@@ -619,8 +619,9 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "name": "list_signals",
         "description": (
             "List the project's signals, newest first: the recurring problems "
-            "that detector findings are grouped into, with status (open, "
-            "resolved, dismissed), detector, hit count, reopen count and the "
+            "that detector and Loop findings are grouped into, with status (open, "
+            "resolved, dismissed), source (a detector, a Loop or a deleted Loop), "
+            "hit count, reopen count and the "
             "state of the current root cause analysis. Filter by status or "
             "detector_id. Merged signals are left out. Returns 50 results by default; "
             "increment page to fetch subsequent pages until all needed signals are found."
@@ -636,8 +637,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "trace_start_time; only traces that started inside the plan's "
             "retention window are listed, so each trace_id can be fetched with "
             "get_trace. A merged signal names the signal its findings moved to "
-            "in merged_into_id. Resolve the signal id by listing signals — never "
-            "guess an id."
+            "in merged_into_id. source names what raised the signal: a detector, "
+            "a Loop or a deleted Loop; a Loop's findings are not detector findings, "
+            "so open its hits with get_trace. Resolve the signal id by listing "
+            "signals — never guess an id."
         ),
         "enabled": True,
     },

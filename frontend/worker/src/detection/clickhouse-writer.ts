@@ -8,6 +8,14 @@
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 
+/**
+ * Who wrote a detector_runs / detector_findings row (migration 017): a
+ * detector, or a Loop recording its findings as hits of its hidden detector.
+ * Readers of detector findings, runs and usage keep only "detector" rows.
+ * Omitted reads as "detector" server-side.
+ */
+export type DetectorRowSource = "detector" | "loop";
+
 async function internalPost(path: string, body: unknown): Promise<void> {
   const response = await fetch(`${BACKEND_URL}${path}`, {
     method: "POST",
@@ -41,6 +49,7 @@ export async function writeDetectorRun(params: {
   // runs-tab link to the run's own trace. Omitted (false) when no emit
   // happened, e.g. the spans download failed before any detector ran.
   selfTraced?: boolean;
+  source?: DetectorRowSource;
   // Worker epoch-ms time to store as the row timestamp. Omit to let ClickHouse
   // default to now64(3). Set for triggered runs so the digest window count
   // shares the clock that keys the flush.
@@ -55,6 +64,7 @@ export async function writeDetectorFinding(params: {
   traceId: string;
   summary: string;
   payload: string;
+  source?: DetectorRowSource;
   timestampMs?: number;
 }): Promise<void> {
   await internalPost("/api/v1/internal/detector-findings", params);

@@ -42,6 +42,18 @@
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"
     },
+    "./timezone": {
+      "types": "./src/lib/timezone.ts",
+      "default": "./src/lib/timezone.ts"
+    },
+    "./loops": {
+      "types": "./src/loops/index.ts",
+      "default": "./src/loops/index.ts"
+    },
+    "./loops/pure": {
+      "types": "./src/loops/pure.ts",
+      "default": "./src/loops/pure.ts"
+    },
     "./signals": {
       "types": "./src/ee/signals/index.ts",
       "default": "./src/ee/signals/index.ts"
@@ -57,6 +69,7 @@
     "db:push": "dotenv -e ../../../.env -- prisma db push",
     "build": "dotenv -e ../../../.env -- prisma generate && tsc",
     "clean": "rm -rf dist",
+    "loops:seed": "dotenv -e ../../../.env -- tsx scripts/seed-loops.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { ExternalLink, AlertCircle, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLayout } from "@/components/layout/app-layout";
 import {
   PLANS,
   PlanType,
@@ -11,9 +12,11 @@ import {
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
+  LOOP_RUN_QUOTAS,
+  isLoopRunBlocked,
 } from "@traceroot/core";
 import type { UsageStats, AIUsageByModel } from "@/types/api";
-import { formatRcaQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
+import { formatQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
 import { PricingDialog } from "./PricingDialog";
 
 function formatCost(cost: number): string {
@@ -124,6 +127,7 @@ export function BillingTab({
   hasSubscription = false,
   currentUsage,
 }: BillingTabProps) {
+  const { loopsEnabled } = useLayout(); // LOOPS_ENABLED; off hides Loop usage
   const searchParams = useSearchParams();
   const upgradeIntent = searchParams.get("upgrade");
   const [showPricingDialog, setShowPricingDialog] = useState(Boolean(upgradeIntent));
@@ -135,9 +139,13 @@ export function BillingTab({
   const aiUsage = currentUsage?.ai;
   const rcaUsage = currentUsage?.rca;
   const detectorUsage = currentUsage?.detector;
+  const loopUsage = currentUsage?.loop;
   const eventQuota = EVENT_QUOTAS[currentPlan];
   const aiRunQuota = AI_RUN_QUOTAS[currentPlan];
   const rcaRunQuota = RCA_RUN_QUOTAS[currentPlan];
+  const loopRunQuota = LOOP_RUN_QUOTAS[currentPlan];
+  const loopRunsUsed = loopUsage?.runsUsed ?? 0;
+  const loopCapReached = isLoopRunBlocked(currentPlan, loopRunsUsed);
   const detectorRunQuota = DETECTOR_RUN_QUOTAS[currentPlan];
 
   // Fetch live subscription info from Stripe
@@ -354,10 +362,32 @@ export function BillingTab({
         byModel={detectorUsage?.byModel}
       />
 
+      {loopsEnabled && (
+        <UsageSection
+          title="Loop usage"
+          runsLabel="Loop runs"
+          runsValue={formatQuotaLabel(loopRunQuota, loopRunsUsed)}
+          runsHelper={
+            loopCapReached
+              ? "Limit reached: Loop runs are skipped until you upgrade."
+              : "Each run in which the agent replied."
+          }
+          systemCost={loopUsage?.systemTokenCost ?? 0}
+          systemHelper={
+            currentPlan === PlanType.FREE
+              ? "Included in your plan (we pay)."
+              : "Usage based, like detector runs."
+          }
+          systemInputTokens={loopUsage?.systemInputTokens ?? 0}
+          systemOutputTokens={loopUsage?.systemOutputTokens ?? 0}
+          byModel={loopUsage?.byModel}
+        />
+      )}
+
       <UsageSection
         title="Root cause analysis usage"
         runsLabel="Root cause analysis runs"
-        runsValue={formatRcaQuotaLabel(rcaRunQuota, rcaUsage?.runsUsed ?? 0)}
+        runsValue={formatQuotaLabel(rcaRunQuota, rcaUsage?.runsUsed ?? 0)}
         runsHelper={
           "Triggered by detector findings." +
           (currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE

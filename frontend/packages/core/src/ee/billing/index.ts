@@ -13,15 +13,19 @@ export {
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
   DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
+  LOOP_HOSTED_LLM_FREE_THRESHOLD,
+  LOOP_RUN_QUOTAS,
   RETENTION_DAYS,
   FAIL_CLOSED_RETENTION_DAYS,
   getRetentionDays,
   PlanType,
   // Types
   type PlanConfig,
+  type PlanFeature,
   type Entitlement,
   // Plan helpers
   getPlanConfig,
+  planFeatures,
   getPlanOrder,
   mapPriceIdToPlan,
   isUpgrade,
@@ -42,6 +46,7 @@ export {
   isAiRunBlocked,
   isRcaRunBlocked,
   isDetectorRunBlocked,
+  isLoopRunBlocked,
 } from "./plans.ts";
 
 // Locating the plan price among a subscription's metered items
