@@ -276,7 +276,7 @@ class TestRetention:
 
         assert response.status_code == 403
         reader.get_trace_start_time.assert_called_once_with(PROJECT, TRACE, customer_only=True)
-        reader.get_customer_trace_earliest_span_time.assert_not_called()
+        reader.get_trace_earliest_span_time.assert_not_called()
         reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
@@ -294,18 +294,20 @@ class TestRetention:
         self, free_plan_client, reader, s3
     ):
         reader.get_trace_start_time.return_value = None
-        reader.get_customer_trace_earliest_span_time.return_value = datetime(2020, 1, 1)
+        reader.get_trace_earliest_span_time.return_value = datetime(2020, 1, 1)
 
         response = free_plan_client.get(URL)
 
         assert response.status_code == 403
-        reader.get_customer_trace_earliest_span_time.assert_called_once_with(PROJECT, TRACE)
+        reader.get_trace_earliest_span_time.assert_called_once_with(
+            PROJECT, TRACE, customer_only=True
+        )
         reader.get_span_io.assert_not_called()
         s3.get_object_stream.assert_not_called()
 
     def test_a_trace_without_its_root_inside_the_window_is_served(self, free_plan_client, reader):
         reader.get_trace_start_time.return_value = None
-        reader.get_customer_trace_earliest_span_time.return_value = _days_ago(1)
+        reader.get_trace_earliest_span_time.return_value = _days_ago(1)
 
         response = free_plan_client.get(URL, headers=IDENTITY)
 
@@ -315,7 +317,7 @@ class TestRetention:
     def test_a_trace_with_no_span_is_refused_before_any_read(self, client, reader, s3):
         # Even with unlimited retention: no start time at all is never a pass.
         reader.get_trace_start_time.return_value = None
-        reader.get_customer_trace_earliest_span_time.return_value = None
+        reader.get_trace_earliest_span_time.return_value = None
 
         response = client.get(URL)
 
