@@ -57,10 +57,14 @@ vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
 import { MAX_UNREADABLE_ROUNDS } from "@/features/onboarding/use-project-trace-wait";
 import SetupStepPage from "./page";
-import { setupResumeKey, type SetupResume } from "@/features/onboarding/setup-resume";
+import {
+  rememberSetup,
+  setupResumeKey,
+  type SetupResume,
+} from "@/features/onboarding/setup-resume";
 import { readStored } from "@/lib/hooks/use-local-storage";
 
-const resume = () => readStored<SetupResume | null>(setupResumeKey("user-1"), null);
+const resume = () => readStored<SetupResume[]>(setupResumeKey("user-1"), [])[0] ?? null;
 
 function trace(traceId: string, startTime: string) {
   return {
@@ -212,6 +216,15 @@ describe("the hand-back step's first-trace watch", () => {
     await rounds(3);
     expect(mocks.push).not.toHaveBeenCalled();
     expect(mocks.getTraces).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps another interrupted project when revisiting one that already has traces", async () => {
+    rememberSetup("user-1", "unfinished-project", "project");
+    tracePage = [trace("t-old", "2025-05-01T10:00:00Z")];
+    mocks.firstTraceTime.mockResolvedValue("2025-05-01T10:00:00Z");
+    await reachHandback();
+    expect(screen.getByRole("link", { name: "View traces" })).toBeDefined();
+    expect(resume()).toEqual({ projectId: "unfinished-project", created: "project" });
   });
 
   it("opens the first trace ingested during the initial list request, even with a skewed producer clock", async () => {

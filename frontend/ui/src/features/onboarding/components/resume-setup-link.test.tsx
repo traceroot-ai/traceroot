@@ -70,16 +70,31 @@ describe("resuming setup from the workspace list", () => {
       await client.invalidateQueries();
     });
     await waitFor(() => expect(resumeLink()).toBeNull());
-    expect(JSON.parse(localStorage.getItem(setupResumeKey("alice"))!)).toBeNull();
+    expect(JSON.parse(localStorage.getItem(setupResumeKey("alice"))!)).toEqual([]);
+  });
+
+  it("falls back to another unfinished project after the last one completes", async () => {
+    rememberSetup("alice", "previous", "workspace");
+    rememberSetup("alice", "latest", "project");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(traceStatus("2026-11-26T10:00:00Z"))
+        .mockResolvedValueOnce(traceStatus(null)),
+    );
+    workspaceList("alice");
+    expect((await screen.findByRole("link")).getAttribute("href")).toBe(
+      "/onboarding/setup?projectId=previous",
+    );
   });
 
   it.each([403, 404, 502])("hides an inaccessible or unverified project (%i)", async (status) => {
     rememberSetup("alice", "hidden", "workspace");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status })));
     const { client } = workspaceList("alice");
-    await waitFor(() =>
-      expect(client.getQueryState(["resume-setup", "alice", "hidden"])?.status).toBe("error"),
-    );
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await waitFor(() => expect(client.isFetching()).toBe(0));
     expect(resumeLink()).toBeNull();
   });
 });

@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api/errors";
 import { getProjectFirstTraceTime } from "@/lib/api/projects";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { ACTIVITY_REFRESH_INTERVAL_MS } from "@/features/workspaces/hooks";
-import { forgetSetup, setupResumeKey, type SetupResume } from "../setup-resume";
+import { remainingSetups, setupResumeKey, type SetupResume } from "../setup-resume";
 import { setupStepUrl } from "../step-urls";
 
 export function ResumeSetupLink({ userId }: { userId: string }) {
-  const [resume] = useLocalStorage<SetupResume | null>(setupResumeKey(userId), null);
+  const [pending, setPending] = useLocalStorage<SetupResume[]>(setupResumeKey(userId), []);
+  const resume = pending?.[0];
   const projectId = resume?.projectId;
   // A stored ID identifies the last setup, not whether this account can still
   // access it or whether another teammate has since sent the first trace.
@@ -22,9 +24,12 @@ export function ResumeSetupLink({ userId }: { userId: string }) {
     refetchInterval: (query) => (query.state.data === null ? ACTIVITY_REFRESH_INTERVAL_MS : false),
   });
   const firstTrace = status.data;
+  const denied = status.error instanceof ApiError && [403, 404].includes(status.error.status);
   useEffect(() => {
-    if (projectId && firstTrace) forgetSetup(userId, projectId);
-  }, [userId, projectId, firstTrace]);
+    if (projectId && (firstTrace || denied)) {
+      setPending(() => remainingSetups(userId, projectId));
+    }
+  }, [userId, projectId, firstTrace, denied, setPending]);
 
   if (!resume || !status.isSuccess || firstTrace !== null) return null;
   return (
