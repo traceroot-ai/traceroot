@@ -64,8 +64,9 @@ def create_sample_trace(project_id: str) -> dict[str, str]:
 
     trace, spans = build_sample_trace(project_id)
     clickhouse = get_clickhouse_client()
-    # Spans first, so a partial failure cannot leave a trace row without its spans.
-    clickhouse.insert_spans_batch(spans)
+    # Spans last: they are what says a project has traces, so a failed insert leaves
+    # the setup page up and the sample can be added again.
     clickhouse.insert_traces_batch([trace])
+    clickhouse.insert_spans_batch(spans)
     reader.forget_has_traces(project_id)
     return {"trace_id": trace["trace_id"]}

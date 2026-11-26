@@ -94,14 +94,14 @@ def client(secret, reader, clickhouse):
 
 
 class TestCreateSampleTrace:
-    def test_inserts_spans_then_the_trace(self, client, reader, clickhouse, secret):
+    def test_inserts_the_trace_then_spans(self, client, reader, clickhouse, secret):
         resp = client.post(URL, headers={"X-Internal-Secret": secret})
 
         assert resp.status_code == 200
         assert resp.json() == {"trace_id": sample_trace_id("proj-1")}
         assert [call[0] for call in clickhouse.method_calls] == [
-            "insert_spans_batch",
             "insert_traces_batch",
+            "insert_spans_batch",
         ]
         reader.forget_has_traces.assert_called_once_with("proj-1")
 

@@ -1,15 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { hasMinRole, Role } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
+import { useProject } from "@/features/projects/hooks";
+import { useWorkspace } from "@/features/workspaces/hooks";
 import { createSampleTrace } from "@/lib/api/traces";
 
 /**
  * The way to look around before instrumenting anything: adds a made-up trace to the
  * project. Nothing here opens it — the page is already watching for a first trace,
- * and opens this one like any other.
+ * and opens this one like any other. Viewers cannot write, so they are not offered it.
  */
 export function SampleTrace({ projectId }: { projectId: string }) {
+  const { data: project } = useProject(projectId);
+  const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
   const [state, setState] = useState<
     { kind: "idle" | "creating" | "created" } | { kind: "failed"; message: string }
   >({ kind: "idle" });
@@ -26,6 +31,8 @@ export function SampleTrace({ projectId }: { projectId: string }) {
       });
     }
   };
+
+  if (!workspace || !hasMinRole(workspace.role, Role.MEMBER)) return null;
 
   const busy = state.kind === "creating" || state.kind === "created";
 
