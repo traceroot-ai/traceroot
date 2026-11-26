@@ -42,7 +42,7 @@ function Questions() {
   // project and asks it the questions; a waiting terminal's hand-back goes along.
   const switcher = useSwitchAccount(returnTo);
 
-  if (!projectId) return <StepUnavailable />;
+  if (!projectId) return <StepUnavailable description="The questionnaire opens during signup." />;
 
   return (
     <StandaloneFrame>
