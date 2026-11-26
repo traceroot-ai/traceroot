@@ -123,7 +123,28 @@ function Questions({
   const questions: Question[] = saved.companyAsked
     ? ["role", "company", "uses", "source"]
     : ["role", "uses", "source"];
-  const [index, setIndex] = useState(0);
+  // Answers come from the API. Remember only the current screen, including
+  // after a Skip, for this tab and the account that owns those answers.
+  const progressKey = `onboarding:question:${saved.userId}`;
+  const [index, setIndex] = useState(() => {
+    try {
+      const current = sessionStorage.getItem(progressKey);
+      return Math.max(
+        0,
+        questions.findIndex((item) => item === current),
+      );
+    } catch {
+      return 0;
+    }
+  });
+  function goTo(nextIndex: number) {
+    setIndex(nextIndex);
+    try {
+      sessionStorage.setItem(progressKey, questions[nextIndex]);
+    } catch {
+      // Storage can be disabled; navigation still works.
+    }
+  }
   const [finishing, setFinishing] = useState(false);
   // A save refused because this browser is now signed in as someone else
   // (another tab switched): nothing more is saved from this draft.
@@ -150,6 +171,12 @@ function Questions({
   const saves = useRef<Promise<unknown>>(Promise.resolve());
   const question = questions[index];
   const last = index === questions.length - 1;
+  const canContinue = {
+    role: draft.role !== null,
+    company: draft.company.trim() !== "",
+    uses: draft.uses.length > 0,
+    source: draft.source !== null || draft.sourceOther.trim() !== "",
+  }[question];
 
   async function next(skipped: boolean) {
     const patch = patchFor(question, draft, skipped);
@@ -159,7 +186,7 @@ function Questions({
       }),
     );
     if (!last) {
-      setIndex(index + 1);
+      goTo(index + 1);
       return;
     }
     setFinishing(true);
@@ -287,7 +314,7 @@ function Questions({
             size="sm"
             className="h-8 px-3 text-[12px]"
             disabled={finishing}
-            onClick={() => setIndex(index - 1)}
+            onClick={() => goTo(index - 1)}
           >
             Back
           </Button>
@@ -304,7 +331,7 @@ function Questions({
         <Button
           size="sm"
           className="h-8 px-4 text-[12px]"
-          disabled={finishing}
+          disabled={finishing || !canContinue}
           onClick={() => next(false)}
         >
           Continue

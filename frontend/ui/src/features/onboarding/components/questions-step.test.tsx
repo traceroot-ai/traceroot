@@ -49,6 +49,7 @@ const saved = () =>
   });
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   api.save.mockResolvedValue({ saved: true });
   api.finish.mockResolvedValue({ finished: true });
 });
@@ -107,7 +108,7 @@ describe("a personal-email sign-up", () => {
   it("is also asked for the company, as step 2 of 4", async () => {
     renderStep({ companyAsked: true });
     await screen.findByText("Step 1 of 4");
-    click("Continue");
+    click("Skip");
     await screen.findByText("Step 2 of 4");
     fireEvent.change(screen.getByPlaceholderText("acme.com"), {
       target: { value: "  acme.dev " },
@@ -120,11 +121,11 @@ describe("a personal-email sign-up", () => {
   it("keeps the typed answers out of analytics capture", async () => {
     renderStep({ companyAsked: true });
     await screen.findByText("Step 1 of 4");
-    click("Continue");
+    click("Skip");
     expect((await screen.findByPlaceholderText("acme.com")).className).toContain("ph-no-capture");
-    click("Continue");
+    click("Skip");
     await screen.findByText("Step 3 of 4");
-    click("Continue");
+    click("Skip");
     expect((await screen.findByPlaceholderText("Somewhere else? Tell us")).className).toContain(
       "ph-no-capture",
     );
@@ -135,7 +136,7 @@ describe("answering", () => {
   it("allows up to three uses, and a pick to be let go", async () => {
     renderStep();
     await screen.findByText("Step 1 of 3");
-    click("Continue");
+    click("Skip");
     await screen.findByText("Step 2 of 3");
     for (const name of [
       "A support bot or chat assistant",
@@ -153,9 +154,9 @@ describe("answering", () => {
   it("takes a typed source with no button picked", async () => {
     renderStep();
     await screen.findByText("Step 1 of 3");
-    click("Continue");
+    click("Skip");
     await screen.findByText("Step 2 of 3");
-    click("Continue");
+    click("Skip");
     fireEvent.change(await screen.findByPlaceholderText("Somewhere else? Tell us"), {
       target: { value: "a meetup" },
     });
@@ -178,12 +179,53 @@ describe("answering", () => {
     );
   });
 
-  it("starts from what was saved, after a refresh part way through", async () => {
-    renderStep({ role: "data", uses: ["rag"] });
+  it("restores the same account's screen after refresh, even after a skip or Back", async () => {
+    let view = renderStep({ role: "data" });
     await screen.findByText("Step 1 of 3");
+    click("Continue");
+    await screen.findByText("Step 2 of 3");
+    click("Skip");
+    await screen.findByText("Step 3 of 3");
+    view.unmount();
+    view = renderStep({ role: "data" });
+    await screen.findByText("Step 3 of 3");
+    click("Back");
+    view.unmount();
+    renderStep({ role: "data" });
+    await screen.findByText("Step 2 of 3");
+    click("Back");
     expect(screen.getByRole("radio", { name: "Data or ML" }).getAttribute("aria-checked")).toBe(
       "true",
     );
+  });
+
+  it("uses Skip for blank answers and Continue for a selection or nonblank text", async () => {
+    renderStep({ companyAsked: true });
+    await screen.findByText("Step 1 of 4");
+    const next = () => screen.getByRole("button", { name: "Continue" });
+    expect(next().hasAttribute("disabled")).toBe(true);
+    click("Continue");
+    expect(api.save).not.toHaveBeenCalled();
+    click("Skip");
+    await screen.findByText("Step 2 of 4");
+    fireEvent.change(screen.getByPlaceholderText("acme.com"), { target: { value: "  " } });
+    expect(next().hasAttribute("disabled")).toBe(true);
+    click("Skip");
+    await screen.findByText("Step 3 of 4");
+    expect(next().hasAttribute("disabled")).toBe(true);
+    const other = screen.getByRole("checkbox", { name: "Something else" });
+    fireEvent.click(other);
+    expect(next().hasAttribute("disabled")).toBe(false);
+    fireEvent.click(other);
+    expect(next().hasAttribute("disabled")).toBe(true);
+    click("Skip");
+    await screen.findByText("Step 4 of 4");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "  " } });
+    expect(next().hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "a meetup" } });
+    expect(next().hasAttribute("disabled")).toBe(false);
+    click("Continue");
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
   });
 
   it("finishes after the last answer is saved", async () => {
@@ -317,6 +359,8 @@ describe("another tab signs this browser in as someone else", () => {
     expect(screen.getByRole("radio", { name: "Founder" }).getAttribute("aria-checked")).toBe(
       "true",
     );
+    click("Continue");
+    await screen.findByText("Step 2 of 3");
 
     // The session now names another account, whose saved answer is different.
     api.get.mockImplementation(async () => ({ ...EMPTY, userId: "u2", role: "student" }));
@@ -361,9 +405,9 @@ describe("asked once", () => {
     api.finish.mockRejectedValue(new Error("down"));
     renderStep();
     await screen.findByText("Step 1 of 3");
-    click("Continue");
-    click("Continue");
-    click("Continue");
+    click("Skip");
+    click("Skip");
+    click("Skip");
     await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
   });
 });
@@ -395,11 +439,11 @@ describe("option layout", () => {
       ["Something else", false],
     ]);
 
-    click("Continue");
+    click("Skip");
     await screen.findByText("Step 2 of 3");
     expect(twoColumns("What will you use traceroot for?")).toBe(false);
 
-    click("Continue");
+    click("Skip");
     await screen.findByText("Step 3 of 3");
     expect(twoColumns("Where did you hear about us?")).toBe(true);
     expect(
