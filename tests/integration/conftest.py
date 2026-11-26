@@ -88,7 +88,7 @@ EVAL_PARTITION = int(EVAL_T0.strftime("%Y%m"))
 
 def pytest_configure(config):
     config.addinivalue_line(
-        "markers", "integration: needs a live ClickHouse (SQL_GATEWAY_IT_CLICKHOUSE_HOST)"
+        "markers", "integration: needs explicitly configured live database services"
     )
 
 
