@@ -45,6 +45,8 @@ app.conf.update(
         "visibility_timeout": 3600,  # 1 hour - time before unacked task is requeued
     },
     # Performance
+    # Pinned: Celery otherwise starts one process per host CPU; .env.example gives the sizing.
+    worker_concurrency=settings.worker.concurrency,
     worker_prefetch_multiplier=4,  # Prefetch 4 tasks per worker process
     # Serialization (JSON for debuggability)
     task_serializer="json",
@@ -69,6 +71,18 @@ app.conf.beat_schedule = {
         "schedule": 600.0,  # every 10 minutes
     },
 }
+
+
+@worker_ready.connect
+def record_reporting_start(**kwargs):
+    """Tell the web app when this worker started reporting trace activity, as it starts.
+
+    So the cutoff is recorded before any report arrives (see worker.trace_activity).
+    Does nothing without the internal secret, and never stops the worker.
+    """
+    from worker.trace_activity import record_tracking_start
+
+    record_tracking_start()
 
 
 @worker_ready.connect

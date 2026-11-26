@@ -14,17 +14,22 @@ import {
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
   isDecisionAdapter,
+  ADAPTER_CONFIG,
   LLMAdapter,
+  decisionModelAlias,
 } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
+import { buildJudgeInput, JUDGE_INPUT_FORMAT_NOTE, type JudgeInput } from "./judge-input.js";
 import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
 import { usageFromError } from "./typesafe-client.js";
+import { decisionsCostFromError, runOpenAIDecisionDetection } from "./openai-decision-eval.js";
+import { decisionsUsageFromError } from "./openai-decisions-client.js";
 
 export interface DetectorConfig {
   id: string;
   name: string;
   prompt: string;
-  outputSchema: Array<{ name: string; type: string }>;
+  outputSchema: ReadonlyArray<unknown>;
   detectionModel?: string | null;
   detectionProvider?: string | null;
   detectionSource?: "system" | "byok" | null;
@@ -48,18 +53,22 @@ export interface EvalResult {
   inferenceModel: string | null;
   /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
   inferenceProvider: string | null;
+  /**
+   * The eval priced the call itself (the Decisions API: output free, cache
+   * split), so the run processor must not re-price a zero cost from the token
+   * counts.
+   */
+  skipCostFallback?: boolean;
 }
 
 const MAX_ATTEMPTS = 2;
 /**
- * Hard character cap on per-trace context sent to the judge.
+ * Hard character cap on per-trace context sent to the judge, kept as a last
+ * guard behind buildJudgeInput's own budget of the same size.
  * ~37k tokens at 4 chars/token: under 20% of a 200k-token window, the smallest
  * among the system models a detector can run on, leaving generous headroom for the system prompt + tool definitions + response budget.
- * Smart compression (type-aware truncation + path-based dedup + base64
- * stripping) is a future improvement when we see real customer complaints
- * about traces being truncated. For now, rely on this hard cap.
  */
-const SAFETY_TRUNCATE_CHARS = 150_000;
+export const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
 export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
 /** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
@@ -145,6 +154,8 @@ export async function resolveDetectorApiKey(
 export async function runDetectionForTrace(params: {
   traceId: string;
   spansJsonl: string;
+  /** Returns the trace's judge input, shared by its detectors; built here when absent. */
+  getJudgeInput?: () => JudgeInput;
   detector: DetectorConfig;
   workspaceId: string;
 }): Promise<EvalResult> {
@@ -165,6 +176,16 @@ export async function runDetectionForTrace(params: {
     if (!providerConfig) {
       return errorResult(
         `BYOK provider "${detector.detectionProvider}" not found or disabled in workspace settings`,
+        source,
+      );
+    }
+    // A decision alias names one adapter; on any other it would reach that
+    // provider's chat models or Jev under a model id they don't serve.
+    const decisionAlias = decisionModelAlias(detector.detectionModel);
+    if (decisionAlias && providerConfig.adapter !== decisionAlias.adapter) {
+      return errorResult(
+        `Model "${detector.detectionModel}" runs only on ` +
+          `${ADAPTER_CONFIG[decisionAlias.adapter].label} providers`,
         source,
       );
     }
@@ -191,6 +212,34 @@ export async function runDetectionForTrace(params: {
           usage ? detector.detectionModel || JEV_DEFAULT_MODEL_ID : null,
           usage ? LLMAdapter.TYPESAFE : null,
         );
+      }
+    }
+    // An OpenAI decision alias (gpt-6-luna-decisions) is judged by the
+    // Decisions API, not a chat model.
+    if (decisionAlias) {
+      try {
+        return await runOpenAIDecisionDetection({
+          spansJsonl,
+          detector,
+          providerConfig,
+          timeoutMs: parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS),
+        });
+      } catch (err) {
+        // A refusal or rejected answer is still billed; keep its usage, and
+        // the cost the eval priced it at (the one its span records).
+        const usage = decisionsUsageFromError(err);
+        return {
+          ...errorResult(
+            err instanceof Error ? err.message : String(err),
+            source,
+            usage ? (decisionsCostFromError(err) ?? 0) : 0,
+            usage?.inputTokens ?? 0,
+            usage?.outputTokens ?? 0,
+            usage ? decisionAlias.model : null,
+            usage ? decisionAlias.adapter : null,
+          ),
+          skipCostFallback: true,
+        };
       }
     }
   }
@@ -230,7 +279,16 @@ RULES:
 - You MUST call the submit_result tool to complete your analysis. Plain text responses are rejected.
 - identified=true means you found the problem. identified=false means the trace is clean.
 - summary must be one sentence. If identified=true, describe what you found. If false, state why it is clean.
-- data fields are only required when identified=true.`;
+- data fields are only required when identified=true.
+
+${JUDGE_INPUT_FORMAT_NOTE}`;
+
+  const judgeInput =
+    params.getJudgeInput?.() ??
+    buildJudgeInput(traceId, spansJsonl, { budgetChars: SAFETY_TRUNCATE_CHARS });
+  console.log(
+    `[sandbox-eval] judge input for trace ${traceId}: ${JSON.stringify(judgeInput.stats)}`,
+  );
 
   const userText = `DETECTOR: ${detector.name}
 
@@ -239,8 +297,8 @@ ${detector.prompt}
 
 TRACE ID: ${traceId}
 
-SPANS (one JSON object per line):
-${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
+TRACE:
+${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
 
   // 5. Single-shot complete() with retry-once-on-text-response
   const messages: Message[] = [{ role: "user", content: userText, timestamp: Date.now() }];

@@ -138,8 +138,27 @@ describe("AiAssistantPanel", () => {
 
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
-    const link = screen.getByRole("link", { name: /Workspace Settings.*Model Providers/i });
+    const link = screen.getByRole("link", { name: /Workspace Settings.*Model providers/i });
     expect(link.getAttribute("href")).toBe("/workspaces/ws-abc/settings/model-providers");
+  });
+
+  it("shows the no-models empty state when the only BYOK model is a decision alias", () => {
+    mocks.projectData = { workspace_id: "ws-abc" };
+    mocks.llmModels = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "my-openai",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions", supported: true }],
+        },
+      ],
+    };
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByRole("link", { name: /Workspace Settings.*Model Providers/i })).toBeTruthy();
   });
 
   it("renders the Close button in the default rail variant", () => {

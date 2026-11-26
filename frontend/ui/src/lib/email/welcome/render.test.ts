@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 
 const links = vi.hoisted(() => ({
   NEXT_PUBLIC_DOCS_URL: "https://docs.example.com",
@@ -27,7 +27,7 @@ it.each([
 
 it("renders text with the greeting, bullets and raw opt-out URL, and html with escaped name, list, code and links", () => {
   const { subject, text } = renderWelcome(base);
-  expect(subject).toBe("Making the most of TraceRoot");
+  expect(subject).toBe("Making the most of traceroot");
   expect(text.startsWith("Hi Lucas,\n")).toBe(true);
   expect(text).toContain(
     "try now:\n- Install the CLI: `npm install -g traceroot-cli` → `traceroot login`\n- Ask",
@@ -36,10 +36,10 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
     `\n- Prefer a UI? The web app (${base.appUrl}) and docs (${links.NEXT_PUBLIC_DOCS_URL}) are always there\n`,
   );
   expect(text).toContain(
-    "TraceRoot is open source. Don't forget to star ⭐ our repo on GitHub (https://github.com/example/repo)!",
+    "traceroot is open source. Don't forget to star ⭐ our repo on GitHub (https://github.com/example/repo)!",
   );
   expect(text).toContain(`hear from us again, let us know: ${base.unsubscribeUrl}`);
-  expect(text).toContain("\nBest,\nThe TraceRoot Devs\n");
+  expect(text).toContain("\nBest,\nThe traceroot Devs\n");
   expect(text).not.toContain("Discord");
   expect(renderWelcome({ ...base, firstName: null }).text.startsWith("Hi,\n")).toBe(true);
   const { html } = renderWelcome({ ...base, firstName: "<b>x" });
@@ -52,12 +52,50 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
   );
   expect(html.match(/<li>/g)).toHaveLength(3);
   expect(html).toContain(
-    `<p>TraceRoot is open source. Don&#39;t forget to <a href="https://github.com/example/repo" ${LINK}>star ⭐ our repo on GitHub</a>!</p>`,
+    `<p>traceroot is open source. Don&#39;t forget to <a href="https://github.com/example/repo" ${LINK}>star ⭐ our repo on GitHub</a>!</p>`,
   );
-  expect(html).toContain("<p>Best,<br>The TraceRoot Devs</p>");
+  expect(html).toContain("<p>Best,<br>The traceroot Devs</p>");
   expect(html).not.toMatch(/\[|- |Discord/);
   expect(html).toContain(
     `<a href="${base.unsubscribeUrl.replace(/&/g, "&amp;")}" ${LINK}>let us know</a>.`,
   );
   expect(html).not.toContain("<table");
+});
+
+it("signs off with the logo at its own proportions", () => {
+  // The default logo, whatever the environment running the tests configures.
+  vi.stubEnv("NEXT_PUBLIC_LOGO_URL", "");
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+  });
+  const { html } = renderWelcome({
+    firstName: null,
+    appUrl: "https://app",
+    unsubscribeUrl: "https://u",
+  });
+  const logo = html.match(/<img [^>]*alt="traceroot"[^>]*>/)?.[0] ?? "";
+
+  // 572x144 drawn 30px tall; a fixed 106x20 squeezed it.
+  expect(logo).toContain('width="119" height="30"');
+  expect(logo).toMatch(/height: 30px; width: auto;/);
+});
+
+it("signs off with the plated square mark where the released chart configures its icon", () => {
+  vi.stubEnv(
+    "NEXT_PUBLIC_LOGO_URL",
+    "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_icon.png",
+  );
+  try {
+    const { html } = renderWelcome({
+      firstName: null,
+      appUrl: "https://app",
+      unsubscribeUrl: "https://u",
+    });
+    const logo = html.match(/<img [^>]*alt="traceroot"[^>]*>/)?.[0] ?? "";
+
+    expect(logo).toContain("/frontend/ui/public/images/traceroot_icon_email.png");
+    expect(logo).toContain('width="30" height="30"');
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });

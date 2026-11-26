@@ -18,14 +18,14 @@ import { TypeSafeClient, choice, type JsonValue } from '@typesafe-ai/sdk';
 import { runAgent, agentProvider, agentModelId, type AgentResult } from './agent';
 import { dataset, mentions } from './dataset';
 
-// No TraceRoot key (or the unedited .env.example placeholder)? Run fully local.
+// No traceroot key (or the unedited .env.example placeholder)? Run fully local.
 const apiKey = (process.env.TRACEROOT_API_KEY ?? '').trim();
 const LOCAL = apiKey === '' || apiKey === 'your_traceroot_api_key_here';
 
 // Jev is pinned to a release (not jev-latest) so runs stay reproducible.
 const JUDGE_MODELS = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-opus-5',
+  openai: 'gpt-6-luna',
+  anthropic: 'claude-opus-5-5',
   jev: 'jev-1.13.0',
 } as const;
 type JudgeProvider = keyof typeof JUDGE_MODELS;
@@ -44,7 +44,7 @@ if (JUDGE === 'jev' && (typesafeKey === '' || typesafeKey === 'your_typesafe_api
   throw new Error('JUDGE_PROVIDER=jev needs a real TYPESAFE_API_KEY (see .env.example)');
 }
 
-// Initialize TraceRoot (traces the agent's AI SDK calls + reports the run) only when a
+// Initialize traceroot (traces the agent's AI SDK calls + reports the run) only when a
 // real key is present; in local mode it stays off so a keyless clone emits/exports nothing.
 if (!LOCAL) TraceRoot.initialize();
 

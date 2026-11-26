@@ -83,7 +83,7 @@ describe("POST /api/workspaces/[workspaceId]/slack/test-message", () => {
     expect(body.ts).toBe("1234.5678");
     expect(body.channel).toEqual({ id: "C1", name: "general" });
     expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "C1", text: "Test message from TraceRoot" }),
+      expect.objectContaining({ channel: "C1", text: "Test message from traceroot" }),
     );
   });
 
@@ -107,7 +107,7 @@ describe("POST /api/workspaces/[workspaceId]/slack/test-message", () => {
     expect(body.ok).toBe(false);
     expect(body.error).toBe("not_in_channel");
     expect(body.message).toBe(
-      "TraceRoot is not in this channel. Invite the app with `/invite @TraceRoot` in the channel and try again.",
+      "traceroot is not in this channel. Invite the app with `/invite @TraceRoot` in the channel and try again.",
     );
   });
 

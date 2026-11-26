@@ -1,0 +1,1124 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * The unsubscribe page, the account writes, the provider sync and the scheduled
+ * tick against a real, migrated Postgres, with a fake provider that can hold,
+ * fail, or apply a write and never answer (its request is lost), served over
+ * HTTP on a local port that the provider's address is pointed at. Runs only when
+ * EMAIL_PREFERENCE_TEST_DATABASE_URL points at a throwaway database:
+ *
+ *   cd frontend/packages/core && DATABASE_URL=<url> pnpm exec prisma migrate deploy
+ *   cd frontend/ui && EMAIL_PREFERENCE_TEST_DATABASE_URL=<url> \
+ *     pnpm exec vitest run src/lib/lifecycle/email-preference.db.test.ts
+ *
+ * Synthetic accounts only; nothing leaves the machine.
+ */
+const DATABASE_URL = process.env.EMAIL_PREFERENCE_TEST_DATABASE_URL;
+
+const jobs = vi.hoisted(() => ({
+  traceCountsFail: false,
+  newsletterFail: false,
+  newsletterRuns: 0,
+}));
+vi.mock("@/env", () => ({ env: process.env }));
+vi.mock("@/lib/trace-count", () => ({
+  reportDailyTraceCounts: async () => {
+    if (jobs.traceCountsFail) throw new Error("trace report down");
+    return { kind: "skipped" };
+  },
+}));
+vi.mock("@/lib/newsletter-job", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/newsletter-job")>();
+  return {
+    ...actual,
+    runNewsletterJob: async (...args: Parameters<typeof actual.runNewsletterJob>) => {
+      jobs.newsletterRuns += 1;
+      if (jobs.newsletterFail) throw new Error("newsletter down");
+      return actual.runNewsletterJob(...args);
+    },
+  };
+});
+
+// The provider: contacts, the product topic per address, and the ways a write
+// can go wrong.
+const provider = {
+  topic: new Map<string, string>(),
+  contacts: new Set<string>(),
+  failNext: 0,
+  failAlways: new Set<string>(),
+  segments: new Map<string, Set<string>>(),
+  // Contacts whose topics do not list the product topic: their state is unknown.
+  noTopic: new Set<string>(),
+  slowMs: 0,
+  // Addresses whose product topic is on this page of their topics (1 = the first).
+  topicPage: new Map<string, number>(),
+  pageMs: 0, // each page of topics takes this long
+  contactMs: 0, // each contact lookup takes this long
+  // Each topic write as it arrives: the recipient's lease and the database's
+  // clock (as UTC wall time) at that moment.
+  patches: [] as { email: string; lease: Date | null; now: Date }[],
+  observe: null as null | ((email: string) => Promise<{ lease: Date | null; now: Date }>),
+  writes: 0, // topic writes that reached the provider
+  timeoutNext: 0, // the next topic writes get no answer: the connection drops
+  applyThenDropNext: 0, // the next topic writes are applied, then the connection drops
+  // The next write of this choice waits for the gate, lands, and then either
+  // answers or (lost) never answers its request.
+  hold: null as null | {
+    choice: string;
+    gate: Promise<void>;
+    lost: boolean;
+    failAfter: number;
+    // The write lands at once; only its answer waits for the gate.
+    landFirst?: boolean;
+  },
+};
+const handle = async (
+  url: URL,
+  init: { method: string; body: string },
+): Promise<Response | null> => {
+  const parts = url.pathname.split("/").map(decodeURIComponent);
+  const method = init.method;
+  const body = init.body ? JSON.parse(init.body) : null;
+  if (parts[1] !== "contacts") return new Response("{}", { status: 404 });
+  if (!parts[3]) {
+    if (provider.contactMs) await sleep(provider.contactMs);
+    if (method === "GET")
+      return provider.contacts.has(parts[2])
+        ? Response.json({ email: parts[2], unsubscribed: false })
+        : new Response("{}", { status: 404 });
+    provider.contacts.add(body.email);
+    return Response.json({ id: "c" });
+  }
+  // The newsletter job's reads and segment adds.
+  if (parts[3] === "topics" && method === "GET") {
+    if (provider.noTopic.has(parts[2])) return Response.json({ data: [], has_more: false });
+    if (provider.pageMs) await sleep(provider.pageMs);
+    const subscription = provider.topic.get(parts[2]) ?? "opt_in";
+    const last = provider.topicPage.get(parts[2]) ?? 1;
+    const page = Number(url.searchParams.get("after")?.split("_")[1] ?? 0) + 1;
+    if (page < last) {
+      const data = Array.from({ length: 100 }, (_, i) => ({
+        id: `other_${page}_${i}`,
+        subscription: "opt_in",
+      }));
+      return Response.json({ data, has_more: true });
+    }
+    return Response.json({ data: [{ id: "topic_local", subscription }], has_more: false });
+  }
+  if (parts[3] === "segments" && method === "POST") {
+    const set = provider.segments.get(parts[2]) ?? new Set<string>();
+    provider.segments.set(parts[2], set.add(parts[4]));
+    return Response.json({ id: parts[4] });
+  }
+  const choice = body[0].subscription as string;
+  provider.writes += 1;
+  if (provider.observe)
+    provider.patches.push({ email: parts[2], ...(await provider.observe(parts[2])) });
+  if (provider.slowMs) await sleep(provider.slowMs);
+  if (provider.hold?.choice === choice) {
+    const held = provider.hold;
+    provider.hold = null;
+    if (held.landFirst) provider.topic.set(parts[2], choice);
+    await held.gate;
+    if (!held.landFirst) provider.topic.set(parts[2], choice);
+    // A correction right after a stale write lands can fail too.
+    provider.failNext += held.failAfter;
+    if (held.lost) return new Promise<Response>(() => {});
+    return Response.json({ id: "c" });
+  }
+  if (provider.failAlways.has(parts[2])) return new Response("{}", { status: 503 });
+  if (provider.timeoutNext > 0) {
+    provider.timeoutNext -= 1;
+    return null; // the server drops the connection without answering
+  }
+  if (provider.applyThenDropNext > 0) {
+    provider.applyThenDropNext -= 1;
+    provider.topic.set(parts[2], choice);
+    return null; // applied, but the answer is lost
+  }
+  if (provider.failNext > 0) {
+    provider.failNext -= 1;
+    return new Response("{}", { status: 503 });
+  }
+  provider.topic.set(parts[2], choice);
+  return Response.json({ id: "c" });
+};
+
+// The fake provider on a local port; requests for the provider's address are
+// sent there instead, over real HTTP.
+let server: Server;
+const realFetch = globalThis.fetch;
+const startProvider = async () => {
+  server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      const response = await handle(new URL(req.url!, "http://provider"), {
+        method: req.method ?? "GET",
+        body,
+      });
+      if (!response) {
+        req.socket.destroy(); // no answer at all
+        return;
+      }
+      res.writeHead(response.status, { "content-type": "application/json" });
+      res.end(await response.text());
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input instanceof Request ? input.url : input));
+    if (url.hostname !== "api.resend.com") throw new Error(`unexpected ${url.hostname}`);
+    return realFetch(`${base}${url.pathname}${url.search}`, init);
+  }) as typeof fetch;
+};
+
+type Prisma = import("@prisma/client").PrismaClient;
+let prisma: Prisma;
+let unsubscribe: typeof import("@/app/api/email/unsubscribe/route");
+let tickRoute: typeof import("@/app/api/internal/scheduled-tick/route");
+let sync: typeof import("./email-preference-sync");
+let pause: typeof import("./pause");
+let signToken: (email: string) => string;
+const TAG = `prefdb${Date.now()}`;
+const TICK_SECRET = `tick-${Math.random().toString(36).slice(2)}`;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const post = async (email: string, action: "opt_in" | "opt_out") => {
+  const response = await unsubscribe.POST(
+    new Request("http://localhost/api/email/unsubscribe", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `t=${encodeURIComponent(signToken(email))}&action=${action}`,
+    }),
+  );
+  return { status: response.status, text: await response.text() };
+};
+let n = 0;
+async function person(createdAt = new Date()) {
+  const id = `${TAG}-${(n += 1)}`;
+  const email = `${id}@acme-e2e.dev`;
+  await prisma.user.create({ data: { id, email, name: id, createdAt } });
+  return { id, email };
+}
+const account = (id: string) => prisma.userOnboarding.findUnique({ where: { userId: id } });
+const unsubscribed = async (id: string) => !!(await account(id))?.unsubscribedAt;
+// Whether the provider holds the account's choice.
+const agree = async (p: { id: string; email: string }) =>
+  provider.topic.get(p.email) === ((await unsubscribed(p.id)) ? "opt_out" : "opt_in");
+// Makes the person's latest provider write older than the settle window.
+const windowPassed = (id: string) =>
+  prisma.$executeRawUnsafe(
+    `update user_onboarding set email_provider_write_at = email_provider_write_at - interval '1 hour', email_provider_settled_at = email_provider_settled_at - interval '1 hour' where user_id = $1`,
+    id,
+  );
+// A lost writer's lease has run out (it does after LEASE_MS).
+const leaseExpired = (id: string) =>
+  prisma.$executeRawUnsafe(
+    `update user_onboarding set email_provider_lease_until = (clock_timestamp() AT TIME ZONE 'UTC') - interval '1 second' where user_id = $1`,
+    id,
+  );
+const settled = async (id: string) => {
+  const row = await account(id);
+  return !!row?.emailProviderSettledAt && +row.emailProviderWriteAt! <= +row.emailProviderSettledAt;
+};
+// The scheduled run, with the settle window already over.
+const run = (options: { limit?: number } = {}) =>
+  sync.syncPendingEmailPreferences({ settleAfterMs: 0, ...options });
+const tick = async () =>
+  (
+    await tickRoute.POST(
+      new Request("http://localhost/api/internal/scheduled-tick", {
+        method: "POST",
+        headers: { "X-Internal-Secret": TICK_SECRET },
+      }) as never,
+    )
+  ).json();
+
+describe.skipIf(!DATABASE_URL)("product-email choices against a real database", () => {
+  beforeAll(async () => {
+    Object.assign(process.env, {
+      DATABASE_URL,
+      RESEND_API_KEY: "re_local_stub_only",
+      RESEND_PRODUCT_TOPIC_ID: "topic_local",
+      TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET: "local-unsubscribe-secret-0123456789abcdef",
+      INTERNAL_API_SECRET: TICK_SECRET,
+      // The tick route loads the auth module, which reads these at import.
+      BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+      BETTER_AUTH_SECRET:
+        process.env.BETTER_AUTH_SECRET || "local-test-secret-0123456789abcdef0123",
+      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    });
+    vi.stubGlobal("fetch", await startProvider());
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    ({ prisma } = (await import("@traceroot/core")) as unknown as { prisma: Prisma });
+    ({ signUnsubscribeToken: signToken } = await import("@traceroot/core/email"));
+    unsubscribe = await import("@/app/api/email/unsubscribe/route");
+    tickRoute = await import("@/app/api/internal/scheduled-tick/route");
+    sync = await import("./email-preference-sync");
+    pause = await import("./pause");
+    provider.observe = async (email) => {
+      const [row] = await prisma.$queryRaw<{ lease: Date | null; now: Date }[]>`
+        SELECT o.email_provider_lease_until AS lease,
+               (clock_timestamp() AT TIME ZONE 'UTC')::timestamp(3) AS now
+        FROM user_onboarding o JOIN users u ON u.id = o.user_id
+        WHERE u.email = ${email}`;
+      return row ?? { lease: null, now: new Date(NaN) };
+    };
+  });
+
+  beforeEach(() => {
+    provider.failNext = 0;
+    provider.failAlways.clear();
+    provider.hold = null;
+    provider.slowMs = 0;
+    provider.noTopic.clear();
+    provider.topicPage.clear();
+    provider.pageMs = 0;
+    provider.contactMs = 0;
+    provider.patches = [];
+    provider.timeoutNext = 0;
+    provider.applyThenDropNext = 0;
+    Object.assign(jobs, { traceCountsFail: false, newsletterFail: false, newsletterRuns: 0 });
+  });
+
+  afterAll(async () => {
+    if (!prisma) return;
+    await prisma.user.deleteMany({ where: { id: { startsWith: TAG } } });
+    await prisma.$disconnect();
+    server?.closeAllConnections();
+    server?.close();
+  });
+
+  it("does not let unreadable contacts hold up a healthy recovery under the default scheduler", async () => {
+    const backdate = (id: string, hours: number) =>
+      prisma.$executeRawUnsafe(
+        `update user_onboarding set email_provider_write_at = email_provider_write_at - make_interval(hours => $2::int) where user_id = $1`,
+        id,
+        hours,
+      );
+    // Twenty older contacts whose product topic the provider does not list.
+    const unreadable = [];
+    for (let i = 0; i < 20; i += 1) {
+      const p = await person();
+      provider.failNext = 1;
+      await post(p.email, "opt_out"); // pending
+      provider.noTopic.add(p.email);
+      await backdate(p.id, 2);
+      unreadable.push(p);
+    }
+    // Then a healthy opt-out whose provider write failed: the provider still says opt_in.
+    const healthy = await person();
+    await post(healthy.email, "opt_in");
+    await sleep(5);
+    provider.failNext = 1;
+    await post(healthy.email, "opt_out");
+    expect(provider.topic.get(healthy.email)).toBe("opt_in");
+    await backdate(healthy.id, 1);
+
+    // Two ticks with the default scheduler.
+    await tick();
+    await tick();
+    expect(provider.topic.get(healthy.email)).toBe("opt_out");
+    expect(await settled(healthy.id)).toBe(true);
+    // The unreadable stay pending and retryable: looked at, not acknowledged or settled.
+    for (const p of unreadable) {
+      const row = await account(p.id);
+      expect(row?.emailProviderCheckedAt).toBeInstanceOf(Date);
+      expect(row?.emailProviderAckVersion).toBeNull();
+      expect(row?.emailProviderSettledAt).toBeNull();
+      expect(row?.unsubscribedAt).toBeInstanceOf(Date);
+    }
+    // Once readable again, a later tick finishes them.
+    provider.noTopic.clear();
+    for (let i = 0; i < 2; i += 1) await tick();
+    for (const p of unreadable) expect(await agree(p)).toBe(true);
+  });
+
+  // Delayed answers: an older choice's write reaches the provider at once but its
+  // answer is held; a newer Subscribe again is made meanwhile; the person opts
+  // out at the provider; then the old answer arrives, with a repair that would
+  // fail or succeed.
+  it.each([
+    ["an older unsubscribe", "a repair would fail", "opt_out", 1],
+    ["an older unsubscribe", "a repair would succeed", "opt_out", 0],
+    ["an older Subscribe again", "a repair would fail", "opt_in", 1],
+    ["an older Subscribe again", "a repair would succeed", "opt_in", 0],
+  ] as const)(
+    "keeps the provider opt-out when %s is answered late after a newer Subscribe again and %s",
+    async (_case, _repair, older, failures) => {
+      const p = await person();
+      await post(p.email, older === "opt_out" ? "opt_in" : "opt_out");
+      await windowPassed(p.id);
+      await tick();
+      await sleep(5);
+      let answer!: () => void;
+      provider.hold = {
+        choice: older,
+        gate: new Promise<void>((r) => (answer = r)),
+        lost: false,
+        failAfter: 0,
+        landFirst: true,
+      };
+      const old = post(p.email, older);
+      await sleep(80);
+      expect(provider.topic.get(p.email)).toBe(older); // landed; its answer is held
+      // A newer Subscribe again: one write per person at a time, so it is not
+      // sent while the older one is on its way.
+      await sleep(5);
+      const writesBefore = provider.writes;
+      expect((await post(p.email, "opt_in")).status).toBe(200);
+      expect(provider.writes).toBe(writesBefore);
+      expect(await unsubscribed(p.id)).toBe(false);
+      // The person opts out at the provider.
+      provider.topic.set(p.email, "opt_out");
+      // The old answer arrives; nothing sends a Subscribe again over it.
+      provider.failNext = failures;
+      answer();
+      expect((await old).status).toBe(200);
+      expect(provider.writes).toBe(writesBefore);
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      provider.failNext = 0;
+      // The real scheduled reconciliation keeps the opt-out, on the account too.
+      await windowPassed(p.id);
+      await tick();
+      await tick();
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      expect(await unsubscribed(p.id)).toBe(true);
+      expect(await settled(p.id)).toBe(true);
+    },
+  );
+
+  it("does not resubscribe after an unopposed Subscribe again reached the provider and its writer died before acknowledging", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    // The Subscribe again reaches the provider; its writer dies before it hears back.
+    let never!: () => void;
+    provider.hold = {
+      choice: "opt_in",
+      gate: new Promise<void>((r) => (never = r)),
+      lost: true,
+      failAfter: 0,
+      landFirst: true,
+    };
+    void post(p.email, "opt_in");
+    await sleep(80);
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    const row = await account(p.id);
+    expect(row?.emailProviderAckVersion).not.toBe(row?.emailPreferenceVersion);
+    // The person then opts out at the provider.
+    provider.topic.set(p.email, "opt_out");
+    // The lost writer's lease runs out; the real scheduler runs twice.
+    await leaseExpired(p.id);
+    await windowPassed(p.id);
+    await tick();
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    expect(await unsubscribed(p.id)).toBe(true);
+    void never;
+  });
+
+  it.each([
+    ["behind an opposite unsubscribe", "opt_out", "opt_out"],
+    ["behind a matching Subscribe again", "opt_in", "opt_in"],
+  ] as const)(
+    "tells a Subscribe again queued %s that it is not confirmed yet, without claiming either way, and lets a new click through",
+    async (_case, inFlight, settlesOn) => {
+      const p = await person();
+      await post(p.email, inFlight === "opt_out" ? "opt_in" : "opt_out");
+      await windowPassed(p.id);
+      await tick();
+      await sleep(5);
+      let release!: () => void;
+      provider.hold = {
+        choice: inFlight,
+        gate: new Promise<void>((r) => (release = r)),
+        lost: false,
+        failAfter: 0,
+      };
+      const first = post(p.email, inFlight);
+      await sleep(80);
+      await sleep(5);
+      // A Subscribe again while the other write is on its way: queued.
+      const queued = await post(p.email, "opt_in");
+      expect(queued.status).toBe(200);
+      expect(queued.text).not.toContain("You're subscribed again.");
+      expect(queued.text).not.toContain("still unsubscribed");
+      expect(queued.text).toContain("couldn't confirm this one yet");
+      expect(queued.text).toContain('name="action" value="opt_in"'); // the choice again
+      release();
+      await first;
+      // Without a new click, the scheduled run settles it: an opposite opt-out
+      // wins over the queued Subscribe again; a matching one simply holds.
+      await windowPassed(p.id);
+      await tick();
+      expect(provider.topic.get(p.email)).toBe(settlesOn);
+      expect(await unsubscribed(p.id)).toBe(settlesOn === "opt_out");
+      expect(await settled(p.id)).toBe(true);
+      // A new click, with nothing on its way, goes through at once.
+      await sleep(5);
+      const again = await post(p.email, "opt_in");
+      expect(again.text).toContain("You're subscribed again.");
+      expect(again.text).not.toContain("few minutes");
+      expect(provider.topic.get(p.email)).toBe("opt_in");
+      expect(await unsubscribed(p.id)).toBe(false);
+    },
+  );
+
+  it("retries a Subscribe again the provider rejected, and says so; an unknown outcome is not promised", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    // Rejected (503): the page says it is on its way; the run finishes it.
+    provider.failNext = 1;
+    const rejected = await post(p.email, "opt_in");
+    expect(rejected.text).toContain("You're subscribed again.");
+    expect(rejected.text).toContain("few minutes");
+    await windowPassed(p.id);
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    // Unknown (no answer): the page does not promise it, and offers the choice again.
+    await sleep(5);
+    await post(p.email, "opt_out");
+    await sleep(5);
+    provider.timeoutNext = 1;
+    const unknown = await post(p.email, "opt_in");
+    expect(unknown.text).not.toContain("You're subscribed again.");
+    expect(unknown.text).toContain('name="action" value="opt_in"');
+  });
+
+  it("does not resubscribe when a refused Subscribe again is retried, applied with its answer lost, then withdrawn at the provider", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    // Attempt 1 is refused (503).
+    provider.failNext = 1;
+    await post(p.email, "opt_in");
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    // The scheduled retry of the same version is applied, but its answer is lost.
+    provider.applyThenDropNext = 1;
+    await windowPassed(p.id);
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    const row = await account(p.id);
+    expect(row?.emailProviderRejectedVersion).toBeNull(); // the old refusal did not survive
+    // The person then opts out at the provider; the next ticks keep it.
+    provider.topic.set(p.email, "opt_out");
+    await windowPassed(p.id);
+    const writesBefore = provider.writes;
+    await tick();
+    await tick();
+    expect(provider.writes).toBe(writesBefore);
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    expect(await unsubscribed(p.id)).toBe(true);
+  });
+
+  it("retries a Subscribe again the provider keeps refusing until it is taken, then confirms it", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    provider.failNext = 1;
+    await post(p.email, "opt_in"); // refused
+    provider.failNext = 1;
+    await windowPassed(p.id);
+    await tick(); // refused again
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    const refused = await account(p.id);
+    expect(refused?.emailProviderRejectedVersion).toBe(refused?.emailPreferenceVersion);
+    await windowPassed(p.id);
+    await tick(); // taken
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    await windowPassed(p.id);
+    await tick();
+    expect(await settled(p.id)).toBe(true);
+    expect(await unsubscribed(p.id)).toBe(false);
+  });
+
+  it("does not let a Subscribe again stamped before a recorded provider opt-out clear it", async () => {
+    const pause = await import("./pause");
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    expect((await post(p.email, "opt_in")).status).toBe(200); // acknowledged
+    const before = (await account(p.id))!.emailPreferenceAt!;
+    // A Subscribe again stamped now, whose account write is delayed...
+    const delayed = new Date(+before + 1);
+    // ...while the person opts out at the provider and the run records it.
+    provider.topic.set(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    expect(await unsubscribed(p.id)).toBe(true);
+    // The delayed Subscribe again lands: it is older than the recorded opt-out.
+    expect(await pause.recordUnsubscribe(p.email, true, delayed)).toMatchObject({
+      applied: false,
+      subscribed: false,
+    });
+    expect(await unsubscribed(p.id)).toBe(true);
+  });
+
+  it("lets a genuinely later Subscribe again through after a provider opt-out was recorded", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    expect((await post(p.email, "opt_in")).status).toBe(200); // acknowledged
+    // The person opts out at the provider; the run records it.
+    provider.topic.set(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    expect(await unsubscribed(p.id)).toBe(true);
+    // Later, they choose Subscribe again on the page: it goes through.
+    await sleep(20);
+    const again = await post(p.email, "opt_in");
+    expect(again.text).toContain("You're subscribed again.");
+    expect(await unsubscribed(p.id)).toBe(false);
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    // And the times the database wrote are UTC, as the app's are.
+    const row = await account(p.id);
+    expect(Math.abs(+row!.emailPreferenceAt! - Date.now())).toBeLessThan(60_000);
+    expect(Math.abs(+row!.emailProviderWriteAt! - Date.now())).toBeLessThan(60_000);
+  });
+
+  it("still sends a Subscribe again at once when nothing else is on its way", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await sleep(5);
+    const response = await post(p.email, "opt_in");
+    expect(response.text).toContain("You're subscribed again.");
+    expect(response.text).not.toContain("few minutes");
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    const row = await account(p.id);
+    expect(row?.emailProviderAckVersion).toBe(row?.emailPreferenceVersion);
+    expect(row?.emailProviderLeaseUntil).toBeNull();
+  });
+
+  // Release criteria: both orderings, the stale write landing after the newer
+  // choice completed, and the correction of it failing with a 503.
+  it.each([
+    ["an old Subscribe again", "opt_in", "opt_out"],
+    ["an old unsubscribe", "opt_out", "opt_in"],
+  ] as const)(
+    "%s held, a newer choice is made, the stale write lands and its repair gets a 503: the next runs settle on opt-out",
+    async (_case, older, newer) => {
+      const p = await person();
+      await post(p.email, older === "opt_in" ? "opt_out" : "opt_in");
+      await sleep(5);
+      let release!: () => void;
+      provider.hold = {
+        choice: older,
+        gate: new Promise<void>((r) => (release = r)),
+        lost: false,
+        failAfter: 1,
+      };
+      const stale = post(p.email, older);
+      await sleep(80);
+      // The newer choice is not sent while the older write is on its way.
+      expect((await post(p.email, newer)).status).toBe(200);
+      release();
+      await stale;
+      // The stale write is at the provider; a newer opt-out's repair got a 503.
+      expect(provider.topic.get(p.email)).toBe(older);
+      expect(await unsubscribed(p.id)).toBe(newer === "opt_out");
+      // Two real scheduled ticks, each after the settle window has passed. A
+      // newer opt-out is sent; a newer Subscribe again raced an opt-out at the
+      // provider, which came last cannot be known, so the opt-out wins.
+      await windowPassed(p.id);
+      const first = await tick();
+      expect(first.emailPreferences.synced).toBeGreaterThanOrEqual(1);
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      expect(await unsubscribed(p.id)).toBe(true);
+      expect(await agree(p)).toBe(true);
+      expect(await settled(p.id)).toBe(true);
+      await windowPassed(p.id);
+      const second = await tick();
+      expect(await agree(p)).toBe(true);
+      expect(await settled(p.id)).toBe(true);
+      expect(second.newsletter).not.toEqual({ error: "failed" });
+    },
+  );
+
+  it("carries normal changes, both ways and repeated, to the account and the provider", async () => {
+    const p = await person();
+    for (const choice of ["opt_out", "opt_out", "opt_in", "opt_out", "opt_in"] as const) {
+      await sleep(3);
+      const response = await post(p.email, choice);
+      expect(response.status).toBe(200);
+      expect(await unsubscribed(p.id)).toBe(choice === "opt_out");
+      expect(provider.topic.get(p.email)).toBe(choice);
+    }
+    await windowPassed(p.id);
+    await tick();
+    expect(await settled(p.id)).toBe(true);
+    expect(await agree(p)).toBe(true);
+  });
+
+  it("restores an unsubscribe after a stale opt-in landed and its request was lost", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await sleep(5);
+    let land!: () => void;
+    provider.hold = {
+      choice: "opt_in",
+      gate: new Promise<void>((r) => (land = r)),
+      lost: true,
+      failAfter: 0,
+    };
+    void post(p.email, "opt_in"); // its worker never continues
+    await sleep(80);
+    expect((await post(p.email, "opt_out")).status).toBe(200);
+    land();
+    await sleep(50);
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    expect(await unsubscribed(p.id)).toBe(true);
+    await run(); // the lost writer still holds the lease: nothing yet
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    await leaseExpired(p.id);
+    await run();
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+  });
+
+  it("sends a newer opt-out at once after a held Subscribe again, and keeps the opt-out a newer Subscribe again raced", async () => {
+    for (const [older, newer] of [
+      ["opt_in", "opt_out"],
+      ["opt_out", "opt_in"],
+    ] as const) {
+      const p = await person();
+      await post(p.email, newer === "opt_out" ? "opt_in" : "opt_out");
+      await sleep(5);
+      let release!: () => void;
+      provider.hold = {
+        choice: older,
+        gate: new Promise<void>((r) => (release = r)),
+        lost: false,
+        failAfter: 0,
+      };
+      const slow = post(p.email, older);
+      await sleep(80);
+      await post(p.email, newer);
+      release();
+      const late = await slow;
+      expect(late.status).toBe(200);
+      if (newer === "opt_out") {
+        // The writer in flight sends the newer opt-out as soon as its own write is back.
+        expect(provider.topic.get(p.email)).toBe("opt_out");
+        expect(await unsubscribed(p.id)).toBe(true);
+        expect(late.text).toContain("You're unsubscribed.");
+      } else {
+        // A newer Subscribe again is left to the scheduled run, which keeps the
+        // opt-out it raced: which came last at the provider cannot be known.
+        expect(provider.topic.get(p.email)).toBe("opt_out");
+        await windowPassed(p.id);
+        await tick();
+        expect(provider.topic.get(p.email)).toBe("opt_out");
+        expect(await unsubscribed(p.id)).toBe(true);
+      }
+    }
+  });
+
+  it("records a newer unsubscribe even when an older one lands while it is being applied", async () => {
+    // Three ordinary choices: an unsubscribe at t1, an unsubscribe at t3, and a
+    // Subscribe again at t2 that arrives last. The older unsubscribe commits
+    // while the newer one is waiting on the row.
+    const pause = await import("./pause");
+    const p = await person();
+    await post(p.email, "opt_in");
+    const t0 = (await account(p.id))!.emailPreferenceAt!;
+    const [t1, t2, t3] = [1, 2, 3].map((i) => new Date(+t0 + i * 1000));
+    let newer!: Promise<unknown>;
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM user_onboarding WHERE user_id = ${p.id} FOR UPDATE`;
+      newer = pause.recordUnsubscribe(p.email, false, t3); // waits for the row
+      await sleep(300);
+      // The older unsubscribe's effect, committed while the newer one waits.
+      await tx.userOnboarding.update({
+        where: { userId: p.id },
+        data: {
+          unsubscribedAt: t1,
+          emailPreferenceAt: t1,
+          emailPreferenceVersion: { increment: 1 },
+        },
+      });
+    });
+    expect(await newer).toMatchObject({ applied: true, subscribed: false });
+    expect(await pause.recordUnsubscribe(p.email, true, t2)).toMatchObject({
+      applied: false,
+      subscribed: false,
+    });
+    const row = await account(p.id);
+    expect(row?.emailPreferenceAt).toEqual(t3);
+    expect(row?.unsubscribedAt).toEqual(t1); // the first unsubscribe's time is kept
+  });
+
+  it("tells same-millisecond choices apart, and the unsubscribe wins", async () => {
+    const pause = await import("./pause");
+    const p = await person();
+    const at = await pause.emailChoiceTime();
+    await pause.recordUnsubscribe(p.email, true, at);
+    let first = true;
+    const result = await sync.syncEmailPreference(p.id, p.email, async (email, choice) => {
+      provider.topic.set(email, choice);
+      if (first) {
+        first = false;
+        await pause.recordUnsubscribe(email, false, at);
+      }
+      return "ok" as const;
+    });
+    expect(result).toEqual({ state: "applied", subscribed: false });
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    // A Subscribe again at that same instant changes nothing now.
+    expect(await pause.recordUnsubscribe(p.email, true, at)).toMatchObject({ applied: false });
+    const row = await account(p.id);
+    expect(row?.emailPreferenceVersion).toBe(2);
+  });
+
+  it("does not let a cohort the provider always refuses hold up someone else", async () => {
+    const cohort = [];
+    for (let i = 0; i < 6; i += 1) {
+      const p = await person();
+      provider.failAlways.add(p.email);
+      await post(p.email, "opt_out");
+      cohort.push(p);
+    }
+    const healthy = await person();
+    provider.failNext = 1;
+    await post(healthy.email, "opt_out");
+    expect(provider.topic.has(healthy.email)).toBe(false);
+    for (let i = 0; i < 3 && provider.topic.get(healthy.email) !== "opt_out"; i += 1)
+      await run({ limit: 5 });
+    expect(provider.topic.get(healthy.email)).toBe("opt_out");
+    provider.failAlways.clear();
+    await run({ limit: 50 });
+  });
+
+  it("waits out the settle window after a write before confirming it", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await sync.syncPendingEmailPreferences({ settleAfterMs: 60_000 });
+    const row = await account(p.id);
+    expect(row?.emailProviderSettledAt).toBeNull();
+    await run();
+    const after = await account(p.id);
+    expect(after?.emailProviderSettledAt).toEqual(after?.emailProviderWriteAt);
+  });
+
+  it("answers an error and changes nothing when the account write fails on a Subscribe again", async () => {
+    const p = await person();
+    await post(p.email, "opt_out");
+    await run();
+    const fixture = `${TAG.replace(/\W/g, "")}_fail`;
+    await prisma.$executeRawUnsafe(
+      `create function ${fixture}() returns trigger language plpgsql as $$ begin if new.user_id = '${p.id}' then raise exception 'local fixture: write refused'; end if; return new; end $$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `create trigger ${fixture} before update on user_onboarding for each row execute function ${fixture}()`,
+    );
+    try {
+      expect((await post(p.email, "opt_in")).status).toBe(502);
+    } finally {
+      await prisma.$executeRawUnsafe(`drop trigger ${fixture} on user_onboarding`);
+      await prisma.$executeRawUnsafe(`drop function ${fixture}()`);
+    }
+    expect(await unsubscribed(p.id)).toBe(true);
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+  });
+
+  it("runs the preference sync and the newsletter in the real tick when an unrelated job fails", async () => {
+    const p = await person();
+    provider.failNext = 1;
+    await post(p.email, "opt_out"); // its sync is left for the run
+    // The run confirms only writes older than the window; make this one old.
+    await prisma.userOnboarding.update({
+      where: { userId: p.id },
+      data: { emailProviderWriteAt: new Date(Date.now() - 60 * 60 * 1000) },
+    });
+    jobs.traceCountsFail = true;
+    const body = await tick();
+    expect(body.traceCounts).toEqual({ error: "failed" });
+    expect(body.emailPreferences.synced).toBeGreaterThanOrEqual(1);
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    expect(jobs.newsletterRuns).toBe(1);
+    expect(body.newsletter).not.toEqual({ error: "failed" });
+
+    // And the other way round: the newsletter fails, the preference sync still runs.
+    const q = await person();
+    provider.failNext = 1;
+    await post(q.email, "opt_out");
+    await prisma.userOnboarding.update({
+      where: { userId: q.id },
+      data: { emailProviderWriteAt: new Date(Date.now() - 60 * 60 * 1000) },
+    });
+    jobs.traceCountsFail = false;
+    jobs.newsletterFail = true;
+    const second = await tick();
+    expect(second.newsletter).toEqual({ error: "failed" });
+    expect(second.emailPreferences.synced).toBeGreaterThanOrEqual(1);
+    expect(provider.topic.get(q.email)).toBe("opt_out");
+  });
+
+  it("with the newsletter on, keeps a pending Subscribe again and still records a genuine provider opt-out", async () => {
+    const newsletterOn = {
+      NEWSLETTER_SEGMENT_ENABLED: "true",
+      RESEND_NEWSLETTER_SEGMENT_ID: "seg_local",
+      NEWSLETTER_START_AT: "2020-01-01T00:00:00Z",
+      TRACEROOT_CLOUD_ENV: "staging",
+    };
+    const old = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000); // due for the newsletter
+    const inSegment = (email: string) => provider.segments.get(email)?.has("seg_local") ?? false;
+
+    // Someone whose choice was confirmed at the provider, before the newsletter is on.
+    const genuine = await person(old);
+    await post(genuine.email, "opt_in");
+    await windowPassed(genuine.id);
+    await tick();
+    expect(await settled(genuine.id)).toBe(true);
+
+    // Someone who unsubscribed, then deliberately subscribed again while the
+    // provider answered 503: the account says subscribed, the provider still opt_out.
+    const back = await person(old);
+    await post(back.email, "opt_out");
+    await windowPassed(back.id);
+    await tick();
+    await sleep(5);
+    provider.failNext = 1;
+    expect((await post(back.email, "opt_in")).status).toBe(200);
+    expect(await unsubscribed(back.id)).toBe(false);
+    expect(provider.topic.get(back.email)).toBe("opt_out");
+
+    // The genuine one opts out at the provider itself.
+    provider.topic.set(genuine.email, "opt_out");
+
+    const saved = { ...process.env };
+    Object.assign(process.env, newsletterOn);
+    try {
+      // The newsletter runs before the Subscribe again's provider sync is due.
+      const first = await tick();
+      expect(first.newsletter.excluded?.provider_unsubscribed).toBeGreaterThanOrEqual(2);
+      expect(inSegment(back.email)).toBe(false);
+      expect(await unsubscribed(back.id)).toBe(false); // the account's choice stands
+      expect(await unsubscribed(genuine.id)).toBe(true); // the provider's opt-out is recorded
+      expect(inSegment(genuine.email)).toBe(false);
+
+      // Once the window has passed, the provider follows the Subscribe again, and
+      // the newsletter adds them; the genuine opt-out stays as it is.
+      await windowPassed(back.id);
+      await windowPassed(genuine.id);
+      await tick();
+      expect(provider.topic.get(back.email)).toBe("opt_in");
+      await tick();
+      expect(inSegment(back.email)).toBe(true);
+      expect(provider.topic.get(genuine.email)).toBe("opt_out");
+      expect(await unsubscribed(genuine.id)).toBe(true);
+      expect(inSegment(genuine.email)).toBe(false);
+    } finally {
+      for (const key of Object.keys(newsletterOn)) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    }
+  });
+
+  it("keeps an opt-out made at the provider after an acknowledged Subscribe again, and the newsletter leaves them out", async () => {
+    const old = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
+    const p = await person(old);
+    await post(p.email, "opt_out");
+    await windowPassed(p.id);
+    await tick();
+    await sleep(5);
+    // A Subscribe again the provider acknowledged...
+    expect((await post(p.email, "opt_in")).status).toBe(200);
+    expect(provider.topic.get(p.email)).toBe("opt_in");
+    const acked = await account(p.id);
+    expect(acked?.emailProviderAckVersion).toBe(acked?.emailPreferenceVersion);
+    // ...then the person opts out at the provider itself (no time from it).
+    provider.topic.set(p.email, "opt_out");
+    await windowPassed(p.id);
+    const saved = { ...process.env };
+    Object.assign(process.env, {
+      NEWSLETTER_SEGMENT_ENABLED: "true",
+      RESEND_NEWSLETTER_SEGMENT_ID: "seg_local",
+      NEWSLETTER_START_AT: "2020-01-01T00:00:00Z",
+      TRACEROOT_CLOUD_ENV: "staging",
+    });
+    try {
+      for (let i = 0; i < 2; i += 1) await tick();
+    } finally {
+      for (const key of [
+        "NEWSLETTER_SEGMENT_ENABLED",
+        "RESEND_NEWSLETTER_SEGMENT_ID",
+        "NEWSLETTER_START_AT",
+        "TRACEROOT_CLOUD_ENV",
+      ]) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    }
+    expect(provider.topic.get(p.email)).toBe("opt_out"); // not set back to opt-in
+    expect(await unsubscribed(p.id)).toBe(true); // recorded on the account
+    expect(provider.segments.get(p.email)?.has("seg_local") ?? false).toBe(false);
+    expect(await settled(p.id)).toBe(true);
+  });
+
+  // A person whose opt-out the provider refused: the run sends it again, after
+  // reading the provider's topics (the product topic on their seventh page).
+  const refusedOptOut = async () => {
+    const p = await person();
+    provider.failNext = 1;
+    await post(p.email, "opt_out");
+    expect(provider.topic.get(p.email)).not.toBe("opt_out");
+    await windowPassed(p.id);
+    provider.topicPage.set(p.email, 7);
+    provider.patches = [];
+    return p;
+  };
+  const patchesOf = (email: string) => provider.patches.filter((x) => x.email === email);
+
+  it("sends no write after the lease when a scheduled repair's reads are slow (the default lease)", async () => {
+    const p = await refusedOptOut();
+    // Seven pages of 9 s each (each inside the 10 s request timeout): 63 s,
+    // past the 60 s lease.
+    provider.pageMs = 9_000;
+    await tick();
+    expect(patchesOf(p.email)).toEqual([]); // the budget ran out during the reads
+    expect((await account(p.id))?.emailProviderLeaseUntil).toBeNull(); // given back
+    await sleep(500);
+    expect(patchesOf(p.email)).toEqual([]);
+    // Once the provider is quick again, the next run sends it, inside the lease.
+    provider.pageMs = 0;
+    await windowPassed(p.id);
+    await tick();
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    const [patch] = patchesOf(p.email);
+    expect(+patch.now).toBeLessThan(+patch.lease!);
+    expect(await settled(p.id)).toBe(true);
+  }, 120_000);
+
+  it.each([
+    ["the pages", { pageMs: 300, contactMs: 0 }],
+    ["the contact lookup after the pages", { pageMs: 120, contactMs: 400 }],
+  ])(
+    "ends a short lease's repair without a write when %s use up its budget",
+    async (_case, slow) => {
+      const timing = { leaseMs: 2_000, holdBudgetMs: 1_000 };
+      const p = await refusedOptOut();
+      Object.assign(provider, slow);
+      await sync.syncPendingEmailPreferences({ settleAfterMs: 0, timing });
+      await sleep(timing.leaseMs + 500); // past the lease: nothing arrives late
+      for (const patch of patchesOf(p.email)) expect(+patch.now).toBeLessThan(+patch.lease!);
+      expect(provider.topic.get(p.email)).not.toBe("opt_out");
+      expect((await account(p.id))?.emailProviderLeaseUntil).toBeNull();
+      // With a quick provider, the same short lease delivers it, inside the lease.
+      Object.assign(provider, { pageMs: 20, contactMs: 0 });
+      await sync.syncPendingEmailPreferences({ settleAfterMs: 0, timing });
+      expect(provider.topic.get(p.email)).toBe("opt_out");
+      const sent = patchesOf(p.email);
+      expect(sent.length).toBeGreaterThan(0);
+      for (const patch of sent) expect(+patch.now).toBeLessThan(+patch.lease!);
+      expect(await settled(p.id)).toBe(true);
+    },
+    30_000,
+  );
+
+  it("delivers a choice on the page inside its lease", async () => {
+    const p = await person();
+    provider.patches = [];
+    await post(p.email, "opt_out");
+    const [patch] = patchesOf(p.email);
+    expect(provider.topic.get(p.email)).toBe("opt_out");
+    expect(+patch.now).toBeLessThan(+patch.lease!);
+  });
+
+  it.each([
+    ["behind", -3],
+    ["ahead of", 3],
+  ])(
+    "orders the newsletter's provider opt-out by the database clock with this process %s it",
+    async (_case, hours) => {
+      const newsletterOn = {
+        NEWSLETTER_SEGMENT_ENABLED: "true",
+        RESEND_NEWSLETTER_SEGMENT_ID: "seg_local",
+        NEWSLETTER_START_AT: "2020-01-01T00:00:00Z",
+        TRACEROOT_CLOUD_ENV: "staging",
+      };
+      const p = await person(new Date(Date.now() - 20 * 24 * 60 * 60 * 1000));
+      await post(p.email, "opt_in");
+      await windowPassed(p.id);
+      await tick();
+      expect(await settled(p.id)).toBe(true);
+      // A Subscribe again arrives (stamped now) and is held up...
+      const earlier = await pause.emailChoiceTime();
+      await sleep(20);
+      // ...meanwhile the person opts out at the provider, and the newsletter,
+      // on a process whose clock is off by hours, records it.
+      provider.topic.set(p.email, "opt_out");
+      const saved = { ...process.env };
+      Object.assign(process.env, newsletterOn);
+      vi.useFakeTimers({
+        toFake: ["Date"],
+        now: Date.now() + hours * 60 * 60 * 1000,
+        shouldAdvanceTime: true,
+      });
+      try {
+        await tick();
+      } finally {
+        vi.useRealTimers();
+        for (const key of Object.keys(newsletterOn)) {
+          if (saved[key] === undefined) delete process.env[key];
+          else process.env[key] = saved[key];
+        }
+      }
+      expect(await unsubscribed(p.id)).toBe(true);
+      // The held-up Subscribe again lands: it is older, so it changes nothing.
+      expect((await pause.recordUnsubscribe(p.email, true, earlier))?.applied).toBe(false);
+      expect(await unsubscribed(p.id)).toBe(true);
+      // A genuinely later Subscribe again on the page goes through.
+      await sleep(20);
+      expect((await post(p.email, "opt_in")).text).toContain("You're subscribed again.");
+      expect(await unsubscribed(p.id)).toBe(false);
+      expect(provider.topic.get(p.email)).toBe("opt_in");
+    },
+  );
+
+  it("leaves the newsletter its turn within the worker's timeout when the provider is slow", async () => {
+    const { WEB_TICK_TIMEOUT_MS } = { WEB_TICK_TIMEOUT_MS: 60_000 }; // worker/src/web-tick
+    const due = [];
+    for (let i = 0; i < 15; i += 1) {
+      const p = await person();
+      provider.failNext = 1;
+      await post(p.email, "opt_out"); // left for the run
+      await windowPassed(p.id);
+      due.push(p);
+    }
+    provider.slowMs = 1_500; // every provider write takes 1.5 s
+    const started = Date.now();
+    const body = await tick();
+    const took = Date.now() - started;
+    // Stopped starting people after its budget, and said how many are left...
+    expect(body.emailPreferences.remaining).toBeGreaterThan(0);
+    expect(body.emailPreferences.synced).toBeGreaterThan(0);
+    // ...so the newsletter still ran, and the whole tick fits the worker's timeout.
+    expect(jobs.newsletterRuns).toBe(1);
+    expect(body.newsletter).not.toEqual({ error: "failed" });
+    expect(took).toBeLessThan(WEB_TICK_TIMEOUT_MS);
+    // The next ticks finish the rest.
+    provider.slowMs = 0;
+    for (let i = 0; i < 3; i += 1) await tick();
+    for (const p of due) expect(await agree(p)).toBe(true);
+  }, 90_000);
+});

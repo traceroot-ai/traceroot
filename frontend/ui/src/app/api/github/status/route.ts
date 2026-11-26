@@ -8,9 +8,11 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
+import { isGitHubAppAvailable } from "@/lib/github-app-config";
 
 // GET /api/github/status?workspaceId=...
-// Returns the workspace's GitHub App installations.
+// Returns the workspace's GitHub App installations, and whether this deployment
+// has the GitHub App set up so a new connection can start.
 async function handleGET(request: NextRequest) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
@@ -35,6 +37,7 @@ async function handleGET(request: NextRequest) {
 
   return successResponse({
     connected: installations.length > 0,
+    available: isGitHubAppAvailable(),
     installations: installations.map((i) => ({
       installationId: i.installationId,
       accountLogin: i.accountLogin,

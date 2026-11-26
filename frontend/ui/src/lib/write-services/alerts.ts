@@ -28,6 +28,7 @@ import {
   isAggregationValidForMeasure,
   isMeasureValidForView,
   MAX_ALERTS_PER_PROJECT,
+  thresholdProblemForMeasure,
   toAlertFilters,
   type AlertCreateInput,
   type AlertUpdateInput,
@@ -57,9 +58,9 @@ export type ValidatedAlertRule = Omit<AlertCreateInput, "filters"> & { filters: 
  * The one validator for an alert create, shared by the cookie route and the
  * internal write route so the two surfaces cannot drift: the zod shape, then
  * the cross-field checks (measure per view, aggregation evaluable for the
- * measure and filters). Filters come back canonicalized — the scheduler's
- * dedup key is a fingerprint over the stored JSON, so they must be stored
- * in this form.
+ * measure and filters, a threshold the measure can cross). Filters come back
+ * canonicalized — the scheduler's dedup key is a fingerprint over the stored
+ * JSON, so they must be stored in this form.
  */
 export function validateAlertCreate(
   body: unknown,
@@ -75,6 +76,13 @@ export function validateAlertCreate(
   if (!isAggregationValidForMeasure(rule.view, rule.measure, rule.aggregation, filters)) {
     return { ok: false, error: "Invalid aggregation for measure" };
   }
+  const thresholdProblem = thresholdProblemForMeasure(
+    rule.view,
+    rule.measure,
+    rule.thresholdOperator,
+    rule.threshold,
+  );
+  if (thresholdProblem !== null) return { ok: false, error: thresholdProblem };
   return { ok: true, rule: { ...rule, filters } };
 }
 
@@ -276,6 +284,20 @@ function auditEntry(
 }
 
 /**
+ * Whether the rule has an outstanding page that Slack accepted: the only kind
+ * an edit, a resume or a delete closes. A page still retrying, or one Slack
+ * never took, has nothing in the channel to close, so an [OK] for it would
+ * close nothing the channel saw.
+ */
+function hasDeliveredAlertPage(row: {
+  severity: string;
+  alertedAt: Date | null;
+  pageDeliveredAt: Date | null;
+}): boolean {
+  return hasOutstandingAlertPage(row) && row.pageDeliveredAt !== null;
+}
+
+/**
  * Leaves the close of a discarded page for the worker, which is the only side
  * that can notify: the next tick posts it and clears the marker, whatever the
  * rule's status is by then. Written in the transaction that voided the page,
@@ -284,6 +306,11 @@ function auditEntry(
  * Only into an empty marker. A close still waiting to go out is for the page
  * the channel actually saw, and a second edit before then has no page of its
  * own to close, so the first marker is the one that stands.
+ *
+ * Callers leave one only when the discarded breach's page reached Slack
+ * (`hasDeliveredAlertPage`): a page still retrying when the state is voided is
+ * then dropped as superseded, and an [OK] for it would close nothing the
+ * channel saw.
  */
 async function leavePendingClose(
   tx: Tx,
@@ -334,11 +361,13 @@ export async function updateAlert(input: {
     // Under the lock the tick's write waits, then misses the claim the reset
     // voided. Raw because Prisma has no row-lock API.
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
-    const existing = await tx.alert.findFirst({
+    const row = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: alertSelect,
+      select: { ...alertSelect, pageDeliveredAt: true },
     });
-    if (!existing) return { result: ALERT_NOT_FOUND };
+    if (!row) return { result: ALERT_NOT_FOUND };
+    // Read for the close gate only; kept off `existing` so no answer built from it carries it.
+    const { pageDeliveredAt: _pageDeliveredAt, ...existing } = row;
 
     // Merged with the stored rule: an aggregation-only edit still has to hold
     // against the stored measure, and a filters-only edit against both.
@@ -366,6 +395,29 @@ export async function updateAlert(input: {
       name: existing.name,
       renotify: existing.renotify,
     });
+
+    // Merged the same way: a threshold-only edit is judged against the stored
+    // measure. Only a value that differs from the stored one counts, because
+    // the form sends the whole rule on every save: an edit that changes none
+    // of these four fields leaves the stored condition alone, so renaming a
+    // rule saved before this check still goes through.
+    const rewritesCondition =
+      edit.view !== undefined ||
+      edit.measure !== undefined ||
+      edit.thresholdOperator !== undefined ||
+      edit.threshold !== undefined;
+    if (rewritesCondition) {
+      const thresholdProblem = thresholdProblemForMeasure(
+        view,
+        measure,
+        patch.thresholdOperator ?? snapshot.thresholdOperator,
+        patch.threshold ?? snapshot.threshold,
+      );
+      if (thresholdProblem !== null) {
+        return { result: { ok: false, status: 400, error: thresholdProblem } };
+      }
+    }
+
     if (changed.length === 0) {
       return {
         result: {
@@ -449,7 +501,9 @@ export async function updateAlert(input: {
 
     const stateReset = rewritesRule || reArmed;
     const pageCleared = stateReset && hasOutstandingAlertPage(existing);
-    if (pageCleared) await leavePendingClose(tx, input, "edited", input.actorUserId);
+    if (pageCleared && hasDeliveredAlertPage(row)) {
+      await leavePendingClose(tx, input, "edited", input.actorUserId);
+    }
 
     const alert = await tx.alert.findFirst({
       where: { id: alertId, projectId },
@@ -503,11 +557,13 @@ export async function setAlertStatus(input: {
 
     // Locked for the same reason an edit locks it: a resume reads the page it discards.
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
-    const existing = await tx.alert.findFirst({
+    const row = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: alertSelect,
+      select: { ...alertSelect, pageDeliveredAt: true },
     });
-    if (!existing) return { result: ALERT_NOT_FOUND };
+    if (!row) return { result: ALERT_NOT_FOUND };
+    // Read for the close gate only; kept off `existing` so no answer built from it carries it.
+    const { pageDeliveredAt: _pageDeliveredAt, ...existing } = row;
     if (existing.status === status) {
       return {
         result: {
@@ -563,7 +619,9 @@ export async function setAlertStatus(input: {
     }
     const stateReset = status === "ACTIVE";
     const pageCleared = stateReset && hasOutstandingAlertPage(existing);
-    if (pageCleared) await leavePendingClose(tx, input, "resumed", input.actorUserId);
+    if (pageCleared && hasDeliveredAlertPage(row)) {
+      await leavePendingClose(tx, input, "resumed", input.actorUserId);
+    }
     return {
       result: {
         ok: true,
@@ -595,9 +653,11 @@ type DeleteAlertOutcome = Promise<
  * Hard-delete an alert for a MEMBER of its project, and the answer carries
  * `pageCleared` when an outstanding page was open. That page is closed in Slack
  * by this call itself once the delete has committed, best-effort: there is no
- * rule left for the worker to read a close from. A close an earlier edit or
- * resume left on the row, and the worker has not sent yet, goes out the same
- * way: the rule goes, but the page it closes was still seen.
+ * rule left for the worker to read a close from. Only a page Slack accepted is
+ * closed (`hasDeliveredAlertPage`), the same rule an edit and a resume follow. A close
+ * an earlier edit or resume left on the row, and the worker has not sent yet,
+ * goes out the same way: the rule goes, but the page it closes was still seen,
+ * and the write that left it already checked that.
  */
 export async function deleteAlert(input: {
   actorUserId: string;
@@ -620,7 +680,14 @@ export async function deleteAlert(input: {
     await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: { id: true, name: true, severity: true, alertedAt: true, pendingClose: true },
+      select: {
+        id: true,
+        name: true,
+        severity: true,
+        alertedAt: true,
+        pendingClose: true,
+        pageDeliveredAt: true,
+      },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
 
@@ -629,7 +696,7 @@ export async function deleteAlert(input: {
 
     const pageCleared = hasOutstandingAlertPage(existing);
     let close: DeletedAlertClose | undefined;
-    if (pageCleared || existing.pendingClose !== null) {
+    if (hasDeliveredAlertPage(existing) || existing.pendingClose !== null) {
       const actor = await tx.user.findUnique({
         where: { id: input.actorUserId },
         select: { name: true },

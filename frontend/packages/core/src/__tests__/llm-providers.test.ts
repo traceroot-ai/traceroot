@@ -7,7 +7,10 @@ import {
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   DIGEST_SUMMARY_SYSTEM_MODEL_ID,
+  defaultAdapterModel,
   defaultApiProtocol,
+  decisionModelAlias,
+  DECISION_MODEL_ALIASES,
   isDecisionModelId,
   ADAPTER_CONFIG,
 } from "../llm-providers.ts";
@@ -36,11 +39,47 @@ describe("isDecisionModelId", () => {
     expect(isDecisionModelId("jev-custom")).toBe(false);
     expect(isDecisionModelId("gpt-4o")).toBe(false);
   });
+
+  it("owns the detector-only alias but not the chat model it calls", () => {
+    expect(isDecisionModelId("gpt-6-luna-decisions")).toBe(true);
+    expect(isDecisionModelId("gpt-6-luna")).toBe(false);
+    expect(isDecisionModelId(DETECTOR_SYSTEM_DEFAULT_MODEL_ID)).toBe(false);
+  });
+});
+
+describe("decisionModelAlias", () => {
+  it("maps the alias to the OpenAI model it calls, and is in the OpenAI catalog", () => {
+    expect(decisionModelAlias("gpt-6-luna-decisions")).toEqual({
+      adapter: "openai",
+      model: "gpt-6-luna",
+    });
+    expect(ADAPTER_MODELS.openai?.map((m) => m.id)).toContain("gpt-6-luna-decisions");
+  });
+
+  it("has exactly the catalog entries that set decisionModel, and no others", () => {
+    const fromCatalog = Object.entries(ADAPTER_MODELS).flatMap(([adapter, models]) =>
+      (models ?? [])
+        .filter((m) => m.decisionModel)
+        .map((m) => [m.id, { adapter, model: m.decisionModel }]),
+    );
+    expect(fromCatalog).toEqual([
+      ["gpt-6-luna-decisions", { adapter: "openai", model: "gpt-6-luna" }],
+    ]);
+    expect(Object.entries(DECISION_MODEL_ALIASES)).toEqual(fromCatalog);
+  });
+
+  it("returns null for chat ids, Jev ids, inherited keys and empty input", () => {
+    for (const id of ["gpt-6-luna", "jev-1.13.0", "toString", "constructor", "", null, undefined]) {
+      expect(decisionModelAlias(id), String(id)).toBeNull();
+    }
+  });
 });
 
 describe("ADAPTER_MODELS", () => {
-  it("lists claude-opus-5-5 first, so it is the default Anthropic model", () => {
-    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-opus-5-5");
+  it("lists the Fable family first but defaults Anthropic to claude-opus-5-5", () => {
+    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-fable-5-2");
+    const ids = ADAPTER_MODELS["anthropic"]?.map((model) => model.id) ?? [];
+    expect(defaultAdapterModel(LLMAdapter.ANTHROPIC, ids)).toBe("claude-opus-5-5");
   });
 
   it("contains no duplicate model IDs within a single adapter", () => {
@@ -85,6 +124,16 @@ describe("ADAPTER_MODELS", () => {
     const anthropic = SYSTEM_MODELS.find((system) => system.provider === "Anthropic");
 
     expect(anthropic?.models.map((model) => model.id)).toContain(DIGEST_SUMMARY_SYSTEM_MODEL_ID);
+  });
+
+  it("offers the Fable models via BYOK only, never as system models", () => {
+    const byokIds = ADAPTER_MODELS.anthropic?.map((model) => model.id);
+    const systemIds = SYSTEM_MODELS.flatMap((system) => system.models.map((model) => model.id));
+
+    for (const id of ["claude-fable-5-2", "claude-fable-5-1", "claude-fable-5"]) {
+      expect(byokIds).toContain(id);
+      expect(systemIds).not.toContain(id);
+    }
   });
 
   describe("apiProtocol consistency with SYSTEM_MODELS", () => {

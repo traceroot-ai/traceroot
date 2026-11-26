@@ -53,13 +53,3 @@ export function isDemoWorkspaceViewer(
 ): boolean {
   return !!workspace?.is_demo && workspace.role !== Role.ADMIN;
 }
-
-/**
- * Where the home page sends a signed-in user. The demo workspace is not one of
- * the user's own, so a user who has only the demo still goes to onboarding.
- */
-export function homeDestination(
-  workspaces: { is_demo?: boolean }[],
-): "/workspaces" | "/onboarding" {
-  return workspaces.some((ws) => !ws.is_demo) ? "/workspaces" : "/onboarding";
-}

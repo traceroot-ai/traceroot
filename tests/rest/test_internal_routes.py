@@ -29,6 +29,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/trace-counts"),
     ("POST", "/api/v1/internal/traces"),
     ("POST", "/api/v1/internal/traces/agent"),
+    ("GET", "/api/v1/internal/label-target"),
     # Alerts (#1889): the worker asks REST to evaluate a rule's measure over a window.
     ("POST", "/api/v1/internal/alert-evaluate"),
     # Dashboard mirror for the agent (be0f0f29): read-only listing and detail,
@@ -58,6 +59,8 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/internal/signals/assignments"),
     ("POST", "/api/v1/internal/signals/reassign"),
     ("POST", "/api/v1/internal/signals/unsettled-runs"),
+    # When a project first received a trace, for the web app's first-trace time.
+    ("GET", "/api/v1/internal/projects/{project_id}/first-trace"),
 }
 
 

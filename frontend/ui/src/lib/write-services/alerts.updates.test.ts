@@ -74,6 +74,8 @@ const baseRow = {
   nextRunAt: new Date("2026-08-12T10:31:00.000Z") as Date | null,
   lastClaimedAt: T0 as Date | null,
   pendingClose: null as Record<string, unknown> | null,
+  // Slack accepted this breach's page: the default row's page was seen.
+  pageDeliveredAt: T0 as Date | null,
   createTime: T0,
   updateTime: T0,
   createdBy: "u1",
@@ -248,6 +250,9 @@ describe("updateAlert", () => {
         threshold: 500,
       }),
     });
+    // Read for the close gate, never answered: the stored row has it set.
+    expect(current().pageDeliveredAt).not.toBeNull();
+    expect(r.ok && r.data).not.toHaveProperty("pageDeliveredAt");
     expect(tx.alert.updateMany).not.toHaveBeenCalled();
     expect(root.auditLog.create).not.toHaveBeenCalled();
   });
@@ -354,6 +359,35 @@ describe("updateAlert", () => {
       expect(current().pendingClose).toEqual(first);
     });
 
+    it("leaves none for a page that never reached Slack, though the page is still cleared", async () => {
+      mockAccess();
+      // Still retrying against Slack when the edit lands: the job is then dropped as
+      // superseded, so an [OK] would close an [ALERT] the channel never saw.
+      store.set("alert-1", row({ pageDeliveredAt: null }));
+
+      expect(await update({ threshold: 999 })).toMatchObject({
+        stateReset: true,
+        pageCleared: true,
+      });
+      expect(current().pendingClose).toBeNull();
+      expect(current().pageDeliveredAt).toBeNull();
+      // Read under the lock with the rest of the state it decides from.
+      expect(tx.alert.findFirst.mock.calls[0][0].select).toMatchObject({ pageDeliveredAt: true });
+    });
+
+    it("leaves one while a renotify retries, since an earlier page of the breach was seen", async () => {
+      mockAccess();
+      // The renotify re-stamped `alertedAt` and has not been delivered, but the
+      // breach's first page was: the channel has an [ALERT] open.
+      store.set(
+        "alert-1",
+        row({ alertedAt: new Date("2026-08-12T11:00:00.000Z"), pageDeliveredAt: T0 }),
+      );
+
+      await update({ threshold: 999 });
+      expect(current().pendingClose).toMatchObject({ reason: "edited" });
+    });
+
     it("does not overwrite a marker still standing beside a page raised since", async () => {
       mockAccess();
       const waiting = { reason: "resumed", actorUserId: "u3", at: "2026-08-12T09:00:00.000Z" };
@@ -430,6 +464,92 @@ describe("updateAlert", () => {
         changed: ["measure", "aggregation", "filters"],
       });
       expect(current().measure).toBe("unique_user_ids");
+    });
+  });
+
+  describe("the merged condition, not the patch alone, is what must be able to fire and clear", () => {
+    it("refuses a threshold-only edit below zero on the stored latency measure", async () => {
+      mockAccess();
+      expect(await update({ threshold: -5 })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current().threshold).toBe(500);
+    });
+
+    it("renames a rule stored with a negative threshold when the PATCH repeats its condition, as the form does", async () => {
+      mockAccess();
+      // Stored as the Decimal the column reads back, compared as the number the patch carries.
+      store.set("alert-1", { ...row(), threshold: new Prisma.Decimal(-5) });
+      expect(
+        await update({
+          name: "Renamed",
+          view: "SPANS",
+          measure: "latency",
+          thresholdOperator: ">",
+          threshold: -5,
+        }),
+      ).toMatchObject({ ok: true, changed: ["name"] });
+      expect(current().name).toBe("Renamed");
+    });
+
+    it("refuses a PATCH that moves a stored negative threshold to another negative one", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ threshold: -6, name: "Renamed" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current()).toMatchObject({ name: baseRow.name, threshold: -5 });
+    });
+
+    it("refuses a measure-only edit on a rule stored with a negative threshold, naming the new measure", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ measure: "cost" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "Threshold must be zero or more: cost can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+      expect(current()).toMatchObject({ measure: "latency", threshold: -5 });
+    });
+
+    it("refuses an operator-only edit to `>=` against the stored zero threshold", async () => {
+      mockAccess();
+      // Stored as the Decimal the column reads back, which is not `=== 0`.
+      store.set("alert-1", { ...row(), threshold: new Prisma.Decimal(0) });
+      expect(await update({ thresholdOperator: ">=" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "This alert would fire on every window with data: latency can never be negative",
+      });
+      expect(tx.alert.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("still renames and pauses a rule stored with a negative threshold, since neither touches its condition", async () => {
+      mockAccess();
+      store.set("alert-1", row({ threshold: -5 }));
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(await setStatus("PAUSED")).toMatchObject({ ok: true, changed: ["status"] });
+      expect(current()).toMatchObject({ name: "Renamed", status: "PAUSED", threshold: -5 });
+    });
+
+    it("renames a stored `< -5` NOTIFY rule and accepts a threshold-only edit onto `< 0`", async () => {
+      mockAccess();
+      store.set("alert-1", row({ thresholdOperator: "<", threshold: -5, noDataMode: "NOTIFY" }));
+      expect(await update({ name: "Renamed" })).toMatchObject({ ok: true, changed: ["name"] });
+      expect(await update({ threshold: 0 })).toMatchObject({ ok: true, changed: ["threshold"] });
+      expect(current()).toMatchObject({
+        name: "Renamed",
+        thresholdOperator: "<",
+        threshold: 0,
+        noDataMode: "NOTIFY",
+      });
     });
   });
 
@@ -603,6 +723,7 @@ describe("setAlertStatus", () => {
     expect(stored.status).toBe("ACTIVE");
     expect(stored.severity).toBe("UNKNOWN");
     expect(stored.alertedAt).toBeNull();
+    expect(stored.pageDeliveredAt).toBeNull();
     expect(stored.lastClaimedAt).toBeNull();
     expect(tx.alert.updateMany.mock.calls[0][0].where).toEqual({
       id: "alert-1",
@@ -613,6 +734,15 @@ describe("setAlertStatus", () => {
     expect(stored.pendingClose).toMatchObject({ reason: "resumed", actorUserId: "u1" });
     // Read under the same row lock an edit takes, for the same reason.
     expect(order[0]).toBe("lock");
+  });
+
+  it("leaves no close when it resumes a rule whose page never reached Slack", async () => {
+    mockAccess();
+    store.set("alert-1", row({ status: "PAUSED", pageDeliveredAt: null }));
+
+    expect(await setStatus("ACTIVE")).toMatchObject({ stateReset: true, pageCleared: true });
+    expect(current().pendingClose).toBeNull();
+    expect(tx.alert.findFirst.mock.calls[0][0].select).toMatchObject({ pageDeliveredAt: true });
   });
 
   it("leaves no close when it pauses, or resumes a rule that held no page", async () => {
@@ -639,10 +769,17 @@ describe("setAlertStatus", () => {
 
   it("answers the status it already has with 200 and an empty changed, writing nothing", async () => {
     mockAccess();
-    expect(await setStatus("ACTIVE")).toMatchObject({ ok: true, changed: [], stateReset: false });
+    const active = await setStatus("ACTIVE");
+    expect(active).toMatchObject({ ok: true, changed: [], stateReset: false });
     expect(current()).toEqual(baseRow);
     store.set("alert-1", row({ status: "PAUSED" }));
-    expect(await setStatus("PAUSED")).toMatchObject({ ok: true, changed: [] });
+    const paused = await setStatus("PAUSED");
+    expect(paused).toMatchObject({ ok: true, changed: [] });
+    // Read for the close gate, never answered: the stored row has it set.
+    expect(baseRow.pageDeliveredAt).not.toBeNull();
+    for (const r of [active, paused]) {
+      expect(r.ok && r.data).not.toHaveProperty("pageDeliveredAt");
+    }
     expect(tx.alert.updateMany).not.toHaveBeenCalled();
     expect(root.auditLog.create).not.toHaveBeenCalled();
   });
@@ -812,12 +949,27 @@ describe("deleteAlert", () => {
         row({
           severity: "UNKNOWN",
           alertedAt: null,
+          // The edit's reset cleared it; the edit checked it before leaving the marker.
+          pageDeliveredAt: null,
           pendingClose: { reason: "edited", actorUserId: "u1", at: T0.toISOString() },
         }),
       );
       // The edit already discarded the page, so this delete reports none of its own.
       expect(await remove()).toMatchObject({ ok: true, pageCleared: false });
       expect(postDeletedAlertClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends nothing for a page that never reached Slack, though the page is still cleared", async () => {
+      mockAccess();
+      // Still retrying when the rule is deleted: the job then stops on alert-deleted,
+      // so an [OK] would close an [ALERT] the channel never saw.
+      store.set("alert-1", row({ pageDeliveredAt: null }));
+
+      expect(await remove()).toMatchObject({ ok: true, pageCleared: true });
+      expect(postDeletedAlertClose).not.toHaveBeenCalled();
+      expect(store.has("alert-1")).toBe(false);
+      // Read under the lock with the rest of the state it decides from.
+      expect(tx.alert.findFirst.mock.calls[0][0].select).toMatchObject({ pageDeliveredAt: true });
     });
 
     it("sends nothing when no page was open and no close was waiting", async () => {

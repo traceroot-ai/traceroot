@@ -50,6 +50,7 @@ const WORKSPACE_DEMO_VIEWER_ACCESS: Record<WorkspaceSettingsTab, SettingsAccess>
 
 const PROJECT_DEMO_VIEWER_ACCESS: Record<ProjectSettingsTab, SettingsAccess> = {
   general: { mode: "read-only", scope: "project" },
+  labels: { mode: "read-only", scope: "project" },
   accessKeys: denied(
     "project",
     "API keys are not available in this demo project. You can create API keys in your own project.",
@@ -116,7 +117,7 @@ export function SettingsAccessGate({
     case "read-only":
       return (
         <>
-          <Card className="mb-4 border-border bg-muted/50 shadow-none">
+          <Card className="mb-4 border-border bg-muted shadow-none">
             <CardContent className="flex items-start gap-2 p-3">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <CardDescription className="text-[13px]">

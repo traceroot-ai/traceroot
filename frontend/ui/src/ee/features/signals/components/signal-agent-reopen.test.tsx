@@ -9,6 +9,9 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/proj-1/signals",
 }));
 vi.mock("@/components/layout/sidebar", () => ({ Sidebar: () => null }));
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: null, isPending: false }),
+}));
 vi.mock("@/lib/hooks/use-retention", () => ({
   useRetention: () => ({ retentionDays: null }),
 }));
@@ -54,7 +57,7 @@ vi.mock("../hooks", () => ({
       signal: {
         id: "sig-1",
         detectorId: "det-1",
-        detectorName: "Failure Detector",
+        detectorName: "Failure detector",
         title: "Missing conversion rate",
         status: "open",
         criteriaCovers: "A missing rate crashes currency conversion.",

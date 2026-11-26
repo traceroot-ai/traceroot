@@ -91,7 +91,7 @@ Automatically capture all OpenAI Chat Completions and Responses API calls.
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ChatCompletion` (`OpenAI Chat Completions` on TypeScript).
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `ChatCompletion` (`OpenAI Chat Completions` on TypeScript).
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -102,7 +102,7 @@ Run your code and confirm the trace arrives:
 | Messages | Input messages array |
 | Response | Completion content |
 | Tokens | Prompt, completion, and total tokens |
-| Cost | Calculated when the model ID matches TraceRoot's pricing table |
+| Cost | Calculated when the model ID matches traceroot's pricing table |
 | Latency | Request duration |
 
 ## Limitations

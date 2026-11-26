@@ -1,4 +1,4 @@
-// Model source — system (TraceRoot-hosted) or BYOK (user's own keys)
+// Model source — system (traceroot-hosted) or BYOK (user's own keys)
 export const ModelSource = {
   SYSTEM: "system",
   BYOK: "byok",
@@ -77,6 +77,12 @@ export interface LLMModelDef {
   outputCostPer1M?: number;
   /** Override the provider-level apiProtocol for this specific model */
   apiProtocol?: string;
+  /**
+   * Makes the entry a detector-only decision model: the API model it calls on
+   * the adapter's decision endpoint, and the identity it is priced and traced
+   * under. Read into DECISION_MODEL_ALIASES.
+   */
+  decisionModel?: string;
 }
 
 // ──────────────────────────────────────────────
@@ -115,21 +121,23 @@ export const SYSTEM_MODELS: {
   piAIProvider: string;
   /** pi-ai API protocol used to construct fallback model objects */
   apiProtocol: string;
-  models: LLMModelDef[];
+  models: (LLMModelDef & { requiresExplicitSource?: boolean })[];
 }[] = [
   {
     provider: "Anthropic",
     envVar: "ANTHROPIC_API_KEY",
     piAIProvider: "anthropic",
     apiProtocol: "anthropic-messages",
-    // claude-fable-5 is deliberately excluded from SYSTEM_MODELS: it runs at $10 / $50
-    // and requires 30-day data retention (not available under zero-data-retention
-    // configurations). It is available exclusively via BYOK (ADAPTER_MODELS.anthropic).
+    // claude-fable-5 and its successors (5-1, 5-2) are deliberately excluded from
+    // SYSTEM_MODELS: they require 30-day data retention (not available under
+    // zero-data-retention configurations). They are available exclusively via BYOK
+    // (ADAPTER_MODELS.anthropic).
     models: [
       { id: "claude-opus-4-8", label: "claude-opus-4-8" },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
       { id: "claude-opus-4-6", label: "claude-opus-4-6" },
       { id: "claude-sonnet-5", label: "claude-sonnet-5" },
+      { id: "claude-sonnet-5-5", label: "claude-sonnet-5-5", requiresExplicitSource: true },
       { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
       { id: "claude-opus-4-5", label: "claude-opus-4-5" },
       { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
@@ -153,11 +161,20 @@ export const SYSTEM_MODELS: {
       // The o-series rejects reasoning effort "none", which the Responses client
       // sends when no effort is requested; chat completions sends nothing for them.
       { id: "o3", label: "o3", apiProtocol: "openai-completions" },
-      { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
       { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
+      { id: "gpt-5.6-sol", label: "gpt-5.6-sol", requiresExplicitSource: true },
+      { id: "gpt-5.6-terra", label: "gpt-5.6-terra", requiresExplicitSource: true },
+      { id: "gpt-6-sol", label: "gpt-6-sol", requiresExplicitSource: true },
     ],
   },
 ];
+
+/** Models previously available only via BYOK need an explicit hosted RCA selection. */
+export function requiresExplicitHostedSource(modelId: string | null | undefined): boolean {
+  return SYSTEM_MODELS.some(({ models }) =>
+    models.some((m) => m.id === modelId && m.requiresExplicitSource),
+  );
+}
 
 // Provider priority for default model selection (highest first).
 // Used by both the frontend ModelSelector (matches all providers including BYOK)
@@ -180,10 +197,14 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
+    { id: "gpt-6.2-sol", label: "gpt-6.2-sol" },
+    { id: "gpt-6.2-astra", label: "gpt-6.2-astra" },
     { id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
     { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-6-sol", label: "gpt-6-sol" },
     { id: "gpt-6-luna", label: "gpt-6-luna" },
+    // Detector-only: gpt-6-luna on the Decisions API.
+    { id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions", decisionModel: "gpt-6-luna" },
     { id: "gpt-5.6-sol", label: "gpt-5.6-sol" },
     { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
     { id: "gpt-5.6-luna", label: "gpt-5.6-luna" },
@@ -201,6 +222,9 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "o3", label: "o3", apiProtocol: "openai-completions" },
   ],
   anthropic: [
+    { id: "claude-fable-5-2", label: "claude-fable-5-2" },
+    { id: "claude-fable-5-1", label: "claude-fable-5-1" },
+    { id: "claude-fable-5", label: "claude-fable-5" },
     { id: "claude-opus-5-5", label: "claude-opus-5-5" },
     { id: "claude-opus-5", label: "claude-opus-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
@@ -212,8 +236,6 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-haiku-5-5", label: "claude-haiku-5-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
-    { id: "claude-fable-5-1", label: "claude-fable-5-1" },
-    { id: "claude-fable-5", label: "claude-fable-5" },
   ],
   google: [
     { id: "gemini-3.8-flash", label: "gemini-3.8-flash" },
@@ -272,6 +294,21 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "jev-1.14.0", label: "jev-1.14.0" },
   ],
 };
+
+// Only where the default is not the first listed model.
+const ADAPTER_DEFAULT_MODELS: Partial<Record<LLMAdapter, string>> = {
+  // Fable leads the list as the most capable, but costs more and needs 30-day retention.
+  anthropic: "claude-opus-5-5",
+};
+
+/** The model a new BYOK key and "Add Model" start with, picked from `modelIds`. */
+export function defaultAdapterModel(
+  adapter: LLMAdapter,
+  modelIds: readonly string[],
+): string | undefined {
+  const preferred = ADAPTER_DEFAULT_MODELS[adapter];
+  return preferred && modelIds.includes(preferred) ? preferred : modelIds[0];
+}
 
 /**
  * The protocol a model runs on under an adapter when the workspace has not
@@ -378,11 +415,40 @@ export function isDecisionAdapter(adapter: string | null | undefined): boolean {
   return adapter === LLMAdapter.TYPESAFE;
 }
 
-const decisionModelIds = new Set<string>(
-  Object.entries(ADAPTER_MODELS)
+/**
+ * Detector-only catalog ids for decision models served by a chat adapter,
+ * read from the catalog entries that set `decisionModel`, so the two can't
+ * drift. The id is what a detector stores and the picker shows; `model` is the
+ * API model it calls, and the identity it is priced and traced under.
+ * gpt-6-luna itself stays a chat model (and the default chat judge), so the
+ * Decisions API needs an id of its own.
+ */
+export const DECISION_MODEL_ALIASES: Readonly<
+  Record<string, { adapter: LLMAdapter; model: string }>
+> = Object.fromEntries(
+  Object.entries(ADAPTER_MODELS).flatMap(([adapter, models]) =>
+    (models ?? []).flatMap((m) =>
+      m.decisionModel
+        ? [[m.id, { adapter: adapter as LLMAdapter, model: m.decisionModel }] as const]
+        : [],
+    ),
+  ),
+);
+
+/** The alias entry for a detector-only decision model id, or null. */
+export function decisionModelAlias(
+  modelId: string | null | undefined,
+): { adapter: LLMAdapter; model: string } | null {
+  if (!modelId || !Object.hasOwn(DECISION_MODEL_ALIASES, modelId)) return null;
+  return DECISION_MODEL_ALIASES[modelId];
+}
+
+const decisionModelIds = new Set<string>([
+  ...Object.entries(ADAPTER_MODELS)
     .filter(([adapter]) => isDecisionAdapter(adapter))
     .flatMap(([, models]) => models.map((m) => m.id)),
-);
+  ...Object.keys(DECISION_MODEL_ALIASES),
+]);
 
 export function isDecisionModelId(modelId: string): boolean {
   return decisionModelIds.has(modelId);

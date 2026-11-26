@@ -2,10 +2,14 @@
 
 import asyncio
 import logging
+from collections.abc import Iterator
 from datetime import datetime
+from functools import partial
 from typing import Annotated, Literal
 
+from botocore.response import StreamingBody
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import StringConstraints
 
 from rest.projection import (
@@ -24,6 +28,7 @@ from rest.rate_limit import (
 )
 from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.deps import RateLimitedProjectAccess
+from rest.routers.labels_common import MAX_LABEL_LENGTH, resolve_labeled_trace_ids
 from rest.schemas.traces import (
     FilterFieldsResponse,
     FilterValuesResponse,
@@ -34,8 +39,15 @@ from rest.schemas.traces import (
 )
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
+from rest.services.s3 import get_s3_service
 from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.trace_reader import get_trace_reader_service
+from shared.attachments import (
+    ALLOWED_IMAGE_MIME_TYPES,
+    attachment_key,
+    find_attachment_refs,
+    is_attachment_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,11 +127,59 @@ async def list_traces(
     # 422 rather than being swallowed by the broad 500 handler below.
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
-        parsed_filters = parse_filters_param(filters)
+        parsed_filters = parse_filters_param(filters, allow_label=True)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+
+    label_field = filter_columns.LABEL_FILTER_COLUMN.name
+    label_filters = [predicate for predicate in parsed_filters if predicate.field == label_field]
+    label = None
+    if label_filters:
+        values = label_filters[0].value
+        if (
+            len(label_filters) != 1
+            or len(values) != 1
+            or not 1 <= len(values[0].strip()) <= MAX_LABEL_LENGTH
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Select one project label",
+            )
+
+        label = values[0]
+        parsed_filters = [
+            predicate for predicate in parsed_filters if predicate.field != label_field
+        ]
+        include_evaluations = False
+
+    scope = {
+        "project_id": project_id,
+        "name": name,
+        "user_id": user_id,
+        "start_after": start_after,
+        "end_before": end_before,
+        "search_query": search_query,
+        "filters": parsed_filters,
+        "include_evaluations": include_evaluations,
+    }
     try:
         service = get_trace_reader_service()
+        if label is not None:
+            trace_ids = await resolve_labeled_trace_ids(
+                project_id,
+                label,
+                trace_ids,
+                MAX_TRACE_IDS,
+                partial(service.matching_trace_ids, **scope),
+            )
+            if len(trace_ids) > MAX_TRACE_IDS:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=f"This label matches more than {MAX_TRACE_IDS} traces in the current filters",
+                )
+            if not trace_ids:
+                return {"data": [], "meta": {"page": page, "limit": limit, "total": 0}}
+
         # Off the event loop: clickhouse-connect is synchronous, and this is the widest
         # scan the dashboard issues (a filtered list runs a page query and a count query
         # back to back, both capped at the shared execution timeout). Awaiting it inline
@@ -127,19 +187,14 @@ async def list_traces(
         # uvicorn worker, single replica, so there is no second process to absorb it.
         result = await asyncio.to_thread(
             service.list_traces,
-            project_id=project_id,
             page=page,
             limit=limit,
-            name=name,
-            user_id=user_id,
             trace_ids=trace_ids,
-            start_after=start_after,
-            end_before=end_before,
-            search_query=search_query,
-            filters=parsed_filters,
-            include_evaluations=include_evaluations,
+            **scope,
         )
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
         raise HTTPException(
@@ -184,7 +239,11 @@ async def get_filter_fields(
                 "integer": c.is_integer,
                 "requires_key": c.requires_key,
             }
-            for c in filter_columns.FILTER_COLUMNS
+            for c in (
+                *filter_columns.FILTER_COLUMNS[:1],
+                filter_columns.LABEL_FILTER_COLUMN,
+                *filter_columns.FILTER_COLUMNS[1:],
+            )
         ]
     }
 
@@ -355,7 +414,12 @@ async def get_trace(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     service = get_trace_reader_service()
-    trace = service.get_trace(project_id=project_id, trace_id=trace_id, source=source)
+    # Off the event loop, same reasoning as the trace list: both reads below are
+    # synchronous ClickHouse queries, and with ``fields=full`` (the agent's trace
+    # download) they decode every span's I/O, which takes seconds for a large trace.
+    trace = await asyncio.to_thread(
+        service.get_trace, project_id=project_id, trace_id=trace_id, source=source
+    )
 
     if not trace:
         raise HTTPException(
@@ -365,7 +429,9 @@ async def get_trace(
 
     enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
 
-    hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
+    await asyncio.to_thread(
+        hydrate_span_io, service, trace, project_id=project_id, trace_id=trace_id, groups=groups
+    )
     return trace
 
 
@@ -385,6 +451,12 @@ async def get_span_io(
     service = get_trace_reader_service()
     try:
         trace_start = service.get_trace_start_time(project_id, trace_id)
+        if trace_start is None:
+            # No root span yet: judge retention by the trace's earliest span, so a
+            # missing root never lets expired I/O through. Unscoped, like this read.
+            trace_start = await asyncio.to_thread(
+                service.get_trace_earliest_span_time, project_id, trace_id
+            )
         enforce_retention_by_time(_access.billing_plan, trace_start)
 
         result = service.get_span_io(
@@ -408,3 +480,113 @@ async def get_span_io(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get span I/O",
         ) from e
+
+
+# Span fields an attachment reference may sit in. A hash is served only when one of
+# these references it, so a caller can't fetch an image by guessing its hash.
+_ATTACHMENT_FIELDS = ("input", "output", "metadata")
+_ATTACHMENT_CHUNK_BYTES = 64 * 1024
+# An image is span data like any other, so neither the browser nor a proxy keeps a
+# copy past the retention check that served it.
+_ATTACHMENT_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Disposition": "inline",
+}
+
+
+def _stream_and_close(body: StreamingBody) -> Iterator[bytes]:
+    """Yield an object body in chunks, closing it however the response ends."""
+    try:
+        yield from body.iter_chunks(_ATTACHMENT_CHUNK_BYTES)
+    finally:
+        body.close()
+
+
+@router.get("/{trace_id}/spans/{span_id}/attachments/{attachment_hash}")
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_span_attachment(
+    request: Request,
+    response: Response,
+    project_id: str,
+    trace_id: str,
+    span_id: str,
+    attachment_hash: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+):
+    """Stream an image that this span's input, output or metadata references.
+
+    Reads customer spans only, since an internal span may quote another trace's
+    reference. 403 outside the retention window; 404 unless the span references a
+    stored image.
+    """
+    if not is_attachment_hash(attachment_hash):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+
+    service = get_trace_reader_service()
+    try:
+        trace_start = await asyncio.to_thread(
+            service.get_trace_start_time, project_id, trace_id, customer_only=True
+        )
+        if trace_start is None:
+            # No root span yet, or none at all: judge retention by the trace's earliest
+            # span instead, so a missing root never lets an expired image through.
+            trace_start = await asyncio.to_thread(
+                service.get_trace_earliest_span_time, project_id, trace_id, customer_only=True
+            )
+            if trace_start is None:
+                # The trace has no span, so nothing can reference the image.
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Span not found")
+        enforce_retention_by_time(_access.billing_plan, trace_start)
+
+        span_io = await asyncio.to_thread(
+            service.get_span_io,
+            project_id=project_id,
+            trace_id=trace_id,
+            span_id=span_id,
+            customer_only=True,
+        )
+        if not span_io:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Span not found")
+
+        if not any(
+            attachment_hash in find_attachment_refs(span_io.get(field))
+            for field in _ATTACHMENT_FIELDS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+
+        stored = await asyncio.to_thread(
+            get_s3_service().get_object_stream, attachment_key(project_id, attachment_hash)
+        )
+        if stored is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+        if stored.content_type not in ALLOWED_IMAGE_MIME_TYPES:
+            stored.body.close()
+            logger.warning(
+                f"Attachment {attachment_hash} in project {project_id} is stored as "
+                f"{stored.content_type!r}, not an allowed image type"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting span attachment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get span attachment",
+        ) from e
+
+    headers = dict(_ATTACHMENT_HEADERS)
+    if stored.content_length is not None:
+        headers["Content-Length"] = str(stored.content_length)
+    return StreamingResponse(
+        _stream_and_close(stored.body), media_type=stored.content_type, headers=headers
+    )

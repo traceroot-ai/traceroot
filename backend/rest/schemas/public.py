@@ -17,6 +17,12 @@ class WhoamiResponse(BaseModel):
     Name fields are nullable: they depend on what the internal key-validation
     contract returns, and the backend never fabricates them. The full API token
     is never included — only ``key_hint``.
+
+    ``key_scope`` is the exception to the nullability above, deliberately. A
+    holder asking what their key may do needs an answer, not a maybe: a null
+    would have to be handled by every caller and would mean the same thing the
+    narrow scope already means. It is a closed set of values rather than a free
+    string so a client can exhaust it.
     """
 
     project_id: str
@@ -25,6 +31,11 @@ class WhoamiResponse(BaseModel):
     workspace_name: str | None
     key_name: str | None
     key_hint: str | None
+    # Spelled out rather than imported from the auth layer: nothing else in this
+    # module reaches into a router, and a response schema should not be what
+    # makes it start. The two are asserted identical by
+    # tests/rest/test_whoami.py::test_reported_scopes_are_the_auth_layers_scopes.
+    key_scope: Literal["ingest", "admin"]
     host: str
     ui_base_url: str
 
@@ -489,7 +500,12 @@ class SqlRequest(BaseModel):
 
 
 class SqlColumn(BaseModel):
-    """One column of a result, named and typed as ClickHouse reported it."""
+    """One column of a result, named and typed as ClickHouse reported it.
+
+    A result with no rows carries no metadata from the driver, so the service
+    asks the server to describe the statement it just ran. Either way the name
+    and the type are the server's own, so neither is ever absent.
+    """
 
     name: str
     type: str
@@ -660,15 +676,32 @@ class SignalSummary(BaseModel):
     rca_state: str | None = None
 
 
+class SignalHit(BaseModel):
+    """One trace a signal hit, with the finding its detector produced on it.
+
+    ``trace_start_time`` is when the trace started: the time the hits are sorted
+    and bounded on, and the one ``GET /api/v1/public/traces/{trace_id}`` checks
+    against the retention window.
+    """
+
+    trace_id: str
+    finding_id: str
+    trace_start_time: datetime
+
+
 class SignalDetail(SignalSummary):
-    """One signal, including when it was resolved and whether it was merged.
+    """One signal, including when it was resolved, whether it was merged and the
+    traces it hit most recently.
 
     A merged signal is still answered, with ``merged_into_id`` naming the signal
-    its findings moved to; lists leave merged signals out.
+    its findings moved to; lists leave merged signals out. ``recent_hits`` holds
+    up to 20 hits, latest trace start first, whose trace started inside the
+    plan's retention window, so each ``trace_id`` can be fetched.
     """
 
     resolved_at: datetime | None
     merged_into_id: str | None
+    recent_hits: list[SignalHit]
 
 
 class PublicSignalListResponse(BaseModel):

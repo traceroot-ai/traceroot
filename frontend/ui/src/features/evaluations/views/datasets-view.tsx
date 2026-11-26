@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -94,13 +95,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
     <div className="flex h-full flex-col text-[13px]">
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
-      <ProjectBreadcrumb projectId={projectId} current="Datasets" />
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <h1 className="text-[13px] font-medium">Datasets</h1>
-        <Button size="sm" className="h-7 text-[12px]" onClick={() => setNewOpen(true)}>
-          New Dataset
-        </Button>
-      </div>
+      <ProjectBreadcrumb projectId={projectId} />
+      <PageHeader
+        title="Datasets"
+        actions={<Button onClick={() => setNewOpen(true)}>New dataset</Button>}
+      />
 
       {/* No date filter here: the list has no date predicate to apply one to
           (server-side search only), and a rendered-but-inert filter chip would
@@ -117,13 +116,15 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         <Table>
           <THead>
             <TRHead>
-              <Th className="w-[170px]">Updated At</Th>
+              <Th className="w-[170px]">Updated at</Th>
               <Th>Name</Th>
               <Th className="w-[240px]">Dataset ID</Th>
               <Th className="w-[110px] text-right">Items</Th>
               <Th className="w-[90px] text-right">Versions</Th>
               <Th className="w-[110px] text-right">Evaluations</Th>
-              <Th className="w-[56px] text-right">Actions</Th>
+              <Th className="col-sticky-end-head w-[56px] text-right">
+                <span className="sr-only">Actions</span>
+              </Th>
             </TRHead>
           </THead>
           <TBody>
@@ -160,10 +161,12 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                         so there's no competing name link. */}
                     <Td className="text-foreground">{dataset.name}</Td>
                     <Td
-                      className="max-w-[240px] truncate font-mono text-[11px] text-muted-foreground"
+                      className="max-w-[240px] truncate text-muted-foreground"
                       title={dataset.clientDatasetId ?? dataset.id}
                     >
-                      {dataset.clientDatasetId ?? dataset.id}
+                      <span className="font-mono text-[12px]">
+                        {dataset.clientDatasetId ?? dataset.id}
+                      </span>
                     </Td>
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {dataset.caseCount}
@@ -174,7 +177,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {evalCountByDataset.get(dataset.id) ?? 0}
                     </Td>
-                    <Td className="text-right">
+                    <Td className="col-sticky-end text-right">
                       <DatasetActionsMenu
                         onEdit={() => setEditing(dataset)}
                         onDelete={() => setDeleteTarget(dataset)}

@@ -24,6 +24,7 @@ import {
 } from "../model-resolver.ts";
 import { SYSTEM_MODELS, DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "../llm-providers.ts";
 import { prisma } from "../lib/prisma.ts";
+import { decryptKey } from "../lib/encryption.ts";
 
 describe("resolvePiModel", () => {
   it("uses anthropic-messages for system Claude", () => {
@@ -32,8 +33,29 @@ describe("resolvePiModel", () => {
     expect(m.provider).toBe("anthropic");
   });
 
+  it("leaves thinking mode to the provider for hosted Sonnet 5.5", () => {
+    expect(resolvePiModel("claude-sonnet-5-5", null)).toMatchObject({
+      id: "claude-sonnet-5-5",
+      api: "anthropic-messages",
+      provider: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      reasoning: false,
+      compat: { supportsTemperature: false },
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      cost: { input: 2, output: 10, cacheRead: expect.closeTo(0.1), cacheWrite: 2.5 },
+    });
+  });
+
   it("uses openai-responses for system OpenAI models", () => {
-    for (const id of ["gpt-5", "gpt-5.4", "gpt-5.3-codex"]) {
+    for (const id of [
+      "gpt-5",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-6-sol",
+    ]) {
       const m = resolvePiModel(id, null);
       expect(m.api, id).toBe("openai-responses");
       expect(m.provider).toBe("openai");
@@ -92,6 +114,16 @@ describe("resolvePiModel", () => {
     expect(m.id).not.toMatch(/claude/i);
   });
 
+  it("falls back to the adapter default for Anthropic BYOK with no model id", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "anthropic",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(resolvePiModel(undefined, cfg).id).toBe("claude-opus-5-5");
+  });
+
   it("throws (instead of substituting an Anthropic default) for free-text adapter with no model id", () => {
     // azure, amazon-bedrock, openrouter aren't in ADAPTER_MODELS; without explicit
     // modelId the resolver would have nothing sensible to use, so it must throw
@@ -114,6 +146,18 @@ describe("resolvePiModel", () => {
 
   it("throws (instead of substituting a system model) for a decision model id with no BYOK row", () => {
     expect(() => resolvePiModel("jev-1.13.0", null)).toThrow(/decision model/i);
+  });
+
+  it("throws for the OpenAI decision alias on an OpenAI row, but still resolves gpt-6-luna", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "openai",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(() => resolvePiModel("gpt-6-luna-decisions", cfg)).toThrow(/decision model/i);
+    expect(() => resolvePiModel("gpt-6-luna-decisions", null)).toThrow(/decision model/i);
+    expect(resolvePiModel("gpt-6-luna", cfg).id).toBe("gpt-6-luna");
   });
 
   it("respects per-model modelProtocols override over adapter default", () => {
@@ -185,9 +229,55 @@ describe("fetchProviderConfig", () => {
     const cfg = await fetchProviderConfig("ws-1", "deepseek");
     expect(cfg).toBeNull();
   });
+
+  it.each([" ", "\t\n ", "\u00a0"])(
+    "returns null for a stored key that is blank (%j), so it never reaches pi-ai",
+    async (blank) => {
+      invalidateProviderConfigCache("ws-blank", "collector");
+      vi.mocked(decryptKey).mockReturnValueOnce(blank);
+      (prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        adapter: "anthropic",
+        keyCipher: "cipher",
+        enabled: true,
+        baseUrl: "https://collector.invalid",
+        config: { modelProtocols: { "claude-opus-4-8": "openai-completions" } },
+      });
+      expect(await fetchProviderConfig("ws-blank", "collector")).toBeNull();
+    },
+  );
 });
 
 describe("findByokKeyForPiProvider", () => {
+  it("skips a row whose stored key is blank and uses the next matching row", async () => {
+    invalidateProviderConfigCache("ws-7", "blank-claude");
+    invalidateProviderConfigCache("ws-7", "real-claude");
+    (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { provider: "blank-claude", adapter: "anthropic" },
+      { provider: "real-claude", adapter: "anthropic" },
+    ]);
+    // Keyed by row rather than queued, so a failure here cannot leave mock
+    // values behind for the tests that follow.
+    const findUnique = prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>;
+    findUnique.mockImplementation(
+      async (args: { where: { workspaceId_provider: { provider: string } } }) => ({
+        adapter: "anthropic",
+        keyCipher: args.where.workspaceId_provider.provider,
+        enabled: true,
+        baseUrl: null,
+        config: null,
+      }),
+    );
+    vi.mocked(decryptKey).mockImplementation((cipher) =>
+      cipher === "blank-claude" ? " " : "sk-real",
+    );
+    try {
+      expect(await findByokKeyForPiProvider("ws-7", "anthropic")).toBe("sk-real");
+    } finally {
+      findUnique.mockReset();
+      vi.mocked(decryptKey).mockReset().mockReturnValue("decrypted-key");
+    }
+  });
+
   it("returns key from first BYOK row whose adapter maps to the requested pi-ai provider", async () => {
     invalidateProviderConfigCache("ws-2", "my-claude");
     (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([

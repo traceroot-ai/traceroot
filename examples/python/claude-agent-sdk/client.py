@@ -1,11 +1,11 @@
-"""ClaudeSDKClient demo with TraceRoot observability.
+"""ClaudeSDKClient demo with traceroot observability.
 
 Counterpart to minimal.py, but uses the *persistent streaming* client
 (`ClaudeSDKClient`) instead of the one-shot `query()` helper. This is the API
 real production agents tend to use — a long-lived session driven across multiple
 turns (here, two turns where the second builds on the first).
 
-TraceRoot instruments the full `ClaudeSDKClient` path (connect / query /
+traceroot instruments the full `ClaudeSDKClient` path (connect / query /
 receive_response), so the session below produces the same rich spans as the
 `query()` examples: a per-turn root, nested `anthropic.messages.create` LLM
 spans, and tool spans — on top of the manual `@observe` spans.
@@ -65,7 +65,7 @@ async def run_session() -> str:
 @observe(name="demo_session", type="agent")
 async def run_demo():
     print("=" * 60)
-    print("ClaudeSDKClient persistent session — Demo (TraceRoot)")
+    print("ClaudeSDKClient persistent session — Demo (traceroot)")
     print("=" * 60)
     result = await run_session()
     if result:
