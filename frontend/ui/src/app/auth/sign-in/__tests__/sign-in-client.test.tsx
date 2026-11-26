@@ -173,6 +173,7 @@ describe("SignInClient", () => {
       />,
     );
     expect(screen.getByRole("heading", { name: "Sign in to connect Claude" })).toBeTruthy();
+    expect(screen.getByText("Then choose the project Claude can read.")).toBeTruthy();
     expect(screen.getByText("claude.ai").parentElement?.textContent).toBe("Verified by claude.ai");
     expect(screen.queryByRole("alert")).toBeNull();
     // The connection is carried to sign-up too.

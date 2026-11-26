@@ -31,7 +31,8 @@ export function withholdTraceContent(
   }
   const requested = String(args.fields ?? "")
     .split(",")
-    .map((group) => group.trim());
+    // The API reads group names case-insensitively.
+    .map((group) => group.trim().toLowerCase());
   const allowed = new Set(requested.flatMap((group) => CONTENT_GROUPS[group] ?? []));
   const kept: Record<string, unknown> = { ...(result as Record<string, unknown>) };
   for (const field of CONTENT_FIELDS) {

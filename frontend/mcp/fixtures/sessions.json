@@ -15,16 +15,43 @@
         "output": "hi"
       }
     ],
-    "meta": { "limit": 50, "total": 1 }
+    "meta": {
+      "limit": 50,
+      "page": 1,
+      "total": 1
+    }
   },
   "detail": {
     "session_id": "session-001",
     "trace_count": 2,
+    "user_ids": ["user-1"],
     "first_trace_time": "2026-06-01T09:00:00Z",
     "last_trace_time": "2026-06-01T10:00:00Z",
+    "duration_ms": 3600000,
+    "total_cost": 0.0133,
+    "total_input_tokens": 1390,
+    "total_output_tokens": 380,
     "traces": [
-      { "trace_id": "trace-001", "input": "hello", "output": "hi" },
-      { "trace_id": "trace-002", "input": "thanks", "output": "bye" }
+      {
+        "trace_id": "trace-001",
+        "name": "support-agent",
+        "trace_start_time": "2026-06-01T10:00:00Z",
+        "user_id": "user-1",
+        "input": "hello",
+        "output": "hi",
+        "duration_ms": 4200,
+        "status": "ok"
+      },
+      {
+        "trace_id": "trace-002",
+        "name": "support-agent",
+        "trace_start_time": "2026-06-01T09:00:00Z",
+        "user_id": "user-1",
+        "input": "refund?",
+        "output": "error",
+        "duration_ms": 9100,
+        "status": "error"
+      }
     ]
   }
 }
