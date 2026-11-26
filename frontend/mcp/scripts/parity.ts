@@ -15,8 +15,10 @@ import { execFile } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
-import { CASES, NORMALISE, type ParityCase, type Seeds } from "./parity-cases.js";
+import { EXPOSED_TOOLS } from "../src/exposure.js";
+import { CASES, coverageGaps, NORMALISE, type ParityCase, type Seeds } from "./parity-cases.js";
 
 const run = promisify(execFile);
 const { values } = parseArgs({
@@ -38,7 +40,7 @@ const known = [...new Set(CASES.map((c) => c.tool))];
 if (only && !known.includes(only)) {
   throw new Error(`--only ${only} matches no tool; known tools: ${known.join(", ")}`);
 }
-const cliBin = new URL("../node_modules/.bin/traceroot", import.meta.url).pathname;
+const cliBin = fileURLToPath(new URL("../node_modules/.bin/traceroot", import.meta.url));
 // A clean HOME so no stored login outranks the key.
 const home = mkdtempSync(join(tmpdir(), "parity-home-"));
 
@@ -136,8 +138,12 @@ async function seeds(): Promise<Seeds> {
     end: end.toISOString(),
     runId: values["run-id"],
   };
+  // A failed seed call leaves its cases SKIPPED; say why, so a SKIP is not a mystery.
   const read = async (tool: string, args: Record<string, unknown> = {}) =>
-    mcp(tool, args).catch(() => undefined) as Promise<unknown>;
+    mcp(tool, args).catch((error: unknown) => {
+      console.error(`seed ${tool} failed: ${oneLine(error)}`);
+      return undefined;
+    }) as Promise<unknown>;
   const findings = await read("list_findings", { limit: 1 });
   Object.assign(s, {
     traceId: first(await read("list_traces", { limit: 1 }), "data", "trace_id"),
@@ -173,6 +179,16 @@ type Verdict = {
   detail: string;
 };
 
+/** The whole message (CLI stderr included) on one line, for the table. */
+function oneLine(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .join(" | ");
+}
+
 async function check(c: ParityCase, s: Seeds): Promise<Verdict> {
   const baseline = c.cli ? "cli" : "http";
   const verdict = (status: Verdict["status"], detail = ""): Verdict => ({
@@ -193,7 +209,7 @@ async function check(c: ParityCase, s: Seeds): Promise<Verdict> {
     const right = canonical(normalise(normalise(fromBaseline, c.normaliseCli), c.normaliseBoth));
     return left === right ? verdict("PASS") : verdict("FAIL", firstDifference(left, right));
   } catch (error) {
-    return verdict("FAIL", error instanceof Error ? error.message.split("\n")[0]! : String(error));
+    return verdict("FAIL", oneLine(error));
   }
 }
 
@@ -214,4 +230,7 @@ const passed = new Set(
 console.log(
   `\n${passed.size} of ${tools.size} tools PASS (${verdicts.filter((v) => v.baseline === "cli" && v.status === "PASS").length} cli rows, ${verdicts.filter((v) => v.baseline === "http" && v.status === "PASS").length} http rows)`,
 );
-process.exit(passed.size === tools.size ? 0 : 1);
+// A full run must give every exposed tool a verdict, and only exposed tools.
+const gaps = only ? [] : coverageGaps(EXPOSED_TOOLS, tools);
+for (const gap of gaps) console.log(`FAIL  ${gap}`);
+process.exit(passed.size === tools.size && gaps.length === 0 ? 0 : 1);

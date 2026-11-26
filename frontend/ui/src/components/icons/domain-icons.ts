@@ -25,6 +25,7 @@ import {
   Shapes,
   Sparkle,
   Split,
+  Tag,
   Users,
   Workflow,
   Wrench,
@@ -60,6 +61,7 @@ export const DOMAIN_ICONS = {
   session: Layers,
   trace: Workflow,
   id: Hash,
+  label: Tag,
   // Distinct concept from `id` (a count of things vs. an identifier) that
   // happens to share the same glyph today.
   count: Hash,

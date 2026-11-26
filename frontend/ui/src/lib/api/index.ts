@@ -22,7 +22,15 @@ export {
 } from "./workspaces";
 
 // Project APIs
-export { getProjects, getProject, createProject, updateProject, deleteProject } from "./projects";
+export {
+  getProjects,
+  getProject,
+  getProjectNextSteps,
+  createProject,
+  updateProject,
+  deleteProject,
+} from "./projects";
+export type { ProjectNextSteps } from "./projects";
 
 // Member APIs
 export { getMembers, addMember, updateMemberRole, removeMember } from "./members";
