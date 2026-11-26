@@ -337,6 +337,17 @@ html[data-current-path$="/getting-started/introduction"] #content > :last-child 
     margin-left: -12px;
   }
 
+  /* Match Mintlify's utility layer to override the scroll area's absolute!. */
+  @layer utilities {
+    div:has(+ #footer.tr-docs-footer) > #sidebar > #sidebar-content {
+      position: fixed !important;
+      inset: auto;
+      top: inherit;
+      width: inherit;
+      height: inherit;
+    }
+  }
+
   html:is([data-page-mode="none"], [data-page-mode="default"]) #content-container {
     position: relative;
   }
@@ -381,6 +392,19 @@ html[data-current-path$="/getting-started/introduction"] #content > :last-child 
   #table-of-contents-layout {
     padding-left: 32px;
     width: 304px;
+  }
+
+  /* Pass the native side panel's top offset through the in-flow TOC column. */
+  div:has(+ #footer.tr-docs-footer) > #content-container #content-side-layout > #table-of-contents-layout {
+    top: inherit;
+  }
+
+  div:has(+ #footer.tr-docs-footer) > #content-container
+    #content-side-layout > #table-of-contents-layout > #table-of-contents {
+    /* Override the ScrollArea's inline positioning. */
+    position: fixed !important;
+    top: inherit;
+    bottom: 0;
   }
 }
 

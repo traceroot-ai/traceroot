@@ -11,7 +11,7 @@ import { TR } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components";
-import { useWorkspaces } from "@/features/workspaces/hooks";
+import { ACTIVITY_REFRESH_INTERVAL_MS, useWorkspaces } from "@/features/workspaces/hooks";
 
 export default function WorkspacesPage() {
   const router = useRouter();
@@ -25,7 +25,10 @@ export default function WorkspacesPage() {
   }, [user, router]);
 
   // Get all workspaces
-  const { data: workspaces, isLoading } = useWorkspaces(!!session);
+  const { data: workspaces, isLoading } = useWorkspaces(!!session, {
+    refetchInterval: ACTIVITY_REFRESH_INTERVAL_MS,
+    refetchOnMount: "always",
+  });
 
   if (!user) {
     return null;
@@ -85,8 +88,8 @@ export default function WorkspacesPage() {
                     {workspace.is_demo ? "—" : formatDate(workspace.create_time)}
                   </td>
                   <td className="whitespace-nowrap px-3 text-muted-foreground">
-                    {!workspace.is_demo && workspace.update_time
-                      ? formatDate(workspace.update_time)
+                    {!workspace.is_demo && workspace.last_ingested_at
+                      ? formatDate(workspace.last_ingested_at)
                       : "—"}
                   </td>
                   <td className="px-2 text-right">

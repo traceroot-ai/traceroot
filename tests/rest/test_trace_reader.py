@@ -792,7 +792,10 @@ class TestCustomerTraceEarliestSpanTime:
     def test_the_earliest_start_of_any_customer_span(self):
         service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
 
-        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        assert (
+            service.get_trace_earliest_span_time("proj-1", "trace-1", customer_only=True)
+            == self.OLD
+        )
         query = " ".join(client.query.call_args.args[0].split())
         assert "minOrNull(span_start_time)" in query
         assert "parent_span_id" not in query
@@ -808,7 +811,7 @@ class TestCustomerTraceEarliestSpanTime:
     def test_none_when_the_trace_has_no_span(self, rows):
         service, _ = _make_service(lambda *a, **kw: _rows(rows))
 
-        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") is None
+        assert service.get_trace_earliest_span_time("proj-1", "trace-1", customer_only=True) is None
 
     def test_never_cached(self):
         """An earlier span can still arrive, so every call reads again."""
@@ -816,9 +819,29 @@ class TestCustomerTraceEarliestSpanTime:
         answers = iter([_rows([(later,)]), _rows([(self.OLD,)])])
         service, client = _make_service(lambda *a, **kw: next(answers))
 
-        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == later
-        assert service.get_customer_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        assert (
+            service.get_trace_earliest_span_time("proj-1", "trace-1", customer_only=True) == later
+        )
+        assert (
+            service.get_trace_earliest_span_time("proj-1", "trace-1", customer_only=True)
+            == self.OLD
+        )
         assert client.query.call_count == 2
+
+
+class TestTraceEarliestSpanTime:
+    OLD = datetime(2020, 1, 1)
+
+    def test_reads_every_source_by_default(self):
+        """Span I/O and live read a trace without a source filter, so their retention
+        fallback must not skip internal spans either."""
+        service, client = _make_service(lambda *a, **kw: _rows([(self.OLD,)]))
+
+        assert service.get_trace_earliest_span_time("proj-1", "trace-1") == self.OLD
+        query = " ".join(client.query.call_args.args[0].split())
+        assert "minOrNull(span_start_time)" in query
+        assert "source" not in query
+        assert "ORDER BY ch_update_time DESC LIMIT 1 BY span_id" in query
 
 
 class TestCustomerSpanIo:
