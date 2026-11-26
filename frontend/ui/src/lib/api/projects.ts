@@ -50,3 +50,15 @@ export async function deleteProject(workspaceId: string, projectId: string): Pro
     method: "DELETE",
   });
 }
+
+/** Which of the project home's next steps the project has done. */
+export interface ProjectNextSteps {
+  first_trace: boolean;
+  detector: boolean;
+  signal: boolean;
+  eval_run: boolean;
+}
+
+export async function getProjectNextSteps(projectId: string): Promise<ProjectNextSteps> {
+  return fetchNextApi<ProjectNextSteps>(`/projects/${projectId}/next-steps`);
+}
