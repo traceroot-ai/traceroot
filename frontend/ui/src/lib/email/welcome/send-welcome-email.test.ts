@@ -84,6 +84,7 @@ describe("on the cloud service", () => {
     expect(email.text).toContain("Best,\nXinwei He\nTraceRoot.AI | CEO\n");
     expect(email.text).not.toMatch(/devs/i);
     expect(email.text).toContain(`Unsubscribe from product emails: ${unsubscribeUrl}`);
+    expect(email.html).toContain('href="https://app.example.com"');
     expect(email.text).toContain("pick a time on my calendar (https://cal.com/traceroot/30min)");
     expect(email.text).not.toContain("email from Slack");
   });
