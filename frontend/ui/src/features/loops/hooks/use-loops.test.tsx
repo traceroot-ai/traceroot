@@ -11,6 +11,7 @@ import {
   useLoop,
   useLoopList,
   useLoopMemory,
+  useLoopRun,
   useLoopRuns,
   useRunLoop,
   useSetLoopStatus,
@@ -139,6 +140,23 @@ describe("use-loops", () => {
     expect(interval(withLast("running"))).toBe(10_000);
     expect(interval(withLast("succeeded"))).toBe(false);
     expect(interval(withLast(null))).toBe(false);
+  });
+
+  it("looks at a linked run again every 10 s while it is queued or running", async () => {
+    fetchMock.mockReturnValue(json({ run: { id: "r1", status: "pending" } }));
+    renderHook(() => useLoopRun("p1", "l1", "r1"), { wrapper });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const query = client.getQueryCache().find({ queryKey: loopKeys.run("p1", "l1", "r1") })!;
+    const { refetchInterval: interval } = query.options as unknown as {
+      refetchInterval: (q: { state: { data: unknown } }) => number | false;
+    };
+    const withRun = (status: string | null) => ({
+      state: { data: status ? { status } : undefined },
+    });
+    expect(interval(withRun("pending"))).toBe(10_000);
+    expect(interval(withRun("running"))).toBe(10_000);
+    expect(interval(withRun("succeeded"))).toBe(false);
+    expect(interval(withRun(null))).toBe(false);
   });
 
   it("queues a run with a POST to the run route", async () => {
