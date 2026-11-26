@@ -1,9 +1,9 @@
 /**
  * The Loop meter: runs and token cost from the Loop turns (aIMessage rows of
  * kind "loop"), the billing source of every agent kind. A run is counted once
- * the agent replied in its turn (see REPLIED): a run whose model failed before
- * answering is not. Messages outlive the Loop (its loop_runs go with it), so
- * deleting a Loop gives back no runs.
+ * the agent replied in its turn (LOOP_REPLIED_MESSAGE_WHERE): a run whose
+ * model failed before answering is not. Messages outlive the Loop (its
+ * loop_runs go with it), so deleting a Loop gives back no runs.
  * Written to currentUsage.loop, which the billing tab's Loop usage card and
  * the Loop pages' plan banner read, and to loopBlocked the way detectorBlocked
  * is: Free plans are capped, paid plans are never blocked. Paid plans are
@@ -11,6 +11,7 @@
  * usageMetering.ts).
  */
 import { prisma, PlanType, isLoopRunBlocked, LOOP_RUN_QUOTAS } from "@traceroot/core";
+import { LOOP_REPLIED_MESSAGE_WHERE } from "@traceroot/core/loops";
 import { aggregateMessagesForKind } from "./usageMetering.js";
 
 export interface LoopUsage {
@@ -40,13 +41,6 @@ export interface LoopMeter {
   loopBlocked?: boolean;
 }
 
-/**
- * The rows of a turn in which the agent replied: a tool call, or assistant
- * text. A model that fails before answering leaves only the kickoff and an
- * empty assistant row that carries the error.
- */
-const REPLIED = [{ role: "tool_step" }, { role: "assistant", content: { not: "" } }];
-
 export async function meterLoopRuns(
   workspace: { id: string; loopBlocked: boolean },
   plan: PlanType,
@@ -61,7 +55,7 @@ export async function meterLoopRuns(
         workspaceId: workspace.id,
         kind: "loop",
         sessionId: { not: null },
-        OR: REPLIED,
+        OR: LOOP_REPLIED_MESSAGE_WHERE,
         ...periodWindow,
       },
     }),
