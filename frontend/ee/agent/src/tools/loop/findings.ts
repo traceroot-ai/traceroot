@@ -51,7 +51,7 @@ export function plainFindingText(value: unknown): string {
 const recordFindingSchema = Type.Object({
   key: Type.String({
     description:
-      "Stable kebab-case id of the problem, 2-63 characters of a-z, 0-9 and -, e.g. " +
+      "Stable kebab-case id of the problem, 2-63 characters of a-z and 0-9 joined by single hyphens, e.g. " +
       '"checkout-payment-timeouts". Reuse this loop\'s existing key when it is the same problem.',
   }),
   title: Type.String({
@@ -118,7 +118,7 @@ export function createRecordFindingTool(
       const key = String(args.key ?? "").trim();
       if (!LOOP_FINDING_KEY_PATTERN.test(key)) {
         return notRecorded(
-          `key ${JSON.stringify(key)} must be kebab-case: 2-63 characters of a-z, 0-9 and -, starting with a letter or digit.`,
+          `key ${JSON.stringify(key)} must be kebab-case: 2-63 characters of a-z and 0-9 joined by single hyphens, with no hyphen at either end.`,
         );
       }
       const fields: Record<"title" | "covers" | "summary", string> = {
