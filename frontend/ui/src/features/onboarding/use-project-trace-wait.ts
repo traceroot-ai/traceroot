@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import type { TraceApiUser } from "@/lib/api/client";
+import { getProjectFirstTraceTime } from "@/lib/api/projects";
 import {
   captureTraceBaseline,
   findFirstTrace,
@@ -55,6 +56,7 @@ export function useProjectTraceWait(
   /** The project this page created. Null until it exists. */
   projectId: string | null,
   user: TraceApiUser | undefined,
+  projectReadAt?: string,
 ): TraceWait {
   // Read through refs so a re-render with an equivalent-but-new session object
   // does not restart the wait, and with it the baseline.
@@ -63,10 +65,14 @@ export function useProjectTraceWait(
   const userRef = useRef(user);
   userRef.current = user;
 
+  const readAtRef = useRef(projectReadAt);
+  readAtRef.current = projectReadAt;
+
   const beginWait = useCallback((isCancelled: () => boolean) => {
     const watched = projectIdRef.current;
     const fallbackUrl = fallbackUrlFor(watched);
     let baseline: TraceBaseline | null = null;
+    const readAt = readAtRef.current;
     let unreadableRounds = 0;
 
     /** A round that could not read the project, which ends the wait at the limit. */
@@ -89,11 +95,22 @@ export function useProjectTraceWait(
       if (isCancelled()) return null;
       const entry = baseline.get(watched);
       if (entry?.kind === "newest") {
-        // The project was already receiving traces. Show its list without
-        // opening an older trace as though it had just arrived.
-        return { kind: "already-received", fallbackUrl };
-      }
-      if (firstRead) return { kind: "again", fallbackUrl };
+        // A list read can race with the command on screen. Compare ingestion
+        // against the server's project read, independent of the SDK's clock.
+        let receivedAt: string | null = null;
+        if (readAt) {
+          try {
+            receivedAt = await getProjectFirstTraceTime(watched);
+          } catch {
+            return unreadable();
+          }
+          if (isCancelled()) return null;
+        }
+        if (!receivedAt || !readAt || Date.parse(receivedAt) < Date.parse(readAt)) {
+          return { kind: "already-received", fallbackUrl };
+        }
+        baseline = new Map([[watched, { kind: "empty" }]]);
+      } else if (firstRead) return { kind: "again", fallbackUrl };
 
       if (entry?.kind === "unknown") {
         // Still no line, so there is nothing a search could match against and
