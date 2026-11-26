@@ -2,8 +2,9 @@
  * A stand-in for the public API that answers the 24 exposed routes from
  * fixtures/*.json. FIXTURES, NOT THE REAL BACKEND: it gives the parity harness
  * a fast loop and never counts as the live result. It checks the bearer the way
- * the real API does: a key that does not start with `tr-` is a 400 (it takes
- * the user-credential path and asks for a project_id), a wrong `tr-` key is 401.
+ * the real API does: a key that does not start with `tr-` (in any case) is a
+ * 400 (it takes the user-credential path and asks for a project_id), a wrong
+ * `tr-` key is 401.
  */
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -24,7 +25,7 @@ const P = "/api/v1/public";
 let queries = 0;
 
 /** Exact-path routes, then `{param}` routes; each answers with a fixture. */
-const routes: [string, string, (body: unknown) => unknown][] = [
+export const ROUTES: [string, string, (body: unknown) => unknown][] = [
   ["GET", `${P}/traces`, () => traces.list],
   ["GET", `${P}/traces/:id`, () => traces.detail],
   ["GET", `${P}/sessions`, () => sessions.list],
@@ -53,7 +54,7 @@ const routes: [string, string, (body: unknown) => unknown][] = [
 ];
 
 function match(method: string, path: string) {
-  for (const [m, pattern, answer] of routes) {
+  for (const [m, pattern, answer] of ROUTES) {
     if (m !== method) continue;
     const want = pattern.split("/");
     const got = path.split("/");
@@ -78,7 +79,8 @@ export function startMockRest(apiKey: string, port = 0): Promise<{ server: Serve
       };
       const bearer = /^Bearer (\S+)$/.exec(req.headers.authorization ?? "")?.[1];
       if (bearer === undefined) return send(401, { detail: "Missing credentials" });
-      if (!bearer.startsWith("tr-")) {
+      // The API picks the key path on the trimmed, lowercased token.
+      if (!bearer.trim().toLowerCase().startsWith("tr-")) {
         return send(400, { detail: "project_id query parameter is required for user credentials" });
       }
       if (bearer !== apiKey) return send(401, { detail: "Invalid API key" });
