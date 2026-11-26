@@ -9,9 +9,9 @@ describe("loopWindowStart", () => {
     expect(loopWindowStart(24, NOW).toISOString()).toBe("2026-11-23T12:00:00.000Z");
   });
 
-  it("clamps the hours to 1..168, as the agent's window does", () => {
-    expect(loopWindowStart(0, NOW).toISOString()).toBe("2026-11-24T11:00:00.000Z");
-    expect(loopWindowStart(500, NOW).toISOString()).toBe("2026-11-17T12:00:00.000Z");
+  it("spans the shortest and longest lookback a Loop can be saved with", () => {
+    expect(loopWindowStart(1, NOW).toISOString()).toBe("2026-11-24T11:00:00.000Z");
+    expect(loopWindowStart(168, NOW).toISOString()).toBe("2026-11-17T12:00:00.000Z");
   });
 });
 
