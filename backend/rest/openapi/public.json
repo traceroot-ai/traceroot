@@ -7716,6 +7716,73 @@
         ],
         "title": "WorkspaceRow",
         "type": "object"
+      },
+      "WriteLabelRequest": {
+        "additionalProperties": false,
+        "description": "Apply an existing project label to a user trace or span.",
+        "properties": {
+          "author_id": {
+            "description": "Project-scoped ID of the end user who applied the label.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Author Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Id"
+          },
+          "trace_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "author_id",
+          "value",
+          "idempotency_key"
+        ],
+        "title": "WriteLabelRequest",
+        "type": "object"
+      },
+      "WriteLabelResponse": {
+        "description": "The saved assignment ID, also returned on retries.",
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "WriteLabelResponse",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -11659,6 +11726,144 @@
         }
       }
     },
+    "/api/v1/public/labels": {
+      "post": {
+        "description": "Apply a project label to a production trace or one of its spans.\n\nUse a project API key and the same idempotency key on retry. Retrying the\nsame trace, span, author and value returns the original assignment ID.",
+        "operationId": "write_label",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteLabelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteLabelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid label request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Label target outside retention"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Project label or eligible target not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Idempotency key used for a different assignment"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Failed to verify label target"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Apply a production label",
+        "tags": [
+          "Labels"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
     "/api/v1/public/projects": {
       "get": {
         "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name, workspace_is_demo).",
@@ -12926,7 +13131,7 @@
           "SQL"
         ],
         "x-tool": {
-          "description": "Run one read-only query on TraceRoot's SQL API: a single SELECT over the project's documented spans and traces tables, nothing else. Call get_sql_schema first to see their columns. Rows are capped and may be truncated. SQL reference: https://traceroot.ai/docs/cli/sql",
+          "description": "Run one read-only query on TraceRoot's SQL API: a single SELECT, UNION or WITH query over the project's documented spans and traces tables, nothing else. Call get_sql_schema first to see their columns. Rows are capped and may be truncated. SQL reference: https://traceroot.ai/docs/cli/sql",
           "enabled": true,
           "name": "run_sql",
           "policy": {
