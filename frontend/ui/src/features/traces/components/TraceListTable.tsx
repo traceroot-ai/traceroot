@@ -14,6 +14,7 @@ import {
   formatExactTokens,
   cn,
 } from "@/lib/utils";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatContentPreview } from "../utils";
 import { traceMetadataEntries } from "../utils/metadata";
@@ -198,9 +199,16 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
         "px-3 py-1.5 font-mono text-muted-foreground",
       )}
     >
-      <span className="block truncate" title={trace.trace_id}>
-        {trace.trace_id}
-      </span>
+      <div className="flex items-center gap-1">
+        <span className="block truncate" title={trace.trace_id}>
+          {trace.trace_id}
+        </span>
+        <CopyButton
+          value={trace.trace_id}
+          className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+          title="Copy trace ID"
+        />
+      </div>
     </td>
   ),
   errors: ({ trace, borderClassName }) => (

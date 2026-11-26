@@ -31,7 +31,8 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
       [],
     );
 
-    const handleCopy = async () => {
+    const handleCopy = async (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
       const attempt = ++copyAttempt.current;
       if (resetTimer.current) clearTimeout(resetTimer.current);
       setCopied(false);

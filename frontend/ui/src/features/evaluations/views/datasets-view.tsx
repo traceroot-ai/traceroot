@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
@@ -164,9 +165,16 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                       className="max-w-[240px] truncate text-muted-foreground"
                       title={dataset.clientDatasetId ?? dataset.id}
                     >
-                      <span className="font-mono text-[12px]">
-                        {dataset.clientDatasetId ?? dataset.id}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="truncate font-mono text-[12px]">
+                          {dataset.clientDatasetId ?? dataset.id}
+                        </span>
+                        <CopyButton
+                          value={dataset.clientDatasetId ?? dataset.id}
+                          className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                          title="Copy dataset ID"
+                        />
+                      </div>
                     </Td>
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {dataset.caseCount}
