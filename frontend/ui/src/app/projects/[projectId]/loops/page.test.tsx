@@ -251,6 +251,14 @@ describe("Loops list", () => {
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/loops/l1");
   });
 
+  it("does not open the row on a click inside its menu, between the actions", () => {
+    withLoops([loop()]);
+    render(<LoopsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Coding agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }).parentElement!);
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("disables New loop at five loops and says why", () => {
     withLoops(Array.from({ length: 5 }, (_, i) => loop({ id: `l${i}`, name: `Loop ${i}` })));
     render(<LoopsPage />);
