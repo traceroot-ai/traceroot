@@ -1184,6 +1184,19 @@ class TestGetSpanKindGenAI:
     def test_gen_ai_operation_name_invoke_agent_is_agent(self):
         assert get_span_kind({"gen_ai.operation.name": "invoke_agent"}, None) == "AGENT"
 
+    def test_mcp_method_name_tools_call_is_tool(self):
+        assert get_span_kind({"mcp.method.name": "tools/call"}, None) == "TOOL"
+
+    def test_mcp_method_name_non_tool_is_span(self):
+        for method in ("tools/list", "resources/read", "prompts/get", "initialize"):
+            assert get_span_kind({"mcp.method.name": method}, None) == "SPAN"
+
+    def test_traceroot_type_takes_priority_over_mcp_method(self):
+        assert (
+            get_span_kind({"traceroot.span.type": "SPAN", "mcp.method.name": "tools/call"}, None)
+            == "SPAN"
+        )
+
     def test_invoke_agent_wins_over_model_presence(self):
         # Semconv agent-invocation roots carry gen_ai.request.model too; the
         # operation name must decide the kind before the model fallback flips
@@ -1609,6 +1622,30 @@ class TestGenAIInputOutputFallback:
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert spans[0]["name"] == "get_stock_price"
+
+    def test_mcp_tools_call_classified_as_tool_with_name_and_io(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="tools/call get_weather",
+                    attributes=[
+                        make_attr("mcp.method.name", "tools/call"),
+                        make_attr("gen_ai.tool.name", "get_weather"),
+                        make_attr("gen_ai.tool.call.arguments", '{"city":"NYC"}'),
+                        make_attr("gen_ai.tool.call.result", '{"temp_f":72}'),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["span_kind"] == "TOOL"
+        assert spans[0]["name"] == "get_weather"
+        assert spans[0]["input"] == '{"city":"NYC"}'
+        assert spans[0]["output"] == '{"temp_f":72}'
 
     def test_non_tool_span_name_not_overridden(self):
         # tool.name present but span is LLM kind — name should not change
@@ -2430,3 +2467,66 @@ class TestErrorType:
     def test_ok_span_always_carries_the_field(self):
         span = make_span(self.TRACE, self.SPAN)
         assert self._transform(span)["error_type"] == ""
+
+
+class TestMCPSemconv:
+    """OTel MCP semantic conventions classification and attribute extraction."""
+
+    TRACE = "aa" * 16
+    SPAN = "bb" * 8
+
+    def test_mcp_tools_call_is_tool(self):
+        assert get_span_kind({"mcp.method.name": "tools/call"}, None) == "TOOL"
+
+    @pytest.mark.parametrize(
+        "method",
+        ["initialize", "tools/list", "resources/read", "prompts/get", "", None],
+    )
+    def test_mcp_non_tool_methods_remain_span(self, method):
+        assert get_span_kind({"mcp.method.name": method}, None) == "SPAN"
+
+    def test_traceroot_type_takes_priority_over_mcp_method(self):
+        assert (
+            get_span_kind({"traceroot.span.type": "SPAN", "mcp.method.name": "tools/call"}, None)
+            == "SPAN"
+        )
+
+    def test_mcp_tools_call_span_transform(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    self.TRACE,
+                    self.SPAN,
+                    name="tools/call get_weather",
+                    attributes=[
+                        make_attr("mcp.method.name", "tools/call"),
+                        make_attr("gen_ai.tool.name", "get_weather"),
+                        make_attr("gen_ai.tool.call.arguments", '{"city": "NYC"}'),
+                        make_attr("gen_ai.tool.call.result", '{"temp": 72}'),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["span_kind"] == "TOOL"
+        assert spans[0]["name"] == "get_weather"
+        assert spans[0]["input"] == '{"city": "NYC"}'
+        assert spans[0]["output"] == '{"temp": 72}'
+
+    def test_mcp_lifecycle_span_remains_span(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    self.TRACE,
+                    self.SPAN,
+                    name="initialize",
+                    attributes=[
+                        make_attr("mcp.method.name", "initialize"),
+                        make_attr("mcp.protocol.version", "2025-03-26"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["span_kind"] == "SPAN"
+        assert spans[0]["name"] == "initialize"
