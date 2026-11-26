@@ -16,7 +16,13 @@ import {
   renameLoopDetector,
   upsertMemory,
 } from "../writes.ts";
-import { getLoopRun, getLoopSummary, listLoops, listMemory } from "../queries.ts";
+import {
+  countFreeLoopRunsUsed,
+  getLoopRun,
+  getLoopSummary,
+  listLoops,
+  listMemory,
+} from "../queries.ts";
 import { COUNTED_RUN_STATUSES, LOOP_LIMITS } from "../contracts.ts";
 import { listSignals } from "../../ee/signals/reads.ts";
 
@@ -259,5 +265,47 @@ describe.skipIf(!url)("Loops on Postgres", () => {
     );
     expect(await getLoopRun(db, loop.id, run.id)).toMatchObject({ id: run.id, seq: 1 });
     expect(await getLoopRun(db, other.id, run.id)).toBeNull();
+  });
+
+  it("counts a workspace's Loop runs used: replied sessions, plus running runs yet to reply", async () => {
+    // A workspace of its own, so other tests' runs do not count here.
+    const workspaceId = `w_used_${suffix}`;
+    const projectId = `p_used_${suffix}`;
+    await db.workspace.create({ data: { id: workspaceId, name: `used ${suffix}` } });
+    await db.project.create({ data: { id: projectId, workspaceId, name: "p" } });
+    try {
+      const loop = await db.$transaction((tx) =>
+        createLoopWithDetector(tx, { ...newLoop("used"), projectId }),
+      );
+      const session = (id: string) =>
+        db.aISession.create({ data: { id, projectId, workspaceId, status: "completed" } });
+      const message = (sessionId: string, role: string, content: string, kind = "loop") =>
+        db.aIMessage.create({ data: { workspaceId, sessionId, kind, role, content } });
+      // Replied with a tool call (twice in one session: counted once), and with text.
+      await session(`s_tool_${suffix}`);
+      await message(`s_tool_${suffix}`, "tool_step", "list_traces");
+      await message(`s_tool_${suffix}`, "tool_step", "get_trace");
+      await session(`s_text_${suffix}`);
+      await message(`s_text_${suffix}`, "assistant", "nothing new");
+      // Not replied: the model failed and left an empty assistant row; not a Loop turn.
+      await session(`s_failed_${suffix}`);
+      await message(`s_failed_${suffix}`, "assistant", "");
+      await session(`s_chat_${suffix}`);
+      await message(`s_chat_${suffix}`, "assistant", "hello", "chat");
+      // Running: one before its session, one that has already replied (counted above).
+      const running = async (sessionId: string | null) => {
+        const run = await db.$transaction((tx) =>
+          createRun(tx, { loopId: loop.id, projectId, trigger: "manual" }),
+        );
+        await db.loopRun.update({ where: { id: run.id }, data: { status: "running", sessionId } });
+      };
+      await running(null);
+      await running(`s_tool_${suffix}`);
+
+      expect(await db.$transaction((tx) => countFreeLoopRunsUsed(tx, workspaceId))).toBe(3);
+      expect(await db.$transaction((tx) => countFreeLoopRunsUsed(tx, ids.workspace))).toBe(0);
+    } finally {
+      await db.workspace.delete({ where: { id: workspaceId } });
+    }
   });
 });
