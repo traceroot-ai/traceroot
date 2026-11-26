@@ -298,6 +298,35 @@ describe("SpanInfoPanel in diff mode, at the trace root", () => {
     expect(chip("latency")!.textContent).toBe("Latency:1.6s");
     expect(screen.getByText("Case outputs")).toBeTruthy();
   });
+
+  it("reads — for this trace's tokens while none of its spans has reported usage", () => {
+    // Still streaming: a span that hasn't reported usage arrives without the usage keys.
+    const streaming = {
+      ...CANDIDATE,
+      spans: CANDIDATE.spans.map((s) => {
+        const span: Partial<Span> = { ...s };
+        delete span.input_tokens;
+        delete span.output_tokens;
+        delete span.total_tokens;
+        return span as Span;
+      }),
+    };
+    render(
+      <SpanInfoPanel
+        projectId="p1"
+        trace={streaming}
+        selection={{ type: "trace" }}
+        diff={{
+          baseline: BASELINE,
+          node: null,
+          measured: true,
+          layout: "columns",
+          onLayoutChange: vi.fn(),
+        }}
+      />,
+    );
+    expect(chip("tokens")!.textContent).toBe("100 → —");
+  });
 });
 
 describe("SpanInfoPanel in diff mode with image references", () => {

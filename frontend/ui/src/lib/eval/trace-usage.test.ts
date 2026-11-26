@@ -61,6 +61,40 @@ describe("attributeTraceUsage", () => {
     expect(u.combined.spanCount).toBe(0);
   });
 
+  it("is unknown for a streaming trace none of whose spans has reported usage yet", () => {
+    // A span that hasn't reported usage arrives without the usage keys, not with nulls.
+    const streamed = (id: string, parent: string | null, kind: string) =>
+      ({ span_id: id, parent_span_id: parent, span_kind: kind }) as UsageSpan;
+    const u = attributeTraceUsage([
+      streamed("root", null, "EVALUATION"),
+      streamed("task", "root", "TASK"),
+      streamed("search", "task", "TOOL"),
+    ]);
+    expect(u.state).toBe("unknown");
+    expect(u.task.spanCount).toBe(0);
+  });
+
+  it("leaves the cost unknown for a span that reported tokens without a cost key", () => {
+    const u = attributeTraceUsage([
+      span("root", null, "EVALUATION"),
+      { span_id: "llm", parent_span_id: "root", span_kind: "LLM", total_tokens: 40 } as UsageSpan,
+    ]);
+    expect(u.task.totalTokens).toBe(40);
+    expect(u.task.costKnown).toBe(false);
+  });
+
+  it("leaves the tokens unknown for a span that reported only a cost", () => {
+    const u = attributeTraceUsage([
+      span("root", null, "EVALUATION"),
+      { span_id: "llm", parent_span_id: "root", span_kind: "LLM", cost: 0.03 } as UsageSpan,
+    ]);
+    expect(u.state).toBe("present");
+    expect(u.task.cost).toBe(0.03);
+    expect(u.task.costKnown).toBe(true);
+    expect(u.task.tokensKnown).toBe(false);
+    expect(u.task.spanCount).toBe(1);
+  });
+
   it("attributes the task's LLM leaf to task cost (lab shape: non-LLM scorers)", () => {
     const u = attributeTraceUsage(evalTrace());
     expect(u.state).toBe("present");

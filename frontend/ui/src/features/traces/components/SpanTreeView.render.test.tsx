@@ -6,7 +6,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SpanKind, SpanStatus } from "@traceroot/core";
-import type { TraceDetail } from "@/types/api";
+import type { Span, TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 
@@ -153,6 +153,19 @@ describe("SpanTreeView token/cost badges", () => {
     expect(screen.getByText("0.0200").className).toContain("@[100px]:inline-flex");
     expect(screen.getByText("0.0123").className).toContain("@[190px]:inline-flex");
     expect(screen.queryByText("0.5000")).toBeNull();
+  });
+
+  it("shows no token figure on the trace row while no span has reported usage, as for any trace without usage", () => {
+    // Still streaming: a span that hasn't reported usage arrives without the usage keys.
+    const span: Partial<Span> = { ...trace.spans[0], cost: null };
+    delete span.input_tokens;
+    delete span.output_tokens;
+    delete span.total_tokens;
+    renderTree({ ...trace, spans: [span as Span] });
+
+    expect(screen.getByText("root-trace")).toBeTruthy();
+    // Not a token figure that reads 0.
+    expect(screen.queryByText(/→/)).toBeNull();
   });
 });
 

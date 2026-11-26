@@ -200,6 +200,28 @@ describe("SpanTreeView in diff mode", () => {
     expect(cost.className).toContain("text-danger");
   });
 
+  it("reads — for the trace row's tokens while none of this trace's spans has reported usage", () => {
+    // Still streaming: a span that hasn't reported usage arrives without the usage keys.
+    const streaming = {
+      ...CANDIDATE,
+      spans: CANDIDATE.spans.map((s) => {
+        const span: Partial<Span> = { ...s };
+        delete span.input_tokens;
+        delete span.output_tokens;
+        delete span.total_tokens;
+        return span as Span;
+      }),
+    };
+    const { container } = renderTree(
+      { trace: streaming },
+      { nodes: traceUnion(BASELINE, streaming).nodes },
+    );
+    const traceRow = container.querySelector<HTMLElement>('[style*="translateY(0px)"]')!;
+    const tokens = traceRow.querySelector<HTMLElement>('[data-metric="tokens"]')!;
+    expect(tokens.textContent).toBe("600 → —");
+    expect(tokens.className).toContain("text-muted-foreground");
+  });
+
   it("selects a removed span by the baseline's span and any other by the candidate's", () => {
     const { row, onSelect } = renderTree();
     fireEvent.click(row("web_search"));

@@ -61,6 +61,10 @@ export interface UsageBucket {
    *  is "cost not attributed yet" (show Unknown); with `costKnown` true it's a genuine
    *  zero. Ingest can attach token usage before it computes cost, so the two differ. */
   costKnown: boolean;
+  /** Whether ANY leaf summed here reported a token count. A leaf that reported only a cost
+   *  leaves the tokens unknown, so `totalTokens === 0` reads as a genuine zero only when this
+   *  is true. */
+  tokensKnown: boolean;
   /** How many usage-bearing leaf spans were summed into this bucket. */
   spanCount: number;
   /** Distinct OBSERVED model names among the leaves summed here (sorted). Empty when
@@ -89,18 +93,17 @@ function emptyBucket(): UsageBucket {
     totalTokens: 0,
     cost: 0,
     costKnown: false,
+    tokensKnown: false,
     spanCount: 0,
     models: [],
   };
 }
 
-/** A span carries provider usage if any token count or a cost is present. */
+/** A span carries provider usage if any token count or a cost is present. A streamed span
+ *  that hasn't reported usage lacks the keys altogether, so a missing key reads like a null one. */
 function hasUsage(s: UsageSpan): boolean {
   return (
-    s.input_tokens !== null ||
-    s.output_tokens !== null ||
-    s.total_tokens !== null ||
-    s.cost !== null
+    s.input_tokens != null || s.output_tokens != null || s.total_tokens != null || s.cost != null
   );
 }
 
@@ -118,9 +121,11 @@ export function spanTotalTokens(
 function addUsage(bucket: UsageBucket, s: UsageSpan, models: Set<string>): void {
   bucket.inputTokens += s.input_tokens ?? 0;
   bucket.outputTokens += s.output_tokens ?? 0;
-  bucket.totalTokens += spanTotalTokens(s) ?? 0;
+  const total = spanTotalTokens(s);
+  bucket.totalTokens += total ?? 0;
+  if (total !== null) bucket.tokensKnown = true;
   bucket.cost += s.cost ?? 0;
-  if (s.cost !== null) bucket.costKnown = true;
+  if (s.cost != null) bucket.costKnown = true;
   bucket.spanCount += 1;
   if (s.model_name) models.add(s.model_name);
 }
@@ -179,5 +184,10 @@ export function attributeTraceUsage(spans: UsageSpan[] | null | undefined): Trac
   scorer.models = [...scorerModels].sort();
   combined.models = [...combinedModels].sort();
 
+  // `present` once any span reported usage, on either side. A side none of whose spans
+  // reported a token count (`tokensKnown` false) has unknown tokens, not 0: a task that made
+  // no instrumented model call reads unknown next to a judge that reported usage, as an
+  // uninstrumented call can't be told from none, and a span that reported only a cost says
+  // nothing about its tokens.
   return { task, scorer, combined, state: found ? "present" : "unknown" };
 }

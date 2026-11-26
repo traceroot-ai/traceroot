@@ -71,7 +71,14 @@ export function ResultUsageSummary({
           ) : hasJudge ? (
             <>
               <Row label="Judge model" value={modelText(usage, "scorer", pendingText)} mono />
-              <Row label="Judge tokens" value={usage.scorer.totalTokens.toLocaleString("en-US")} />
+              <Row
+                label="Judge tokens"
+                value={
+                  usage.scorer.tokensKnown
+                    ? usage.scorer.totalTokens.toLocaleString("en-US")
+                    : unknownText
+                }
+              />
               <Row
                 label="Judge cost"
                 value={bucketCost(usage, "scorer", formatCost, unknownText, pendingText)}
@@ -125,8 +132,10 @@ function tokenText(
   pendingText: React.ReactNode,
 ): React.ReactNode {
   if (u.state === "pending") return pendingText;
-  if (u.state === "unknown") return unknownText;
   const b = u[bucket];
+  // No span on this side reported a token count: unknown, even when one reported a cost or
+  // the other side reported usage.
+  if (!b.tokensKnown) return unknownText;
   return `${b.totalTokens.toLocaleString("en-US")} total · ${b.inputTokens.toLocaleString(
     "en-US",
   )} in · ${b.outputTokens.toLocaleString("en-US")} out`;

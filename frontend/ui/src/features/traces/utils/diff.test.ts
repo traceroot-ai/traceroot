@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
-import { buildUnionTree, traceUnion } from "@/lib/eval/union-tree";
+import { buildUnionTree, metricDirection, traceUnion } from "@/lib/eval/union-tree";
 import type { Span, TraceDetail } from "@/types/api";
-import { beforeAfter, diffScaleMs, findUnionNode, moveClass, unionBars } from "./diff";
+import {
+  beforeAfter,
+  diffScaleMs,
+  findUnionNode,
+  moveClass,
+  traceFigures,
+  unionBars,
+} from "./diff";
 
 const span = (traceId: string, id: string, parent: string | null, name: string): Span => ({
   span_id: id,
@@ -58,6 +65,25 @@ describe("beforeAfter and moveClass", () => {
     expect(moveClass("better")).toBe("text-success");
     expect(moveClass("worse")).toBe("text-danger");
     expect(moveClass(null)).toBe("text-muted-foreground");
+  });
+});
+
+describe("traceFigures", () => {
+  it("reads — for this trace's tokens while none of its spans has reported usage, not a drop to 0", () => {
+    const baseline = {
+      spans: [{ ...span("tb", "b0", null, "agent"), total_tokens: 1700 }],
+    } as TraceDetail;
+    // A streaming span that hasn't reported usage arrives without the usage keys.
+    const streamed: Partial<Span> = span("tc", "c0", null, "agent");
+    delete streamed.input_tokens;
+    delete streamed.output_tokens;
+    delete streamed.total_tokens;
+    const trace = { spans: [streamed as Span] } as TraceDetail;
+
+    const { totalTokens } = traceFigures(baseline, trace);
+    expect(totalTokens).toEqual({ baseline: 1700, candidate: null });
+    expect(beforeAfter(totalTokens, String)).toBe("1700 → —");
+    expect(metricDirection("totalTokens", totalTokens)).toBeNull();
   });
 });
 
