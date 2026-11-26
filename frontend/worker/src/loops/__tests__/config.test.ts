@@ -32,6 +32,16 @@ describe("loopTickCron", () => {
     vi.stubEnv("LOOP_TICK_CRON", " */2 * * * * ");
     expect(loopTickCron()).toBe("*/2 * * * *");
   });
+
+  it("warns and takes the default when LOOP_TICK_CRON is not a valid expression", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const bad of ["every 5 minutes", "*/5 * * *", "61 * * * *"]) {
+      vi.stubEnv("LOOP_TICK_CRON", bad);
+      expect(loopTickCron()).toBe(DEFAULT_LOOP_TICK_CRON);
+    }
+    expect(warn).toHaveBeenCalledTimes(3);
+    warn.mockRestore();
+  });
 });
 
 describe("loopRunTimeoutMs and loopRunConcurrency", () => {
