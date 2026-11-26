@@ -1,13 +1,10 @@
 import { Queue, Worker, type Job } from "bullmq";
+import { ALERT_CLOSE_MAX_RESENDS, decryptKey, prisma, type AlertStatus } from "@traceroot/core";
 import {
-  ALERT_CLOSE_MAX_RESENDS,
-  decryptKey,
   PERMANENT_SLACK_ERROR,
-  prisma,
   RETRIES_EXHAUSTED,
   SLACK_CONFIGURATION_FAILURES,
-  type AlertStatus,
-} from "@traceroot/core";
+} from "@traceroot/core/alert-delivery";
 import {
   buildAlertBlocks,
   buildAlertClosedBlocks,
@@ -374,7 +371,7 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
   } catch (error) {
     if (!isRetryableSlackError(error)) {
       logError(`slack dropped ${tag} reason=permanent-slack-error`, error);
-      await recordNonDelivery(payload, "permanent-slack-error");
+      await recordNonDelivery(payload, PERMANENT_SLACK_ERROR);
       return;
     }
     throw error;

@@ -95,13 +95,22 @@ export function resolveAlertDeliveryFix(alert: AlertDisplayInput): AlertDelivery
  * happens next. Both halves matter: the worker resends some non-deliveries on
  * the next evaluation (`isAwaitingRedelivery`) and never resends others, so
  * the second sentence is picked by status and reason together, never by
- * status alone. It mirrors `docs/alerts/slack.mdx`.
+ * status alone.
  *
  * A page the delivery worker took back outlives the error that recorded it:
  * the next successful run clears `lastError` within the minute, and the user
  * still never heard about the breach — which is why this detail rides along
  * on every badge state below.
  */
+function notifyStateCondition(severity: string): string {
+  const display = Object.prototype.hasOwnProperty.call(SEVERITY_DISPLAY, severity)
+    ? SEVERITY_DISPLAY[severity as AlertSeverity]
+    : undefined;
+  return display
+    ? `if the rule's severity is still ${display.label}`
+    : "if the rule is still in the same state";
+}
+
 function describeUndelivered(alert: AlertDisplayInput): string | undefined {
   const status = alert.lastNotifyStatus;
   if (!status || status === DELIVERED) return undefined;
@@ -120,7 +129,7 @@ function describeUndelivered(alert: AlertDisplayInput): string | undefined {
     // COMPENSATED is only recorded after a revert succeeds, so the rollback
     // happened. Only a retried transient failure pages again on its own.
     if (reason === RETRIES_EXHAUSTED && replayable) {
-      return `${reasonText} It will be sent again on the next evaluation while the rule is still in the same state.`;
+      return `${reasonText} It will be sent again on the next evaluation ${notifyStateCondition(severity)}.`;
     }
     // Severity-neutral on purpose: the row says what the attempt announced,
     // never what it reverted to, so a compensated recovery re-emits a
@@ -137,7 +146,7 @@ function describeUndelivered(alert: AlertDisplayInput): string | undefined {
 
   if (reason !== null && SLACK_CONFIGURATION_FAILURES.has(reason)) {
     return replayable
-      ? `${reasonText} After the configuration issue is fixed, this notification will be sent on the next evaluation, provided the rule remains in the same state.`
+      ? `${reasonText} After the configuration issue is fixed, this notification will be sent on the next evaluation ${notifyStateCondition(severity)}.`
       : `${reasonText} The missed notification will not be sent again; later notifications will deliver once the setting is fixed.`;
   }
 

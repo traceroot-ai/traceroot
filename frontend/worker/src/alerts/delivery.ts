@@ -1,5 +1,5 @@
 import type { AlertSeverity } from "@traceroot/core";
-import { RETRIES_EXHAUSTED, SLACK_CONFIGURATION_FAILURES } from "@traceroot/core";
+import { RETRIES_EXHAUSTED, SLACK_CONFIGURATION_FAILURES } from "@traceroot/core/alert-delivery";
 import type { AlertLastDelivery, AlertRule } from "./rule.js";
 
 const FAILED = "FAILED";

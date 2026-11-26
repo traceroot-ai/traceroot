@@ -1,11 +1,10 @@
 // Slack delivery-reason vocabulary shared by the delivery worker and the
-// alerts UI badge. A leaf module by design: no imports, so the client bundle
-// (via the `@traceroot/core/alert-delivery` subpath) never evaluates the
+// alerts UI badge via the `@traceroot/core/alert-delivery` subpath. A leaf
+// module by design: no imports, so the client bundle never evaluates the
 // `@prisma/client` chain that `alerts.ts` pulls in through `./constants.ts`.
-// Server consumers read the same values through the barrel re-export in
-// `alerts.ts`. Keep the three lists as the single source of truth — the
-// worker's redelivery predicate and the badge's follow-up sentences must agree
-// on which reasons redeliver, or the badge promises what the worker will not do.
+// Keep the three lists as the single source of truth — the worker's
+// redelivery predicate and the badge's follow-up sentences must agree on
+// which reasons redeliver, or the badge promises what the worker will not do.
 
 /**
  * Non-deliveries only the workspace's Slack settings can clear. The worker

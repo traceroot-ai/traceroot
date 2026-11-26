@@ -139,10 +139,10 @@ describe("resolveAlertDisplayState", () => {
     expect(state.detail).toContain("The last notification could not be sent. (channel revoked)");
   });
 
-  it("sends a compensated transient failure again on the next evaluation in the same state", () => {
+  it("sends a compensated transient failure again on the next evaluation when the rule still reads that severity", () => {
     const detail =
       stateOf({
-        severity: "ALERT",
+        severity: "OK",
         lastNotifyStatus: "COMPENSATED",
         lastNotifyError: "retries-exhausted",
         lastNotifySeverity: "ALERT",
@@ -150,11 +150,21 @@ describe("resolveAlertDisplayState", () => {
 
     expect(detail).toContain("Slack did not accept the message after several attempts.");
     expect(detail).toContain(
-      "sent again on the next evaluation while the rule is still in the same state",
+      "sent again on the next evaluation if the rule's severity is still Alert",
     );
-    // The old text promised the next breach instead, contradicting the resend above.
     expect(detail).not.toContain("next breach");
     expect(detail).not.toContain("could not be rolled back");
+
+    const recovery =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "COMPENSATED",
+        lastNotifyError: "retries-exhausted",
+        lastNotifySeverity: "OK",
+      }).detail ?? "";
+    expect(recovery).toContain(
+      "sent again on the next evaluation if the rule's severity is still OK",
+    );
   });
 
   it("does not promise a resend for a compensated row that predates attempt severities", () => {
@@ -210,18 +220,40 @@ describe("resolveAlertDisplayState", () => {
     for (const code of ["no-channel", "no-bot-token", "bot-token-undecryptable"]) {
       const detail =
         stateOf({
-          severity: "ALERT",
+          severity: "NO_DATA",
           lastNotifyStatus: "FAILED",
           lastNotifyError: code,
           lastNotifySeverity: "ALERT",
         }).detail ?? "";
 
       expect(detail).toContain(
-        "After the configuration issue is fixed, this notification will be sent on the next evaluation, provided the rule remains in the same state",
+        "After the configuration issue is fixed, this notification will be sent on the next evaluation if the rule's severity is still Alert",
       );
       // Nothing was rolled back here: the failure is recorded, not reverted.
       expect(detail).not.toContain("could not be rolled back");
     }
+
+    const noData =
+      stateOf({
+        severity: "OK",
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "no-channel",
+        lastNotifySeverity: "NO_DATA",
+      }).detail ?? "";
+    expect(noData).toContain(
+      "this notification will be sent on the next evaluation if the rule's severity is still No data",
+    );
+
+    const unrecognized =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "no-channel",
+        lastNotifySeverity: "OTHER",
+      }).detail ?? "";
+    expect(unrecognized).toContain(
+      "this notification will be sent on the next evaluation if the rule is still in the same state",
+    );
   });
 
   it("does not promise a resend for a refused configuration failure with no attempt severity", () => {
