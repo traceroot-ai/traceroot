@@ -963,7 +963,7 @@ async def get_finding_trace_start(finding_id: str, project_id: str):
     )
     if start is None:
         start = await asyncio.to_thread(
-            reader.get_customer_trace_earliest_span_time, project_id, trace_id
+            reader.get_trace_earliest_span_time, project_id, trace_id, customer_only=True
         )
 
     return {

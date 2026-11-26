@@ -2,12 +2,13 @@
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.services.trace_reader import TraceReaderService
 from shared.config import settings
 
 
@@ -31,8 +32,12 @@ def mock_ch(monkeypatch):
 
 @pytest.fixture()
 def mock_reader(monkeypatch):
-    """Mock the trace reader service used by the internal detectors router."""
-    reader = MagicMock()
+    """Mock the trace reader service used by the internal detectors router.
+
+    Specced on the real class, so a call to a method it does not have, or with
+    arguments its signature rejects, fails the test.
+    """
+    reader = create_autospec(TraceReaderService, instance=True)
     monkeypatch.setattr(
         "rest.routers.internal.detectors.get_trace_reader_service",
         lambda: reader,
@@ -99,7 +104,7 @@ class TestGetFindingTraceStart:
         mock_reader.get_trace_start_time.assert_called_once_with(
             "p1", "trace-1", customer_only=True
         )
-        mock_reader.get_customer_trace_earliest_span_time.assert_not_called()
+        mock_reader.get_trace_earliest_span_time.assert_not_called()
 
     def test_missing_root_falls_back_to_earliest_customer_span(
         self, client, mock_ch, mock_reader, secret
@@ -111,7 +116,7 @@ class TestGetFindingTraceStart:
             column_names=["trace_id", "min(timestamp)"],
         )
         mock_reader.get_trace_start_time.return_value = None
-        mock_reader.get_customer_trace_earliest_span_time.return_value = earliest_span
+        mock_reader.get_trace_earliest_span_time.return_value = earliest_span
 
         resp = client.get(
             "/api/v1/internal/findings/f1/trace-start",
@@ -128,7 +133,9 @@ class TestGetFindingTraceStart:
         mock_reader.get_trace_start_time.assert_called_once_with(
             "p1", "trace-1", customer_only=True
         )
-        mock_reader.get_customer_trace_earliest_span_time.assert_called_once_with("p1", "trace-1")
+        mock_reader.get_trace_earliest_span_time.assert_called_once_with(
+            "p1", "trace-1", customer_only=True
+        )
 
     def test_no_customer_span_returns_null_trace_start_with_timestamp(
         self, client, mock_ch, mock_reader, secret
@@ -139,7 +146,7 @@ class TestGetFindingTraceStart:
             column_names=["trace_id", "min(timestamp)"],
         )
         mock_reader.get_trace_start_time.return_value = None
-        mock_reader.get_customer_trace_earliest_span_time.return_value = None
+        mock_reader.get_trace_earliest_span_time.return_value = None
 
         resp = client.get(
             "/api/v1/internal/findings/f1/trace-start",
@@ -170,7 +177,7 @@ class TestGetFindingTraceStart:
 
         assert resp.status_code == 404
         mock_reader.get_trace_start_time.assert_not_called()
-        mock_reader.get_customer_trace_earliest_span_time.assert_not_called()
+        mock_reader.get_trace_earliest_span_time.assert_not_called()
 
     def test_query_binds_parameters_groups_by_trace_id_and_avoids_final(
         self, client, mock_ch, mock_reader, secret
@@ -223,7 +230,7 @@ class TestGetFindingTraceStart:
             ),
         )
         mock_reader.get_trace_start_time.side_effect = _loop_visible_to(ran_on_loop, None)
-        mock_reader.get_customer_trace_earliest_span_time.side_effect = _loop_visible_to(
+        mock_reader.get_trace_earliest_span_time.side_effect = _loop_visible_to(
             ran_on_loop, datetime(2026, 5, 1, 9, 20, 0)
         )
 
