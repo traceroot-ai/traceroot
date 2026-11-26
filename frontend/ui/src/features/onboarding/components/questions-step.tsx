@@ -126,26 +126,29 @@ function Questions({
   // Answers come from the API. Remember only the current screen, including
   // after a Skip, for this tab and the account that owns those answers.
   const progressKey = `onboarding:question:${saved.userId}`;
-  const [index, setIndex] = useState(() => {
+  const [{ index, persist }, setStep] = useState(() => {
+    let index = 0;
     try {
       const current = sessionStorage.getItem(progressKey);
-      return Math.max(
+      index = Math.max(
         0,
         questions.findIndex((item) => item === current),
       );
     } catch {
-      return 0;
+      // Storage may be disabled.
     }
+    return { index, persist: false };
   });
-  function goTo(nextIndex: number) {
-    setIndex(nextIndex);
+  const question = questions[index];
+  useEffect(() => {
+    if (!persist) return;
     try {
-      sessionStorage.setItem(progressKey, questions[nextIndex]);
+      sessionStorage.setItem(progressKey, question);
     } catch {
-      // Storage can be disabled; navigation still works.
+      // Navigation still works when storage is disabled.
     }
-  }
-  const [finishing, setFinishing] = useState(false);
+  }, [persist, progressKey, question]);
+  const [submitting, setSubmitting] = useState(false);
   // A save refused because this browser is now signed in as someone else
   // (another tab switched): nothing more is saved from this draft.
   const [accountChanged, setAccountChanged] = useState(false);
@@ -165,11 +168,8 @@ function Questions({
     source: saved.source === "other" ? null : saved.source,
     sourceOther: saved.sourceOther ?? "",
   });
-  // Saves go one after another: an answer changed after Back lands after the
-  // first one, and finishing waits for all of them, so the answers sent on
-  // include every screen however quickly it was left.
-  const saves = useRef<Promise<unknown>>(Promise.resolve());
-  const question = questions[index];
+  // Signing out waits for the current answer to settle.
+  const saves = useRef<Promise<boolean>>(Promise.resolve(true));
   const last = index === questions.length - 1;
   const canContinue = {
     role: draft.role !== null,
@@ -179,19 +179,23 @@ function Questions({
   }[question];
 
   async function next(skipped: boolean) {
+    setSubmitting(true);
     const patch = patchFor(question, draft, skipped);
-    saves.current = saves.current.then(() =>
-      saveOnboardingAnswers(saved.userId, patch).catch((err) => {
+    saves.current = saveOnboardingAnswers(saved.userId, patch).then(
+      () => true,
+      (err) => {
         if (!refusedForAccount(err)) console.error("[onboarding] could not save an answer:", err);
-      }),
+        return false;
+      },
     );
+    const acknowledged = await saves.current;
+    if (changed.current) return;
     if (!last) {
-      goTo(index + 1);
+      // If this optional save failed, a refresh can still return to this answer.
+      setStep({ index: index + 1, persist: acknowledged });
+      setSubmitting(false);
       return;
     }
-    setFinishing(true);
-    await saves.current;
-    if (changed.current) return;
     await finishOnboardingQuestions(saved.userId).catch((err) => {
       if (!refusedForAccount(err))
         console.error("[onboarding] could not finish the questions:", err);
@@ -231,7 +235,7 @@ function Questions({
       </div>
 
       {question === "role" && (
-        <Screen title="What best describes you?" hint="Pick one">
+        <Screen submitting={submitting} title="What best describes you?" hint="Pick one">
           <Options
             name="What best describes you?"
             options={ROLE_OPTIONS}
@@ -243,7 +247,11 @@ function Questions({
       )}
 
       {question === "company" && (
-        <Screen title="Which company or project is this for?" hint="A website is enough">
+        <Screen
+          submitting={submitting}
+          title="Which company or project is this for?"
+          hint="A website is enough"
+        >
           <input
             type="text"
             value={draft.company}
@@ -259,6 +267,7 @@ function Questions({
 
       {question === "uses" && (
         <Screen
+          submitting={submitting}
           title="What will you use traceroot for?"
           hint={`Pick up to ${MAX_USES}`}
           count={`${draft.uses.length} of ${MAX_USES}`}
@@ -285,7 +294,11 @@ function Questions({
       )}
 
       {question === "source" && (
-        <Screen title="Where did you hear about us?" hint="Pick one, or tell us">
+        <Screen
+          submitting={submitting}
+          title="Where did you hear about us?"
+          hint="Pick one, or tell us"
+        >
           <Options
             name="Where did you hear about us?"
             options={SOURCE_OPTIONS}
@@ -313,8 +326,8 @@ function Questions({
             variant="ghost"
             size="sm"
             className="h-8 px-3 text-[12px]"
-            disabled={finishing}
-            onClick={() => goTo(index - 1)}
+            disabled={submitting}
+            onClick={() => setStep({ index: index - 1, persist: true })}
           >
             Back
           </Button>
@@ -323,7 +336,7 @@ function Questions({
           variant="ghost"
           size="sm"
           className="ml-auto h-8 px-3 text-[12px] text-muted-foreground"
-          disabled={finishing}
+          disabled={submitting}
           onClick={() => next(true)}
         >
           Skip
@@ -331,7 +344,7 @@ function Questions({
         <Button
           size="sm"
           className="h-8 px-4 text-[12px]"
-          disabled={finishing || !canContinue}
+          disabled={submitting || !canContinue}
           onClick={() => next(false)}
         >
           Continue
@@ -344,7 +357,7 @@ function Questions({
       {account && (
         <AccountLine
           email={account.email}
-          pending={finishing || account.switching}
+          pending={(submitting && last) || account.switching}
           onSwitchAccount={() => account.onSwitch(saves.current)}
         />
       )}
@@ -353,18 +366,20 @@ function Questions({
 }
 
 function Screen({
+  submitting,
   title,
   hint,
   count,
   children,
 }: {
+  submitting: boolean;
   title: string;
   hint: string;
   count?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section aria-label={title}>
+    <section aria-label={title} inert={submitting}>
       <h2 className="text-[14px] font-medium">{title}</h2>
       <p className="mb-3 flex text-[12px] text-muted-foreground">
         {hint}

@@ -179,24 +179,53 @@ describe("answering", () => {
     );
   });
 
-  it("restores the same account's screen after refresh, even after a skip or Back", async () => {
-    let view = renderStep({ role: "data" });
+  it("restores the screen and its saved answers after refresh, including after Skip and Back", async () => {
+    const answers: Partial<OnboardingAnswers> = { role: "data", uses: ["rag"] };
+    let view = renderStep(answers);
     await screen.findByText("Step 1 of 3");
     click("Continue");
     await screen.findByText("Step 2 of 3");
-    click("Skip");
+    click("Continue");
     await screen.findByText("Step 3 of 3");
     view.unmount();
-    view = renderStep({ role: "data" });
+    view = renderStep(answers);
     await screen.findByText("Step 3 of 3");
     click("Back");
     view.unmount();
-    renderStep({ role: "data" });
+    view = renderStep(answers);
     await screen.findByText("Step 2 of 3");
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Answering questions from our own documents" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     click("Back");
     expect(screen.getByRole("radio", { name: "Data or ML" }).getAttribute("aria-checked")).toBe(
       "true",
     );
+    click("Skip");
+    await screen.findByText("Step 2 of 3");
+    view.unmount();
+    renderStep({ uses: ["rag"] });
+    await screen.findByText("Step 2 of 3");
+  });
+
+  it("keeps the last acknowledged question when refreshed during a pending save", async () => {
+    let settle!: () => void;
+    api.save.mockImplementationOnce(
+      () => new Promise((resolve) => (settle = () => resolve({ saved: true }))),
+    );
+    const view = renderStep();
+    await screen.findByText("Step 1 of 3");
+    fireEvent.click(screen.getByRole("radio", { name: "Founder" }));
+    click("Continue");
+    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    view.unmount();
+    renderStep();
+    await screen.findByText("Step 1 of 3");
+    settle();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sessionStorage.getItem("onboarding:question:u1")).toBeNull();
   });
 
   it("uses Skip for blank answers and Continue for a selection or nonblank text", async () => {
@@ -240,46 +269,29 @@ describe("answering", () => {
     renderStep();
     await screen.findByText("Step 1 of 3");
     click("Skip");
+    await screen.findByText("Step 2 of 3");
     click("Skip");
+    await screen.findByText("Step 3 of 3");
     click("Skip");
     await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
   });
 });
 
 describe("saving", () => {
-  it("finishes only after every answer is saved, not just the last", async () => {
-    // A quick Continue through the last screens: the third screen's save is
-    // still in flight when the fourth finishes.
-    const pending: (() => void)[] = [];
-    let inFlight = 0;
-    api.save.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          inFlight += 1;
-          pending.push(() => {
-            inFlight -= 1;
-            resolve({});
-          });
-        }),
-    );
-    let savesInFlightAtFinish = -1;
-    api.finish.mockImplementation(async () => {
-      savesInFlightAtFinish = inFlight;
-      return { finished: true };
-    });
+  it("keeps signup moving after a failed save while refresh reopens the missed answer", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    api.save.mockRejectedValueOnce(new Error("down"));
+    const view = renderStep();
+    await screen.findByText("Step 1 of 3");
+    fireEvent.click(screen.getByRole("radio", { name: "Founder" }));
+    click("Continue");
+    await screen.findByText("Step 2 of 3");
+    view.unmount();
     renderStep();
     await screen.findByText("Step 1 of 3");
-    click("Skip");
-    click("Skip");
-    click("Skip");
-    // Answer the saves last to first.
-    await waitFor(() => expect(pending).toHaveLength(api.save.mock.calls.length));
-    while (pending.length) {
-      pending.pop()!();
-      await new Promise((r) => setTimeout(r, 5));
-    }
-    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
-    expect(savesInFlightAtFinish).toBe(0);
+    expect(screen.getByRole("radio", { name: "Founder" }).getAttribute("aria-checked")).toBe(
+      "false",
+    );
   });
 
   it("saves in the order the answers were given", async () => {
@@ -337,9 +349,6 @@ describe("another tab signs this browser in as someone else", () => {
     await screen.findByText("Step 1 of 3");
     fireEvent.click(screen.getByRole("radio", { name: "Founder" }));
     click("Continue");
-    click("Skip");
-    click("Skip");
-
     await screen.findByText(/now signed in as a different account/);
     expect(screen.getByRole("button", { name: "Reload" })).toBeDefined();
     expect(api.finish).not.toHaveBeenCalled();
@@ -406,7 +415,9 @@ describe("asked once", () => {
     renderStep();
     await screen.findByText("Step 1 of 3");
     click("Skip");
+    await screen.findByText("Step 2 of 3");
     click("Skip");
+    await screen.findByText("Step 3 of 3");
     click("Skip");
     await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
   });
