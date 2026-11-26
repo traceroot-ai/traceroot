@@ -21,8 +21,10 @@ import { QuestionsStep } from "./questions-step";
 const EMPTY: OnboardingAnswers = {
   userId: "u1",
   role: null,
+  roleOther: null,
   company: null,
   uses: [],
+  usesOther: null,
   source: null,
   sourceOther: null,
   companyAsked: false,
@@ -149,6 +151,60 @@ describe("answering", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Just looking around for now" }));
     expect(fourth.hasAttribute("disabled")).toBe(false);
     expect(screen.getByText("2 of 3")).toBeDefined();
+  });
+
+  it("shows optional private details only for selected Other options", async () => {
+    renderStep();
+    await screen.findByText("Step 1 of 3");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Something else" }));
+    const role = screen.getByRole("textbox", { name: "Describe your role (optional)" });
+    expect(role.getAttribute("maxlength")).toBe("200");
+    expect(role.className).toContain("ph-no-capture");
+    fireEvent.change(role, { target: { value: "  Research librarian  " } });
+    click("Continue");
+    await screen.findByText("Step 2 of 3");
+    expect(saved()[0]).toEqual({ role: "other", roleOther: "Research librarian" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Something else" }));
+    const uses = screen.getByRole("textbox", { name: "Describe your use case (optional)" });
+    expect(uses.className).toContain("ph-no-capture");
+    fireEvent.change(uses, { target: { value: "Classify citations" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "A support bot or chat assistant" }));
+    click("Continue");
+    await screen.findByText("Step 3 of 3");
+    expect(saved()[1]).toEqual({
+      uses: ["other", "chat_support"],
+      usesOther: "Classify citations",
+    });
+    click("Back");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Something else" }));
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Something else" }));
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("");
+    click("Continue");
+    await screen.findByText("Step 3 of 3");
+    expect(saved()[2]).toEqual({ uses: ["chat_support", "other"], usesOther: null });
+  });
+
+  it("restores submitted details and clears them on explicit skip", async () => {
+    renderStep({
+      role: "other",
+      roleOther: "Research librarian",
+      uses: ["other"],
+      usesOther: "Classify citations",
+    });
+    await screen.findByText("Step 1 of 3");
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Research librarian");
+    click("Skip");
+    await screen.findByText("Step 2 of 3");
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Classify citations");
+    click("Skip");
+    await screen.findByText("Step 3 of 3");
+    click("Back");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    click("Back");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(saved()).toEqual([{ role: null }, { uses: [] }]);
   });
 
   it("takes a typed source with no button picked", async () => {
