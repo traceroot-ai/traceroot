@@ -1197,6 +1197,13 @@ class TestGetSpanKindGenAI:
             == "SPAN"
         )
 
+    def test_mcp_tools_call_wins_over_gen_ai_operation_name(self):
+        for op in ("chat", "embeddings", "invoke_agent"):
+            assert (
+                get_span_kind({"mcp.method.name": "tools/call", "gen_ai.operation.name": op}, None)
+                == "TOOL"
+            )
+
     def test_invoke_agent_wins_over_model_presence(self):
         # Semconv agent-invocation roots carry gen_ai.request.model too; the
         # operation name must decide the kind before the model fallback flips
@@ -2490,6 +2497,13 @@ class TestMCPSemconv:
             get_span_kind({"traceroot.span.type": "SPAN", "mcp.method.name": "tools/call"}, None)
             == "SPAN"
         )
+
+    def test_mcp_tools_call_wins_over_gen_ai_operation_name(self):
+        for op in ("chat", "embeddings", "invoke_agent"):
+            assert (
+                get_span_kind({"mcp.method.name": "tools/call", "gen_ai.operation.name": op}, None)
+                == "TOOL"
+            )
 
     def test_mcp_tools_call_span_transform(self):
         payload = make_otel_payload(
