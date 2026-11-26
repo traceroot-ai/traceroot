@@ -1538,6 +1538,33 @@ class TestGenAIInputOutputFallback:
         ]
         assert traces[0]["input"] == spans[0]["input"]
 
+    @pytest.mark.parametrize(
+        ("system_instructions", "expected_first"),
+        [
+            ("null", {"role": "system", "content": "null"}),
+            ("Be brief.", {"role": "system", "content": "Be brief."}),
+            ("", None),
+            ("[]", None),
+        ],
+    )
+    def test_gen_ai_system_instructions_edge_values(self, system_instructions, expected_first):
+        user_message = {"role": "user", "content": "hi"}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.system_instructions", system_instructions),
+                        make_attr("gen_ai.input.messages", json.dumps([user_message])),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        expected = [expected_first, user_message] if expected_first else [user_message]
+        assert json.loads(spans[0]["input"]) == expected
+
     def test_gen_ai_system_instructions_ignored_when_input_comes_from_higher_tier(self):
         payload = make_otel_payload(
             [
