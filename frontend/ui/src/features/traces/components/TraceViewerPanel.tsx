@@ -108,6 +108,8 @@ interface TraceViewerPanelProps {
    * — e.g. offline-eval's "Dataset:" chip. Unset in production.
    */
   spanExtraTags?: (selection: TraceSelection) => ReactNode;
+  /** Saved labels for the current trace or span selection. */
+  spanLabels?: (selection: TraceSelection) => ReactNode;
   /**
    * Notified whenever the selected span (or the trace root) changes, so an open
    * side panel can follow the tree — e.g. offline-eval's "Save as test case"
@@ -197,6 +199,7 @@ export function TraceViewerPanel({
   spanActions,
   spanHeaderAction,
   spanExtraTags,
+  spanLabels,
   onSelectionChange,
   headerIdentity,
   headerStatus,
@@ -698,6 +701,7 @@ export function TraceViewerPanel({
                       spanActions={spanActions?.(selection)}
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
+                      labels={spanLabels?.(selection)}
                       isEvalShaped={!!traceOverride}
                     />
                   ) : (
