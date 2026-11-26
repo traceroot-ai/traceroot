@@ -19,6 +19,16 @@ describe("withholdTraceContent", () => {
     expect(withholdTraceContent(trace, { fields: "full" })).toEqual(trace);
   });
 
+  it("reads group names case-insensitively, as the API does", () => {
+    expect(withholdTraceContent(trace, { fields: "FULL" })).toEqual(trace);
+    expect(withholdTraceContent(trace, { fields: " Io " })).toEqual({
+      trace_id: "t1",
+      input: "in",
+      output: "out",
+      spans: [],
+    });
+  });
+
   it("keeps only the groups asked for", () => {
     expect(withholdTraceContent(trace, { fields: "core, io" })).toEqual({
       trace_id: "t1",

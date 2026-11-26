@@ -21,7 +21,15 @@
     "creator": "fixture",
     "create_time": "2026-05-22T08:00:00Z",
     "update_time": "2026-05-22T08:00:00Z",
-    "layout": [{ "widget_id": "widget-001", "x": 0, "y": 0, "w": 6, "h": 4 }],
+    "layout": [
+      {
+        "i": "widget-001",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      }
+    ],
     "widgets": [
       {
         "id": "widget-001",
@@ -31,48 +39,132 @@
         "spec": {
           "view": "spans",
           "filters": [],
-          "metric": { "measure": "cost", "agg": "sum" },
+          "metric": {
+            "measure": "cost",
+            "agg": "sum"
+          },
           "breakdown": "model_name",
-          "display": { "type": "bar" }
+          "display": {
+            "type": "bar"
+          }
         }
       }
     ]
   },
   "data": {
-    "dashboard_id": "dashboard-001",
-    "window": { "start_time": "2026-06-01T00:00:00Z", "end_time": "2026-06-02T00:00:00Z" },
+    "dashboard": {
+      "id": "dashboard-001",
+      "name": "Overview",
+      "description": "Fixture dashboard",
+      "is_default": true,
+      "creator": "fixture",
+      "create_time": "2026-05-22T08:00:00Z",
+      "update_time": "2026-05-22T08:00:00Z"
+    },
+    "window": {
+      "start_time": "2026-06-01T00:00:00Z",
+      "end_time": "2026-06-02T00:00:00Z",
+      "range": null,
+      "clamped": false
+    },
+    "layout": [
+      {
+        "i": "widget-001",
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      }
+    ],
     "widgets": [
       {
-        "widget_id": "widget-001",
+        "id": "widget-001",
+        "title": "Cost by model",
+        "type": "bar",
+        "spec": {
+          "view": "spans",
+          "filters": [],
+          "metric": {
+            "measure": "cost",
+            "agg": "sum"
+          },
+          "breakdown": "model_name",
+          "display": {
+            "type": "bar"
+          }
+        },
         "status": "ok",
+        "columns": ["model_name", "value"],
         "rows": [["gpt-4o", 0.0133]],
-        "truncated": false
+        "truncated": false,
+        "error": null
       }
-    ]
+    ],
+    "queried": 1,
+    "skipped": 0,
+    "failed": 0
   },
   "widget": {
     "id": "widget-001",
+    "dashboard_id": "dashboard-001",
+    "dashboard_name": "Overview",
     "title": "Cost by model",
     "type": "bar",
-    "create_time": "2026-05-22T08:00:00Z",
     "spec": {
       "view": "spans",
       "filters": [],
-      "metric": { "measure": "cost", "agg": "sum" },
+      "metric": {
+        "measure": "cost",
+        "agg": "sum"
+      },
       "breakdown": "model_name",
-      "display": { "type": "bar" }
-    }
+      "display": {
+        "type": "bar"
+      }
+    },
+    "display_config": {},
+    "create_time": "2026-05-22T08:00:00Z",
+    "update_time": "2026-05-22T08:00:00Z"
   },
   "widgetData": {
-    "widget_id": "widget-001",
+    "widget": {
+      "id": "widget-001",
+      "dashboard_id": "dashboard-001",
+      "dashboard_name": "Overview",
+      "title": "Cost by model",
+      "type": "bar",
+      "spec": {
+        "view": "spans",
+        "filters": [],
+        "metric": {
+          "measure": "cost",
+          "agg": "sum"
+        },
+        "breakdown": "model_name",
+        "display": {
+          "type": "bar"
+        }
+      }
+    },
     "status": "ok",
-    "window": { "start_time": "2026-06-01T00:00:00Z", "end_time": "2026-06-02T00:00:00Z" },
+    "window": {
+      "start_time": "2026-06-01T00:00:00Z",
+      "end_time": "2026-06-02T00:00:00Z",
+      "range": null,
+      "clamped": false
+    },
     "columns": ["model_name", "value"],
-    "rows": [["gpt-4o", 0.0133]]
+    "rows": [["gpt-4o", 0.0133]],
+    "truncated": false,
+    "error": null
   },
   "query": {
-    "status": "ok",
-    "window": { "start_time": "2026-06-01T00:00:00Z", "end_time": "2026-06-02T00:00:00Z" },
+    "window": {
+      "start_time": "2026-06-01T00:00:00Z",
+      "end_time": "2026-06-02T00:00:00Z",
+      "range": null,
+      "clamped": false
+    },
     "columns": ["model_name", "value"],
     "rows": [["gpt-4o", 0.0133]]
   }
