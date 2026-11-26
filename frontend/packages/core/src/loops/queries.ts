@@ -2,6 +2,7 @@
 import type { Loop, LoopRun, Prisma } from "@prisma/client";
 import {
   COUNTED_RUN_STATUSES,
+  LOOP_REPLIED_MESSAGE_WHERE,
   type LoopDto,
   type LoopMemoryDto,
   type LoopRunDto,
@@ -189,6 +190,33 @@ export async function getLoopRun(
 ): Promise<LoopRunDto | null> {
   const run = await db.loopRun.findFirst({ where: { id: runId, loopId } });
   return run ? runToDto(run) : null;
+}
+
+/**
+ * Loop runs a Free workspace has used, read live: every run whose agent
+ * replied, over the workspace's lifetime as the billing pass counts Free
+ * usage, plus each running run that has not replied yet. Gating on this
+ * instead of the hourly `loopBlocked` keeps the cap between billing passes.
+ */
+export async function countFreeLoopRunsUsed(db: Db, workspaceId: string): Promise<number> {
+  const replied = await db.aIMessage.groupBy({
+    by: ["sessionId"],
+    where: {
+      workspaceId,
+      kind: "loop",
+      sessionId: { not: null },
+      OR: LOOP_REPLIED_MESSAGE_WHERE,
+    },
+  });
+  const repliedSessions = new Set(replied.map((row) => row.sessionId));
+  const running = await db.loopRun.findMany({
+    where: { status: "running", project: { workspaceId } },
+    select: { sessionId: true },
+  });
+  const notYetReplied = running.filter(
+    (run) => run.sessionId === null || !repliedSessions.has(run.sessionId),
+  );
+  return repliedSessions.size + notYetReplied.length;
 }
 
 export function isExpired(memory: { expiresAt: Date | null }, now: Date): boolean {
