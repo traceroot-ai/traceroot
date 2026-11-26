@@ -223,15 +223,17 @@ def _format_input_with_system_instructions(input_messages: Any, system_instructi
         instructions = system_instructions
     if not instructions:
         return input_messages
-    existing_system_parts = [
-        part
+    existing_system_parts = {
+        json.dumps(part, sort_keys=True)
         for message in messages
         if isinstance(message, dict)
         and message.get("role") == "system"
         and isinstance(message.get("parts"), list)
         for part in message["parts"]
-    ]
-    if isinstance(instructions, list) and all(p in existing_system_parts for p in instructions):
+    }
+    if isinstance(instructions, list) and all(
+        json.dumps(part, sort_keys=True) in existing_system_parts for part in instructions
+    ):
         return input_messages
     key = "parts" if isinstance(instructions, list) else "content"
     return json.dumps([{"role": "system", key: instructions}, *messages], ensure_ascii=False)
