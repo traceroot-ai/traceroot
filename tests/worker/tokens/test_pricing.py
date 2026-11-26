@@ -247,6 +247,10 @@ XAI_NON_MATCHES = [
 GEMINI_MODEL_CASES = [
     ("gemini-3.8-flash", "gemini-3.8-flash"),
     ("google/gemini-3.8-flash", "gemini-3.8-flash"),
+    ("gemini-3.8-live", "gemini-3.8-live"),
+    ("google/gemini-3.8-live", "gemini-3.8-live"),
+    ("models/gemini-3.8-live", "gemini-3.8-live"),
+    ("gemini-3.8-live-extended-thinking", "gemini-3.8-live"),
     ("gemini-3.7-flash", "gemini-3.7-flash"),
     ("gemini-3.6-flash", "gemini-3.6-flash"),
     ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
@@ -554,7 +558,7 @@ class TestGpt62AstraModelIds:
         )
 
 
-class TestGemini3xFlashPublishedPrices:
+class TestGemini3xPublishedPrices:
     """Assert the absolute, provider-published rate directly
     (https://ai.google.dev/gemini-api/docs/pricing).
 
@@ -577,6 +581,12 @@ class TestGemini3xFlashPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(2.5e-06)  # $2.50 / 1M tokens
         assert entry["prices"]["cacheRead"] == pytest.approx(3e-08)  # $0.03 / 1M tokens
 
+    def test_live_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-3.8-live")
+        assert entry["prices"]["input"] == pytest.approx(7.5e-07)  # $0.75 / 1M tokens (text)
+        assert entry["prices"]["output"] == pytest.approx(1.2e-05)  # $12.00 / 1M tokens (audio)
+        assert entry["prices"]["cacheRead"] is None
+
 
 class TestGeminiModelIds:
     @pytest.mark.parametrize("model_id,expected_name", GEMINI_MODEL_CASES)
@@ -595,6 +605,7 @@ class TestGeminiModelIds:
         [
             # TTS has its own price sheet; must not fall through to a 3.x Flash text row.
             "gemini-3.8-flash-tts",
+            "gemini-3.8-live-preview",
             # Google repoints -latest aliases without notice, so they stay unpriced.
             "gemini-flash-latest",
         ],

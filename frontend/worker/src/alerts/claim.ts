@@ -420,6 +420,57 @@ export async function recordAlertNotifyOutcome(outcome: AlertNotifyOutcome): Pro
   }
 }
 
+/** A delivered emission, placed against the row by the `alertedAt` it stamped. */
+export interface AlertPageDelivery {
+  readonly alertId: string;
+  /** The emission's `evaluatedAt`, which is also the `alertedAt` it wrote. */
+  readonly emittedAt: Date;
+  readonly at: Date;
+}
+
+/**
+ * Marks the current breach as seen by the channel, after Slack accepted its page. The
+ * close an edit or a resume leaves is gated on this. Never throws, for the same reason
+ * the notify outcome does not.
+ *
+ * Only while the row still carries this emission's `alertedAt`, so a page that settles
+ * after the rule moved on, was reset by an edit or resume, or was deleted writes
+ * nothing. `alertedAt` alone places it: every emission stamps the boundary it evaluated,
+ * a reset nulls it and a rollback restores an earlier one. The severity is left out on
+ * purpose, since a gap that carries the page open moves it to NO_DATA without ending
+ * the breach the channel saw.
+ */
+export async function recordAlertPageDelivered(delivery: AlertPageDelivery): Promise<void> {
+  try {
+    const { count } = await prisma.alert.updateMany({
+      where: { id: delivery.alertId, alertedAt: delivery.emittedAt },
+      data: { pageDeliveredAt: delivery.at },
+    });
+    if (count === 0) logInfo(`page delivery not recorded alert=${delivery.alertId}, row moved on`);
+  } catch (error) {
+    logError(`page delivery write failed alert=${delivery.alertId}`, error);
+  }
+}
+
+/**
+ * Ends the breach the channel saw, once its recovery has been delivered. Cleared on the
+ * delivery rather than the emission: a recovery that is rolled back puts the rule back
+ * in ALERT, where the [ALERT] the channel saw is still open. Only while the row still
+ * reads as that recovery left it, so a recovery that settles late cannot clear the flag
+ * of a breach that has started since.
+ */
+export async function clearAlertPageDelivered(delivery: AlertPageDelivery): Promise<void> {
+  try {
+    const { count } = await prisma.alert.updateMany({
+      where: { id: delivery.alertId, severity: "OK", alertedAt: delivery.emittedAt },
+      data: { pageDeliveredAt: null },
+    });
+    if (count === 0) logInfo(`page delivery not cleared alert=${delivery.alertId}, row moved on`);
+  } catch (error) {
+    logError(`page delivery clear failed alert=${delivery.alertId}`, error);
+  }
+}
+
 /** A rule whose open page an edit or a resume discarded, and whose close is still owed. */
 export interface AlertCloseTarget {
   readonly alertId: string;

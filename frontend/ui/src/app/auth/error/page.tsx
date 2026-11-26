@@ -22,6 +22,17 @@ const errorMessages: Record<string, string> = {
   state_not_found: "Your sign-in expired. Please start again.",
   state_invalid: "Your sign-in expired. Please start again.",
   state_security_mismatch: "Your sign-in expired. Please start again.",
+  // Further codes a failed social sign-in or link can send, where the next
+  // step differs from the default message.
+  account_already_linked_to_different_user:
+    "That provider account is already connected to a different account.",
+  email_does_not_match: "The provider returned a different email than the account being linked.",
+  email_not_found:
+    "The provider did not share an email address. Grant access to your email and try again.",
+  signup_disabled: "New accounts cannot be created with this provider.",
+  email_not_verified:
+    "That provider has not verified your email address. Verify it there, then sign in again.",
+  unable_to_link_account: "The provider account could not be connected. Please try again.",
   Default: "An error occurred during authentication.",
 };
 

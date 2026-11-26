@@ -1,4 +1,5 @@
 import { env } from "@/env";
+import { isSmtpConfigured } from "@/lib/email/send-password-reset-email";
 import { configuredSocialProviders } from "@/lib/social-providers";
 import { clientIdFromCallbackUrl } from "@/lib/oauth/client-display";
 import { loadOAuthClientDisplay } from "@/lib/oauth/load-client-display";
@@ -17,5 +18,11 @@ export default async function SignInPage({
     clientIdFromCallbackUrl(typeof callbackUrl === "string" ? callbackUrl : null),
   );
 
-  return <SignInClient socialProviders={configuredSocialProviders(env)} connection={connection} />;
+  return (
+    <SignInClient
+      socialProviders={configuredSocialProviders(env)}
+      passwordResetEnabled={isSmtpConfigured()}
+      connection={connection}
+    />
+  );
 }
