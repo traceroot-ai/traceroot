@@ -881,6 +881,9 @@ describe("OnboardingPage", () => {
     // name the workspace "My Workspace" rather than the company the address
     // names, so nothing is created until the session is known.
     setSession({ data: undefined, isPending: true });
+    mocks.getWorkspaces
+      .mockResolvedValueOnce([DEMO_WORKSPACE])
+      .mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-1" }]);
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
@@ -898,7 +901,9 @@ describe("OnboardingPage", () => {
     expect(mocks.createProject).not.toHaveBeenCalled();
     fireEvent.click(create);
     await reachHandback();
+    await waitFor(() => expect(mocks.getWorkspaces).toHaveBeenCalledTimes(2));
     expect(mocks.createWorkspace).toHaveBeenCalledWith("Acme");
+    expect(mocks.createProject).toHaveBeenCalledTimes(1);
   });
 
   it.each([

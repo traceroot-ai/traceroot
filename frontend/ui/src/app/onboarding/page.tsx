@@ -290,13 +290,13 @@ function OnboardingContent() {
     !addProjectUrl;
   useEffect(() => {
     if (!readyToCreate || started.current) return;
-    started.current = true;
     void handleSubmit();
     // handleSubmit reads this render's values; `started` makes this run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readyToCreate]);
 
   async function handleSubmit() {
+    started.current = true;
     setIsLoading(true);
     setError(null);
 
