@@ -44,7 +44,9 @@ function SetupStep() {
   const [tab, setTab] = useState<SetupTab>("ai");
 
   const { data: project, isError } = useQuery({
-    queryKey: ["project", projectId],
+    queryKey: ["project", projectId, "onboarding-setup", session?.user.id],
+    gcTime: 0,
+    refetchOnWindowFocus: false,
     queryFn: () => getProject(projectId),
     enabled: !!projectId,
   });
@@ -53,6 +55,7 @@ function SetupStep() {
     !!project,
     project?.id ?? null,
     session?.user?.id ? { id: session.user.id, email: session.user.email } : undefined,
+    project?.read_at,
   );
   useOpenFoundTrace(traceWait);
   const recordSetupSkipped = useSetupSkipped(projectId, "onboarding");

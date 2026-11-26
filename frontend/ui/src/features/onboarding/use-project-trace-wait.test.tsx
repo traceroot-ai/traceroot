@@ -100,11 +100,11 @@ describe("useProjectTraceWait", () => {
     expect(mocks.findFirstTrace).not.toHaveBeenCalled();
   });
 
-  it("gives a baseline that failed another go before matching against it", async () => {
+  it("recognizes existing traces when an initial read fails and the retry succeeds", async () => {
     const settled = new Map([["p-1", { kind: "newest", at: "2026-05-01T10:00:00Z" }]]);
     mocks.captureTraceBaseline.mockResolvedValue(new Map([["p-1", { kind: "unknown" }]]));
     mocks.retryUnknownBaseline.mockResolvedValue(settled);
-    watch();
+    const { result } = watch();
 
     await nextRound();
 
@@ -114,7 +114,11 @@ describe("useProjectTraceWait", () => {
       new Map([["p-1", { kind: "unknown" }]]),
       USER,
     );
-    expect(mocks.findFirstTrace).toHaveBeenCalledWith("p-1", settled, USER);
+    expect(result.current).toEqual({
+      kind: "already-received",
+      fallbackUrl: "/projects/p-1/traces",
+    });
+    expect(mocks.findFirstTrace).not.toHaveBeenCalled();
   });
 
   it("opens the trace once one arrives, and stops looking", async () => {

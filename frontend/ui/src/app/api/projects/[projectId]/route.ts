@@ -13,6 +13,7 @@ type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId] - Get project details
 async function handleGET(request: NextRequest, { params }: RouteParams) {
+  const readAt = new Date().toISOString();
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -39,6 +40,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   return successResponse({
     id: project.id,
+    read_at: readAt,
     workspace_id: project.workspaceId,
     name: project.name,
     trace_ttl_days: project.traceTtlDays,

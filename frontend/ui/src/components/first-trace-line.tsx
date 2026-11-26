@@ -56,6 +56,18 @@ function Line({ wait, align }: Required<FirstTraceLineProps>) {
     );
   }
 
+  if (wait.kind === "already-received") {
+    return (
+      <p className={row}>
+        <Check className="h-3.5 w-3.5 text-success" />
+        <span>This project has already received traces.</span>
+        <Link href={wait.fallbackUrl} className="font-medium underline hover:text-foreground">
+          View traces
+        </Link>
+      </p>
+    );
+  }
+
   if (wait.kind === "found") {
     return (
       <p className={row}>

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   search: "projectId=proj-1",
   getProject: vi.fn(),
+  firstTraceTime: vi.fn(),
   getTraces: vi.fn(),
   session: {
     data: { user: { id: "user-1", email: "kai@example.com" } },
@@ -34,6 +35,7 @@ vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHeaderContent: vi.fn() }),
 }));
 vi.mock("@/lib/api", () => ({ getProject: mocks.getProject }));
+vi.mock("@/lib/api/projects", () => ({ getProjectFirstTraceTime: mocks.firstTraceTime }));
 vi.mock("@/lib/api/traces", () => ({
   getTraces: (projectId: string, key: string, options: unknown, user: unknown) =>
     mocks.getTraces(projectId, key, options, user),
@@ -156,7 +158,9 @@ beforeEach(() => {
     id: "proj-1",
     name: "my-llm-project",
     workspace_id: "ws-1",
+    read_at: "2026-05-01T10:03:00Z",
   });
+  mocks.firstTraceTime.mockReset().mockResolvedValue("2026-05-01T10:00:00Z");
   tracePage = [];
   mocks.getTraces.mockImplementation(
     async (_projectId: string, _key: string, options: { limit: number }) => ({
@@ -188,16 +192,43 @@ describe("the hand-back step's first-trace watch", () => {
     expect([...watched]).toEqual(["proj-1"]);
   });
 
-  it("does not count a trace the project already had", async () => {
+  it("shows that tracing is set up on a direct visit to a project with traces", async () => {
     // Creating a project is idempotent on its name within a workspace, so a run
     // that lands on a name already in use is handed the existing project back.
     // The first round draws the line; nothing older than it can win.
     tracePage = [trace("t-before", "2026-05-01T10:00:00Z")];
     await reachHandback();
+    expect(screen.getByText("This project has already received traces.")).toBeDefined();
+    expect(screen.getByRole("link", { name: "View traces" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces",
+    );
+    expect(screen.queryByText(/Waiting for your first trace/)).toBeNull();
     await rounds(3);
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.getTraces).toHaveBeenCalledTimes(1);
+  });
 
-    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
-    expect(screen.queryByText(/Your first trace arrived/)).toBeNull();
+  it("opens the first trace ingested during the initial list request, even with a skewed producer clock", async () => {
+    let reply!: (value: unknown) => void;
+    mocks.getTraces.mockImplementationOnce(() => new Promise((resolve) => (reply = resolve)));
+    await reachHandback();
+    expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
+    tracePage = [trace("t-run", "2020-01-01T00:00:00Z")];
+    mocks.firstTraceTime.mockResolvedValue("2026-05-01T10:04:00Z");
+    reply({ data: tracePage });
+    await flush();
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-run");
+  });
+
+  it("keeps the original visit time when reading the ingestion time needs a retry", async () => {
+    tracePage = [trace("t-retry", "2020-01-01T00:00:00Z")];
+    mocks.firstTraceTime
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue("2026-05-01T10:04:00Z");
+    await reachHandback();
+    expect(mocks.push).not.toHaveBeenCalled();
+    await rounds(1);
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-retry");
   });
 
   it("opens the trace that arrives", async () => {
