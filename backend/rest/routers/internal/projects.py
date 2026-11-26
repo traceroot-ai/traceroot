@@ -59,7 +59,9 @@ def create_sample_trace(project_id: str) -> dict[str, str]:
         HTTPException: 409 when the project already has traces.
     """
     reader = get_trace_reader_service()
-    if reader.first_trace_receive_time(project_id) is not None:
+    # Asked afresh, and counting an earlier sample: a repeat request must not insert again.
+    reader.forget_has_traces(project_id)
+    if reader.has_traces(project_id):
         raise HTTPException(status_code=409, detail="This project already has traces")
 
     trace, spans = build_sample_trace(project_id)

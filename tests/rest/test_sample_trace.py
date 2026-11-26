@@ -76,7 +76,7 @@ def secret(monkeypatch):
 @pytest.fixture()
 def reader(monkeypatch):
     mock = MagicMock()
-    mock.first_trace_receive_time.return_value = None
+    mock.has_traces.return_value = False
     monkeypatch.setattr("rest.routers.internal.projects.get_trace_reader_service", lambda: mock)
     return mock
 
@@ -103,10 +103,14 @@ class TestCreateSampleTrace:
             "insert_traces_batch",
             "insert_spans_batch",
         ]
-        reader.forget_has_traces.assert_called_once_with("proj-1")
+        assert [call[0] for call in reader.method_calls] == [
+            "forget_has_traces",
+            "has_traces",
+            "forget_has_traces",
+        ]
 
     def test_refuses_a_project_that_has_traces(self, client, reader, clickhouse, secret):
-        reader.first_trace_receive_time.return_value = datetime(2026, 9, 1)
+        reader.has_traces.return_value = True
 
         resp = client.post(URL, headers={"X-Internal-Secret": secret})
 
