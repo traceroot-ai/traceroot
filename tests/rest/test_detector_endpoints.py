@@ -735,6 +735,18 @@ class TestListDetectorWindowSummary:
             }
         }
 
+    def test_counts_read_only_detector_rows(self, client, mock_ch, secret):
+        """A Loop writes its findings as runs of its hidden detector (source 'loop')."""
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+        client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={"project_id": "p1", "start_after": "2026-04-20T00:00:00Z"},
+            headers={"X-Internal-Secret": secret},
+        )
+        sql = mock_ch.query.call_args.args[0]
+        inner = sql.split("FROM detector_runs", 1)[1].split("GROUP BY detector_id, run_id", 1)[0]
+        assert "source = 'detector'" in inner
+
     # ── include_summaries (digest LLM-summary sample) ────────────────────────
 
     def _fake_summaries(self, rows: list[tuple]):
@@ -795,6 +807,24 @@ class TestListDetectorWindowSummary:
         # Bounded read: a stalled query degrades to counts-only via the except
         # path rather than holding the caller open.
         assert second.kwargs.get("settings") == {"max_execution_time": 10}
+
+    def test_summaries_read_only_detector_rows(self, client, mock_ch, secret):
+        """Loop rows must not take sample slots from real detectors."""
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 10, 3, "t-a")]),
+            self._fake_summaries([]),
+        ]
+        self._get(client, secret, include_summaries="true")
+        sql = mock_ch.query.call_args_list[1].args[0]
+        # The runs probe appears twice (FROM + IN); each copy keeps to detector rows.
+        probes = [
+            part.split("GROUP BY detector_id, run_id", 1)[0]
+            for part in sql.split("FROM detector_runs")[1:]
+        ]
+        assert len(probes) == 2
+        assert all("source = 'detector'" in probe for probe in probes)
+        findings = sql.split("FROM detector_findings FINAL", 1)[1].split("finding_id IN (", 1)[0]
+        assert "source = 'detector'" in findings
 
     def test_include_summaries_defaults_off(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 100, 7, "t-a")])]
