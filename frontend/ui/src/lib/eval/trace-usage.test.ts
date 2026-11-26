@@ -83,6 +83,18 @@ describe("attributeTraceUsage", () => {
     expect(u.task.costKnown).toBe(false);
   });
 
+  it("leaves the tokens unknown for a span that reported only a cost", () => {
+    const u = attributeTraceUsage([
+      span("root", null, "EVALUATION"),
+      { span_id: "llm", parent_span_id: "root", span_kind: "LLM", cost: 0.03 } as UsageSpan,
+    ]);
+    expect(u.state).toBe("present");
+    expect(u.task.cost).toBe(0.03);
+    expect(u.task.costKnown).toBe(true);
+    expect(u.task.tokensKnown).toBe(false);
+    expect(u.task.spanCount).toBe(1);
+  });
+
   it("attributes the task's LLM leaf to task cost (lab shape: non-LLM scorers)", () => {
     const u = attributeTraceUsage(evalTrace());
     expect(u.state).toBe("present");

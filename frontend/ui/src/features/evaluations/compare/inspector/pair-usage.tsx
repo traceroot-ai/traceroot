@@ -33,11 +33,11 @@ function usageOf(side: Pick<UsageSide, "result" | "trace">): TraceUsage {
 type MeasureValue = number | null | "loading";
 
 /** The task's own tokens (a judge's are evaluation overhead); unknown when no task span
- *  reported usage, even if the judge's did. */
+ *  reported a token count, even if the judge's did. */
 const taskTokens = (side: UsageSide): MeasureValue => {
   if (side.traceLoading) return "loading";
   const { task } = usageOf(side);
-  return task.spanCount > 0 ? task.totalTokens : null;
+  return task.tokensKnown ? task.totalTokens : null;
 };
 const formatTokens = (n: number) => n.toLocaleString("en-US");
 
