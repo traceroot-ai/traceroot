@@ -3,6 +3,7 @@
  * (or a tick) sees the current value. LOOPS_ENABLED stays the UI switch; the
  * worker only runs Loops when LOOP_SCHEDULER_ENABLED is set.
  */
+import cron from "node-cron";
 import { LOOP_LIMITS } from "@traceroot/core/loops";
 import { isTruthyEnvValue } from "../scheduling/env-flag.js";
 
@@ -28,8 +29,15 @@ function positiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** LOOP_TICK_CRON, or the default when it is unset, blank or not a valid expression. */
 export function loopTickCron(): string {
-  return process.env.LOOP_TICK_CRON?.trim() || DEFAULT_LOOP_TICK_CRON;
+  const value = process.env.LOOP_TICK_CRON?.trim();
+  if (!value) return DEFAULT_LOOP_TICK_CRON;
+  if (cron.validate(value)) return value;
+  console.warn(
+    `[Loops] LOOP_TICK_CRON ${JSON.stringify(value)} is not a valid cron expression; using ${DEFAULT_LOOP_TICK_CRON}`,
+  );
+  return DEFAULT_LOOP_TICK_CRON;
 }
 
 export function loopRunTimeoutMs(): number {
