@@ -52,6 +52,16 @@ describe("loopRunTimeoutMs and loopRunConcurrency", () => {
     expect(loopRunConcurrency()).toBe(4);
   });
 
+  it("caps LOOP_RUN_TIMEOUT_MS at the agent's own run limit", () => {
+    const limit = LOOP_LIMITS.runTimeoutMinutes * 60_000;
+    vi.stubEnv("LOOP_RUN_TIMEOUT_MS", String(limit + 1));
+    expect(loopRunTimeoutMs()).toBe(limit);
+    vi.stubEnv("LOOP_RUN_TIMEOUT_MS", String(3 * limit));
+    expect(loopRunTimeoutMs()).toBe(limit);
+    vi.stubEnv("LOOP_RUN_TIMEOUT_MS", String(limit));
+    expect(loopRunTimeoutMs()).toBe(limit);
+  });
+
   it("fall back to their defaults on a missing, zero, negative, fractional or non-number value", () => {
     const fallbackTimeout = LOOP_LIMITS.runTimeoutMinutes * 60_000;
     vi.stubEnv("LOOP_RUN_TIMEOUT_MS", undefined);

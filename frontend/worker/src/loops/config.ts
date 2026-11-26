@@ -40,8 +40,13 @@ export function loopTickCron(): string {
   return DEFAULT_LOOP_TICK_CRON;
 }
 
+/**
+ * At most the agent's own limit, which it applies to whatever deadline it is
+ * sent: a longer wait here would only delay the run's timeout and its reclaim.
+ */
 export function loopRunTimeoutMs(): number {
-  return positiveInt(process.env.LOOP_RUN_TIMEOUT_MS, LOOP_LIMITS.runTimeoutMinutes * 60_000);
+  const limit = LOOP_LIMITS.runTimeoutMinutes * 60_000;
+  return Math.min(positiveInt(process.env.LOOP_RUN_TIMEOUT_MS, limit), limit);
 }
 
 export function loopRunConcurrency(): number {
