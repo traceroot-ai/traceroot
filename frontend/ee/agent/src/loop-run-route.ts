@@ -82,6 +82,24 @@ function parseRequest(body: unknown): LoopRunRequest | string {
   };
 }
 
+/** How many of a loop's latest runs lend their recorded keys to the new-key check. */
+export const RECENT_RUNS_FOR_KEYS = 20;
+
+/**
+ * The keys this loop's latest runs recorded. A run saves its keys when it
+ * finishes, before the signals round groups them, so a key can be recorded
+ * with no signal yet; it is still not a new key.
+ */
+async function recentRunFindingKeys(loopId: string, runId: string): Promise<string[]> {
+  const runs = await prisma.loopRun.findMany({
+    where: { loopId, id: { not: runId }, findingKeys: { isEmpty: false } },
+    orderBy: { seq: "desc" },
+    take: RECENT_RUNS_FOR_KEYS,
+    select: { findingKeys: true },
+  });
+  return runs.flatMap((r) => r.findingKeys);
+}
+
 /** The answer for a turn that never ran. */
 function errorResult(error: unknown): LoopAgentResult {
   return {
@@ -189,14 +207,18 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
   }
 
   let loopSignals: ExistingLoopSignal[];
+  let recordedKeys: string[];
   try {
-    loopSignals = await existingLoopSignals(prisma, projectId, run.loop.detectorId);
+    [loopSignals, recordedKeys] = await Promise.all([
+      existingLoopSignals(prisma, projectId, run.loop.detectorId),
+      recentRunFindingKeys(run.loopId, run.id),
+    ]);
   } catch (error) {
     releaseRun(body.sessionId);
     console.error(`[Agent] Loop run ${runId} could not read its signals:`, error);
     return c.json(errorResult(error));
   }
-  const findingKeys = loopSignals.map((s) => s.key);
+  const findingKeys = [...new Set([...loopSignals.map((s) => s.key), ...recordedKeys])];
 
   const now = new Date();
   const window = loopWindow({ lookbackHours: run.loop.lookbackHours, now });
