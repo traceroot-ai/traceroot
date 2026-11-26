@@ -365,7 +365,7 @@ function ChannelPicker({
         </p>
       )}
       <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-        {showPrompt ? (
+        {showPrompt && save.isIdle ? (
           <span role="alert" className="text-danger">
             Choose a Slack channel or select Skip for now.
           </span>

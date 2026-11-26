@@ -20,12 +20,18 @@ const slack = vi.hoisted(() => ({
     error: null as Error | null,
   },
   save: vi.fn(),
+  saveState: "idle" as "idle" | "pending" | "success",
   saveError: null as Error | null,
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: slack.status, isLoading: false }),
   useSlackChannels: () => slack.channels,
-  useSaveSlackChannel: () => ({ mutate: slack.save, isPending: false, error: slack.saveError }),
+  useSaveSlackChannel: () => ({
+    mutate: slack.save,
+    isIdle: slack.saveState === "idle",
+    isPending: slack.saveState === "pending",
+    error: slack.saveError,
+  }),
 }));
 const github = vi.hoisted(() => ({
   status: {
@@ -70,6 +76,7 @@ beforeEach(() => {
   slack.status = { connected: false };
   slack.channels = { data: undefined, isLoading: false, error: null };
   slack.save.mockReset();
+  slack.saveState = "idle";
   slack.saveError = null;
   github.status = { connected: false, installations: [] };
   workspace.role = "ADMIN";
@@ -212,6 +219,17 @@ describe("choosing a Slack channel", () => {
     });
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["#general"]);
   });
+
+  it.each(["pending", "success"] as const)(
+    "clears the selection prompt when the channel save is %s",
+    (state) => {
+      slack.saveState = state;
+      renderStep();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(onContinue).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
 
   it("saves the picked channel for the workspace", () => {
     renderStep();
