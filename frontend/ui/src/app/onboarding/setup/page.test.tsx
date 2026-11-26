@@ -57,14 +57,9 @@ vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
 import { MAX_UNREADABLE_ROUNDS } from "@/features/onboarding/use-project-trace-wait";
 import SetupStepPage from "./page";
-import {
-  rememberSetup,
-  setupResumeKey,
-  type SetupResume,
-} from "@/features/onboarding/setup-resume";
-import { readStored } from "@/lib/hooks/use-local-storage";
+import { latestSetup, rememberSetup } from "@/features/onboarding/setup-resume";
 
-const resume = () => readStored<SetupResume[]>(setupResumeKey("user-1"), [])[0] ?? null;
+const resume = () => latestSetup("user-1");
 
 function trace(traceId: string, startTime: string) {
   return {
@@ -224,7 +219,7 @@ describe("the hand-back step's first-trace watch", () => {
     mocks.firstTraceTime.mockResolvedValue("2025-05-01T10:00:00Z");
     await reachHandback();
     expect(screen.getByRole("link", { name: "View traces" })).toBeDefined();
-    expect(resume()).toEqual({ projectId: "unfinished-project", created: "project" });
+    expect(resume()).toMatchObject({ projectId: "unfinished-project", created: "project" });
   });
 
   it("opens the first trace ingested during the initial list request, even with a skewed producer clock", async () => {
@@ -547,7 +542,7 @@ describe("the setup step itself", () => {
     await reachHandback();
     expect(screen.getByText("Project created — the rest happens in your terminal")).toBeDefined();
     cleanup();
-    expect(resume()).toEqual({ projectId: "proj-1", created: "project" });
+    expect(resume()).toMatchObject({ projectId: "proj-1", created: "project" });
   });
 
   it("leaves a skipped account on its workspaces, and a manual one on its traces", async () => {

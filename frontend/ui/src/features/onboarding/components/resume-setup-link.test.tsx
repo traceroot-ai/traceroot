@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ACTIVITY_REFRESH_INTERVAL_MS } from "@/features/workspaces/hooks";
-import { forgetSetup, rememberSetup, setupResumeKey } from "../setup-resume";
+import { forgetSetup, latestSetup, rememberSetup, setupResumeKey } from "../setup-resume";
 import { ResumeSetupLink } from "./resume-setup-link";
 
 function workspaceList(userId: string) {
@@ -24,6 +24,7 @@ const traceStatus = (firstTrace: string | null) =>
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -72,8 +73,52 @@ describe("resuming setup from the workspace list", () => {
       await client.invalidateQueries();
     });
     await waitFor(() => expect(resumeLink()).toBeNull());
-    expect(JSON.parse(localStorage.getItem(setupResumeKey("alice"))!)).toEqual([]);
+    expect(latestSetup("alice")).toBeNull();
   });
+
+  it("preserves both projects when two tabs write setup during the same storage operation", () => {
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      rememberSetup("alice", "second", "workspace");
+      write.call(this, key, value);
+    });
+    rememberSetup("alice", "first", "project");
+    expect(localStorage.getItem(setupResumeKey("alice", "first"))).toBeTruthy();
+    expect(localStorage.getItem(setupResumeKey("alice", "second"))).toBeTruthy();
+    forgetSetup("alice", "first");
+    expect(latestSetup("alice")?.projectId).toBe("second");
+  });
+
+  it.each(["policy", "ended"])(
+    "retains setup across a temporary impersonation denial (%s)",
+    async (kind) => {
+      rememberSetup("alice", "active", "project");
+      const forbidden = Response.json(
+        {},
+        { status: 403, headers: { "x-impersonation-denied": kind } },
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValueOnce(forbidden).mockResolvedValueOnce(traceStatus(null)),
+      );
+      const { client } = workspaceList("alice");
+      await waitFor(() =>
+        expect(client.getQueryState(["resume-setup", "alice", "active"])?.status).toBe("error"),
+      );
+      expect(resumeLink()).toBeNull();
+      expect(latestSetup("alice")?.projectId).toBe("active");
+      await act(async () => {
+        await client.invalidateQueries();
+      });
+      expect((await screen.findByRole("link")).getAttribute("href")).toBe(
+        "/onboarding/setup?projectId=active&created=project",
+      );
+    },
+  );
 
   it("falls back to another unfinished project after the last one completes", async () => {
     rememberSetup("alice", "previous", "workspace");
