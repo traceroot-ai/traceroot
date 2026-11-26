@@ -124,6 +124,7 @@ export default function LoopDetailPage() {
         projectId={projectId}
         loopId={loop.id}
         active={active}
+        running={loop.lastRun?.status === "running"}
         planBlocked={planBlocked}
         paused={stopped}
       />

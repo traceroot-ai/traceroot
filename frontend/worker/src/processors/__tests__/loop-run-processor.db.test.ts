@@ -100,7 +100,6 @@ function agentAnswers(result: Partial<LoopAgentResult>) {
 
 interface Setup {
   plan?: string;
-  loopBlocked?: boolean;
   project?: { rcaModel?: string; rcaProvider?: string; rcaSource?: string };
   loop?: { model?: string; provider?: string; source?: "system" | "byok"; failureStreak?: number };
 }
@@ -116,7 +115,6 @@ async function setup(options: Setup = {}) {
       id: workspaceId,
       name: workspaceId,
       billingPlan: options.plan ?? "starter",
-      loopBlocked: options.loopBlocked ?? false,
     },
   });
   await prisma.project.create({
@@ -174,6 +172,24 @@ async function addRun(
   );
 }
 
+/** Runs the workspace used: each a Loop session in which the agent replied. */
+async function useRuns(ids: Ids, count: number) {
+  for (let i = 0; i < count; i++) {
+    const session = await prisma.aISession.create({
+      data: { projectId: ids.projectId, workspaceId: ids.workspaceId },
+    });
+    await prisma.aIMessage.create({
+      data: {
+        workspaceId: ids.workspaceId,
+        sessionId: session.id,
+        kind: "loop",
+        role: "tool_step",
+        content: "list_traces",
+      },
+    });
+  }
+}
+
 const runJob = (runId: string) => processLoopRun({ data: { runId } });
 const runRow = (id: string) => prisma.loopRun.findUniqueOrThrow({ where: { id } });
 const loopRow = (id: string) => prisma.loop.findUniqueOrThrow({ where: { id } });
@@ -196,6 +212,7 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
   afterAll(async () => {
@@ -256,8 +273,10 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       });
     });
 
-    it("skips as blocked when a Free workspace used its loop runs", async () => {
-      const ids = await setup({ plan: "free", loopBlocked: true });
+    it("skips as blocked once a Free workspace used its loop runs, before any billing pass", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "free" });
+      await useRuns(ids, 30);
       const run = await addRun(ids);
       await runJob(run.id);
       const after = await runRow(run.id);
@@ -266,11 +285,56 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("lets a paid workspace run whatever its loopBlocked says", async () => {
-      const ids = await setup({ plan: "pro", loopBlocked: true });
+    it("starts a Free workspace's last plan run", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "free" });
+      await useRuns(ids, 29);
       const run = await addRun(ids);
       await runJob(run.id);
       expect((await runRow(run.id)).status).toBe("quiet");
+    });
+
+    it("lets a paid workspace run whatever it used", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "pro" });
+      await useRuns(ids, 30);
+      const run = await addRun(ids);
+      await runJob(run.id);
+      expect((await runRow(run.id)).status).toBe("quiet");
+    });
+
+    it("starts only one of two projects' runs at a Free workspace's last plan run", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "free" });
+      await useRuns(ids, 29);
+      const otherProject = `${ids.projectId}_b`;
+      await prisma.project.create({
+        data: { id: otherProject, workspaceId: ids.workspaceId, name: "b" },
+      });
+      const other = await prisma.$transaction((tx) =>
+        createLoopWithDetector(tx, {
+          projectId: otherProject,
+          createdBy: "u1",
+          name: "Slow lookups",
+          template: null,
+          instructions: "look",
+          schedule: { kind: "interval", intervalHours: 1 },
+          dryRun: false,
+          lookbackHours: 24,
+          model: null,
+          provider: null,
+          source: null,
+          now: new Date(),
+        }),
+      );
+      const runs = [
+        await addRun(ids),
+        await addRun({ ...ids, projectId: otherProject, loopId: other.id }),
+      ];
+      const starts = await Promise.all(runs.map((run) => startLoopRun(run)));
+      expect(starts.sort()).toEqual(["skipped", "started"]);
+      const statuses = await Promise.all(runs.map(async (run) => (await runRow(run.id)).status));
+      expect(statuses.sort()).toEqual(["running", "skipped_blocked"]);
     });
 
     it("skips as blocked when the project hit its daily run cap", async () => {
