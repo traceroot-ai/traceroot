@@ -30,7 +30,7 @@ export interface LoopPromptContext {
 }
 
 /** Most existing signals the prompt lists; the new-key check uses every key. */
-export const PROMPT_FINDING_KEYS_MAX = 50;
+export const PROMPT_LISTED_SIGNALS_MAX = 50;
 /** How much of a person's status note the prompt shows. */
 export const PROMPT_NOTE_MAX_CHARS = 300;
 
@@ -64,10 +64,10 @@ function signalLine(signal: ExistingLoopSignal): string {
 function describeExistingSignals(signals: readonly ExistingLoopSignal[]): string {
   if (signals.length === 0) return "- This loop's signals: none yet.";
   const ordered = [...signals].sort((a, b) => listRank(a) - listRank(b));
-  const shown = ordered.slice(0, PROMPT_FINDING_KEYS_MAX);
+  const shown = ordered.slice(0, PROMPT_LISTED_SIGNALS_MAX);
   const count =
-    signals.length > PROMPT_FINDING_KEYS_MAX
-      ? `${PROMPT_FINDING_KEYS_MAX} of ${signals.length} shown, open and dismissed first`
+    signals.length > PROMPT_LISTED_SIGNALS_MAX
+      ? `${PROMPT_LISTED_SIGNALS_MAX} of ${signals.length} shown, open and dismissed first`
       : `${signals.length}`;
   return [
     `- This loop's signals (${count}), one per line as key · title · status · the reason and note people gave:`,
