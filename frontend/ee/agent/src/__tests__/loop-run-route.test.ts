@@ -4,6 +4,7 @@ import { AUTH } from "./internal-auth-support.js";
 
 const mocks = vi.hoisted(() => ({
   findRun: vi.fn(),
+  findRuns: vi.fn(),
   findSignals: vi.fn(),
   getSession: vi.fn(),
   updateSessionTitle: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@traceroot/core", () => ({
   prisma: {
-    loopRun: { findUnique: mocks.findRun },
+    loopRun: { findUnique: mocks.findRun, findMany: mocks.findRuns },
     signal: { findMany: mocks.findSignals },
   },
   syncStandardPrices: vi.fn(async () => {}),
@@ -122,6 +123,7 @@ beforeEach(() => {
   agent = { abort: vi.fn(), state: { model: { id: "m1", provider: "openai" } } };
   config = undefined;
   mocks.findRun.mockResolvedValue(RUN);
+  mocks.findRuns.mockResolvedValue([]);
   mocks.findSignals.mockResolvedValue([
     {
       id: "sig-1",
@@ -478,6 +480,48 @@ describe("POST loop-runs/:runId — the turn", () => {
     expect(recordCalls).toBe(9);
   });
 
+  it("counts keys earlier runs recorded as existing, before their signal exists", async () => {
+    mocks.findRun.mockResolvedValue({ ...RUN, loop: { ...RUN.loop, dryRun: false } });
+    // The previous run recorded recorded-only; the signals round has not grouped it yet.
+    mocks.findRuns.mockResolvedValue([{ findingKeys: ["recorded-only", "known-timeouts"] }]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ trace_id: "t1" }))),
+    );
+    const replies: string[] = [];
+    runs(async () => {
+      await call("get_trace", { trace_id: "t1" });
+      for (const key of ["recorded-only", "new-a", "new-b"]) {
+        const result = await call("loop_record_finding", {
+          key,
+          title: "t",
+          covers: "c",
+          summary: "s",
+          traceIds: ["t1"],
+        });
+        replies.push(textOf(result));
+      }
+    });
+    const body = await (await post(BODY)).json();
+    vi.unstubAllGlobals();
+    expect(mocks.findRuns).toHaveBeenCalledWith({
+      where: { loopId: "loop-1", id: { not: "run-1" }, findingKeys: { isEmpty: false } },
+      orderBy: { seq: "desc" },
+      take: 20,
+      select: { findingKeys: true },
+    });
+    expect(replies).toEqual([
+      'Finding "recorded-only" recorded (existing key) with 1 traces.',
+      'Finding "new-a" recorded (new key) with 1 traces.',
+      'Finding "new-b" recorded (new key) with 1 traces.',
+    ]);
+    expect(body.findings.map((f: { key: string }) => f.key)).toEqual([
+      "recorded-only",
+      "new-a",
+      "new-b",
+    ]);
+  });
+
   it("answers no findings on a dry run", async () => {
     vi.stubGlobal(
       "fetch",
@@ -636,6 +680,9 @@ describe("POST loop-runs/:runId — the turn", () => {
   it("never writes the run's status", async () => {
     runs(() => undefined);
     await post(BODY);
-    expect(Object.keys((await import("@traceroot/core")).prisma.loopRun)).toEqual(["findUnique"]);
+    expect(Object.keys((await import("@traceroot/core")).prisma.loopRun)).toEqual([
+      "findUnique",
+      "findMany",
+    ]);
   });
 });
