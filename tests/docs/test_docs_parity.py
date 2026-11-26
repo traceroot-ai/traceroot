@@ -108,6 +108,7 @@ def test_integrations_overview_parity() -> None:
         "predictleads",
         "tavily",
         "tinyfish",
+        "vapi",
     }
     # typesafe is documented in docs before in-app picker card onboarding:
     extra_in_docs = (docs_integrations - picker_integrations) - {"typesafe"} - tools_and_agents_docs

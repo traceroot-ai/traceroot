@@ -1,0 +1,88 @@
+---
+title: Vapi
+description: Trace Vapi voice-agent calls via end-of-call-report webhooks
+---
+
+Capture every [Vapi](https://vapi.ai) voice call — turns, LLM calls, tool executions, transcripts, latency and cost — in traceroot using Vapi's `end-of-call-report` server webhook.
+
+## OTel export vs. webhook
+
+| Route | Support in Vapi | Why |
+|---|---|---|
+| **Direct OTel / OTLP export** | Not available for custom OTLP targets | Vapi's built-in observability export targets Langfuse specifically (probing `/api/public/health` for server version detection and sending to Langfuse's `/api/public/otel` with Langfuse credentials). There is no generic OTLP endpoint + custom `Authorization` header setting in Vapi. |
+| **`end-of-call-report` webhook (recommended)** | Supported natively | Vapi's [Server URL](https://docs.vapi.ai/server-url/events) sends an `end-of-call-report` JSON payload after each call finishes, including `call.id`, `startedAt`/`endedAt`, `cost`/`costBreakdown`, `artifact.messages`, `artifact.transcript`, and `analysis.summary`. |
+
+## Install
+
+```bash
+pip install fastapi uvicorn python-dotenv traceroot
+```
+
+## Set up
+
+1. Set your traceroot API key (and optional webhook secret) in `.env`:
+
+```bash
+TRACEROOT_API_KEY=your_traceroot_api_key_here
+# TRACEROOT_HOST_URL=http://localhost:8000  # self-hosted only
+# VAPI_WEBHOOK_SECRET=your_vapi_webhook_secret
+```
+
+2. Run the webhook importer from the example directory:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8080
+```
+
+3. In the Vapi dashboard (or assistant configuration), set **Server URL** to `https://<your-host>/vapi/webhook` and enable `end-of-call-report` in `serverMessages`.
+
+## Usage
+
+When Vapi finishes a call and posts the `end-of-call-report` webhook, the importer maps the call into a trace grouped by `call.id`:
+
+```
+vapi.call (Assistant)          # AGENT span — session_id = call.id, cost = call.cost
+├── llm.gpt-4o                 # LLM span — assistant turn input/output & model
+│   └── lookup_order           # TOOL span — tool arguments & result
+└── llm.gpt-4o                 # LLM span — follow-up assistant response
+```
+
+## Verify
+
+Place a test call in Vapi and confirm the trace arrives after the call ends:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `vapi.call` trace whose **Session ID** matches the Vapi `call.id`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Source in Vapi payload |
+|---|---|
+| Session ID | `message.call.id` |
+| Root span (`AGENT`) | `message.artifact.transcript` (input), `message.analysis.summary` (output), `message.endedReason` |
+| Model spans (`LLM`) | `message.assistant.model.model`, `message.artifact.messages` (`bot` / `assistant` turns) |
+| Tool spans (`TOOL`) | `toolCalls` arguments matched with `tool_call_result` by `toolCallId` |
+| Latency | `call.startedAt`/`endedAt` and per-message `time` / `secondsFromStart` / `duration` |
+| Cost (USD) | `message.call.cost` (or `costBreakdown.total`) recorded via `llm.cost.total` |
+
+## Limitations
+
+- Traces are emitted once the call completes (`end-of-call-report` fires ~5–15 seconds after hang-up), not streamed mid-call.
+- Token counts are only recorded if included in the webhook payload; call-level cost is taken from Vapi's `call.cost`.
+- If `compliancePlan.pciEnabled` is enabled on your Vapi assistant, Vapi omits transcripts and artifacts from webhooks.
+
+## Run the example
+
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/vapi-webhook">
+  Run the Vapi webhook importer example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Sessions" icon="route" href="/tracing/sessions">
+    Inspect multi-turn calls by session ID.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how traceroot tracks reported and computed costs.
+  </Card>
+</CardGroup>
