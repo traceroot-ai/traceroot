@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import os
 from collections import OrderedDict
 from typing import Any
@@ -28,6 +29,36 @@ app = FastAPI(title="TraceRoot Vapi Webhook Importer")
 _MAX_SEEN_CALL_IDS = 10_000
 _seen_call_ids: OrderedDict[str, None] = OrderedDict()
 _seen_lock = asyncio.Lock()
+
+_MAX_BODY_BYTES = 5 * 1024 * 1024  # 5 MiB cap on incoming JSON reports
+
+
+async def _read_capped_json(request: Request) -> dict[str, Any]:
+    """Read request body capped at _MAX_BODY_BYTES to prevent memory exhaustion."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > _MAX_BODY_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Payload exceeds 5 MiB limit",
+        )
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Payload exceeds 5 MiB limit",
+            )
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    try:
+        return json.loads(body)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload",
+        ) from exc
 
 
 def _emit_span(spec: SpanSpec, parent_context: Any | None = None) -> Any:
@@ -72,15 +103,17 @@ async def vapi_webhook(
 ) -> dict[str, str]:
     """Receive Vapi server webhook events and export end-of-call reports to TraceRoot."""
     expected_secret = os.getenv("VAPI_WEBHOOK_SECRET")
-    if expected_secret and (
-        not x_vapi_secret or not hmac.compare_digest(x_vapi_secret, expected_secret)
+    if (
+        not expected_secret
+        or not x_vapi_secret
+        or not hmac.compare_digest(x_vapi_secret, expected_secret)
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid webhook secret",
+            detail="Invalid or missing webhook secret",
         )
 
-    payload = await request.json()
+    payload = await _read_capped_json(request)
     try:
         plan = build_vapi_trace_plan(payload)
     except ValueError as exc:

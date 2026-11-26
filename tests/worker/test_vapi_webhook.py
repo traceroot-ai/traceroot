@@ -136,6 +136,16 @@ def test_prefers_envelope_cost_over_call_cost() -> None:
     assert plan.root.attributes["llm.cost.total"] == 0.0875
 
 
+def test_caps_messages_and_spans_per_report() -> None:
+    payload = _sample_vapi_report()
+    payload["message"]["artifact"]["messages"] = [
+        {"role": "user", "message": f"Question {i}"} for i in range(1500)
+    ]
+    plan = build_vapi_trace_plan(payload)
+    assert plan is not None
+    assert len(plan.children) <= 1000
+
+
 def test_vapi_report_transforms_into_traceroot_trace_with_session_llm_tool_and_cost() -> None:
     plan = build_vapi_trace_plan(_sample_vapi_report())
     assert plan is not None

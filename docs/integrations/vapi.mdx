@@ -20,11 +20,11 @@ pip install fastapi uvicorn python-dotenv traceroot
 
 ## Set up
 
-1. Set your traceroot API key and webhook secret in `.env` (`VAPI_WEBHOOK_SECRET` is required for public deployments; unauthenticated mode is for local testing only):
+1. Set your traceroot API key and webhook secret in `.env`:
 
 ```bash
 TRACEROOT_API_KEY=your_traceroot_api_key_here
-VAPI_WEBHOOK_SECRET=your_vapi_webhook_secret  # required for public deployments
+VAPI_WEBHOOK_SECRET=your_vapi_webhook_secret  # required
 # TRACEROOT_HOST_URL=http://localhost:8000  # self-hosted only
 ```
 

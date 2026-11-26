@@ -21,6 +21,10 @@ class SpanSpec:
     attributes: dict[str, Any] = field(default_factory=dict)
 
 
+_MAX_MESSAGES_PER_REPORT = 1_000
+_MAX_CHILD_SPANS_PER_REPORT = 2_000
+
+
 @dataclass(frozen=True)
 class VapiTracePlan:
     """Complete trace plan derived from one Vapi end-of-call-report payload."""
@@ -125,6 +129,8 @@ def build_vapi_trace_plan(
     messages = artifact.get("messages")
     if not isinstance(messages, list):
         messages = []
+    elif len(messages) > _MAX_MESSAGES_PER_REPORT:
+        messages = messages[:_MAX_MESSAGES_PER_REPORT]
 
     # Index tool results by toolCallId so each tool call span carries both args and result.
     tool_results_by_id: dict[str, dict[str, Any]] = {}
@@ -191,6 +197,8 @@ def build_vapi_trace_plan(
                 attributes=llm_attrs,
             )
         )
+        if len(children) >= _MAX_CHILD_SPANS_PER_REPORT:
+            break
 
         for tc_idx, tc in enumerate(_extract_tool_calls(msg)):
             fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
@@ -235,6 +243,8 @@ def build_vapi_trace_plan(
                     attributes=tool_attrs,
                 )
             )
+            if len(children) >= _MAX_CHILD_SPANS_PER_REPORT:
+                break
 
     assistant_name = assistant.get("name")
     root_name = f"vapi.call ({assistant_name})" if assistant_name else "vapi.call"
