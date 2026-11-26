@@ -36,7 +36,6 @@ from tmux_tools.launcher import (
     run_env_only,
 )
 
-
 pytestmark = pytest.mark.usefixtures("isolated_generated_secrets")
 
 _ROOT = Path(__file__).resolve().parent.parent
