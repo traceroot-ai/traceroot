@@ -86,3 +86,31 @@ export async function verifyIssuer(
   }
   throw new Error(`${url} did not answer after ${attempts} attempts (${lastFailure})`);
 }
+
+/**
+ * Run the issuer check at startup and say whether to serve. A wrong issuer
+ * stops the server, since every sign-in would fail. An authorization server
+ * that never answered only logs: the web app may simply be slow to boot, and
+ * exiting would take the server down for API-key users too.
+ */
+export async function shouldServeAfterIssuerCheck(
+  config: OAuthConfig,
+  options: IssuerCheckOptions = {},
+  log: (line: string) => void = console.error,
+): Promise<boolean> {
+  try {
+    await verifyIssuer(config, options);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof IssuerConfigError) {
+      log(`OAuth issuer check failed (misconfigured): ${message}`);
+      return false;
+    }
+    log(
+      `OAuth issuer check could not reach the authorization server: ${message}. ` +
+        "Serving anyway; OAuth sign-ins will fail until it is up with the right issuer.",
+    );
+    return true;
+  }
+}
