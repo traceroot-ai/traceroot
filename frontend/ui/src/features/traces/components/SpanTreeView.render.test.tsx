@@ -101,9 +101,9 @@ describe("SpanTreeView token/cost badges", () => {
     // Trace root name and the one LLM span's name are both rendered.
     expect(screen.getByText("root-trace")).toBeTruthy();
     expect(screen.getByText("llm-call")).toBeTruthy();
-    // Cost appears twice: the trace rollup (0.0123) and the span's own (0.0123) —
-    // both format to the same 4-decimal string here since there's only one span.
-    expect(screen.getAllByText("0.0123")).toHaveLength(2);
+    // Cost appears twice: the trace rollup ($0.0123) and the span's own ($0.0123) —
+    // both format to the same string here since there's only one span.
+    expect(screen.getAllByText("$0.0123")).toHaveLength(2);
   });
 
   it("draws a glyph alongside each token and cost badge", () => {
@@ -111,7 +111,7 @@ describe("SpanTreeView token/cost badges", () => {
 
     // The badge text nodes are wrapped in a span that also holds the icon, so
     // a missing glyph shows up as a badge with no svg child.
-    for (const badge of screen.getAllByText("0.0123")) {
+    for (const badge of screen.getAllByText("$0.0123")) {
       expect(badge.querySelector("svg")).toBeTruthy();
     }
     for (const badge of screen.getAllByText("100 → 50 (150)")) {
@@ -150,9 +150,26 @@ describe("SpanTreeView token/cost badges", () => {
       ],
     });
 
-    expect(screen.getByText("0.0200").className).toContain("@[100px]:inline-flex");
-    expect(screen.getByText("0.0123").className).toContain("@[190px]:inline-flex");
-    expect(screen.queryByText("0.5000")).toBeNull();
+    expect(screen.getByText("$0.0200").className).toContain("@[100px]:inline-flex");
+    expect(screen.getByText("$0.0123").className).toContain("@[190px]:inline-flex");
+    expect(screen.queryByText("$0.50")).toBeNull();
+  });
+
+  it("shows a sub-cent cost with real digits, and no cost on a $0 tool span", () => {
+    // gpt-4o-mini, 100 input tokens at $0.15/M = $0.000015.
+    const llm = { ...trace.spans[0], model_name: "gpt-4o-mini", cost: 0.000015 };
+    renderTree({
+      ...trace,
+      spans: [
+        llm,
+        { ...llm, span_id: "span-2", name: "lookup", span_kind: SpanKind.TOOL, cost: 0 },
+      ],
+    });
+
+    // Trace rollup and the LLM span's own badge; the $0 tool span shows none.
+    expect(screen.getAllByText("$0.000015")).toHaveLength(2);
+    expect(screen.queryByText("-")).toBeNull();
+    expect(screen.queryByText("0.0000")).toBeNull();
   });
 });
 

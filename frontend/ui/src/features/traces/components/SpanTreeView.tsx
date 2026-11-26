@@ -8,7 +8,7 @@ import { useSession as useAuthSession } from "@/lib/auth-client";
 import { getSpanIO } from "@/lib/api";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
+import { cn, formatCost, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { MODEL_SPAN_KINDS, SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection, SpanTreeRow } from "../types";
@@ -300,10 +300,10 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                           </span>
                         )}
 
-                        {traceTotalCost != null && (
+                        {traceTotalCost != null && traceTotalCost > 0 && (
                           <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] text-muted-foreground @[190px]:inline-flex">
                             <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
-                            {traceTotalCost.toFixed(4)}
+                            {formatCost(traceTotalCost)}
                           </span>
                         )}
                       </>
@@ -401,7 +401,8 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
                       {(MODEL_SPAN_KINDS.has(span.span_kind) || span.span_kind === SpanKind.TOOL) &&
                         span.cost != null &&
-                        Number.isFinite(span.cost) && (
+                        Number.isFinite(span.cost) &&
+                        span.cost > 0 && (
                           <span
                             className={cn(
                               "hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[12px] text-muted-foreground",
@@ -411,7 +412,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                             )}
                           >
                             <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
-                            {span.cost.toFixed(4)}
+                            {formatCost(span.cost)}
                           </span>
                         )}
                     </>
