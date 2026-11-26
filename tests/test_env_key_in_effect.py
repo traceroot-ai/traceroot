@@ -19,6 +19,9 @@ from tests.test_published_secrets import (
 from tmux_tools.launcher import ensure_env_file, fill_secrets
 
 
+pytestmark = pytest.mark.usefixtures("isolated_generated_secrets")
+
+
 def test_prod_lite_generates_an_encryption_key_when_none_is_set(tmp_path):
     (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
     _run_env_secrets(tmp_path)
