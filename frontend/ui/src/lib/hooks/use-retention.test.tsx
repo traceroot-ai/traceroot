@@ -6,7 +6,10 @@ import { useRetention } from "./use-retention";
 
 const state = vi.hoisted(() => ({
   project: { data: undefined as { workspace_id?: string } | undefined, isPending: true },
-  workspace: { data: undefined as { billingPlan?: string } | undefined, isPending: true },
+  workspace: {
+    data: undefined as { billingPlan?: string; retention_days?: number | null } | undefined,
+    isPending: true,
+  },
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
@@ -43,6 +46,12 @@ describe("useRetention", () => {
     const { result } = renderHook(() => useRetention("p1"));
 
     expect(result.current.retentionDays).toBe(90);
+  });
+
+  it.each([null, 90])("uses the effective retention window with billing hidden: %s", (days) => {
+    state.project = { data: { workspace_id: "demo" }, isPending: false };
+    state.workspace = { data: { retention_days: days }, isPending: false };
+    expect(renderHook(() => useRetention("p1")).result.current.retentionDays).toBe(days);
   });
 
   it("fails closed for an unrecognized plan string", () => {

@@ -16,7 +16,7 @@ import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
   formatDate,
   formatCost,
-  formatTokens,
+  formatTokenFlow,
   formatExactTokens,
   cn,
   buildUrlWithFilters,
@@ -99,10 +99,10 @@ export default function UsersPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         {/* Tab navigation */}
-        <div className="border-b border-border bg-background">
-          <div className="flex">
+        <div className="flex h-11 items-center border-b border-border bg-background">
+          <div className="flex gap-1 px-4">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = tab.id === "users";
@@ -111,10 +111,10 @@ export default function UsersPage() {
                   key={tab.id}
                   href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                    "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                     isActive
-                      ? "border-foreground bg-muted text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -163,22 +163,22 @@ export default function UsersPage() {
           ) : (
             <div className="flex h-full flex-col">
               <div ref={listRef} className="flex-1 overflow-auto">
-                <table className="w-full">
+                <table className="data-table w-full tabular-nums [&_:is(th,td):nth-child(n+2):nth-child(-n+4)]:text-right">
                   <thead className="sticky top-0 bg-background">
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
                       </th>
-                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[110px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Tokens
                       </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
                       </th>
-                      <th className="w-[160px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[160px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Last Activity
                       </th>
                     </tr>
@@ -188,30 +188,29 @@ export default function UsersPage() {
                       <tr
                         key={user.user_id}
                         onClick={() => handleUserClick(user.user_id)}
-                        className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
+                        className="cursor-pointer border-b border-border transition-colors hover:bg-muted"
                       >
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-2 text-[12px] text-foreground">
                           {user.user_id}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-2 text-[12px] text-muted-foreground">
                           {user.trace_count}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-2 text-[12px] text-muted-foreground">
                           {(user.total_input_tokens ?? 0) + (user.total_output_tokens ?? 0) > 0 ? (
                             <span
                               title={`${formatExactTokens(user.total_input_tokens)} / ${formatExactTokens(user.total_output_tokens)}`}
                             >
-                              {formatTokens(user.total_input_tokens ?? 0)} /{" "}
-                              {formatTokens(user.total_output_tokens ?? 0)}
+                              {formatTokenFlow(user.total_input_tokens, user.total_output_tokens)}
                             </span>
                           ) : (
                             "-"
                           )}
                         </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border px-3 py-2 text-[12px] text-muted-foreground">
                           {formatCost(user.total_cost)}
                         </td>
-                        <td className="px-3 py-2 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap px-3 py-2 text-[12px] text-muted-foreground">
                           {formatDate(user.last_trace_time)}
                         </td>
                       </tr>

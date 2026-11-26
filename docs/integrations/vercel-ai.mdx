@@ -121,7 +121,7 @@ Once initialized, every `generateText` / `streamText` call, model call, and tool
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ai.generateText`. `functionId` sets a telemetry attribute on the span; it does not rename it.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `ai.generateText`. `functionId` sets a telemetry attribute on the span; it does not rename it.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
@@ -133,7 +133,7 @@ Run your code and confirm the trace arrives:
 | Response | Generated text output |
 | Tool calls | Each tool invocation with input and output |
 | Tokens | Input and output token counts |
-| Cost | Calculated when the model ID matches TraceRoot's pricing table |
+| Cost | Calculated when the model ID matches traceroot's pricing table |
 | Latency | Request duration per span |
 | Multi-step iterations | Each step of a tool loop captured as a child span |
 
@@ -144,13 +144,13 @@ Run your code and confirm the trace arrives:
 
 ## Embedding usage
 
-`embed` and `embedMany` record reported input-token usage on their provider-call spans. Cost is calculated when the model matches an entry in TraceRoot's pricing table; otherwise, cost remains unset. The current standard pricing table has no embedding models. The operation wrapper remains in the trace, but its aggregate legacy usage is not counted again. This also applies when a batch is split across multiple provider calls.
+`embed` and `embedMany` record reported input-token usage on their provider-call spans. Cost is calculated when the model matches an entry in traceroot's pricing table; otherwise, cost remains unset. The current standard pricing table has no embedding models. The operation wrapper remains in the trace, but its aggregate legacy usage is not counted again. This also applies when a batch is split across multiple provider calls.
 
-Embedding spans without reported usage keep their token counts unset. TraceRoot does not estimate embedding tokens from input text or output vectors, avoiding duplicate estimates on orchestration spans whose provider-call children report the actual usage.
+Embedding spans without reported usage keep their token counts unset. traceroot does not estimate embedding tokens from input text or output vectors, avoiding duplicate estimates on orchestration spans whose provider-call children report the actual usage.
 
-For AI SDK 7's `OpenTelemetry` integration, use `@ai-sdk/otel@1.0.76` or newer. If you use an older version, upgrade `@ai-sdk/otel`: older semconv emitters can repeat usage on both the embedding wrapper and its provider calls, while the fixed emitter reports usage only on provider calls.
+For AI SDK 7's `OpenTelemetry` integration, use `@ai-sdk/otel` version 1.0.76 or newer. If you use an older version, upgrade `@ai-sdk/otel`: older semconv emitters can repeat usage on both the embedding wrapper and its provider calls, while the fixed emitter reports usage only on provider calls.
 
-AI SDK 6's built-in telemetry and AI SDK 7's `LegacyOpenTelemetry` integration report raw embedding usage as `ai.usage.tokens`. TraceRoot reads this field only on provider calls identified by `ai.operationId` or `operation.name` as `ai.embed.doEmbed` or `ai.embedMany.doEmbed`. Preserve these operation attributes in custom span processors so usage can be distinguished from wrapper aggregates. If your emitter omits them, use an emitter that supplies them or switch to the current AI SDK 7 `OpenTelemetry` integration. Normalized OpenInference or GenAI usage fields continue to be supported independently.
+AI SDK 6's built-in telemetry and AI SDK 7's `LegacyOpenTelemetry` integration report raw embedding usage as `ai.usage.tokens`. traceroot reads this field only on provider calls identified by `ai.operationId` or `operation.name` as `ai.embed.doEmbed` or `ai.embedMany.doEmbed`. Preserve these operation attributes in custom span processors so usage can be distinguished from wrapper aggregates. If your emitter omits them, use an emitter that supplies them or switch to the current AI SDK 7 `OpenTelemetry` integration. Normalized OpenInference or GenAI usage fields continue to be supported independently.
 
 ## Run the example
 
@@ -167,6 +167,6 @@ Clone the repo and run a complete agent end-to-end.
     Explore the full TypeScript SDK reference and configuration options.
   </Card>
   <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
-    Learn how TraceRoot calculates token costs and tracks model spend.
+    Learn how traceroot calculates token costs and tracks model spend.
   </Card>
 </CardGroup>

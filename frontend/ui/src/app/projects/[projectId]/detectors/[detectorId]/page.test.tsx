@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { mockRetention } from "@/test/retention-mock";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -99,14 +100,7 @@ vi.mock("@/features/detectors/hooks/use-findings", async (importOriginal) => ({
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/lib/hooks/use-retention", () => ({
-  useRetention: () => ({
-    retentionDays: 15,
-    showPricing: false,
-    onUpgradeClick: vi.fn(),
-    closePricing: vi.fn(),
-    workspaceId: "ws-1",
-    billingPlan: "free",
-  }),
+  useRetention: () => mockRetention(),
 }));
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 // The bar itself is out of scope; what the page puts in it (the filter chip) renders.
@@ -184,9 +178,9 @@ describe("DetectorDetailPage", () => {
     mocks.useRuns.mockImplementation(defaultUseRuns);
     render(<DetectorDetailPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
-
-    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors?date_filter=7d");
+    expect(screen.getByRole("link", { name: /Detectors/ }).getAttribute("href")).toBe(
+      "/projects/proj-1/detectors?date_filter=7d",
+    );
   });
 
   it("returns to the list page, page size and query it was opened from", async () => {
@@ -199,8 +193,7 @@ describe("DetectorDetailPage", () => {
 
     // The recorded query is read after mount.
     await waitFor(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
-      expect(mocks.push).toHaveBeenLastCalledWith(
+      expect(screen.getByRole("link", { name: /Detectors/ }).getAttribute("href")).toBe(
         "/projects/proj-1/detectors?page_index=2&page_limit=100&search=latency&date_filter=7d",
       );
     });
@@ -215,8 +208,7 @@ describe("DetectorDetailPage", () => {
     render(<DetectorDetailPage />);
 
     await waitFor(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
-      expect(mocks.push).toHaveBeenLastCalledWith(
+      expect(screen.getByRole("link", { name: /Detectors/ }).getAttribute("href")).toBe(
         "/projects/proj-1/detectors?page_index=2&page_limit=100&date_filter=7d",
       );
     });
@@ -248,7 +240,7 @@ describe("DetectorDetailPage", () => {
   it("shows Signal ID and Agent Run ID instead of the finding's own id and RCA", () => {
     render(<DetectorDetailPage />);
 
-    for (const header of ["Signal ID", "Agent Run ID"]) {
+    for (const header of ["Signal ID", "Agent run ID"]) {
       expect(screen.getByRole("columnheader", { name: header })).toBeTruthy();
     }
     for (const gone of ["Finding ID", "Agent analysis"]) {

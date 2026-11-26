@@ -170,16 +170,16 @@ export function DetectorPanel({
   };
 
   return (
-    <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] flex-col border-l border-border bg-background shadow-xl">
+    <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] flex-col border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)]">
       {/* Header — same style as trace viewer */}
-      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4">
+      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <DOMAIN_ICONS.detector className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-[13px] font-medium">Detector</span>
           <span className="truncate text-[13px] text-muted-foreground">
             {detector?.name ?? detectorId}
           </span>
-          <span className="truncate font-mono text-[11px] text-muted-foreground/60">
+          <span className="truncate font-mono text-[12px] text-muted-foreground/60">
             {detectorId}
           </span>
           <CopyButton
@@ -223,22 +223,22 @@ export function DetectorPanel({
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {/* Name */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Name</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Name</span>
           </div>
           <div className="p-3">
             <Input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              className="h-7 text-[13px]"
+              className="h-8 text-[13px]"
             />
           </div>
         </div>
 
         {/* Models */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Model</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Model</span>
           </div>
           {/* Detector Model — per-detector, editable */}
           <div className="p-3">
@@ -249,7 +249,7 @@ export function DetectorPanel({
               defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
               allowDecisionModels
             />
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-[12px] text-muted-foreground">
               Used to evaluate each trace for this detector.
             </p>
           </div>
@@ -257,8 +257,8 @@ export function DetectorPanel({
 
         {/* Prompt */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Prompt</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Prompt</span>
           </div>
           <div className="p-3">
             <textarea
@@ -282,8 +282,8 @@ export function DetectorPanel({
 
         {/* Sampling */}
         <div className="border border-border">
-          <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Sampling</span>
+          <div className="flex h-9 items-center border-b border-border px-4">
+            <span className="text-[13px] font-medium text-foreground">Sampling</span>
           </div>
           <div className="flex items-center gap-3 p-3">
             <input
@@ -292,7 +292,7 @@ export function DetectorPanel({
               max={100}
               value={editSampleRate}
               onChange={(e) => setEditSampleRate(Number(e.target.value))}
-              className="flex-1 cursor-pointer accent-foreground"
+              className="flex-1 cursor-pointer accent-brand"
             />
             <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
               {editSampleRate}%

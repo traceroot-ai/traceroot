@@ -178,15 +178,18 @@ describe("updateProject", () => {
     expect(tx.project.update).not.toHaveBeenCalled();
   });
 
-  it("rejects a decision model as the RCA model when saved, before RCA runs", async () => {
-    mockAccess();
-    expect(await runUpdate({ rcaModel: "jev-1.13.0", rcaSource: "byok" })).toEqual({
-      ok: false,
-      status: 400,
-      error: "rcaModel cannot be a decision model, which only runs detectors",
-    });
-    expect(tx.project.update).not.toHaveBeenCalled();
-  });
+  it.each(["jev-1.13.0", "gpt-6-luna-decisions"])(
+    "rejects decision model %s as the RCA model when saved, before RCA runs",
+    async (rcaModel) => {
+      mockAccess();
+      expect(await runUpdate({ rcaModel, rcaSource: "byok" })).toEqual({
+        ok: false,
+        status: 400,
+        error: "rcaModel cannot be a decision model, which only runs detectors",
+      });
+      expect(tx.project.update).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects a TypeSafe provider as the RCA provider, looked up in the project's workspace", async () => {
     mockAccess();

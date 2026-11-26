@@ -45,10 +45,10 @@ describe("DetectorRunsTable", () => {
     );
     for (const header of [
       "Timestamp",
-      "Judge Run ID",
+      "Judge run ID",
       "Trace ID",
       "Signal ID",
-      "Agent Run ID",
+      "Agent run ID",
       "Identified",
       "Summary",
       "Status",
@@ -145,6 +145,7 @@ describe("DetectorRunsTable", () => {
     const onTraceClick = vi.fn();
     const selfRun: BackendRun = {
       ...triggeredRun,
+      run_id: "run-self",
       self_traced: true,
     };
     render(
@@ -157,23 +158,55 @@ describe("DetectorRunsTable", () => {
       />,
     );
 
-    // Clicking the row (not the button) does nothing.
     fireEvent.click(screen.getByText("Something went wrong"));
     expect(onRunClick).not.toHaveBeenCalled();
+    expect(onTraceClick).not.toHaveBeenCalled();
 
-    // Clicking the Judge Run ID button opens the run.
-    fireEvent.click(screen.getByRole("button", { name: "run-triggered" }));
+    fireEvent.click(screen.getByRole("button", { name: "run-self" }));
     expect(onRunClick).toHaveBeenCalledTimes(1);
     expect(onRunClick).toHaveBeenCalledWith(selfRun);
   });
 
-  it("fires onRunClick with the run when a self-traced run's run_id cell is clicked", () => {
+  it("row click does nothing when the run has no self-trace", () => {
     const onRunClick = vi.fn();
-    const selfRun: BackendRun = {
-      ...cleanRun,
-      self_traced: true,
-      run_id: "run-self",
-    };
+    render(
+      <DetectorRunsTable
+        rows={[triggeredRun]}
+        onTraceClick={vi.fn()}
+        onRunClick={onRunClick}
+        onAgentRunClick={vi.fn()}
+        signalHref={signalHref}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Something went wrong"));
+
+    expect(onRunClick).not.toHaveBeenCalled();
+  });
+
+  it("trace_id cell still opens the scanned trace, not the self-trace", () => {
+    const onRunClick = vi.fn();
+    const onTraceClick = vi.fn();
+    const selfRun: BackendRun = { ...triggeredRun, self_traced: true };
+    render(
+      <DetectorRunsTable
+        rows={[selfRun]}
+        onTraceClick={onTraceClick}
+        onRunClick={onRunClick}
+        onAgentRunClick={vi.fn()}
+        signalHref={signalHref}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "trace-triggered" }));
+
+    expect(onTraceClick).toHaveBeenCalledTimes(1);
+    expect(onRunClick).not.toHaveBeenCalled();
+  });
+
+  it("links the run_id cell to the self-trace only when self_traced", () => {
+    const onRunClick = vi.fn();
+    const selfRun: BackendRun = { ...cleanRun, run_id: "run-self", self_traced: true };
     render(
       <DetectorRunsTable
         rows={[selfRun]}
@@ -185,41 +218,16 @@ describe("DetectorRunsTable", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "run-self" }));
-
-    expect(onRunClick).toHaveBeenCalledTimes(1);
     expect(onRunClick).toHaveBeenCalledWith(selfRun);
   });
 
-  it("fires both handlers when both cells are clicked in turn", () => {
+  it("renders run_id as plain text when not self_traced", () => {
     const onRunClick = vi.fn();
-    const onTraceClick = vi.fn();
-    const selfRun: BackendRun = {
-      ...triggeredRun,
-      self_traced: true,
-    };
-    render(
-      <DetectorRunsTable
-        rows={[selfRun]}
-        onTraceClick={onTraceClick}
-        onRunClick={onRunClick}
-        onAgentRunClick={vi.fn()}
-        signalHref={signalHref}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "run-triggered" }));
-    fireEvent.click(screen.getByRole("button", { name: "trace-triggered" }));
-
-    expect(onRunClick).toHaveBeenCalledTimes(1);
-    expect(onTraceClick).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not render run_id as a button when self_traced is false", () => {
     render(
       <DetectorRunsTable
         rows={[cleanRun]}
         onTraceClick={vi.fn()}
-        onRunClick={vi.fn()}
+        onRunClick={onRunClick}
         onAgentRunClick={vi.fn()}
         signalHref={signalHref}
       />,

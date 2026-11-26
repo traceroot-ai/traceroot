@@ -100,7 +100,7 @@ describe("datasets list return link", () => {
     await openListOnSecondPage();
     detailStatus = 200;
     mount(<DatasetDetailView projectId="p1" datasetId="ds1" />);
-    const crumb = await screen.findByTestId("breadcrumb-trail");
+    const crumb = await screen.findByRole("link", { name: "Datasets" });
     await waitFor(() =>
       expect(crumb.getAttribute("href")).toBe("/projects/p1/datasets?page_index=1"),
     );

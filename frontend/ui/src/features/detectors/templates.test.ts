@@ -2,12 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_DETECTOR_SAMPLE_RATE,
-  DETECTOR_QUICK_ADD_TEMPLATES,
-  buildTemplateDetectorInput,
-  getTemplate,
-} from "./templates";
+import { DEFAULT_DETECTOR_SAMPLE_RATE, buildTemplateDetectorInput, getTemplate } from "./templates";
 
 describe("DEFAULT_DETECTOR_SAMPLE_RATE", () => {
   it("matches the Prisma column default, which cannot import the constant", () => {
@@ -21,23 +16,11 @@ describe("DEFAULT_DETECTOR_SAMPLE_RATE", () => {
   });
 });
 
-describe("DETECTOR_QUICK_ADD_TEMPLATES", () => {
-  it("excludes the blank template and keeps the rest in order", () => {
-    expect(DETECTOR_QUICK_ADD_TEMPLATES.map((t) => t.id)).toEqual([
-      "failure",
-      "hallucination",
-      "logic",
-      "task",
-      "safety",
-    ]);
-  });
-});
-
 describe("buildTemplateDetectorInput", () => {
   it("builds the defaults the new-detector form starts from", () => {
     const failure = getTemplate("failure")!;
     expect(buildTemplateDetectorInput(failure)).toEqual({
-      name: "Failure Detector",
+      name: "Failure detector",
       template: "failure",
       prompt: failure.prompt,
       outputSchema: failure.outputSchema,
@@ -50,6 +33,6 @@ describe("buildTemplateDetectorInput", () => {
 
   it("derives the name from the template label", () => {
     const safety = getTemplate("safety")!;
-    expect(buildTemplateDetectorInput(safety).name).toBe("Safety Detector");
+    expect(buildTemplateDetectorInput(safety).name).toBe("Safety detector");
   });
 });

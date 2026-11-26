@@ -31,6 +31,7 @@ export const FIELD_ICONS: Record<string, LucideIcon> = {
   errors: DOMAIN_ICONS.error,
   model_name: DOMAIN_ICONS.model,
   environment: DOMAIN_ICONS.environment,
+  label: DOMAIN_ICONS.label,
   metadata: DOMAIN_ICONS.metadata,
 };
 
@@ -222,7 +223,7 @@ export function ValueDropdown({
             >
               <span className="flex-1 truncate">{opt.value}</span>
               {opt.count !== undefined && (
-                <span className="text-[11px] text-muted-foreground">{opt.count}</span>
+                <span className="text-[12px] text-muted-foreground">{opt.count}</span>
               )}
             </DropdownItem>
           ))
@@ -282,7 +283,7 @@ export function MultiValueDropdown({
                 />
                 <span className="flex-1 truncate">{opt.value}</span>
                 {opt.count !== undefined && (
-                  <span className="text-[11px] text-muted-foreground">{opt.count}</span>
+                  <span className="text-[12px] text-muted-foreground">{opt.count}</span>
                 )}
               </DropdownItem>
             );
@@ -386,7 +387,7 @@ export function MetadataKeyCombobox({
               }}
             >
               <span className="flex-1 truncate">{k.value}</span>
-              <span className="text-[11px] text-muted-foreground">{k.count}</span>
+              <span className="text-[12px] text-muted-foreground">{k.count}</span>
             </DropdownItem>
           ))
         ) : (
@@ -475,7 +476,7 @@ export function Dropdown({
           disabled={disabled}
           className={cn(
             "flex h-7 items-center justify-between gap-1 rounded-md border border-border bg-background px-2 font-normal transition-colors",
-            "hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50",
+            "hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
             textSize,
             triggerClassName,
           )}
@@ -508,9 +509,9 @@ export function DropdownItem({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
+        "flex h-7 w-full items-center gap-2 rounded-[2px] px-2 text-left transition-colors hover:bg-muted",
         textSize,
-        active && "bg-muted/40",
+        active && "bg-accent",
       )}
     >
       {children}

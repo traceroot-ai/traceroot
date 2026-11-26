@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { DelayedError, Worker, type Job } from "bullmq";
 import { prisma, SYSTEM_MODELS, PlanType, ModelSource, type TraceStatus } from "@traceroot/core";
 import {
@@ -56,9 +57,10 @@ export async function resolveProjectModel(
     return { model: model.id, providerName: rcaProvider, source: ModelSource.BYOK };
   }
 
-  // 2. System model: validate against catalog, then use shared resolver
+  // 2. Formerly BYOK-only models must be explicitly selected as system models.
   for (const group of SYSTEM_MODELS) {
-    if (group.models.some((m) => m.id === rcaModel)) {
+    const entry = group.models.find((m) => m.id === rcaModel);
+    if (entry && (!entry.requiresExplicitSource || rcaSource === ModelSource.SYSTEM)) {
       const model = resolvePiModel(rcaModel, null);
       return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
     }
@@ -171,8 +173,8 @@ export async function runRcaSession(params: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-workspace-id": params.workspaceId,
-        // no x-user-id — system session, userId stored as null
+        // a system call, not a user's: the session's userId is stored as null
+        ...agentRequestHeaders({ workspaceId: params.workspaceId, system: true }),
       },
       body: JSON.stringify({
         title: `[RCA] ${params.findings.map((f) => f.detectorName).join(", ")} — ${params.traceId.slice(0, 8)}`,
@@ -237,7 +239,7 @@ Output your findings in this format:
 
   const msgHeaders: Record<string, string> = {
     "Content-Type": "application/json",
-    "x-workspace-id": params.workspaceId,
+    ...agentRequestHeaders({ workspaceId: params.workspaceId, system: true }),
   };
 
   const resolved = await resolveProjectModel(

@@ -25,7 +25,7 @@ export function DeleteRunDialog({
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
-          <DialogTitle className="text-[13px] font-semibold">Delete run</DialogTitle>
+          <DialogTitle>Delete run</DialogTitle>
         </DialogHeader>
         <div className="mt-1 space-y-4">
           <p className="text-[12px] text-muted-foreground">
@@ -33,23 +33,10 @@ export function DeleteRunDialog({
             and all of its per-case results. This can&apos;t be undone.
           </p>
           <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-[12px]"
-              onClick={onClose}
-            >
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              className="h-7 text-[12px]"
-              disabled={isDeleting}
-              onClick={onConfirm}
-            >
+            <Button type="button" variant="destructive" disabled={isDeleting} onClick={onConfirm}>
               {isDeleting ? "Deleting…" : "Delete"}
             </Button>
           </div>

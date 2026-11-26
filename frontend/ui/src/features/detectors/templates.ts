@@ -45,7 +45,7 @@ Report identified=true only if you find a specific factual claim in the output t
   },
   {
     id: "logic",
-    label: "Logic Error",
+    label: "Logic error",
     description: "Circular reasoning, wrong conclusions, missed steps",
     prompt: `Analyze this trace for logical errors in the agent's reasoning:
 - Circular reasoning (agent arrives back at the starting point without progress)
@@ -62,7 +62,7 @@ Report identified=true only for clear, concrete logical failures — not stylist
   },
   {
     id: "task",
-    label: "Task Completion",
+    label: "Task completion",
     description: "Did the agent complete what the user asked?",
     prompt: `Analyze this trace to determine if the agent fully completed the user's requested task.
 
@@ -108,21 +108,16 @@ export function getTemplate(id: string): DetectorTemplate | undefined {
   return DETECTOR_TEMPLATES.find((t) => t.id === id);
 }
 
-// Templates offered for one-click creation in the project-creation flow.
-// Blank needs a custom prompt, so it is only available on the full new-detector form.
-export const DETECTOR_QUICK_ADD_TEMPLATES = DETECTOR_TEMPLATES.filter((t) => t.id !== "blank");
-
 // Single source of truth for the default detector sampling rate. The Prisma
 // column default (packages/core/prisma/schema.prisma) cannot import this —
 // schema files only take literals — so a drift-guard test in templates.test.ts
 // asserts the two stay equal.
 export const DEFAULT_DETECTOR_SAMPLE_RATE = 25;
 
-// Default create payload for a template — shared by the new-detector form and the
-// project-creation quick-add step so the two creation paths cannot drift.
+// Default create payload for a template, used by the new-detector form.
 export function buildTemplateDetectorInput(template: DetectorTemplate): CreateDetectorInput {
   return {
-    name: `${template.label} Detector`,
+    name: `${template.label} detector`,
     template: template.id,
     prompt: template.prompt,
     outputSchema: template.outputSchema,

@@ -1,6 +1,6 @@
 # Gemini Tool Agent
 
-ReAct-style agent with Gemini tool use and TraceRoot observability, instrumented with [TraceRoot](https://traceroot.ai).
+ReAct-style agent with Gemini tool use and traceroot observability, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

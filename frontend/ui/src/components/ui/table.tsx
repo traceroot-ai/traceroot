@@ -3,26 +3,27 @@ import { cn } from "@/lib/utils";
 
 /**
  * Thin wrappers over the raw <table> convention already used across
- * detectors/traces/sessions pages. These carry the same classes that
- * detector-table-cells.tsx exports as DETECTOR_TH / DETECTOR_TD so a new
- * table matches the existing ones without re-typing the strings.
+ * detectors/traces/sessions pages. Row height and text size come from the
+ * `.data-table` rules in globals.css; these utilities only add padding,
+ * borders and alignment where those rules don't already cover it.
  */
 
-/** Header cell classes — mirrors DETECTOR_TH. */
+/** Header cell classes. */
 export const TH =
-  "h-7 whitespace-nowrap border-r border-border/50 px-3 text-left text-[12px] font-medium text-muted-foreground last:border-r-0";
+  "h-7 whitespace-nowrap border-r border-border px-3 text-left text-[12px] font-medium text-muted-foreground last:border-r-0";
 
-/** Body cell classes — mirrors DETECTOR_TD. */
-export const TD = "border-r border-border/50 px-3 py-1.5 text-[12px] last:border-r-0";
+/** Body cell classes. */
+export const TD =
+  "whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] last:border-r-0";
 
 /** Right-aligned numeric cell (durations, costs, scores). */
 export const TD_NUM = cn(TD, "text-right tabular-nums");
 
 /** Monospace identifier cell. */
-export const TD_ID = cn(TD, "font-mono text-[11px] text-muted-foreground");
+export const TD_ID = cn(TD, "font-mono text-[12px] text-muted-foreground");
 
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
-  return <table className={cn("w-full border-collapse", className)} {...props} />;
+  return <table className={cn("data-table w-full border-collapse", className)} {...props} />;
 }
 
 export function THead({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
@@ -30,7 +31,7 @@ export function THead({ className, ...props }: React.HTMLAttributes<HTMLTableSec
 }
 
 export function TRHead({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) {
-  return <tr className={cn("border-b border-border bg-muted/50", className)} {...props} />;
+  return <tr className={cn("border-b border-border", className)} {...props} />;
 }
 
 export function TBody(props: React.HTMLAttributes<HTMLTableSectionElement>) {
@@ -70,11 +71,11 @@ export function TR({ className, selected, interactive, onClick, onKeyDown, ...pr
         onKeyDown?.(e);
       }}
       className={cn(
-        "border-b border-border/50 transition-colors last:border-0",
+        "border-b border-border transition-colors",
         interactive && "cursor-pointer",
         interactive &&
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-        selected ? "bg-muted" : interactive && "hover:bg-muted/50",
+        selected ? "bg-accent" : interactive && "hover:bg-muted",
         className,
       )}
       {...props}

@@ -1,6 +1,6 @@
 # @traceroot-ai/tools
 
-TraceRoot's tool registry: generated from the public OpenAPI schema, one definition per tool,
+traceroot's tool registry: generated from the public OpenAPI schema, one definition per tool,
 dispatched generically by the CLI, MCP, and in-app agent surfaces.
 
 ## Development

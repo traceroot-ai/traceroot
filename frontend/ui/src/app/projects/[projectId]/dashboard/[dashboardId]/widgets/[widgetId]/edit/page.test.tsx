@@ -17,6 +17,8 @@ vi.mock("@/features/dashboards/components/WidgetBuilderPage", () => ({
   },
 }));
 
+vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+
 let widgetId = "w1";
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", dashboardId: "d1", widgetId }),

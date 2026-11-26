@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Copy, Check, X } from "lucide-react";
+import { Copy, Check } from "lucide-react";
 import { Button, type ButtonProps } from "./button";
+import { Popover, PopoverAnchor, PopoverContent } from "./popover";
 import { cn } from "@/lib/utils";
 
 export interface CopyButtonProps extends Omit<ButtonProps, "onClick"> {
@@ -11,86 +12,78 @@ export interface CopyButtonProps extends Omit<ButtonProps, "onClick"> {
   iconClassName?: string;
 }
 
-type CopyStatus = "idle" | "copied" | "failed";
-const STATUS_RESET_DELAY_MS = 2000;
-
 /**
- * Copy button that shows a check icon after copying, or a failed icon if the
- * clipboard write was rejected (denied permission, insecure context, etc.).
+ * Copy button that shows a check icon after copying
  */
 const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
   ({ value, onCopy, className, iconClassName, variant = "ghost", size = "sm", ...props }, ref) => {
-    const [status, setStatus] = React.useState<CopyStatus>("idle");
-    const resetTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Identifies the most recent click. A click's async result is only
-    // applied if this still matches the id it captured when it started —
-    // otherwise a newer click has since begun and this one is stale.
-    const clickIdRef = React.useRef(0);
+    const [copied, setCopied] = React.useState(false);
+    const [copyError, setCopyError] = React.useState(false);
+    const errorId = React.useId();
+    const resetTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const copyAttempt = React.useRef(0);
 
-    // Clear any pending reset on unmount so it never fires setState after
-    // the button is gone.
-    React.useEffect(() => {
-      return () => {
-        if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
-      };
-    }, []);
-
-    const scheduleReset = () => {
-      // A prior click's reset must not fire mid-way through this one — e.g.
-      // copy, fail, copy again inside 2s would otherwise let the first
-      // timeout revert the second click's "copied" state early.
-      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
-      resetTimeoutRef.current = setTimeout(() => setStatus("idle"), STATUS_RESET_DELAY_MS);
-    };
+    React.useEffect(
+      () => () => {
+        copyAttempt.current += 1;
+        if (resetTimer.current) clearTimeout(resetTimer.current);
+      },
+      [],
+    );
 
     const handleCopy = async (e: React.MouseEvent<HTMLButtonElement>) => {
-      // These buttons sit inside rows and headers that are themselves click
-      // targets (a table row that routes, a collapsible section header), so a
-      // copy must not also navigate or toggle whatever encloses it.
       e.stopPropagation();
-      const clickId = ++clickIdRef.current;
-      // A new click supersedes whatever the previous one was showing —
-      // don't let its reset fire mid-flight of this one, and don't let this
-      // one apply its result if a still-newer click starts before it settles.
-      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
-
+      const attempt = ++copyAttempt.current;
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      setCopied(false);
+      setCopyError(false);
       try {
         await navigator.clipboard.writeText(value);
-        // Two overlapping writes can settle out of order (e.g. the older one
-        // is still waiting on a permission prompt when a newer one
-        // completes first): only the latest click's result may apply.
-        if (clickIdRef.current !== clickId) return;
-        setStatus("copied");
-        onCopy?.();
-        scheduleReset();
-      } catch (err) {
-        if (clickIdRef.current !== clickId) return;
-        // A rejected write must not become an unhandled promise rejection,
-        // and must not be mistaken for success — surface it as its own icon
-        // state instead of silently leaving the idle Copy icon.
-        console.error("Failed to copy to clipboard:", err);
-        setStatus("failed");
-        scheduleReset();
+      } catch {
+        if (attempt === copyAttempt.current) setCopyError(true);
+        return;
       }
+      if (attempt !== copyAttempt.current) return;
+      setCopied(true);
+      resetTimer.current = setTimeout(() => setCopied(false), 2000);
+      onCopy?.();
     };
 
     return (
-      <Button
-        ref={ref}
-        variant={variant}
-        size={size}
-        className={cn("h-7 w-7 p-0", className)}
-        onClick={handleCopy}
-        {...props}
-      >
-        {status === "copied" ? (
-          <Check className={cn("h-3.5 w-3.5 text-green-600", iconClassName)} />
-        ) : status === "failed" ? (
-          <X className={cn("h-3.5 w-3.5 text-destructive", iconClassName)} />
-        ) : (
-          <Copy className={cn("h-3.5 w-3.5", iconClassName)} />
-        )}
-      </Button>
+      <Popover open={copyError} onOpenChange={setCopyError}>
+        <PopoverAnchor asChild>
+          <Button
+            ref={ref}
+            variant={variant}
+            size={size}
+            className={cn("h-7 w-7 p-0", className)}
+            onClick={handleCopy}
+            {...props}
+            aria-label={props["aria-label"] ?? props.title ?? "Copy"}
+            title={props.title ?? props["aria-label"] ?? "Copy"}
+            aria-describedby={
+              copyError
+                ? [props["aria-describedby"], errorId].filter(Boolean).join(" ")
+                : props["aria-describedby"]
+            }
+          >
+            {copied ? (
+              <Check className={cn("h-3.5 w-3.5 text-success", iconClassName)} />
+            ) : (
+              <Copy className={cn("h-3.5 w-3.5", iconClassName)} />
+            )}
+          </Button>
+        </PopoverAnchor>
+        <PopoverContent
+          id={errorId}
+          role="alert"
+          className="w-auto max-w-[calc(100vw-2rem)] px-3 py-2 text-xs"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          Could not copy to clipboard. Try again.
+        </PopoverContent>
+      </Popover>
     );
   },
 );
