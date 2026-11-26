@@ -114,15 +114,15 @@ function withProductFooter(email: Pick<OutboundEmail, "text" | "html">): {
   text: string;
   html?: string;
 } {
-  const text = `${email.text.trimEnd()}\n\nTraceRoot, Inc. · ${POSTAL_ADDRESS}`;
+  const text = `${email.text.trimEnd()}\n\ntraceroot, Inc. · ${POSTAL_ADDRESS}`;
   if (!email.html) return { text };
   if (email.html.includes(PRODUCT_FOOTER_SLOT)) {
     return {
       text,
-      html: email.html.replace(PRODUCT_FOOTER_SLOT, `TraceRoot, Inc. · ${POSTAL_ADDRESS}`),
+      html: email.html.replace(PRODUCT_FOOTER_SLOT, `traceroot, Inc. · ${POSTAL_ADDRESS}`),
     };
   }
-  const footer = `<p style="font-size:12px;color:#777">TraceRoot, Inc. · ${POSTAL_ADDRESS}</p>`;
+  const footer = `<p style="font-size:12px;color:#777">traceroot, Inc. · ${POSTAL_ADDRESS}</p>`;
   const close = email.html.lastIndexOf("</body>");
   const html =
     close === -1
