@@ -54,7 +54,8 @@ export function LoopActionsMenu({
           <MoreHorizontal className="h-3.5 w-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-36 p-1">
+      {/* The menu renders in a portal, but React still bubbles its clicks to the row. */}
+      <PopoverContent align="end" className="w-36 p-1" onClick={(e) => e.stopPropagation()}>
         <button
           className={cn(ACTION_ITEM, "hover:bg-muted disabled:opacity-50")}
           disabled={isStatusPending}

@@ -7,7 +7,13 @@
  * `updateLoop` is PATCH semantics like `updateDetector`: a field left out is
  * untouched, and nothing is written (or audited) when nothing differs.
  */
-import { prisma, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
+import {
+  prisma,
+  PlanType,
+  detectorModelProblem,
+  isBillingEnabled,
+  listWorkspaceModels,
+} from "@traceroot/core";
 import {
   LOOP_LIMITS,
   LOOP_NAME_TAKEN,
@@ -360,8 +366,9 @@ export async function deleteLoop(input: {
 
 /**
  * "Run now": a pending manual run for the worker's next tick. One active run
- * per Loop, none while it is paused or its workspace's plan runs are used up
- * (the worker would only skip it).
+ * per Loop, none while it is paused or a Free workspace's plan runs are used
+ * up (the worker would only skip it). A paid workspace is never refused on the
+ * flag, the same check the worker makes before it starts a run.
  */
 export async function requestLoopRun(input: {
   actorUserId: string;
@@ -373,7 +380,7 @@ export async function requestLoopRun(input: {
   try {
     outcome = await prisma.$transaction(async (tx): EditOutcome<ServiceResult<LoopRunDto>> => {
       const access = await requireProjectMember(tx, input.projectId, input.actorUserId, {
-        include: { workspace: { select: { loopBlocked: true } } },
+        include: { workspace: { select: { loopBlocked: true, billingPlan: true } } },
       });
       if (!access.ok) return { result: access };
 
@@ -382,7 +389,8 @@ export async function requestLoopRun(input: {
       if (loop.status !== "active") {
         return { result: { ok: false, status: 409, error: LOOP_RUN_PAUSED } };
       }
-      if (access.project.workspace.loopBlocked) {
+      const { workspace } = access.project;
+      if (isBillingEnabled() && workspace.loopBlocked && workspace.billingPlan === PlanType.FREE) {
         return { result: { ok: false, status: 409, error: LOOP_RUN_PLAN_BLOCKED } };
       }
       if (await hasActiveRun(tx, loop.id)) {
