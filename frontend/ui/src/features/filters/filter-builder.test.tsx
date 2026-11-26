@@ -8,6 +8,11 @@ import type { FilterFieldDef, FilterValue } from "./registry";
 
 // Spies, not bare stubs, so tests can assert the window bounds each hook is asked about.
 const mockUseFilterValues = vi.hoisted(() => vi.fn(() => ({ values: [], isLoading: false })));
+vi.mock("@/features/labels/queries", () => ({
+  useProjectLabels: (_projectId: string, enabled: boolean) => ({
+    data: enabled ? [{ id: "label-1", name: "Invalid date format", description: null }] : [],
+  }),
+}));
 // A discovery row IS the categorical distinct-value row (`{value, count}`), so the stub
 // cannot spell the field a way the endpoint does not.
 const mockUseMetadataKeys = vi.hoisted(() =>
@@ -123,6 +128,36 @@ describe("FilterBuilder (Basic row)", () => {
     fireEvent.click(screen.getByRole("option", { name: /ERROR/ }));
     fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
     expect(onSubmit).toHaveBeenCalledWith({ field: "status", op: "in", value: ["ERROR"] });
+  });
+
+  it("uses the project label catalog in the existing value picker", () => {
+    const onSubmit = renderBuilder([
+      {
+        field: "label",
+        label: "Label",
+        type: "categorical",
+        level: "LABEL",
+        operators: ["in"],
+        value_source: "distinct_query",
+        enum_values: [],
+      },
+    ]);
+    pickField("Label");
+    fireEvent.click(screen.getByRole("button", { name: "Enter value" }));
+    fireEvent.click(screen.getByRole("option", { name: "Invalid date format" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "label",
+      op: "in",
+      value: ["Invalid date format"],
+    });
+    expect(mockUseFilterValues).toHaveBeenLastCalledWith(
+      "p1",
+      "label",
+      undefined,
+      undefined,
+      false,
+    );
   });
 
   it("numeric `≥` emits an inclusive `gte` predicate", () => {

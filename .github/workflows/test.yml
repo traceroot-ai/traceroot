@@ -279,6 +279,11 @@ jobs:
       - name: Migrate Postgres
         run: cd frontend/packages/core && pnpm exec prisma migrate deploy
 
+      - name: Check project ingestion timestamps
+        env:
+          PROJECT_INGESTION_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: uv run pytest tests/integration/test_project_ingestion.py -v
+
       - name: Migrate ClickHouse
         run: docker compose run --rm migrate-clickhouse up
 
@@ -287,9 +292,10 @@ jobs:
           set -euo pipefail
           # The stub verifies a digest, so it is given one — never the key.
           export TRACEROOT_E2E_API_KEY_SHA256="$(printf '%s' "$TRACEROOT_E2E_API_KEY" | sha256sum | cut -d' ' -f1)"
-          nohup uv run python tests/e2e/stub_key_validator.py 3999 > stub.log 2>&1 &
+          # Run the services from the synced environment so uv does not hold its cache lock.
+          nohup .venv/bin/python tests/e2e/stub_key_validator.py 3999 > stub.log 2>&1 &
           TRACEROOT_UI_URL=http://localhost:3999 \
-            nohup uv run uvicorn rest.main:app --host 127.0.0.1 --port 8000 > rest.log 2>&1 &
+            nohup .venv/bin/uvicorn rest.main:app --host 127.0.0.1 --port 8000 > rest.log 2>&1 &
           for i in $(seq 1 60); do
             curl -fsS http://localhost:8000/health > /dev/null 2>&1 && break
             sleep 1
