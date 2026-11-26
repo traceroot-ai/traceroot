@@ -21,7 +21,10 @@ export function ResumeSetupLink({ userId }: { userId: string }) {
     queryFn: projectId ? () => getProjectFirstTraceTime(projectId) : skipToken,
     gcTime: 0,
     retry: false,
-    refetchInterval: (query) => (query.state.data === null ? ACTIVITY_REFRESH_INTERVAL_MS : false),
+    refetchInterval: ({ state: { data, error } }) => {
+      if (error instanceof ApiError && error.status < 500) return false;
+      return data === null || error ? ACTIVITY_REFRESH_INTERVAL_MS : false;
+    },
   });
   const firstTrace = status.data;
   const denied = status.error instanceof ApiError && [403, 404].includes(status.error.status);

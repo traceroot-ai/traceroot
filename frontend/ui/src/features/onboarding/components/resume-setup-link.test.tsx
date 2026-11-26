@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ACTIVITY_REFRESH_INTERVAL_MS } from "@/features/workspaces/hooks";
 import { forgetSetup, rememberSetup, setupResumeKey } from "../setup-resume";
 import { ResumeSetupLink } from "./resume-setup-link";
 
@@ -24,6 +25,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("resuming setup from the workspace list", () => {
@@ -86,6 +88,29 @@ describe("resuming setup from the workspace list", () => {
     workspaceList("alice");
     expect((await screen.findByRole("link")).getAttribute("href")).toBe(
       "/onboarding/setup?projectId=previous",
+    );
+  });
+
+  it("recovers on the open workspace list after a temporary first-trace outage", async () => {
+    vi.useFakeTimers();
+    rememberSetup("alice", "active", "project");
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({}, { status: 502 }))
+      .mockResolvedValueOnce(traceStatus(null));
+    vi.stubGlobal("fetch", request);
+    workspaceList("alice");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(resumeLink()).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVITY_REFRESH_INTERVAL_MS + 5);
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(resumeLink()?.getAttribute("href")).toBe(
+      "/onboarding/setup?projectId=active&created=project",
     );
   });
 
