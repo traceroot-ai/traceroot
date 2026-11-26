@@ -121,7 +121,7 @@ Once initialized, every `generateText` / `streamText` call, model call, and tool
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `ai.generateText`. `functionId` sets a telemetry attribute on the span; it does not rename it.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a trace with root span `invoke_agent gpt-4o-mini` (`ai.generateText` on AI SDK 6). `functionId` sets a telemetry attribute on the span; it does not rename it.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
