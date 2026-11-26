@@ -40,7 +40,7 @@ The **Live preview** charts the rule as you edit, with the threshold drawn acros
 
 ## Create alerts with AI
 
-Select **Home** from the left nav to open the traceroot Agent, then describe the alert you want, or ask it to suggest one from your traces. For example:
+Select **Agent** from the left nav to open the traceroot Agent, then describe the alert you want, or ask it to suggest one from your traces. For example:
 
 - "Alert me when p99 latency of LLM spans goes over 2 seconds"
 - "Suggest a useful alert for this project based on my recent traces"
@@ -51,7 +51,7 @@ The agent drafts the rule with its preview chart. Nothing is saved until you cli
   <img src="/images/alerts_agent_v2.png" alt="traceroot Agent checking existing alerts and recent traffic, then creating a span error alert" />
 </Frame>
 
-AI coding agents can also create alerts with the [traceroot CLI](/cli/get-started) (`traceroot alerts create`) or the public API under `/api/v1/public/alerts`. Writes need a signed-in user; a project API key can only read.
+AI coding agents can also create alerts with the [traceroot CLI](/cli/alerts) (`traceroot alerts create`) or the public API under `/api/v1/public/alerts`. Writes need a signed-in user; a project API key can only read.
 
 ## Alert states
 
@@ -72,7 +72,7 @@ Use the **Actions** menu on a row:
 - **Edit** opens the same form. Saving a change to the rule starts it fresh; a rename or a renotify change does not.
 - **Delete** removes the rule permanently. Type the alert's name to confirm.
 
-Starting fresh closes an open alert and posts an `[OK]` to Slack that says who edited or resumed the rule; see [Starting fresh](/alerts/rule-reference#starting-fresh). The edit form shows a reminder when the rule has an alert open. Deleting a rule with an alert open closes it the same way: the `[OK]` names who deleted the rule when their account has a display name, and has no link, since the rule is gone. The delete dialog shows a reminder too.
+Starting fresh closes an open alert and, when Slack received its page (`[ALERT]` or `[NO_DATA]`), posts an `[OK]` that says who edited or resumed the rule; see [Starting fresh](/alerts/rule-reference#starting-fresh). The edit form shows a reminder when the rule has an alert open. Deleting a rule with an alert open closes it the same way, and its `[OK]` names who deleted the rule when their account has a display name, and has no link, since the rule is gone. The delete dialog shows a reminder too.
 
 ## Slack notifications
 

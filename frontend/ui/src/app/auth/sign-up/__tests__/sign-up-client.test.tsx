@@ -45,18 +45,16 @@ async function renderPage() {
 }
 
 function fillForm(email = "kai@acme.io") {
-  fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "Kai" } });
-  fireEvent.change(screen.getByPlaceholderText("you@example.com"), {
-    target: { value: email },
-  });
-  const passwords = screen.getAllByPlaceholderText("********");
-  fireEvent.change(passwords[0], { target: { value: "password123" } });
-  fireEvent.change(passwords[1], { target: { value: "password123" } });
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Kai" } });
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
 }
 
 beforeEach(() => {
   mocks.loadClient.mockResolvedValue(null);
   env.TRACEROOT_CLOUD_ENV = undefined;
+  env.AUTH_GITHUB_CLIENT_ID = "";
+  env.AUTH_GITHUB_CLIENT_SECRET = "";
   env.AUTH_GOOGLE_CLIENT_ID = "";
   env.AUTH_GOOGLE_CLIENT_SECRET = "";
   env.AUTH_AGENTID_CLIENT_ID = "";
@@ -76,11 +74,71 @@ describe("SignUpPage", () => {
   it("shows a validation error and does not submit a signup without a name", async () => {
     await renderPage();
     fillForm();
-    fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
 
     expect(await screen.findByText("Name is required")).toBeTruthy();
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
+  });
+
+  it("asks for the password once and sends it with the name and email", async () => {
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+
+    await renderPage();
+    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(1);
+    fillForm("kai@workspace.test");
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => expect(mocks.signUpEmail).toHaveBeenCalled());
+    expect(mocks.signUpEmail).toHaveBeenCalledWith({
+      name: "Kai",
+      email: "kai@workspace.test",
+      password: "password123",
+    });
+  });
+
+  it("rejects a password shorter than 8 characters", async () => {
+    await renderPage();
+    fillForm("kai@workspace.test");
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "short" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    expect(await screen.findByText("Password must be at least 8 characters")).toBeTruthy();
+    expect(mocks.signUpEmail).not.toHaveBeenCalled();
+  });
+
+  it("shows GitHub disabled, and AgentID disabled until its client is configured", async () => {
+    await renderPage();
+    expect(
+      (screen.getByRole("button", { name: "Continue with GitHub" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Continue with AgentID" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/Signing up an AI agent\?/)).toBeTruthy();
+    // Google keeps its existing rule: shown only when its client is configured.
+    expect(screen.queryByRole("button", { name: "Continue with Google" })).toBeNull();
+  });
+
+  it("orders GitHub, then Google, then the form, then AgentID, as in the design", async () => {
+    env.AUTH_GOOGLE_CLIENT_ID = "test-client";
+    env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
+    await renderPage();
+    const google = screen.getByRole("button", {
+      name: "Continue with Google",
+    }) as HTMLButtonElement;
+    expect(google.disabled).toBe(false);
+    const order = [
+      screen.getByRole("button", { name: "Continue with GitHub" }),
+      google,
+      screen.getByRole("button", { name: "Sign up" }),
+      screen.getByRole("button", { name: "Continue with AgentID" }),
+    ];
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
   it("submits a test-domain signup and onboards outside traceroot Cloud", async () => {
@@ -114,6 +172,35 @@ describe("SignUpPage", () => {
     expect(dest).toContain(`callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`);
   });
 
+  it("keeps the terminal's hand-back when it comes back through onboarding", async () => {
+    // "Not you? Sign out" on a sign-up step sends sign-in back to /onboarding,
+    // carrying the device URL; signing up a new account from there must too.
+    setParams({
+      callbackUrl: `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+    });
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+    await renderPage();
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    const dest = new URL(mocks.push.mock.calls[0][0], "http://x");
+    expect(dest.pathname).toBe("/onboarding");
+    expect(dest.searchParams.get("callbackUrl")).toBe("/device?user_code=ABCD1234");
+  });
+
+  it("carries only a device hand-back through onboarding", async () => {
+    setParams({
+      callbackUrl: `/onboarding?callbackUrl=${encodeURIComponent("/projects/p1/traces")}`,
+    });
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+    await renderPage();
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
+  });
+
   it("passes the same onboarding destination to Google sign-up", async () => {
     // `signIn.social` is better-auth's only social entry point, so this button
     // signs an existing account in as readily as it creates one — and with
@@ -130,7 +217,7 @@ describe("SignUpPage", () => {
     env.AUTH_GOOGLE_CLIENT_ID = "test-client";
     env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
 
     await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalled());
     const arg = mocks.signInSocial.mock.calls[0][0] as { provider: string; callbackURL: string };
@@ -227,6 +314,15 @@ describe("SignUpPage", () => {
     ).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("Unverified application");
   });
+
+  it("shows progress and blocks a second submit while creating the account", async () => {
+    mocks.signUpEmail.mockReturnValue(new Promise(() => {}));
+    await renderPage();
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    const button = await screen.findByRole("button", { name: "Creating account..." });
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
 });
 
 describe("SignUpPage social buttons", () => {
@@ -239,15 +335,15 @@ describe("SignUpPage social buttons", () => {
     env.AUTH_AGENTID_CLIENT_ID = "agentid-client";
     env.AUTH_AGENTID_CLIENT_SECRET = "agentid-secret";
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "AgentID" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with AgentID" }));
 
     const arg = mocks.signInSocial.mock.calls[0][0] as { provider: string; callbackURL: string };
     expect(arg.provider).toBe("agentid");
     expect(arg.callbackURL).toBe(
       `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
     );
-    expect((screen.getByRole("button", { name: "Google" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Continue with Google" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });
