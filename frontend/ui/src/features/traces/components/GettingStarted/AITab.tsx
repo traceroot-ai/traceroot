@@ -115,7 +115,7 @@ export function AITab({ projectId, surface, copy, actions }: AITabProps) {
           {/* What the person gets for running it. Copying shows nothing new: the
               page keeps waiting until the trace itself arrives. */}
           <p className="text-[12px] text-muted-foreground">
-            When your first trace arrives, you can open it and see every step your agent took.
+            Open a trace to see every step your agent took.
           </p>
         </div>
       ) : (

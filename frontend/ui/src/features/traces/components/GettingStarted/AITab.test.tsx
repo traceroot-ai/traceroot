@@ -249,7 +249,7 @@ describe("AITab, after the command", () => {
   it("says what the first trace will show, under the command", () => {
     const { container } = render(<AITab {...PROJECT} />);
     const line = screen.getByText(
-      "When your first trace arrives, you can open it and see every step your agent took.",
+      "Open a trace to see every step your agent took.",
     );
     expect(
       container.querySelector("pre")!.compareDocumentPosition(line) &
