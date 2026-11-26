@@ -58,8 +58,9 @@ export const COUNTED_RUN_STATUSES: readonly LoopRunStatus[] = [
 
 /**
  * The loop_runs filter for runs that count against the project's daily cap:
- * runs that called the agent. (The plan's meter counts the same runs from
- * their Loop turns in ai_messages, which outlive a deleted Loop.) The worker gives a run its session just before
+ * runs that called the agent. (The plan's meter counts runs from their Loop
+ * turns in ai_messages, which outlive a deleted Loop, and only those in which
+ * the agent replied.) The worker gives a run its session just before
  * that call, so a run that failed before it (its BYOK provider is gone) has
  * none and does not count.
  */
