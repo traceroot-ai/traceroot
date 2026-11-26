@@ -46,6 +46,20 @@ describe("refresh token reuse logging", () => {
     );
   });
 
+  it("logs a revoked token that was never rotated as revoked, not reused", async () => {
+    const revoked = {
+      clientId: "client-1",
+      revoked: ago(120),
+      rotatedAt: null,
+      rotationReplayExpiresAt: null,
+    };
+    await logRefreshTokenReuse("secret-refresh-token", async () => revoked, NOW);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      "[oauth] revoked refresh token presented: client_id=client-1 age_s=120",
+    );
+    expect(String(warn.mock.calls[0][0])).not.toContain("secret-refresh-token");
+  });
+
   it("logs nothing for a live token or an unknown one", async () => {
     const live = { clientId: "c", revoked: null, rotatedAt: null, rotationReplayExpiresAt: null };
     await logRefreshTokenReuse("t", async () => live, NOW);

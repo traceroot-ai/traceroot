@@ -213,7 +213,11 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
         Object.entries(params).filter(([, value]) => value !== undefined),
       );
       try {
-        const args = { ...(defaults?.(supplied) ?? {}), ...supplied };
+        const args: Record<string, unknown> = { ...(defaults?.(supplied) ?? {}), ...supplied };
+        // A default must not bring a hidden field back.
+        for (const name of hidden) {
+          delete args[name];
+        }
         const result = await dispatch(entry, args, client, { signal });
         const notes: ResultNotes = { redactions: 0 };
         const shaped = transformResult ? transformResult(result, args, notes) : result;

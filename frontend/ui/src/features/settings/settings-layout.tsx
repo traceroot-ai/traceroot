@@ -27,7 +27,7 @@ export type WorkspaceSettingsTab =
   | "model-providers"
   | "integrations"
   | "billing";
-export type ProjectSettingsTab = "general" | "accessKeys" | "detectors";
+export type ProjectSettingsTab = "general" | "accessKeys" | "detectors" | "labels";
 
 export const WORKSPACE_SETTINGS_TABS: SettingsTab<WorkspaceSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
@@ -47,6 +47,7 @@ export const PROJECT_SETTINGS_TABS: SettingsTab<ProjectSettingsTab>[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "accessKeys", label: "API keys", icon: Key, href: "accessKeys" },
   { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },
+  { id: "labels", label: "Labels", icon: DOMAIN_ICONS.label, href: "labels" },
 ];
 
 // User-level (not workspace/project scoped) settings — sessions are a

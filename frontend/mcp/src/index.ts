@@ -1,25 +1,24 @@
 import { serve } from "@hono/node-server";
-import { createApp, parseAllowedHosts, parseVerificationTokens } from "./app.js";
-import { IssuerConfigError, verifyIssuer } from "./issuer-check.js";
+import { createApp, parseAllowedHosts, parseVerificationTokens, parseListenPort } from "./app.js";
+import { shouldServeAfterIssuerCheck } from "./issuer-check.js";
 import { parseOAuthConfig } from "./oauth.js";
 import { parseMaxResultChars } from "./server.js";
 import { OtlpCallExporter, callRecorder, parseTelemetryConfig } from "./telemetry.js";
 
 const MCP_SERVICE_URL = process.env.MCP_SERVICE_URL || "http://localhost:8200";
-const PORT = parseInt(new URL(MCP_SERVICE_URL).port || "8200", 10);
+const PORT = parseListenPort(MCP_SERVICE_URL);
 
 const oauth = parseOAuthConfig(process.env);
 
-// With OAuth on, refuse to serve until the advertised issuer is the
+// With OAuth on, refuse to serve when the advertised issuer is not the
 // authorization server's own: a mismatch fails every sign-in silently.
-if (oauth) {
-  try {
-    await verifyIssuer(oauth, { internalOrigin: process.env.TRACEROOT_UI_URL || undefined });
-  } catch (error) {
-    const kind = error instanceof IssuerConfigError ? "misconfigured" : "unreachable";
-    console.error(`OAuth issuer check failed (${kind}): ${(error as Error).message}`);
-    process.exit(1);
-  }
+if (
+  oauth &&
+  !(await shouldServeAfterIssuerCheck(oauth, {
+    internalOrigin: process.env.TRACEROOT_UI_URL || undefined,
+  }))
+) {
+  process.exit(1);
 }
 
 // Every call logs a line to stdout; with MCP_TELEMETRY_OTLP_ENDPOINT set, it is

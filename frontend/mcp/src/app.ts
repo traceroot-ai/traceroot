@@ -36,6 +36,21 @@ function parseList(raw: string | undefined): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
+/**
+ * The listen port named by a service URL. `URL.port` is empty both when the
+ * URL names no port and when it names the scheme's default (`:80`, `:443`),
+ * so read an explicit port from the authority; with none, fall back to 8200.
+ */
+export function parseListenPort(serviceUrl: string): number {
+  const parsed = new URL(serviceUrl);
+  if (parsed.port !== "") {
+    return Number(parsed.port);
+  }
+  const authority = serviceUrl.split("//", 2)[1]?.split(/[/?#]/, 1)[0] ?? "";
+  const explicit = /:(\d+)$/.exec(authority.slice(authority.lastIndexOf("@") + 1));
+  return explicit ? Number(explicit[1]) : 8200;
+}
+
 /** Split a comma-separated host list, dropping blanks; an empty result means unset (any host). */
 export function parseAllowedHosts(raw: string | undefined): string[] | undefined {
   return parseList(raw);

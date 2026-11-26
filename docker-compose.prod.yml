@@ -314,6 +314,8 @@ services:
       AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
       AUTH_AGENTID_CLIENT_ID: ${AUTH_AGENTID_CLIENT_ID:-}
       AUTH_AGENTID_CLIENT_SECRET: ${AUTH_AGENTID_CLIENT_SECRET:-}
+      AUTH_GITHUB_CLIENT_ID: ${AUTH_GITHUB_CLIENT_ID:-}
+      AUTH_GITHUB_CLIENT_SECRET: ${AUTH_GITHUB_CLIENT_SECRET:-}
       # Turns on the OAuth provider that lets an assistant connect to the MCP server
       # with a sign-in instead of a pasted key. The MCP server's public URL (the
       # audience of the tokens issued), for example https://mcp.example.com/mcp.

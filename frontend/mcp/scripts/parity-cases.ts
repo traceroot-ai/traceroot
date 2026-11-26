@@ -258,3 +258,20 @@ const WIDGET_SPEC = {
   breakdown: "model_name",
   display: { type: "bar" },
 };
+
+/**
+ * What a full run leaves uncovered: an exposed tool no case judged, and a case
+ * for a tool that is not exposed. Either fails the run, so dropping a case or
+ * exposing a tool without one cannot pass quietly.
+ */
+export function coverageGaps(exposed: readonly string[], judged: Iterable<string>): string[] {
+  const seen = new Set(judged);
+  return [
+    ...exposed
+      .filter((tool) => !seen.has(tool))
+      .map((tool) => `${tool}: exposed but has no parity verdict; add a case`),
+    ...[...seen]
+      .filter((tool) => !exposed.includes(tool))
+      .map((tool) => `${tool}: has a parity case but is not exposed`),
+  ];
+}
