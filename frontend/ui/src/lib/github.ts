@@ -8,6 +8,8 @@ export interface GitHubInstallation {
 export interface GitHubConnectionStatus {
   connected: boolean;
   installations: GitHubInstallation[];
+  /** False when this deployment has no GitHub App set up; absent when unknown. */
+  available?: boolean;
 }
 
 export async function fetchGitHubConnection(workspaceId: string): Promise<GitHubConnectionStatus> {
