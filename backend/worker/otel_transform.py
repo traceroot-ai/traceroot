@@ -211,8 +211,9 @@ def _format_input_with_system_instructions(input_messages: Any, system_instructi
 
     The GenAI semconv keeps system instructions out of ``gen_ai.input.messages``, so
     without this an emitter that follows it (AI SDK 7's ``@ai-sdk/otel``, for one)
-    has its system prompt stored nowhere. Input that is not a message list, and empty
-    instructions, are left as is; non-list instructions are kept as given, as text.
+    has its system prompt stored nowhere. Input that is not a message list, empty
+    instructions, and instructions the emitter already put in a system message (Agent
+    Framework 1.0-1.5 does both) are left as is; non-list instructions are kept as text.
     """
     messages = _json_or_raw(input_messages)
     if not isinstance(messages, list):
@@ -222,8 +223,18 @@ def _format_input_with_system_instructions(input_messages: Any, system_instructi
         instructions = system_instructions
     if not instructions:
         return input_messages
+    existing_system_parts = [
+        part
+        for message in messages
+        if isinstance(message, dict)
+        and message.get("role") == "system"
+        and isinstance(message.get("parts"), list)
+        for part in message["parts"]
+    ]
+    if isinstance(instructions, list) and all(p in existing_system_parts for p in instructions):
+        return input_messages
     key = "parts" if isinstance(instructions, list) else "content"
-    return [{"role": "system", key: instructions}, *messages]
+    return json.dumps([{"role": "system", key: instructions}, *messages], ensure_ascii=False)
 
 
 # Upper sanity bound per token field, shared by the manual-usage and instrumentor

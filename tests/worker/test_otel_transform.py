@@ -1565,6 +1565,60 @@ class TestGenAIInputOutputFallback:
         expected = [expected_first, user_message] if expected_first else [user_message]
         assert json.loads(spans[0]["input"]) == expected
 
+    @pytest.mark.parametrize("instructions", [["Be brief."], ["Be brief.", "Answer in English."]])
+    def test_gen_ai_system_instructions_already_in_input_messages_not_duplicated(
+        self, instructions
+    ):
+        # Agent Framework 1.0-1.5 writes each instruction both as a leading system
+        # message in gen_ai.input.messages and in gen_ai.system_instructions.
+        system_messages = [
+            {"role": "system", "parts": [{"type": "text", "content": text}]}
+            for text in instructions
+        ]
+        input_messages = json.dumps(
+            [*system_messages, {"role": "user", "parts": [{"type": "text", "content": "hi"}]}]
+        )
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr(
+                            "gen_ai.system_instructions",
+                            json.dumps([{"type": "text", "content": t} for t in instructions]),
+                        ),
+                        make_attr("gen_ai.input.messages", input_messages),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == input_messages
+
+    def test_gen_ai_system_instructions_keeps_non_ascii_text_unescaped(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr(
+                            "gen_ai.system_instructions",
+                            '[{"type":"text","content":"簡潔に答えて"}]',
+                        ),
+                        make_attr(
+                            "gen_ai.input.messages",
+                            '[{"role":"user","parts":[{"type":"text","content":"東京の天気"}]}]',
+                        ),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "簡潔に答えて" in spans[0]["input"]
+        assert "東京の天気" in spans[0]["input"]
+
     def test_gen_ai_system_instructions_ignored_when_input_comes_from_higher_tier(self):
         payload = make_otel_payload(
             [
