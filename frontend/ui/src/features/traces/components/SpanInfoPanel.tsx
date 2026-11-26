@@ -54,6 +54,8 @@ interface SpanInfoPanelProps {
    * offline-eval's "Dataset:" chip). Unset in production.
    */
   extraTags?: ReactNode;
+  /** Saved labels for the current selection, when offered by the containing view. */
+  labels?: ReactNode;
 }
 
 /** Set by an SDK whose redaction function ran on this span before export. */
@@ -97,6 +99,7 @@ export function SpanInfoPanel({
   spanActions,
   headerAction,
   extraTags,
+  labels,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -340,6 +343,7 @@ export function SpanInfoPanel({
             )}
           </div>
         )}
+        {labels}
       </div>
 
       {/* Optional injected actions (offline-eval); absent in production. */}
