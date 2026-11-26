@@ -91,31 +91,78 @@ export async function setFollowUpPause(
 }
 
 /**
+ * When a product-email choice is made, read from the database's clock, so the
+ * order of choices does not depend on which web server took each request.
+ */
+export async function emailChoiceTime(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+  return row.now;
+}
+
+/** Where a person's product-email choice stands after recording one. */
+export interface EmailPreference {
+  userId: string;
+  /** False when a newer choice was already recorded; this one changed nothing. */
+  applied: boolean;
+  /** The choice now in force on the account. */
+  subscribed: boolean;
+}
+
+/**
  * Records an unsubscribe (or a "Subscribe again") from the product-email
- * unsubscribe page, which identifies the person by address. An address with no
- * account records nothing. Answers the user id it recorded for.
+ * unsubscribe page, which identifies the person by address. `decidedAt` is when
+ * the person made the choice (emailChoiceTime(), when the request arrived): only
+ * a choice newer than the latest one applied takes effect, so a slow request
+ * that lands late can never undo a newer choice; at the same instant an
+ * unsubscribe wins. An address with no account records nothing and answers null.
  */
 export async function recordUnsubscribe(
   email: string,
   subscribed: boolean,
-  now: Date = new Date(),
-): Promise<string | null> {
+  decidedAt: Date = new Date(),
+): Promise<EmailPreference | null> {
   const user = await prisma.user.findFirst({
     where: { email: { equals: email.trim(), mode: "insensitive" } },
     select: { id: true },
   });
   if (!user) return null;
   await ensureRow(user.id);
+  // Only a newer choice applies. At the same instant the unsubscribe wins: a
+  // Subscribe again needs a strictly newer time, an unsubscribe does not (below).
+  const older = {
+    OR: [{ emailPreferenceAt: null }, { emailPreferenceAt: { lt: decidedAt } }],
+  };
+  // Every choice applied gets a new version and waits for the provider to be
+  // confirmed again (email-preference-sync.ts).
+  let applied: number;
   if (subscribed) {
-    await prisma.userOnboarding.updateMany({
-      where: { userId: user.id },
-      data: { unsubscribedAt: null },
-    });
+    ({ count: applied } = await prisma.userOnboarding.updateMany({
+      where: { userId: user.id, ...older },
+      data: {
+        unsubscribedAt: null,
+        emailPreferenceAt: decidedAt,
+        emailPreferenceVersion: { increment: 1 },
+        emailProviderSettledAt: null,
+      },
+    }));
   } else {
-    await prisma.userOnboarding.updateMany({
-      where: { userId: user.id, unsubscribedAt: null },
-      data: { unsubscribedAt: now },
-    });
+    // One guarded statement: it keeps the time of the first unsubscribe, and
+    // two of them in flight cannot change the row between each other's checks,
+    // so the newer one is always recorded. The time is passed as UTC wall-clock
+    // time, as the column stores it.
+    const at = decidedAt.toISOString().replace("Z", "");
+    applied = await prisma.$executeRaw`
+      UPDATE user_onboarding
+      SET unsubscribed_at = COALESCE(unsubscribed_at, ${at}::timestamp(3)),
+          email_preference_at = ${at}::timestamp(3),
+          email_preference_version = email_preference_version + 1,
+          email_provider_settled_at = NULL
+      WHERE user_id = ${user.id}
+        AND (email_preference_at IS NULL OR email_preference_at <= ${at}::timestamp(3))`;
   }
-  return user.id;
+  const row = await prisma.userOnboarding.findUnique({
+    where: { userId: user.id },
+    select: { unsubscribedAt: true },
+  });
+  return { userId: user.id, applied: applied > 0, subscribed: !row?.unsubscribedAt };
 }
