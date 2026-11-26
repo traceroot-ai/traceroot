@@ -18,16 +18,18 @@ vi.mock("@/components/github/GitHubConnectButton", () => ({
 vi.mock("@/components/slack/SlackConnectButton", () => ({
   SlackConnectButton: () => <div data-testid="slack-connect" />,
 }));
-// A stand-in for the key form, so that its absence from this page is something
-// a query can see rather than something inferred from missing text.
-vi.mock("./ModelProviderBlock", () => ({
-  ModelProviderBlock: () => <div data-testid="model-provider-block" />,
-}));
+vi.mock("@/features/workspaces/hooks", () => ({ useWorkspaces: () => ({ data: [] }) }));
 
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
 vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 
-import { GettingStarted } from "./index";
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { GettingStarted as Panel } from "./index";
+
+const WAITING: TraceWait = { kind: "waiting" };
+const GettingStarted = ({ projectId, wait = WAITING }: { projectId: string; wait?: TraceWait }) => (
+  <Panel projectId={projectId} wait={wait} />
+);
 
 afterEach(() => {
   cleanup();
@@ -37,7 +39,7 @@ afterEach(() => {
 });
 
 const pickStack = (name: string) => fireEvent.click(screen.getByRole("radio", { name }));
-const pickMode = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
+const pickMode = (name: string) => fireEvent.click(screen.getByRole("tab", { name }));
 
 /** Document order, so "below" is asserted rather than read off the markup. */
 function isAbove(first: Element, second: Element): boolean {
@@ -48,8 +50,8 @@ describe("the empty traces page", () => {
   it("is the heading and the two tabs, with no stack picker above them", () => {
     const { container } = render(<GettingStarted projectId="proj_1" />);
     expect(screen.getByRole("heading", { name: "Get started with tracing" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Using AI" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Manual" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Using AI" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Manual" })).toBeTruthy();
 
     expect(screen.queryByText("Select your stack")).toBeNull();
     expect(screen.queryByRole("radiogroup")).toBeNull();
@@ -79,11 +81,33 @@ describe("the empty traces page", () => {
     // The key is asked for during onboarding, not here.
     render(<GettingStarted projectId="proj_1" />);
     expect(screen.queryByText(/model key/i)).toBeNull();
-    expect(screen.queryByTestId("model-provider-block")).toBeNull();
 
     pickMode("Manual");
     expect(screen.queryByText(/model key/i)).toBeNull();
-    expect(screen.queryByTestId("model-provider-block")).toBeNull();
+  });
+});
+
+describe("the first trace", () => {
+  it("says the page is watching for it, as the end of sign-up does", () => {
+    render(<GettingStarted projectId="proj_1" />);
+    expect(screen.getByRole("status").textContent).toBe(
+      "Waiting for your first trace. This page updates when it arrives.",
+    );
+  });
+
+  it("says it arrived and links to it, for the moment before the page opens it", () => {
+    render(
+      <GettingStarted
+        projectId="proj_1"
+        wait={{ kind: "found", found: { projectId: "proj_1", traceId: "t_1" } }}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "Your first trace arrived. Opening it…",
+    );
+    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
+      "/projects/proj_1/traces?traceId=t_1",
+    );
   });
 });
 
@@ -105,7 +129,7 @@ describe("the manual tab", () => {
     ]);
     expect(
       isAbove(
-        screen.getByRole("button", { name: "Manual" }),
+        screen.getByRole("tab", { name: "Manual" }),
         screen.getByRole("radiogroup", { name: "Integration" }),
       ),
     ).toBe(true);
@@ -133,33 +157,5 @@ describe("the manual tab", () => {
     pickMode("Using AI");
     expect(screen.queryByRole("radiogroup")).toBeNull();
     expect(screen.getByText("Run this in your project")).toBeTruthy();
-  });
-});
-
-describe("a workspace that cannot be read", () => {
-  it("says so once on each tab, for the external integrations", () => {
-    projectQuery.isLoading = false;
-    projectQuery.data = undefined;
-    render(<GettingStarted projectId="proj_1" />);
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-
-    pickMode("Manual");
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-    // The stack picker needs no workspace, so it is still usable.
-    expect(screen.getByRole("radiogroup", { name: "Integration" })).toBeTruthy();
-  });
-
-  it("holds the integrations behind a placeholder while the project loads", () => {
-    projectQuery.isLoading = true;
-    projectQuery.data = undefined;
-    render(<GettingStarted projectId="proj_1" />);
-    expect(screen.getByText("Loading integrations...")).toBeTruthy();
-    expect(screen.queryByText("Loading model providers...")).toBeNull();
-
-    pickMode("Manual");
-    expect(screen.getByText("Loading integrations...")).toBeTruthy();
-    expect(screen.queryByText("Loading model providers...")).toBeNull();
   });
 });

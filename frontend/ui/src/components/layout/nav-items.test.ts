@@ -8,7 +8,7 @@ describe("project navigation", () => {
       ["Detect", ["Detectors", "Loops", "Signals", "Alerts"]],
       ["Verify", ["Datasets", "Evaluations"]],
     ]);
-    expect(NAV_HOME.label).toBe("Home");
+    expect(NAV_HOME.label).toBe("Agent");
   });
 
   it("shows Loops only while LOOPS_ENABLED is on", () => {
