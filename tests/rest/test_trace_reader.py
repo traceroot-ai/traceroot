@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from rest.services.sample_trace import sample_trace_id
+
 CLAUDE_PRICES = {
     "input": 0.000003,
     "output": 0.000015,
@@ -658,7 +660,16 @@ class TestFirstTraceReceiveTime:
         query = client.query.call_args.args[0]
         # The time the worker wrote the span, not the SDK's span start time.
         assert "minOrNull(ch_create_time)" in query
-        assert client.query.call_args.kwargs["parameters"] == {"project_id": "proj-1"}
+        assert client.query.call_args.kwargs["parameters"] == {
+            "project_id": "proj-1",
+            "sample_trace_id": sample_trace_id("proj-1"),
+        }
+
+    def test_leaves_out_the_sample_trace(self):
+        """Adding the sample is not the project receiving its first trace."""
+        service, client = _make_service(lambda *a, **kw: _rows([(None,)]))
+        service.first_trace_receive_time("proj-1")
+        assert "trace_id != {sample_trace_id:String}" in client.query.call_args.args[0]
 
     def test_returns_none_for_a_project_without_spans(self):
         service, _ = _make_service(lambda *a, **kw: _rows([(None,)]))

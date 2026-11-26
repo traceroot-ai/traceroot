@@ -1,7 +1,7 @@
 /**
  * Trace API functions (Python backend - ClickHouse)
  */
-import { fetchTraceApi, type TraceApiUser } from "./client";
+import { fetchNextApi, fetchTraceApi, type TraceApiUser } from "./client";
 import type {
   MetadataKeysResponse,
   SpanIO,
@@ -62,6 +62,13 @@ export async function tracesExist(
   user?: TraceApiUser,
 ): Promise<{ exists: boolean }> {
   return fetchTraceApi<{ exists: boolean }>(`/projects/${projectId}/traces/exists`, {}, user);
+}
+
+/** Add the sample trace to a project that has none yet. */
+export async function createSampleTrace(projectId: string): Promise<{ trace_id: string }> {
+  return fetchNextApi<{ trace_id: string }>(`/projects/${projectId}/sample-trace`, {
+    method: "POST",
+  });
 }
 
 /** Opt-in read scopes for internal telemetry; omit for customer traffic. */

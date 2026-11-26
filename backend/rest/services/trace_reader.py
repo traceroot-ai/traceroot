@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from db.clickhouse import get_clickhouse_client
 from db.clickhouse.query_settings import READ_QUERY_SETTINGS
 from rest.services.filters.translate import Predicate, build_conditions
+from rest.services.sample_trace import sample_trace_id
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.enums import EVALUATION_SPAN_KINDS
 from shared.span_attributes import (
@@ -522,13 +523,18 @@ class TraceReaderService:
         self._has_traces_cache[project_id] = (now + ttl, found)
         return found
 
+    def forget_has_traces(self, project_id: str) -> None:
+        """Drop the cached ``has_traces`` answer, for a caller that has just added one."""
+        self._has_traces_cache.pop(project_id, None)
+
     def first_trace_receive_time(self, project_id: str) -> datetime | None:
         """When the project's earliest stored customer span was received.
 
         ``ch_create_time`` is when the ingest worker wrote a span, so its minimum is
         when the project first received a trace, as far as stored spans go. Plan
         retention narrows reads and deletes nothing, so this ignores it; once spans
-        are deleted, it is the oldest one left. Scoped like ``has_traces``.
+        are deleted, it is the oldest one left. Scoped like ``has_traces``, except
+        that the sample trace is not one the project received.
 
         Args:
             project_id (str): Project whose customer spans to read.
@@ -540,8 +546,12 @@ class TraceReaderService:
         result = self._client.query(
             "SELECT minOrNull(ch_create_time) FROM spans "
             "WHERE project_id = {project_id:String} "
+            "AND trace_id != {sample_trace_id:String} "
             f"AND {customer_traffic_only()}",
-            parameters={"project_id": project_id},
+            parameters={
+                "project_id": project_id,
+                "sample_trace_id": sample_trace_id(project_id),
+            },
         )
         row = result.result_rows[0] if result.result_rows else None
         return row[0] if row else None

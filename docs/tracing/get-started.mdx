@@ -12,6 +12,8 @@ npx -y traceroot-cli@latest setup
 
 Setup needs Node.js 20.12 or later and a Python or TypeScript/JavaScript application. Using a coding agent? [Coding agents](/getting-started/coding-agents#set-up-tracing) has a prompt to paste. Prefer to add the SDK yourself? Skip to [Set up manually](#set-up-manually).
 
+Want to look around first? While a project has no traces, **Create sample trace** on its **Traces** page adds a made-up agent run with an agent span, two model calls, and a tool call. It needs no API key, and no detector runs on it. Its spans use the `sample` environment, and it counts toward usage like any other trace. Once added, the page shows your trace list instead of these setup steps.
+
 ## What setup does
 
 Setup checks for uncommitted changes, signs you in through your browser, selects or creates a project, and sets `TRACEROOT_API_KEY` for your application, normally in `.env.local` or `.env`. It then runs your coding agent and waits for a trace, or gives you a task or manual steps to finish yourself.
