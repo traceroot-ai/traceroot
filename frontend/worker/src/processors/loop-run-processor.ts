@@ -112,6 +112,7 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
     loopId: run.loopId,
     trigger: run.trigger,
     fromStatus: "running" as const,
+    attempts: run.attempts,
   };
   const timeoutMs = loopRunTimeoutMs();
   let resolved: ResolvedModel | null = null;

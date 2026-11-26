@@ -258,6 +258,41 @@ describe.skipIf(!url)("Loop tick on Postgres", () => {
       // Whichever won, the Loop was settled once, by that outcome.
       expect(streak).toBe(finished.status === "failed" ? 1 : 0);
     });
+
+    it("does not let a first try that outlived its reclaim finish the retry", async () => {
+      const loop = await loopDueAt(null);
+      const run = await runOf(loop.id, { status: "running" });
+      // The first try's worker took the run as it was before the reclaim.
+      const firstTry = { ...run, fromStatus: "running" as const };
+
+      await reclaimStaleRuns(NOW, fakeQueue(), TIMEOUT_MS);
+      // The retry was picked up and is running now.
+      await prisma.loopRun.update({
+        where: { id: run.id },
+        data: { status: "running", startedAt: NOW },
+      });
+      const retry = await prisma.loopRun.findUniqueOrThrow({ where: { id: run.id } });
+      expect(retry.attempts).toBe(firstTry.attempts + 1);
+
+      expect(await finishLoopRun(firstTry, { status: "quiet", summary: "late" }, NOW)).toBe(false);
+      expect(await prisma.loopRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject({
+        status: "running",
+        summary: null,
+        finishedAt: null,
+      });
+      expect(
+        (await prisma.loop.findUniqueOrThrow({ where: { id: loop.id } })).lastRunAt,
+      ).toBeNull();
+
+      const retryTarget = { ...retry, fromStatus: "running" as const };
+      expect(await finishLoopRun(retryTarget, { status: "quiet", summary: "done" }, NOW)).toBe(
+        true,
+      );
+      expect(await prisma.loopRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject({
+        status: "quiet",
+        summary: "done",
+      });
+    });
   });
 
   describe("enqueue", () => {
