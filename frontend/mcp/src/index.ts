@@ -1,8 +1,8 @@
 import { serve } from "@hono/node-server";
-import { createApp, parseAllowedHosts } from "./app.js";
+import { createApp, parseAllowedHosts, parseListenPort } from "./app.js";
 
 const MCP_SERVICE_URL = process.env.MCP_SERVICE_URL || "http://localhost:8200";
-const PORT = parseInt(new URL(MCP_SERVICE_URL).port || "8200", 10);
+const PORT = parseListenPort(MCP_SERVICE_URL);
 
 const app = createApp({
   backendUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",

@@ -50,6 +50,7 @@ const WORKSPACE_DEMO_VIEWER_ACCESS: Record<WorkspaceSettingsTab, SettingsAccess>
 
 const PROJECT_DEMO_VIEWER_ACCESS: Record<ProjectSettingsTab, SettingsAccess> = {
   general: { mode: "read-only", scope: "project" },
+  labels: { mode: "read-only", scope: "project" },
   accessKeys: denied(
     "project",
     "API keys are not available in this demo project. You can create API keys in your own project.",
