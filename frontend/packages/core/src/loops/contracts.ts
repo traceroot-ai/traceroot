@@ -162,8 +162,12 @@ export const loopStatusActionSchema = z.object({
 // Findings: agent service → worker → signals round
 // ---------------------------------------------------------------------------
 
-/** A finding key: the stable kebab-case id of a recurring problem, its signal's "loop:<key>". */
-export const LOOP_FINDING_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/;
+/**
+ * A finding key: the stable kebab-case id of a recurring problem, its signal's "loop:<key>".
+ * 2-63 characters of a-z and 0-9 in words joined by single hyphens (no leading, trailing or
+ * repeated hyphen).
+ */
+export const LOOP_FINDING_KEY_PATTERN = /^(?=.{2,63}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const LOOP_FINDING_TEXT_MAX = { title: 120, covers: 500, summary: 1_000 } as const;
 
 const findingKey = z.string().regex(LOOP_FINDING_KEY_PATTERN);

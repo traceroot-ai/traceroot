@@ -136,8 +136,20 @@ describe("loopFindingSchema", () => {
     expect(loopFindingSchema.safeParse(finding).success).toBe(true);
   });
 
+  it.each(["ab", "a1", "404-errors", "checkout-payment-timeouts", "a".repeat(63)])(
+    "accepts the key %s",
+    (key) => {
+      expect(loopFindingSchema.safeParse({ ...finding, key }).success).toBe(true);
+    },
+  );
+
   it.each([
     ["a key that is not kebab-case", { key: "Checkout" }],
+    ["a one-character key", { key: "a" }],
+    ["a 64-character key", { key: "a".repeat(64) }],
+    ["a key with a leading hyphen", { key: "-checkout" }],
+    ["a key with a trailing hyphen", { key: "checkout-" }],
+    ["a key with a repeated hyphen", { key: "checkout--timeouts" }],
     ["an empty title", { title: "" }],
     ["a 121-character title", { title: "x".repeat(121) }],
     ["no traces", { traceIds: [] }],
