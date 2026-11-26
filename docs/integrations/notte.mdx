@@ -1,0 +1,141 @@
+---
+title: Notte
+description: Record the cost of Notte browser sessions on their tool spans
+---
+
+Record what each [Notte](https://www.notte.cc) cloud browser session costs next to your LLM spend. Every session becomes a tool span with its URL, the scraped page, duration and dollar cost, and the cost counts toward the trace total.
+
+<Note>
+  traceroot does not auto-instrument Notte. You trace the session with `observe` and report its cost yourself, and traceroot stores the cost you report. See [Tool and API calls](/tracing/cost-tracking#tool-and-api-calls) for how reported costs add up.
+</Note>
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot notte-sdk
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot notte-sdk
+    ```
+  </Tab>
+</Tabs>
+
+Reporting a cost requires `traceroot` 0.5.0 or later, or `@traceroot-ai/traceroot` 0.7.0 or later.
+
+## Set up
+
+Initialize traceroot once at startup. No integration flag is needed: the `observe` wrapper in the next step traces the session.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+
+    traceroot.initialize()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Notte bills cloud browser sessions by the hour and returns no per-session price, so you estimate the cost from the session's length. To record it:
+
+1. Wrap the session in a function traced as a tool span (`type="tool"`).
+2. Time the session from start to stop.
+3. Multiply the hours by the hourly rate and report it with `update_current_span(cost=...)` (`updateCurrentSpan` in TypeScript) before the span closes. A `finally` block reports it even when the session fails.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import time
+
+    from notte_sdk import NotteClient
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_HOUR = 0.01  # Notte's browser session rate
+
+    client = NotteClient()  # reads NOTTE_API_KEY
+
+    @observe(name="browse", type="tool")
+    def browse(url: str):
+        start = time.monotonic()
+        try:
+            with client.Session() as session:
+                session.execute(type="goto", url=url)
+                return session.scrape(only_main_content=True)
+        finally:
+            hours = (time.monotonic() - start) / 3600
+            update_current_span(cost=hours * PRICE_PER_HOUR)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { NotteClient } from 'notte-sdk';
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_HOUR = 0.01; // Notte's browser session rate
+
+    const client = new NotteClient(); // reads NOTTE_API_KEY
+
+    async function browse(url: string) {
+      return observe({ name: 'browse', type: 'tool' }, async (u: string) => {
+        const start = performance.now();
+        const session = client.Session();
+        await session.start();
+        try {
+          await session.execute({ type: 'goto', url: u });
+          return await session.scrape();
+        } finally {
+          await session.stop();
+          const hours = (performance.now() - start) / 3_600_000;
+          updateCurrentSpan({ cost: hours * PRICE_PER_HOUR });
+        }
+      }, url);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Call `browse` from your agent like any other function. Its span nests under the span that called it, and its cost adds to that trace's total.
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `browse` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Input | The URL passed to `browse` |
+| Output | The scraped page content |
+| Cost | Session hours × the hourly rate, in USD |
+| Latency | Session duration |
+
+## Limitations
+
+- The cost is an estimate: Notte rounds session time according to its own billing policy.
+- Residential proxy traffic and LLM tokens are billed separately and are not included.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="Time used" icon="chart-line" href="/tracing/cost-tracking#time-used">
+    Report time used at your price per minute or hour
+  </Card>
+</CardGroup>
