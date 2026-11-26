@@ -30,13 +30,18 @@ interface FinishTarget {
   trigger: string;
   /** The status the run must still have for this write to land. */
   fromStatus: LoopRunStatus;
+  /**
+   * The try this write belongs to: a reclaim bumps it, so a first try that
+   * outlives its reclaim cannot finish the retry's run.
+   */
+  attempts: number;
   metadata?: Prisma.JsonValue | null;
 }
 
 /**
  * Finish a run once: the update only lands while the run still has
- * `fromStatus`, so a reclaim and a late worker cannot both finish it. Returns
- * false when someone else already did.
+ * `fromStatus` and is on the same try, so a reclaim and a late worker cannot
+ * both finish it. Returns false when someone else already did.
  */
 export async function finishLoopRun(
   run: FinishTarget,
@@ -52,7 +57,7 @@ export async function finishLoopRun(
             ...finish.metadata,
           } as Prisma.InputJsonObject);
     const written = await tx.loopRun.updateMany({
-      where: { id: run.id, status: run.fromStatus },
+      where: { id: run.id, status: run.fromStatus, attempts: run.attempts },
       data: {
         status: finish.status,
         finishedAt: now,
