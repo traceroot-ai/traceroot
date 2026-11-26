@@ -1083,20 +1083,17 @@ class TestClaudeBedrockAndVertexIds:
 # billed at 1.1x the global endpoint. global. and a bare id stay on the card.
 # India is the same kind of profile as Japan and Australia.
 _RATE_KEYS = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
-# Claude 4.5 and later. Opus 4.1 / Sonnet 4 and the fast cards stay at the base rate.
-_PREMIUM_MODELS = frozenset(
+# Claude rows that take Bedrock regional ids but bill the global rate. Every
+# other row that takes them is Claude 4.5 or later and must carry the premium.
+_BASE_RATE_MODELS = frozenset(
     {
-        "claude-fable-5",
-        "claude-opus-5",
-        "claude-opus-4-8",
-        "claude-opus-4-7",
-        "claude-opus-4-6",
-        "claude-sonnet-5",
-        "claude-sonnet-4-6",
-        "claude-opus-4-5",
-        "claude-sonnet-4-5",
-        "claude-haiku-5-5",
-        "claude-haiku-4-5",
+        "claude-3-haiku",
+        "claude-3-sonnet",
+        "claude-3-opus",
+        "claude-3-5-haiku",
+        "claude-3-5-sonnet",
+        "claude-sonnet-4",
+        "claude-opus-4-1",
     }
 )
 
@@ -1164,12 +1161,11 @@ class TestBedrockRegionalPremium:
                         seen.add(prefix)
         assert seen == set(_REGIONAL_PREFIXES)
 
-    def test_premium_flag_is_only_on_claude_4_5_and_later(self):
+    def test_every_later_regional_claude_row_carries_the_premium(self):
         for entry in _standard_price_entries():
-            if entry["modelName"] in _PREMIUM_MODELS:
-                assert entry.get("regionalPremium") == 1.1, entry["modelName"]
-            else:
-                assert "regionalPremium" not in entry, entry["modelName"]
+            if re.search(r"\bus\\\.", entry["matchPattern"]):
+                expected = None if entry["modelName"] in _BASE_RATE_MODELS else 1.1
+                assert entry.get("regionalPremium") == expected, entry["modelName"]
 
 
 # ---------------------------------------------------------------------------

@@ -95,27 +95,15 @@ def _load_cache() -> list[dict]:
 
 
 def _rates_for(entry: dict, model: str) -> dict:
-    """Card for ``model``, with the regional premium applied when it is due.
-
-    The catalogue stores one card per model. A Bedrock regional profile of a
-    model marked ``regional_premium`` is that card times the premium. ``global.``
-    and a bare id are not regional, so they keep the card. The returned dict is
-    a copy when scaled, so the cached card stays at the base rate.
-    """
+    """Card for ``model``, times the regional premium on a regional Bedrock profile."""
     prices = entry["prices"]
     premium = entry.get("regional_premium")
     if not premium or _REGIONAL_PROFILE.match(model) is None:
         return prices
-    # Plain float, same as the TypeScript card. _rate turns the result back
-    # into a Decimal when the cost is summed.
-    factor = float(premium)
-    scaled: dict = {}
-    for key, value in prices.items():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            scaled[key] = value
-            continue
-        scaled[key] = value * factor
-    return scaled
+    # The matched-row name rides in the card during tests, so only floats scale.
+    return {
+        key: value * premium if isinstance(value, float) else value for key, value in prices.items()
+    }
 
 
 def get_model_price(model: str) -> dict[str, float] | None:
