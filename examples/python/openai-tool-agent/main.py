@@ -20,34 +20,12 @@ if dotenv_path:
 else:
     print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
-# [start:tracing-get-started-python]
-# from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
-from openai import OpenAI
+import openai
 
 import traceroot
-from traceroot import Integration
+from traceroot import Integration, observe, using_attributes
 
-# This single line instruments all OpenAI API calls
 traceroot.initialize(integrations=[Integration.OPENAI])
-
-client = OpenAI()
-# [end:tracing-get-started-python]
-# [start:python-sdk-observe]
-from traceroot import observe
-
-
-@observe(name="my_function", type="tool")
-def my_function(query: str) -> str:
-    return f"Processed: {query}"
-
-
-@observe(name="async_agent", type="agent")
-async def async_agent(query: str) -> str:
-    return f"Result: {query}"
-
-
-# [end:python-sdk-observe]
-from traceroot import using_attributes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -198,7 +176,7 @@ class ReActAgent:
     """ReAct-style agent that reasons and acts in a loop with streaming."""
 
     def __init__(self, model: str = "gpt-4o-mini"):
-        self.client = client
+        self.client = openai.OpenAI()
         self.model = model
         self.messages: list[dict] = [
             {
