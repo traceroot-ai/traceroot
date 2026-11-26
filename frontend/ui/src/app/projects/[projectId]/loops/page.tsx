@@ -53,7 +53,12 @@ export default function LoopsPage() {
 
   const isEmptyProject = !isLoading && !error && (meta?.total ?? 0) === 0 && !state.keyword;
   const isEmptySearch = !isLoading && !error && loops.length === 0 && !!state.keyword;
-  const atCapacity = !state.keyword && (meta?.total ?? 0) >= LOOP_LIMITS.loopsPerProject;
+  // The limit counts every loop in the project: while a search narrows the list, read that count
+  // on its own.
+  const searching = !!queryOptions.search_query;
+  const unfiltered = useLoopList(projectId, { page: 0, limit: 1 }, { enabled: searching });
+  const projectTotal = (searching ? unfiltered.data?.meta.total : meta?.total) ?? 0;
+  const atCapacity = projectTotal >= LOOP_LIMITS.loopsPerProject;
 
   // Anything not running is started again; only an active loop is paused.
   const handleToggleStatus = (loop: Loop) =>
@@ -78,7 +83,7 @@ export default function LoopsPage() {
             <>
               {atCapacity && (
                 <span className="text-[12px] text-muted-foreground">
-                  {meta?.total} of {LOOP_LIMITS.loopsPerProject} loops used
+                  {projectTotal} of {LOOP_LIMITS.loopsPerProject} loops used
                 </span>
               )}
               <Button
