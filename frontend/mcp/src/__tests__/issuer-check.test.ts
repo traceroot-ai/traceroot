@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   IssuerConfigError,
   authorizationServerMetadataPath,
+  shouldServeAfterIssuerCheck,
   verifyIssuer,
 } from "../issuer-check.js";
 import { parseOAuthConfig, resourceUrlProblem } from "../oauth.js";
@@ -112,5 +113,32 @@ describe("the issuer check", () => {
     const failure = verifyIssuer(CONFIG, { fetchImpl: down, attempts: 3, delayMs: 0 });
     await expect(failure).rejects.toThrow("did not answer after 3 attempts (fetch failed)");
     await expect(failure).rejects.not.toBeInstanceOf(IssuerConfigError);
+  });
+});
+
+describe("the startup decision", () => {
+  it("stops the server when the issuer does not match", async () => {
+    const log = vi.fn();
+    const fetchImpl = vi.fn(async () => json({ issuer: "https://app.example.com/api/auth/" }));
+    await expect(shouldServeAfterIssuerCheck(CONFIG, { fetchImpl }, log)).resolves.toBe(false);
+    expect(log.mock.calls[0]![0]).toContain("misconfigured");
+  });
+
+  it("serves, with a log line, when the authorization server never answers", async () => {
+    const log = vi.fn();
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("connect ECONNREFUSED");
+    });
+    await expect(
+      shouldServeAfterIssuerCheck(CONFIG, { fetchImpl, attempts: 2, delayMs: 0 }, log),
+    ).resolves.toBe(true);
+    expect(log.mock.calls[0]![0]).toContain("Serving anyway");
+  });
+
+  it("serves without a log line when the issuer matches", async () => {
+    const log = vi.fn();
+    const fetchImpl = vi.fn(async () => json({ issuer: CONFIG.authorizationServer }));
+    await expect(shouldServeAfterIssuerCheck(CONFIG, { fetchImpl }, log)).resolves.toBe(true);
+    expect(log).not.toHaveBeenCalled();
   });
 });
