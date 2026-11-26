@@ -17,6 +17,7 @@ const m = vi.hoisted(() => ({
   transaction: vi.fn(),
   memberCreate: vi.fn((args: unknown) => ({ create: args })),
   inviteDelete: vi.fn((args: unknown) => ({ delete: args })),
+  notify: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-helpers", async () => {
@@ -42,6 +43,9 @@ vi.mock("@traceroot/core", () => ({
   },
 }));
 
+// The membership event for the lead service (lib/signup/membership-webhook.ts).
+vi.mock("@/lib/signup/membership-webhook", () => ({ notifyWorkspaceMember: m.notify }));
+
 import { POST } from "./route";
 
 const accept = () =>
@@ -63,6 +67,7 @@ beforeEach(() => {
   m.transaction.mockReset().mockResolvedValue([]);
   m.memberCreate.mockClear();
   m.inviteDelete.mockClear();
+  m.notify.mockReset();
 });
 
 describe("POST /api/invites/[inviteId]/accept", () => {
@@ -80,6 +85,12 @@ describe("POST /api/invites/[inviteId]/accept", () => {
       m.memberCreate.mock.results[0].value,
       m.inviteDelete.mock.results[0].value,
     ]);
+    // Reported once the membership is committed, for that workspace.
+    expect(m.notify).toHaveBeenCalledExactlyOnceWith({
+      userId: "u1",
+      workspaceId: "w1",
+      via: "invite",
+    });
   });
 
   it("accepts for a sign-in whose provider verified the address", async () => {
@@ -135,5 +146,29 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     };
     expect((await accept()).status).toBe(403);
     expect(m.transaction).not.toHaveBeenCalled();
+  });
+
+  it("reports nothing when the membership is not committed", async () => {
+    m.transaction.mockRejectedValue(new Error("unique violation"));
+    await expect(accept()).rejects.toThrow("unique violation");
+    expect(m.notify).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, () => void]>([
+    ["an unverified address", () => (m.account = { emailVerified: false, accounts: [] })],
+    ["an invite for another address", () => (m.invite = { ...m.invite!, email: "x@acme.test" })],
+    ["someone already a member", () => (m.member = { userId: "u1" })],
+    [
+      "a full workspace",
+      () =>
+        (m.invite = {
+          ...m.invite!,
+          workspace: { id: "w1", name: "Acme", billingPlan: "free", _count: { members: 3 } },
+        }),
+    ],
+  ])("reports nothing for %s", async (_case, arrange) => {
+    arrange();
+    expect((await accept()).status).toBeGreaterThanOrEqual(400);
+    expect(m.notify).not.toHaveBeenCalled();
   });
 });

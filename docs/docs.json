@@ -265,6 +265,7 @@
                 "group": "Tools and APIs",
                 "pages": [
                   "integrations/exa",
+                  "integrations/notte",
                   "integrations/predictleads",
                   "integrations/tavily",
                   "integrations/tinyfish"

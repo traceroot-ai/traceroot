@@ -1,5 +1,5 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 import {
   ANSWERS_USER_HEADER,
@@ -12,6 +12,7 @@ import {
   readOnboardingAnswers,
   saveOnboardingAnswers,
 } from "@/lib/onboarding-answers";
+import { sendScheduledWelcome } from "@/lib/email/welcome/welcome-schedule";
 
 /**
  * The account the page's answers were read for, which a save names. Another
@@ -50,13 +51,24 @@ async function handlePATCH(request: NextRequest) {
 }
 
 // POST /api/onboarding/questions - Finish (or skip through) the last question.
+// The call that finishes them sends the welcome email, in the version the
+// answers call for, once the response is on its way; the next page does not
+// wait for it. A welcome that fails here is sent by the scheduled run.
 async function handlePOST(request: NextRequest) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
   const changed = accountChanged(request, user.id);
   if (changed) return changed;
-  return successResponse(await finishOnboardingQuestions(user.id, user.email));
+  const result = await finishOnboardingQuestions(user.id, user.email);
+  if (result.finished) {
+    after(() =>
+      sendScheduledWelcome(user.id).catch((error: unknown) => {
+        console.error(`[welcome] send after the questions failed for user ${user.id}:`, error);
+      }),
+    );
+  }
+  return successResponse(result);
 }
 
 export const GET = withImpersonationPolicy(handleGET);

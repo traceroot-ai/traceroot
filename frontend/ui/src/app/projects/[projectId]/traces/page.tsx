@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import type { TraceSource } from "@/lib/api/traces";
+import { ApiError } from "@/lib/api/errors";
 import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Switch } from "@/components/ui/switch";
@@ -41,6 +42,7 @@ import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { TraceLabelChips, TraceLabelPicker } from "@/features/labels/TraceLabelControls";
 
 // Tab definitions
 const tabs = [
@@ -129,6 +131,12 @@ export default function TracesPage() {
     },
     { refetchInterval: autoRefresh ? 5000 : false },
   );
+  const invalidFilter = error instanceof ApiError && error.status === 422;
+  const traceListErrorMessage = invalidFilter
+    ? typeof error.detail === "string"
+      ? error.detail
+      : "Try adjusting your filters or date range."
+    : "Make sure the API server is running and you have API keys configured.";
 
   // Every new page of rows, or a new filter/search/time range, starts at the top of
   // the list. A live-refresh refetch keeps the same query, so it leaves the scroll alone.
@@ -355,13 +363,11 @@ export default function TracesPage() {
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading traces..." />
             </div>
-          ) : error && !data ? (
+          ) : error && (!data || invalidFilter) ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
               <AlertTriangle className="h-8 w-8 text-destructive/50" />
               <p className="text-[13px] text-destructive">Error loading traces</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running and you have API keys configured.
-              </p>
+              <p className="text-[12px] text-muted-foreground">{traceListErrorMessage}</p>
             </div>
           ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} wait={firstTraceWait} />
@@ -437,20 +443,40 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
+          spanLabels={(selection) =>
+            selectedSource === "user" && (selection.type === "trace" || !selection.span.pending) ? (
+              <TraceLabelChips
+                projectId={projectId}
+                traceId={selectedTraceId}
+                spanId={selection.type === "span" ? selection.span.span_id : null}
+              />
+            ) : null
+          }
           // Offline eval: save any span (or the trace root) as a dataset test case.
           spanHeaderAction={(selection: TraceSelection) => (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 shrink-0 gap-1.5 text-[12px]"
-              onClick={() => {
-                setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
-                setSaveOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden />
-              Add to datasets
-            </Button>
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {selectedSource === "user" &&
+                (selection.type === "trace" || !selection.span.pending) && (
+                  <TraceLabelPicker
+                    key={`${selectedTraceId}:${selection.type === "span" ? selection.span.span_id : ""}`}
+                    projectId={projectId}
+                    traceId={selectedTraceId}
+                    spanId={selection.type === "span" ? selection.span.span_id : null}
+                  />
+                )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 gap-1.5 text-[12px]"
+                onClick={() => {
+                  setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+                  setSaveOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+                Add to datasets
+              </Button>
+            </div>
           )}
           // Offline eval: while the "Save as test case" drawer is open, clicking a
           // different span in the tree retargets the drawer to that span.

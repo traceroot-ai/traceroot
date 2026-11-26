@@ -10,6 +10,7 @@
  * the run.
  */
 
+import { redactValue } from "@traceroot/core/capture-policy";
 import type { JsonValue } from "./typesafe-client.js";
 
 /** A 60k-char state measured ~14k input tokens against the live API. */
@@ -68,7 +69,7 @@ interface Reduction {
 }
 
 export interface JevState {
-  state: JsonValue;
+  state: { trace: JsonValue };
   stats: Record<string, number>;
 }
 
@@ -83,16 +84,20 @@ export function parseJsonString(text: string): JsonValue {
   }
 }
 
-function projectSpan(row: Record<string, unknown>): SpanState {
+function projectSpan(row: Record<string, unknown>, redact: boolean): SpanState {
   const span: SpanState = {};
   for (const column of KEPT_COLUMNS) {
     const value = row[column];
     if (value === null || value === undefined || value === "") continue;
-    if (typeof value === "string") {
-      span[column] = JSON_STRING_COLUMNS.has(column) ? parseJsonString(value) : value;
-    } else {
-      span[column] = value as JsonValue;
-    }
+    const projected =
+      typeof value === "string"
+        ? JSON_STRING_COLUMNS.has(column)
+          ? parseJsonString(value)
+          : value
+        : (value as JsonValue);
+    // The shared capture policy: credential-shaped keys, string leaves that
+    // are JSON documents, and the text patterns on every leaf.
+    span[column] = redact ? (redactValue(projected) as JsonValue) : projected;
   }
   return span;
 }
@@ -136,13 +141,21 @@ function applyReductions(spans: SpanState[], step: Step): Reduction {
   return { spans: reduced, step, truncatedInputs, truncatedStatusMessages, truncatedOutputs };
 }
 
-function wrap(traceId: string | null, spanCount: number, spans: JsonValue[]): JsonValue {
+function wrap(traceId: string | null, spanCount: number, spans: JsonValue[]): { trace: JsonValue } {
   return { trace: { trace_id: traceId, span_count: spanCount, spans } };
 }
 
-/** Throws when the state cannot fit the budget. */
-export function buildJevState(spansJsonl: string, opts?: { budgetChars?: number }): JevState {
+/**
+ * Throws when the state cannot fit the budget. `redact` applies the shared
+ * redaction while each span is still parsed, before reduction can stringify
+ * a payload and hide its keys; for a recorded preview, not for a request.
+ */
+export function buildJevState(
+  spansJsonl: string,
+  opts?: { budgetChars?: number; redact?: boolean },
+): JevState {
   const budget = opts?.budgetChars ?? JEV_STATE_BUDGET_CHARS;
+  const redact = opts?.redact ?? false;
 
   let traceId: string | null = null;
   let skippedLines = 0;
@@ -162,7 +175,7 @@ export function buildJevState(spansJsonl: string, opts?: { budgetChars?: number 
     }
     const record = row as Record<string, unknown>;
     if (traceId === null && typeof record.trace_id === "string") traceId = record.trace_id;
-    spans.push(projectSpan(record));
+    spans.push(projectSpan(record, redact));
   }
 
   const spanCount = spans.length;
