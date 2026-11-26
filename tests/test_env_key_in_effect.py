@@ -18,7 +18,6 @@ from tests.test_published_secrets import (
 )
 from tmux_tools.launcher import ensure_env_file, fill_secrets
 
-
 pytestmark = pytest.mark.usefixtures("isolated_generated_secrets")
 
 
