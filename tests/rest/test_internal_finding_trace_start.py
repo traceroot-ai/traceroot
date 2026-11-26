@@ -61,8 +61,8 @@ def _make_query_result(rows: list[tuple], column_names: list[str]) -> MagicMock:
 def _loop_visible_to(recorder: list[bool], result):
     """Stub recording whether it ran where an event loop was running.
 
-    The sentinel ``TestBlockingReadsRunOffTheEventLoop`` in test_traces_router.py
-    uses, which also checks that it catches a call left on the loop.
+    The same sentinel as ``TestBlockingReadsRunOffTheEventLoop`` in
+    test_traces_router.py, which also checks that it catches a call left on the loop.
     """
 
     def _call(*_args, **_kwargs):
