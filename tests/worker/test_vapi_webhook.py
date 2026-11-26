@@ -139,11 +139,26 @@ def test_prefers_envelope_cost_over_call_cost() -> None:
 def test_caps_messages_and_spans_per_report() -> None:
     payload = _sample_vapi_report()
     payload["message"]["artifact"]["messages"] = [
-        {"role": "user", "message": f"Question {i}"} for i in range(1500)
+        {"role": "bot", "message": f"Response {i}"} for i in range(1500)
     ]
     plan = build_vapi_trace_plan(payload)
     assert plan is not None
-    assert len(plan.children) <= 1000
+    assert len(plan.children) == 1000
+
+
+def test_caps_child_spans_across_tool_calls() -> None:
+    payload = _sample_vapi_report()
+    tool_calls = [
+        {"id": f"tc-{i}", "type": "function", "function": {"name": "ping", "arguments": "{}"}}
+        for i in range(2500)
+    ]
+    payload["message"]["artifact"]["messages"] = [
+        {"role": "bot", "message": "Calling tools", "toolCalls": tool_calls},
+        {"role": "bot", "message": "Should not exceed cap"},
+    ]
+    plan = build_vapi_trace_plan(payload)
+    assert plan is not None
+    assert len(plan.children) == 2000
 
 
 def test_vapi_report_transforms_into_traceroot_trace_with_session_llm_tool_and_cost() -> None:

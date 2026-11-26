@@ -245,6 +245,8 @@ def build_vapi_trace_plan(
             )
             if len(children) >= _MAX_CHILD_SPANS_PER_REPORT:
                 break
+        if len(children) >= _MAX_CHILD_SPANS_PER_REPORT:
+            break
 
     assistant_name = assistant.get("name")
     root_name = f"vapi.call ({assistant_name})" if assistant_name else "vapi.call"

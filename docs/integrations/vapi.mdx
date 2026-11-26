@@ -34,7 +34,7 @@ VAPI_WEBHOOK_SECRET=your_vapi_webhook_secret  # required
 uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-3. In the Vapi dashboard (or assistant configuration), set **Server URL** to `https://<your-host>/vapi/webhook` and enable `end-of-call-report` in `serverMessages`.
+3. In the Vapi dashboard (or assistant configuration), set **Server URL** to `https://<your-host>/vapi/webhook`, enable `end-of-call-report` in `serverMessages`, and attach a Vapi custom credential (or Server URL secret header) sending `x-vapi-secret: <your VAPI_WEBHOOK_SECRET>`. Requests without a matching `x-vapi-secret` header are rejected with `401`.
 
 ## Usage
 

@@ -53,12 +53,18 @@ async def _read_capped_json(request: Request) -> dict[str, Any]:
         chunks.append(chunk)
     body = b"".join(chunks)
     try:
-        return json.loads(body)
+        payload = json.loads(body)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON payload",
         ) from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="JSON payload must be an object",
+        )
+    return payload
 
 
 def _emit_span(spec: SpanSpec, parent_context: Any | None = None) -> Any:
