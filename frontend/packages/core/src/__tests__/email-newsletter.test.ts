@@ -29,6 +29,9 @@ type User = {
     unsubscribedAt: Date | null;
     newsletterAddedAt: Date | null;
     newsletterTriedAt?: Date | null;
+    emailPreferenceAt?: Date | null;
+    emailProviderSettledAt?: Date | null;
+    emailPreferenceVersion?: number;
   } | null;
 };
 let users: User[];
@@ -94,7 +97,10 @@ const row = (userId: string) => {
   user.onboarding ??= { unsubscribedAt: null, newsletterAddedAt: null };
   return user.onboarding;
 };
+/** The database clock (SELECT clock_timestamp()); tests may set it apart from the process's. */
+let dbNow: () => Date = () => new Date();
 const db = {
+  $queryRaw: async () => [{ now: dbNow() }],
   user: {
     findMany: async ({
       where: w,
@@ -116,13 +122,21 @@ const db = {
       where,
       data,
     }: {
-      where: { userId: string } & Record<string, null | string>;
-      data: Record<string, Date>;
+      where: { userId: string } & Record<string, unknown>;
+      data: Record<string, unknown>;
     }) => {
-      const r = row(where.userId);
-      const field = Object.keys(where).find((k) => k !== "userId") as keyof typeof r | undefined;
-      if (field && r[field] !== null) return { count: 0 };
-      Object.assign(r, data);
+      const r = row(where.userId) as Record<string, unknown>;
+      const { userId: _userId, ...conditions } = where;
+      const holds = (w: Record<string, unknown>): boolean =>
+        Object.entries(w).every(([k, v]) =>
+          k === "OR" ? (v as Record<string, unknown>[]).some(holds) : matches(r[k], v),
+        );
+      if (!holds(conditions)) return { count: 0 };
+      for (const [k, v] of Object.entries(data)) {
+        const inc =
+          v && typeof v === "object" && "increment" in v ? (v as { increment: number }) : null;
+        r[k] = inc ? ((r[k] as number) ?? 0) + inc.increment : v;
+      }
       return { count: 1 };
     },
   },
@@ -203,6 +217,7 @@ const run = (
   });
 
 beforeEach(() => {
+  dbNow = () => new Date();
   users = [];
   contacts = new Map();
   segment = new Set();
@@ -633,6 +648,44 @@ describe("adding to the segment, against a local endpoint", () => {
         "GET topics?limit=100",
         "GET topics?limit=100&after=topic_99",
       ]);
+    });
+
+    it("leaves the account's own Subscribe again in place while its sync to the provider is pending", async () => {
+      signUp("back");
+      Object.assign(row(users.at(-1)!.id), {
+        emailPreferenceAt: new Date(),
+        emailProviderSettledAt: null,
+        emailPreferenceVersion: 2,
+      });
+      topicsOf.set("back@acme.test", [{ id: "topic_product", subscription: "opt_out" }]);
+      expect(await run()).toMatchObject({ added: 0, excluded: { provider_unsubscribed: 1 } });
+      expect(members.has("back@acme.test")).toBe(false);
+      expect(onboarding("back")).toMatchObject({ unsubscribedAt: null, emailPreferenceVersion: 2 });
+    });
+
+    it("records an opt-out made at the provider after the account's choice was confirmed there", async () => {
+      signUp("later");
+      Object.assign(row(users.at(-1)!.id), {
+        emailPreferenceAt: new Date(),
+        emailProviderSettledAt: new Date(),
+        emailPreferenceVersion: 2,
+      });
+      topicsOf.set("later@acme.test", [{ id: "topic_product", subscription: "opt_out" }]);
+      expect(await run()).toMatchObject({ added: 0, excluded: { provider_unsubscribed: 1 } });
+      expect(onboarding("later")).toMatchObject({ emailPreferenceVersion: 3 });
+      expect(onboarding("later")?.unsubscribedAt).toBeInstanceOf(Date);
+    });
+
+    it("stamps that opt-out with the database clock, not this process's", async () => {
+      signUp("skew");
+      const dbTime = new Date("2026-12-01T10:00:00.000Z");
+      dbNow = () => dbTime; // the process clock is the real, different one
+      topicsOf.set("skew@acme.test", [{ id: "topic_product", subscription: "opt_out" }]);
+      await run();
+      expect(onboarding("skew")).toMatchObject({
+        unsubscribedAt: dbTime,
+        emailPreferenceAt: dbTime,
+      });
     });
 
     it("in a dry run, counts that opt-out and writes nothing", async () => {

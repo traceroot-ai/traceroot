@@ -269,6 +269,37 @@ model UserOnboarding {
   // The person unsubscribed from product email; "Subscribe again" clears it.
   // Kept apart from the pause, so neither undoes the other.
   unsubscribedAt       DateTime?  @map("unsubscribed_at") @db.Timestamp(6)
+  // When the person made the latest unsubscribe or "Subscribe again" choice that
+  // applied. One that was made earlier but lands later is ignored, so a slow
+  // resubscribe can never undo a newer unsubscribe, nor the other way round.
+  emailPreferenceAt    DateTime?  @map("email_preference_at") @db.Timestamp(3)
+  // Counts the choices applied: what a provider sync compares, since two choices
+  // can share a millisecond. The provider follows the account
+  // (email-preference-sync.ts): when its latest write started, recorded before
+  // sending, when the scheduled run last confirmed the provider after all writes
+  // had had time to land, and which choice the provider acknowledged.
+  emailPreferenceVersion  Int       @default(0) @map("email_preference_version")
+  emailProviderWriteAt    DateTime? @map("email_provider_write_at") @db.Timestamp(3)
+  emailProviderSettledAt  DateTime? @map("email_provider_settled_at") @db.Timestamp(3)
+  // The emailPreferenceVersion the provider acknowledged holding: a write of it
+  // succeeded with no other choice applied meanwhile. Cleared when a write of an
+  // older choice may have landed after it.
+  emailProviderAckVersion Int?      @map("email_provider_ack_version")
+  // When the scheduled run last looked at this preference, read or not: it takes
+  // the least recently looked at first, so a provider it cannot read goes to the back.
+  emailProviderCheckedAt  DateTime? @map("email_provider_checked_at") @db.Timestamp(3)
+  // One provider write per person at a time: held until then by the writer
+  // sending it (a crashed writer's lease runs out). And the version of a choice
+  // made while another write was on its way, whose order at the provider
+  // cannot be known.
+  emailProviderLeaseUntil      DateTime? @map("email_provider_lease_until") @db.Timestamp(3)
+  emailProviderContendedVersion Int?     @map("email_provider_contended_version")
+  // The version of the choice the latest provider write carried, and the version
+  // the provider is known to have refused (an error answer). A write of the
+  // current choice with neither an acknowledgement nor a refusal has an unknown
+  // outcome (its writer died, or no answer came).
+  emailProviderWriteVersion    Int?     @map("email_provider_write_version")
+  emailProviderRejectedVersion Int?     @map("email_provider_rejected_version")
   // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
   // null for a question skipped or not asked.
   role                 String?    @db.VarChar

@@ -231,18 +231,23 @@ export async function ensureContact(
   return { ok: true };
 }
 
-/** PATCH /contacts/{email}/topics; the body is a root-level array. */
+/**
+ * PATCH /contacts/{email}/topics; the body is a root-level array. A failure is
+ * `rejected` when nothing was applied for certain: the provider answered with an
+ * error, or nothing was sent. Without `rejected` (a network error or no answer)
+ * the write may or may not have been applied.
+ */
 export async function setTopicSubscription(
   email: string,
   subscription: TopicSubscription,
   options: ResendOptions = {},
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; rejected?: boolean }> {
   const config = resendConfig(options.env);
   if (!config.apiKey || !config.productTopicId) {
     console.warn(
       "[resend] topic update skipped: RESEND_API_KEY and RESEND_PRODUCT_TOPIC_ID are both required",
     );
-    return { ok: false };
+    return { ok: false, rejected: true };
   }
 
   const result = await request(
@@ -253,7 +258,7 @@ export async function setTopicSubscription(
   );
   if (!result.ok) {
     warn(`topic ${subscription}`, result);
-    return { ok: false };
+    return result.status === null ? { ok: false } : { ok: false, rejected: true };
   }
   return { ok: true };
 }

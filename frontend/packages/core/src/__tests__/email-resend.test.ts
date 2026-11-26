@@ -182,7 +182,10 @@ describe("setTopicSubscription", () => {
     expect(init.method).toBe("PATCH");
     expect(body).toEqual([{ id: "topic-123", subscription: "opt_out" }]);
     const noTopic = mockResend(200, {}, { RESEND_PRODUCT_TOPIC_ID: undefined });
-    expect(await setTopicSubscription("a@x.io", "opt_in", noTopic)).toEqual({ ok: false });
+    expect(await setTopicSubscription("a@x.io", "opt_in", noTopic)).toEqual({
+      ok: false,
+      rejected: true,
+    });
     expect(noTopic.fetchImpl).not.toHaveBeenCalled();
   });
 });
