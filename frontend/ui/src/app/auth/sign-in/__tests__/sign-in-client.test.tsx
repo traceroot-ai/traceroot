@@ -196,6 +196,22 @@ describe("SignInClient", () => {
     expect(screen.queryByText(/Verified by/)).toBeNull();
   });
 
+  it("words a self-registered app on this computer as a note, not a warning", () => {
+    setParams({ callbackUrl: OAUTH_CALLBACK });
+
+    render(
+      <SignInClient
+        socialProviders={[]}
+        connection={{ name: "Gemini CLI MCP Client", verifiedHost: null, localOnly: true }}
+      />,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    const note = screen.getByRole("note").textContent;
+    expect(note).toContain("An app on your computer.");
+    expect(note).toContain("can only finish this sign-in on this computer");
+    expect(note).not.toContain("Unverified application");
+  });
+
   it("returns to the authorization after signing in", async () => {
     setParams({ callbackUrl: OAUTH_CALLBACK });
     mocks.signInEmail.mockResolvedValue({ error: null });

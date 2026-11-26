@@ -20,7 +20,7 @@ describe("loadOAuthClientDisplay", () => {
     });
     await expect(
       loadOAuthClientDisplay("https://claude.ai/oauth/mcp-oauth-client-metadata"),
-    ).resolves.toEqual({ name: "Claude", verifiedHost: "claude.ai" });
+    ).resolves.toEqual({ name: "Claude", verifiedHost: "claude.ai", localOnly: false });
   });
 
   it("shows nothing for an unknown or disabled client", async () => {

@@ -9,6 +9,7 @@ import {
   clientIdFromCallbackUrl,
   describeOAuthClient,
   describeRedirectTarget,
+  isLoopbackRedirect,
   metadataDocumentHost,
   workspaceSuffix,
 } from "./client-display";
@@ -36,7 +37,7 @@ describe("describeOAuthClient", () => {
   it("uses the published name and host for a metadata-document client", () => {
     expect(
       describeOAuthClient({ clientId: CLAUDE, name: "Claude", clientDiscoveryId: "cimd" }),
-    ).toEqual({ name: "Claude", verifiedHost: "claude.ai" });
+    ).toEqual({ name: "Claude", verifiedHost: "claude.ai", localOnly: false });
   });
 
   it("falls back to the redirect host for a nameless self-registered client", () => {
@@ -47,13 +48,54 @@ describe("describeOAuthClient", () => {
         clientDiscoveryId: null,
         redirectUris: ["https://assistant.example.com/callback"],
       }),
-    ).toEqual({ name: "assistant.example.com", verifiedHost: null });
+    ).toEqual({ name: "assistant.example.com", verifiedHost: null, localOnly: false });
+  });
+
+  it("marks a self-registered client that only signs in on this computer", () => {
+    const gemini = {
+      clientId: "dcr-1",
+      name: "Gemini CLI MCP Client",
+      clientDiscoveryId: null,
+      redirectUris: ["http://localhost:7777/oauth/callback"],
+    };
+    expect(describeOAuthClient(gemini)).toEqual({
+      name: "Gemini CLI MCP Client",
+      verifiedHost: null,
+      localOnly: true,
+    });
+    // One web redirect is enough for a remote site to receive the sign-in.
+    const mixed = { ...gemini, redirectUris: [...gemini.redirectUris, "https://x.example/cb"] };
+    expect(describeOAuthClient(mixed).localOnly).toBe(false);
+    // Any app on the device can claim a custom scheme; only loopback counts.
+    const scheme = { ...gemini, redirectUris: ["cursor://anysphere.cursor-mcp/oauth/callback"] };
+    expect(describeOAuthClient(scheme).localOnly).toBe(false);
+    expect(describeOAuthClient({ ...gemini, redirectUris: [] }).localOnly).toBe(false);
   });
 
   it("says when there is nothing to name a client by", () => {
     expect(describeOAuthClient({ clientId: "abc", name: " ", clientDiscoveryId: null }).name).toBe(
       "An unnamed application",
     );
+  });
+});
+
+describe("isLoopbackRedirect", () => {
+  it.each([
+    "http://localhost:8787/callback",
+    "http://127.0.0.1/callback",
+    "http://[::1]:7777/oauth/callback",
+  ])("accepts %s", (uri) => {
+    expect(isLoopbackRedirect(uri)).toBe(true);
+  });
+
+  it.each([
+    "https://localhost/callback",
+    "http://localhost.example.com/callback",
+    "http://127.0.0.2/callback",
+    "http://example.com/localhost",
+    "not a url",
+  ])("refuses %s", (uri) => {
+    expect(isLoopbackRedirect(uri)).toBe(false);
   });
 });
 
