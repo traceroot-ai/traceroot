@@ -134,6 +134,13 @@ describe("Edit loop page", () => {
     expect(screen.getByText("Failed to fetch memory: 500")).toBeTruthy();
   });
 
+  it("keeps the form when a background refetch of a loaded loop fails", () => {
+    mocks.loop = { data: LOOP, isLoading: false, error: new Error("Failed to fetch loop: 500") };
+    render(<EditLoopPage />);
+    expect(screen.getByText("save Regressions")).toBeTruthy();
+    expect(screen.queryByText("Failed to fetch loop: 500")).toBeNull();
+  });
+
   it("waits while loading and reports a loop that does not exist", () => {
     mocks.loop = { data: undefined, isLoading: true, error: null };
     const { unmount } = render(<EditLoopPage />);
