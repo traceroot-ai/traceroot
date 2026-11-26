@@ -57,6 +57,9 @@ vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
 import { MAX_UNREADABLE_ROUNDS } from "@/features/onboarding/use-project-trace-wait";
 import SetupStepPage from "./page";
+import { latestSetup, rememberSetup } from "@/features/onboarding/setup-resume";
+
+const resume = () => latestSetup("user-1");
 
 function trace(traceId: string, startTime: string) {
   return {
@@ -154,6 +157,7 @@ async function reachManual() {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  localStorage.clear();
   mocks.getProject.mockResolvedValue({
     id: "proj-1",
     name: "my-llm-project",
@@ -202,10 +206,20 @@ describe("the hand-back step's first-trace watch", () => {
     expect(screen.getByRole("link", { name: "View traces" }).getAttribute("href")).toBe(
       "/projects/proj-1/traces",
     );
+    expect(resume()).toBeNull();
     expect(screen.queryByText(/Waiting for your first trace/)).toBeNull();
     await rounds(3);
     expect(mocks.push).not.toHaveBeenCalled();
     expect(mocks.getTraces).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps another interrupted project when revisiting one that already has traces", async () => {
+    rememberSetup("user-1", "unfinished-project", "project");
+    tracePage = [trace("t-old", "2025-05-01T10:00:00Z")];
+    mocks.firstTraceTime.mockResolvedValue("2025-05-01T10:00:00Z");
+    await reachHandback();
+    expect(screen.getByRole("link", { name: "View traces" })).toBeDefined();
+    expect(resume()).toMatchObject({ projectId: "unfinished-project", created: "project" });
   });
 
   it("opens the first trace ingested during the initial list request, even with a skewed producer clock", async () => {
@@ -215,8 +229,10 @@ describe("the hand-back step's first-trace watch", () => {
     expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
     tracePage = [trace("t-run", "2020-01-01T00:00:00Z")];
     mocks.firstTraceTime.mockResolvedValue("2026-05-01T10:04:00Z");
+    expect(resume()?.projectId).toBe("proj-1");
     reply({ data: tracePage });
     await flush();
+    expect(resume()).toBeNull();
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-run");
   });
 
@@ -525,23 +541,31 @@ describe("the setup step itself", () => {
     mocks.search = "projectId=proj-1&created=project";
     await reachHandback();
     expect(screen.getByText("Project created — the rest happens in your terminal")).toBeDefined();
+    cleanup();
+    expect(resume()).toMatchObject({ projectId: "proj-1", created: "project" });
   });
 
   it("leaves a skipped account on its workspaces, and a manual one on its traces", async () => {
     await reachHandback();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(mocks.push).toHaveBeenCalledWith("/workspaces");
+    expect(resume()).toBeNull();
+    cleanup();
+    await reachHandback();
+    expect(resume()?.projectId).toBe("proj-1");
 
     fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
     await flush();
     fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
+    expect(resume()).toBeNull();
   });
 
   it("says the step is unavailable for a project it cannot open", async () => {
     mocks.getProject.mockRejectedValue(new Error("Project not found"));
     await reachHandback();
     expect(screen.getByText("This step isn't available")).toBeDefined();
+    expect(resume()).toBeNull();
     expect(screen.getByRole("link", { name: "Go to your workspaces" }).getAttribute("href")).toBe(
       "/workspaces",
     );
