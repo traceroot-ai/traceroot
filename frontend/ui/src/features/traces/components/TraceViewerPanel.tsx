@@ -432,14 +432,12 @@ export function TraceViewerPanel({
             <span className="truncate text-xs text-muted-foreground">
               {headerIdentity?.value ?? traceId}
             </span>
-            {/* Copy affordance for the header id. Only offered when an identity is
-                supplied (offline-eval's test case); the standard trace header is
-                unchanged. */}
-            {headerIdentity && (
+            {/* Under an override with no identity, traceId is synthetic: nothing to copy. */}
+            {(headerIdentity || !traceOverride) && (
               <CopyButton
-                value={headerIdentity.value}
+                value={headerIdentity?.value ?? traceId}
                 className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
+                title={`Copy ${headerIdentity?.label.toLowerCase() ?? "trace"} id`}
               />
             )}
           </div>
