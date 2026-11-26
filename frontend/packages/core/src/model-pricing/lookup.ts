@@ -17,8 +17,15 @@ interface CachedModel {
   modelName: string;
   // Compiled at cache-load time, or null when the catalogue pattern cannot compile.
   matcher: RegExp | null;
+  // Multiplier for a regional Bedrock id. Null means the card is the price.
+  regionalPremium: number | null;
   prices: ModelPricing;
 }
+
+// Bedrock regional and country profiles. global. is the base endpoint.
+// Same list as _REGIONAL_PREFIXES in the Python worker.
+export const REGIONAL_PREFIXES = ["us", "eu", "apac", "jp", "au", "in"] as const;
+const REGIONAL_PROFILE = new RegExp(`^(?:${REGIONAL_PREFIXES.join("|")})\\.`, "i");
 
 // `matchPattern` values are authored for the Python worker, which accepts the PCRE
 // inline flag `(?i)`. JavaScript's RegExp does not — it throws "Invalid group" — and
@@ -70,6 +77,7 @@ async function loadCache(): Promise<CachedModel[]> {
     return {
       modelName: m.modelName,
       matcher: compileMatchPattern(m.matchPattern, m.modelName),
+      regionalPremium: m.regionalPremium == null ? null : Number(m.regionalPremium),
       prices: {
         input: priceMap["input"] ?? 0,
         output: priceMap["output"] ?? 0,
@@ -83,6 +91,22 @@ async function loadCache(): Promise<CachedModel[]> {
   return cache;
 }
 
+function scaleRate(rate: number | null, premium: number): number | null {
+  return rate == null ? null : rate * premium;
+}
+
+function ratesFor(modelId: string, model: CachedModel): ModelPricing {
+  const premium = model.regionalPremium;
+  if (premium == null || !REGIONAL_PROFILE.test(modelId)) return model.prices;
+  return {
+    input: model.prices.input * premium,
+    output: model.prices.output * premium,
+    cacheRead: scaleRate(model.prices.cacheRead, premium),
+    cacheWrite: scaleRate(model.prices.cacheWrite, premium),
+    cacheWrite1h: scaleRate(model.prices.cacheWrite1h, premium),
+  };
+}
+
 /**
  * Look up pricing for a model by name.
  * Tries exact match on modelName first, then regex matchPattern fallback.
@@ -93,12 +117,12 @@ export async function getModelPricing(modelId: string): Promise<ModelPricing | n
 
   // Exact match
   const exact = models.find((m) => m.modelName === modelId);
-  if (exact) return exact.prices;
+  if (exact) return ratesFor(modelId, exact);
 
   // Regex fallback — catches provider-prefixed and Bedrock/Vertex-style aliases
   // (e.g. "anthropic/claude-opus-5", "us.anthropic.claude-opus-5-v1:0").
   for (const m of models) {
-    if (m.matcher?.test(modelId)) return m.prices;
+    if (m.matcher?.test(modelId)) return ratesFor(modelId, m);
   }
 
   return null;
