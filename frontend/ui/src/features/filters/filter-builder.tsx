@@ -14,6 +14,7 @@
  */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useProjectLabels } from "@/features/labels/queries";
 import type { Predicate } from "@/types/api";
 import { useFilterValues } from "./hooks";
 import type { FilterFieldDef } from "./registry";
@@ -275,10 +276,20 @@ function CategoricalValue({
   onValue: (v: string) => void;
 }) {
   const isStatic = field.value_source === "static_enum";
-  const { values } = useFilterValues(projectId, field.field, startAfter, endBefore, !isStatic);
-  const options: { value: string; count?: number }[] = isStatic
-    ? field.enum_values.map((v) => ({ value: v }))
-    : values.map((v) => ({ value: v.value, count: v.count }));
+  const isLabel = field.field === "label";
+  const { data: labels = [] } = useProjectLabels(projectId, isLabel);
+  const { values } = useFilterValues(
+    projectId,
+    field.field,
+    startAfter,
+    endBefore,
+    !isStatic && !isLabel,
+  );
+  const options = isLabel
+    ? labels.map(({ name }) => ({ value: name }))
+    : isStatic
+      ? field.enum_values.map((value) => ({ value }))
+      : values;
 
   return <ValueDropdown value={value} options={options} onValue={onValue} />;
 }

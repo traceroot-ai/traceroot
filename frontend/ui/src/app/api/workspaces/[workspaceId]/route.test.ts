@@ -49,6 +49,7 @@ vi.mock("@traceroot/core", () => {
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
     prisma: client,
+    getRetentionDays: () => 7,
   };
 });
 
@@ -67,7 +68,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
-import { PUT, DELETE } from "./route";
+import { GET, PUT, DELETE } from "./route";
 
 function makeRequest(body: unknown) {
   return { json: async () => body } as unknown as Parameters<typeof PUT>[0];
@@ -89,6 +90,32 @@ beforeEach(() => {
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireWorkspaceMembershipMock.mockReset();
   requireWorkspaceMembershipMock.mockResolvedValue({ membership: { role: "ADMIN" } });
+});
+
+describe("GET /api/workspaces/[workspaceId]", () => {
+  it("returns the ingestion date on embedded projects for the Projects table", async () => {
+    workspaceFindUniqueMock.mockResolvedValue({
+      id: "ws-1",
+      name: "Acme",
+      billingPlan: "free",
+      createTime: new Date("2026-10-01T00:00:00Z"),
+      updateTime: new Date("2026-11-13T23:00:00Z"),
+      projects: [
+        {
+          id: "p1",
+          name: "Project",
+          lastIngestedAt: new Date("2026-11-13T12:34:56Z"),
+          _count: { accessKeys: 0 },
+        },
+      ],
+      _count: { members: 1 },
+    });
+    const res = (await GET(makeRequest(undefined), makeParams())) as MockResponse;
+    expect(JSON.parse(JSON.stringify(await res.json()))).toMatchObject({
+      id: "ws-1",
+      projects: [{ id: "p1", last_ingested_at: "2026-11-13T12:34:56.000Z" }],
+    });
+  });
 });
 
 describe("PUT /api/workspaces/[workspaceId]", () => {

@@ -102,6 +102,13 @@ export interface OutboundEmail {
 
 const POSTAL_ADDRESS = "989 Market St, San Francisco, CA 94103";
 
+/**
+ * Where a product email's own layout wants the postal address: put this in the
+ * HTML, inside an element styled to match the email, and the address replaces
+ * it. Without it, the address goes in its own paragraph at the end.
+ */
+export const PRODUCT_FOOTER_SLOT = "<!--traceroot:postal-address-->";
+
 /** Product mail carries the postal address in both bodies, so the legal footer cannot be forgotten by a caller. */
 function withProductFooter(email: Pick<OutboundEmail, "text" | "html">): {
   text: string;
@@ -109,6 +116,12 @@ function withProductFooter(email: Pick<OutboundEmail, "text" | "html">): {
 } {
   const text = `${email.text.trimEnd()}\n\nTraceRoot, Inc. · ${POSTAL_ADDRESS}`;
   if (!email.html) return { text };
+  if (email.html.includes(PRODUCT_FOOTER_SLOT)) {
+    return {
+      text,
+      html: email.html.replace(PRODUCT_FOOTER_SLOT, `TraceRoot, Inc. · ${POSTAL_ADDRESS}`),
+    };
+  }
   const footer = `<p style="font-size:12px;color:#777">TraceRoot, Inc. · ${POSTAL_ADDRESS}</p>`;
   const close = email.html.lastIndexOf("</body>");
   const html =
