@@ -677,11 +677,8 @@ class TraceReaderService:
     ) -> tuple[str, str, dict]:
         """Build the shared scope for trace rows, totals, and labeled candidate IDs.
 
-        Returns ``(scope, where, params)``. ``scope`` selects the rows to dedup (project,
-        source, trace IDs, time window); ``where`` judges the deduped latest version of
-        each trace. Name, user, search and filter predicates belong in ``where``: before
-        ingest's root row supersedes the eager row a child span wrote, both versions are
-        live, and a predicate applied before the dedup matches the superseded one.
+        Returns ``(scope, where, params)``: ``scope`` picks the rows to dedup, ``where``
+        filters each trace's latest version, so a predicate never matches a superseded row.
         """
         scope = ["t.project_id = {project_id:String}"]
         # Detector self-traces are internal telemetry; the customer trace list
@@ -836,10 +833,9 @@ class TraceReaderService:
         # and never groups by the large input/output text columns. See #963.
         query = f"""
             WITH page AS (
-                -- Dedup ReplacingMergeTree by latest ch_update_time FIRST, THEN filter
-                -- (so a predicate never matches a superseded version), THEN order by
-                -- start time for pagination. Only the page's keys leave this sort,
-                -- which spans the whole window; page_rows reads the page's columns.
+                -- Dedup ReplacingMergeTree by latest ch_update_time FIRST, THEN filter,
+                -- THEN order by start time for pagination. Only the page's keys leave
+                -- this window-wide sort; page_rows reads the page's columns.
                 SELECT t.trace_id, t.trace_start_time
                 FROM (
                     -- `*` leaves out MATERIALIZED columns, so metadata_map (which
@@ -1293,9 +1289,7 @@ class TraceReaderService:
         """
         offset = page * limit
 
-        # The scope selects the trace rows to dedup; the conditions judge each trace's
-        # latest version, so a superseded row's session_id never places a trace in a
-        # session (see _trace_list_where).
+        # Scope before the dedup, conditions after it (see _trace_list_where).
         scope = [
             "t.project_id = {project_id:String}",
             # Self-traces would otherwise inflate session counts and token/cost totals.
