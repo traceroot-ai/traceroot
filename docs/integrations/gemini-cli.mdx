@@ -57,11 +57,13 @@ Start the collector with your traceroot API key:
 ```bash
 export TRACEROOT_API_KEY="your-key-from-app.traceroot.ai"
 
-docker run --rm -p 4317:4317 -p 4318:4318 \
+docker run --rm -p 127.0.0.1:4317:4317 -p 127.0.0.1:4318:4318 \
   -e TRACEROOT_API_KEY="$TRACEROOT_API_KEY" \
   -v "$(pwd)/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
   otel/opentelemetry-collector-contrib:latest
 ```
+
+Binding both ports to `127.0.0.1` keeps the unauthenticated collector reachable only from your local machine.
 
 ### 2. Enable telemetry in Gemini CLI
 
@@ -73,10 +75,11 @@ Configure Gemini CLI via `.gemini/settings.json` (project or `~/.gemini/settings
     {
       "telemetry": {
         "enabled": true,
+        "traces": true,
+        "logPrompts": false,
         "target": "local",
         "otlpEndpoint": "http://localhost:4317",
-        "otlpProtocol": "grpc",
-        "logPrompts": true
+        "otlpProtocol": "grpc"
       }
     }
     ```
@@ -84,6 +87,8 @@ Configure Gemini CLI via `.gemini/settings.json` (project or `~/.gemini/settings
   <Tab title="Environment variables">
     ```bash
     export GEMINI_TELEMETRY_ENABLED=true
+    export GEMINI_TELEMETRY_TRACES_ENABLED=true
+    export GEMINI_TELEMETRY_LOG_PROMPTS=false
     export GEMINI_TELEMETRY_TARGET="local"
     export GEMINI_TELEMETRY_OTLP_ENDPOINT="http://localhost:4317"
     export GEMINI_TELEMETRY_OTLP_PROTOCOL="grpc"
@@ -93,6 +98,10 @@ Configure Gemini CLI via `.gemini/settings.json` (project or `~/.gemini/settings
 
 If you prefer OTLP/HTTP instead of gRPC, set `otlpProtocol` to `"http"` and `otlpEndpoint` to `"http://localhost:4318"`.
 
+<Warning>
+  `logPrompts` is set to `false` above so raw user prompts, file contents, and command outputs are not sent by default. If you want prompt and response text in traceroot, review [Data Capture and Privacy](/tracing/data-capture) first and opt in with `"logPrompts": true` (`GEMINI_TELEMETRY_LOG_PROMPTS=true`).
+</Warning>
+
 ## Usage
 
 Run Gemini CLI as usual. Gemini CLI emits OpenTelemetry GenAI semantic-convention spans to the local collector, which batches and forwards them as OTLP/HTTP protobuf to traceroot.
@@ -100,22 +109,23 @@ Run Gemini CLI as usual. Gemini CLI emits OpenTelemetry GenAI semantic-conventio
 ## Verify
 
 Run a short prompt in Gemini CLI (for example, asking it to read a file or run a command) and confirm the trace arrives:
-1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see `LLM` spans with the Gemini model name and token usage, along with `TOOL` spans for tool calls.
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see `LLM` spans with the Gemini model name and token usage, plus spans for tool calls.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
 
 | Attribute | Description |
 |---|---|
-| LLM calls | Classified as `LLM` spans via `gen_ai.operation.name` and `gen_ai.request.model` |
-| Prompts & responses | Extracted from `gen_ai.input.messages` and `gen_ai.output.messages` (when `logPrompts` is enabled) |
+| LLM calls | Classified as `LLM` spans via `gen_ai.request.model` (and `gen_ai.operation.name`) |
+| Prompts & responses | Extracted from `gen_ai.input.messages` and `gen_ai.output.messages` when `logPrompts` is opted in |
 | Token usage & cost | Extracted from `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; cost calculated when the model ID matches traceroot's pricing table |
-| Tool calls | Classified as `TOOL` spans via `gen_ai.operation.name = "execute_tool"` with `gen_ai.tool.name`, `gen_ai.tool.call.arguments`, and `gen_ai.tool.call.result` |
+| Tool calls | Gemini CLI emits `gen_ai.operation.name = "tool_call"`, `gen_ai.tool.name`, and `gen_ai.tool.call_id`; `tool_call` is not mapped to `TOOL` (only `execute_tool` and `gen_ai.tool.call.*` are mapped at ingest today) |
 
 ## Limitations
 
 - Direct export without an OpenTelemetry Collector is not supported yet because `/api/v1/public/traces` accepts `application/x-protobuf` only.
-- Some optional `gen_ai.*` attributes emitted by Gemini CLI (such as `gen_ai.system_instructions`, `gen_ai.conversation.id`, `gen_ai.response.model`, and `gen_ai.response.finish_reasons`) are not yet mapped to dedicated fields or span metadata at ingest.
+- Gemini CLI tool spans emit `gen_ai.operation.name = "tool_call"` and `gen_ai.tool.call_id` rather than `execute_tool` / `gen_ai.tool.call.arguments` / `gen_ai.tool.call.result`, so tool spans currently ingest as `SPAN` without dedicated argument/result extraction.
+- Other `gen_ai.*` attributes emitted by Gemini CLI (such as `gen_ai.system_instructions`, `gen_ai.conversation.id`, `gen_ai.response.model`, and `gen_ai.response.finish_reasons`) are not yet mapped to dedicated fields or span metadata at ingest.
 
 ## Next steps
 
