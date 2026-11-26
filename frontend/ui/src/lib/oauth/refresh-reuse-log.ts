@@ -34,7 +34,8 @@ export function storedRefreshToken(token: string): string {
  * it (the provider revokes every refresh token the assistant holds for that
  * user). Reuse after the window looks like theft but is more often a client
  * that lost a response or refreshes from two places at once; the ages tell
- * which, and so whether the window is long enough. No token value is logged.
+ * which, and so whether the window is long enough. A token revoked without
+ * being rotated gets a separate line. No token value is logged.
  */
 export async function logRefreshTokenReuse(
   refreshToken: string,
@@ -43,8 +44,16 @@ export async function logRefreshTokenReuse(
 ): Promise<void> {
   const row = await lookup(storedRefreshToken(refreshToken));
   if (!row?.revoked) return;
-  const rotatedAt = row.rotatedAt ?? row.revoked;
-  const ageSeconds = Math.round((now.getTime() - rotatedAt.getTime()) / 1000);
+  if (!row.rotatedAt) {
+    // Revoked without a rotation (/oauth2/revoke, e.g. when the user unlinks):
+    // not a reuse, so it gets its own line, aged from the revocation.
+    const revokedSeconds = Math.round((now.getTime() - row.revoked.getTime()) / 1000);
+    console.warn(
+      `[oauth] revoked refresh token presented: client_id=${row.clientId} age_s=${revokedSeconds}`,
+    );
+    return;
+  }
+  const ageSeconds = Math.round((now.getTime() - row.rotatedAt.getTime()) / 1000);
   const withinWindow = row.rotationReplayExpiresAt !== null && row.rotationReplayExpiresAt >= now;
   console.warn(
     `[oauth] refresh token reused: client_id=${row.clientId} age_s=${ageSeconds} ` +

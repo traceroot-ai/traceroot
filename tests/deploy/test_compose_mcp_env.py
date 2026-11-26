@@ -23,7 +23,8 @@ def _mcp_service() -> dict:
 def _environment(service: dict) -> dict:
     env = service["environment"]
     if isinstance(env, list):
-        return dict(item.split("=", 1) for item in env)
+        # A bare ``NAME`` passes the host's value through: present, value unknown.
+        return dict(item.split("=", 1) if "=" in item else (item, None) for item in env)
     return env
 
 
@@ -38,3 +39,11 @@ def test_mcp_service_reaches_rest_and_listens_on_8200():
     assert _environment(service)["BACKEND_INTERNAL_URL"] == "http://rest:8000"
     assert "8200:8200" in service["ports"]
     assert "rest" in service["depends_on"]
+
+
+def test_environment_reads_list_form_with_pass_through_entries():
+    service = {"environment": ["BACKEND_INTERNAL_URL=http://rest:8000", "INTERNAL_API_SECRET"]}
+    assert _environment(service) == {
+        "BACKEND_INTERNAL_URL": "http://rest:8000",
+        "INTERNAL_API_SECRET": None,
+    }

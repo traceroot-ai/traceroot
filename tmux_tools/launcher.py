@@ -24,6 +24,7 @@ import stat
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from db.clickhouse.migrate import run_goose
 from tmux_tools import schema
@@ -300,7 +301,11 @@ def ensure_python_deps():
 
 def ensure_frontend_deps():
     """Install frontend deps if node_modules missing."""
-    if not os.path.exists("frontend/node_modules"):
+    # A checkout installed before frontend/mcp joined the workspace has
+    # frontend/node_modules but not frontend/mcp/node_modules.
+    if not os.path.exists("frontend/node_modules") or not os.path.exists(
+        "frontend/mcp/node_modules"
+    ):
         print("Installing frontend dependencies...")
         _run(["pnpm", "install"], cwd="frontend")
     else:
@@ -320,6 +325,25 @@ def ensure_frontend_deps():
         ["pnpm", "build"],
         cwd="frontend/packages/tools",
     )
+
+
+def mcp_port(env_path: Path = ENV_PATH) -> int:
+    """The port the dev MCP server listens on: MCP_SERVICE_URL's, as the server reads it.
+
+    The server takes MCP_SERVICE_URL from the environment first, then from .env,
+    and listens on its port, or on MCP_PORT when it names none.
+    """
+    url = os.environ.get("MCP_SERVICE_URL")
+    if not url and env_path.is_file():
+        try:
+            url = _env_value("get", "MCP_SERVICE_URL", str(env_path))
+        except (SystemExit, OSError):
+            url = None
+    try:
+        port = urlsplit(url).port if url else None
+    except ValueError:
+        port = None
+    return port or MCP_PORT
 
 
 def ensure_migrations():
@@ -546,6 +570,8 @@ def infra_services():
 def make_driver(autoreload=False):
     """Full stack: Frontend + REST API + Celery Worker + Infra logs."""
 
+    mcp_listen_port = mcp_port()
+
     # TZ=UTC ensures all Python processes use UTC as local time, so
     # naive datetimes from otel_transform and clickhouse-connect are consistent.
     tz_prefix = "TZ=UTC "
@@ -617,7 +643,7 @@ def make_driver(autoreload=False):
                 title="MCP",
                 command="cd frontend/mcp && pnpm dev",
                 web_urls=[
-                    ("MCP endpoint", f"http://localhost:{MCP_PORT}/mcp"),
+                    ("MCP endpoint", f"http://localhost:{mcp_listen_port}/mcp"),
                 ],
             ),
         ]
@@ -628,7 +654,7 @@ def make_driver(autoreload=False):
                 port_available(REST_PORT),
                 port_available(FRONTEND_PORT),
                 port_available(AGENT_PORT),
-                port_available(MCP_PORT),
+                port_available(mcp_listen_port),
             ]
         ),
     )

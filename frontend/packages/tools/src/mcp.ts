@@ -137,11 +137,16 @@ export function toMcpTool(entry: RegistryEntry, options: ToMcpToolOptions): McpT
         Object.entries(params).filter(([, value]) => value !== undefined),
       );
       try {
-        const args = { ...(defaults?.(supplied) ?? {}), ...supplied };
+        const args: Record<string, unknown> = { ...(defaults?.(supplied) ?? {}), ...supplied };
+        // A default must not bring a hidden field back.
+        for (const name of hidden) {
+          delete args[name];
+        }
         const result = await dispatch(entry, args, client, { signal });
         const shaped = transformResult ? transformResult(result, args) : result;
         // Compact: the model reads it as well as indented JSON, in about a third fewer tokens.
-        const text = truncateResult(JSON.stringify(shaped), maxResultChars);
+        // JSON.stringify(undefined) is undefined, not text; render it as null.
+        const text = truncateResult(JSON.stringify(shaped) ?? "null", maxResultChars);
         return { content: [{ type: "text", text }] };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

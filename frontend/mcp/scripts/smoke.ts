@@ -25,3 +25,6 @@ console.log(`${tools.length} tools: ${tools.map((t) => t.name).join(", ")}`);
 const result = await client.callTool({ name: tool, arguments: JSON.parse(rawArgs) });
 console.log(JSON.stringify(result, null, 2));
 await client.close();
+if (result.isError) {
+  process.exitCode = 1;
+}
