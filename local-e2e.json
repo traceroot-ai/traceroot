@@ -1,0 +1,27 @@
+{
+  "verifiedAt": "2026-11-26T07:16:32.159Z",
+  "head": "56a4b6ad992c4cfe3814d6a2ba4c4c5188bb98e3",
+  "app": "local Next.js, better-auth, migrated PostgreSQL and loopback-only SMTP; real Google Chrome",
+  "invitation": {
+    "source": "admin POST -> captured outgoing MIME message -> Accept Invitation button",
+    "signInCallbackMatches": true,
+    "routeAfterSignup": "/workspaces/b16eed0f-ecdc-4224-94c2-8af90caea809/projects",
+    "numberOfNonDemoWorkspaces": 1,
+    "role": "MEMBER",
+    "workspaceIdMatchesSender": true
+  },
+  "independentlyRegistered": {
+    "workspacesBeforeConfirmation": 0,
+    "workspaceListDisclosedExistingTeam": false,
+    "refreshKeptChoice": true,
+    "workspacesAfterConfirmation": 1,
+    "projects": 1,
+    "role": "ADMIN",
+    "separateWorkspace": true
+  },
+  "wrongRecipient": {
+    "sameCompanyDomain": true,
+    "acceptHttpStatus": 403,
+    "nonDemoWorkspaces": 0
+  }
+}
