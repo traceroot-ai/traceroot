@@ -45,7 +45,7 @@ export function founderWelcomeCopy(input: FounderWelcomeInput): FounderEmailCopy
       ],
       button: { label: "Open the demo project", url: input.demoUrl },
       after: [
-        `When you’re ready to trace your own agent, [open your project in traceroot](${input.appUrl}) and copy its setup command.`,
+        `When you’re ready to trace your own agent, [open traceroot](${input.appUrl}), choose your project, and copy its setup command.`,
         ...closing,
       ],
     };
@@ -53,7 +53,7 @@ export function founderWelcomeCopy(input: FounderWelcomeInput): FounderEmailCopy
   return {
     subject: "Send your first trace",
     paragraphs: [
-      `Welcome to traceroot. [Open your project in traceroot](${input.appUrl}) and copy its setup command. Run the command in your project directory, then run your agent as usual.`,
+      `Welcome to traceroot. [Open traceroot](${input.appUrl}), choose your project, and copy its setup command. Run the command in your project directory, then run your agent as usual.`,
       "Open the trace from that run. You’ll see which tools your agent called and how long each step took.",
       "If you get stuck, reply and tell us which framework you’re using.",
       ...closing,

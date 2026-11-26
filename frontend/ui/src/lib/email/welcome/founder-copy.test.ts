@@ -36,7 +36,7 @@ describe("the cloud welcome email, as approved", () => {
       [
         "Hi Sam,",
         "",
-        `Welcome to traceroot. Open your project in traceroot (${BASE.appUrl}) and copy its setup command. Run the command in your project directory, then run your agent as usual.`,
+        `Welcome to traceroot. Open traceroot (${BASE.appUrl}), choose your project, and copy its setup command. Run the command in your project directory, then run your agent as usual.`,
         "",
         "Open the trace from that run. You’ll see which tools your agent called and how long each step took.",
         "",
@@ -54,9 +54,7 @@ describe("the cloud welcome email, as approved", () => {
     );
     // Links only; the standard version has no button.
     expect(html).not.toContain("display:inline-block");
-    expect(html).toContain(
-      `<a href="${BASE.appUrl}" ${LINK}>Open your project in traceroot</a>`,
-    );
+    expect(html).toContain(`<a href="${BASE.appUrl}" ${LINK}>Open traceroot</a>`);
     expect(html).toContain(`<a href="${BASE.githubUrl}" ${LINK}>Star traceroot on GitHub</a>`);
   });
 
@@ -71,7 +69,7 @@ describe("the cloud welcome email, as approved", () => {
         "",
         `Open the demo project: ${BASE.demoUrl}`,
         "",
-        `When you’re ready to trace your own agent, open your project in traceroot (${BASE.appUrl}) and copy its setup command.`,
+        `When you’re ready to trace your own agent, open traceroot (${BASE.appUrl}), choose your project, and copy its setup command.`,
         "",
         CALENDAR,
         "",
