@@ -1,6 +1,7 @@
 import type { Executor } from "./interface.js";
 import { DockerExecutor, type DockerExecutorOptions } from "./docker.js";
 import { DaytonaExecutor } from "./daytona.js";
+import { SmolExecutor } from "./smol.js";
 
 export type { Executor, ExecResult, ExecOptions } from "./interface.js";
 
@@ -19,6 +20,10 @@ export function createExecutor(options: DockerExecutorOptions = {}): Executor {
       // Daytona sandboxes are created ephemeral with an autoStopInterval, so
       // they reclaim themselves and need no ownership labels from us.
       return new DaytonaExecutor();
+    case "smol":
+      // Cloud machines auto-stop when idle and local ones stop with this
+      // process, so like Daytona they need no ownership labels from us.
+      return new SmolExecutor();
     default:
       throw new Error(`Unknown sandbox provider: ${provider}`);
   }
