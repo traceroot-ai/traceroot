@@ -30,6 +30,8 @@ export async function getTraces(
   if (options.include_evaluations) params.set("include_evaluations", "true");
   const filtersParam = serializeFiltersParam(options.filters);
   if (filtersParam) params.set("filters", filtersParam);
+  if (options.sort) params.set("sort", options.sort);
+  if (options.order) params.set("order", options.order);
 
   const query = params.toString();
   const endpoint = `/projects/${projectId}/traces${query ? `?${query}` : ""}`;

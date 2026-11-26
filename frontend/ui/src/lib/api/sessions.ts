@@ -15,6 +15,8 @@ export async function getSessions(
   if (options.search_query) params.set("search_query", options.search_query);
   if (options.start_after) params.set("start_after", options.start_after);
   if (options.end_before) params.set("end_before", options.end_before);
+  if (options.sort) params.set("sort", options.sort);
+  if (options.order) params.set("order", options.order);
 
   const query = params.toString();
   const endpoint = `/projects/${projectId}/sessions${query ? `?${query}` : ""}`;

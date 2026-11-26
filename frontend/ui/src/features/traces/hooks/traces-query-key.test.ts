@@ -16,9 +16,11 @@ describe("tracesQueryKey", () => {
         end_before: "E",
         user_id: "u",
         session_id: "s",
+        sort: "latency",
+        order: "asc",
       }),
       // trailing "" is the canonical (empty) filter key — see canonicalizeFilters.
-    ).toEqual(["traces", "p1", 2, 50, "x", "S", "E", "u", "s", ""]);
+    ).toEqual(["traces", "p1", 2, 50, "x", "S", "E", "u", "s", "", "latency", "asc"]);
   });
 
   it("fills undefined for omitted options so keys stay positionally stable", () => {
@@ -33,6 +35,8 @@ describe("tracesQueryKey", () => {
       undefined,
       undefined,
       "",
+      undefined,
+      undefined,
     ]);
   });
 
@@ -40,6 +44,16 @@ describe("tracesQueryKey", () => {
     expect(tracesQueryKey("p", { filters: [model, cost] })).toEqual(
       tracesQueryKey("p", { filters: [cost, model] }),
     );
+  });
+
+  it("differs per sort column and direction", () => {
+    const keys = [
+      tracesQueryKey("p", {}),
+      tracesQueryKey("p", { sort: "spans", order: "desc" }),
+      tracesQueryKey("p", { sort: "spans", order: "asc" }),
+      tracesQueryKey("p", { sort: "errors", order: "asc" }),
+    ].map((key) => JSON.stringify(key));
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it("differs once a filter is applied vs none", () => {

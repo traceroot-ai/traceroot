@@ -15,7 +15,7 @@ from rest.rate_limit import (
 from rest.retention import clamp_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.sessions import SessionDetailResponse, SessionListResponse
-from rest.services.trace_reader import get_trace_reader_service
+from rest.services.trace_reader import SessionSort, SortOrder, get_trace_reader_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,11 @@ async def list_sessions(
         description="Include offline-evaluation traces in the session aggregates. "
         "Excluded by default, matching the Traces list.",
     ),
+    sort: SessionSort | None = Query(
+        None,
+        description="timestamp (first trace) or traces; latest activity when omitted",
+    ),
+    order: SortOrder = Query("desc", description="Sort direction, used with sort"),
 ):
     """List unique sessions for a project with trace counts and token totals."""
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
@@ -54,6 +59,8 @@ async def list_sessions(
             start_after=start_after,
             end_before=end_before,
             include_evaluations=include_evaluations,
+            sort=sort,
+            order=order,
         )
         return result
     except Exception as e:

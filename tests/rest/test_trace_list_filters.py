@@ -176,7 +176,7 @@ def test_label_limit_ignores_historical_matches_outside_trace_scope(
         call(["today"], **scope),
     ]
     mock_trace_reader.list_traces.assert_called_once_with(
-        page=0, limit=50, trace_ids=["today"], **scope
+        page=0, limit=50, trace_ids=["today"], sort=None, order="desc", **scope
     )
 
 

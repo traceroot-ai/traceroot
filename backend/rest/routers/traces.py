@@ -41,7 +41,7 @@ from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
 from rest.services.s3 import get_s3_service
 from rest.services.trace_discovery import get_trace_discovery_service
-from rest.services.trace_reader import get_trace_reader_service
+from rest.services.trace_reader import SortOrder, TraceSort, get_trace_reader_service
 from shared.attachments import (
     ALLOWED_IMAGE_MIME_TYPES,
     attachment_key,
@@ -112,6 +112,11 @@ async def list_traces(
         description="Include traces produced by offline-evaluation runs, "
         "which are excluded by default.",
     ),
+    sort: TraceSort | None = Query(
+        None,
+        description="Column to sort the whole result by; newest first when omitted. Without start_after, latency, spans and errors cover the default lookback window.",
+    ),
+    order: SortOrder = Query("desc", description="Sort direction, used with sort"),
 ):
     """List traces for a project with pagination and filtering.
 
@@ -190,6 +195,8 @@ async def list_traces(
             page=page,
             limit=limit,
             trace_ids=trace_ids,
+            sort=sort,
+            order=order,
             **scope,
         )
         return result

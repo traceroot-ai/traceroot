@@ -439,3 +439,55 @@ describe("TraceListTable metadata reveal", () => {
     }
   });
 });
+
+describe("TraceListTable sorting", () => {
+  function renderSortable(onSort = vi.fn()) {
+    render(
+      <TraceListTable
+        projectId="p-1"
+        traces={[makeTrace({ trace_id: "t-1" })]}
+        selectedTraceId={null}
+        onSelectTrace={() => {}}
+        visibleColumns={visibleFixedColumns([])}
+        sort={{ key: "latency", order: "asc" }}
+        onSort={onSort}
+      />,
+    );
+    return onSort;
+  }
+
+  it("makes only the sortable headers clickable", () => {
+    renderSortable();
+    const clickable = screen
+      .getAllByRole("columnheader")
+      .filter((header) => within(header).queryByRole("button"))
+      .map((header) => header.textContent);
+    expect(clickable).toEqual(["Timestamp", "Errors", "Spans", "Latency"]);
+  });
+
+  it("marks the sorted column and asks to sort by the one clicked", () => {
+    const onSort = renderSortable();
+
+    const latency = screen.getByRole("columnheader", { name: "Latency" });
+    expect(latency.getAttribute("aria-sort")).toBe("ascending");
+    expect(
+      screen.getByRole("columnheader", { name: "Spans" }).getAttribute("aria-sort"),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Spans" }));
+    expect(onSort).toHaveBeenCalledWith("spans");
+  });
+
+  it("keeps plain headers when no sort handler is given", () => {
+    render(
+      <TraceListTable
+        projectId="p-1"
+        traces={[]}
+        selectedTraceId={null}
+        onSelectTrace={() => {}}
+        visibleColumns={visibleFixedColumns([])}
+      />,
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});

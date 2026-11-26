@@ -8,6 +8,7 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
+import { SortableHeader } from "@/components/sortable-header";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
 import { useSessions } from "@/features/traces/hooks";
@@ -25,13 +26,16 @@ import {
   cn,
   buildUrlWithFilters,
 } from "@/lib/utils";
-import type { SessionListItem, SessionQueryOptions } from "@/types/api";
+import type { SessionListItem, SessionQueryOptions, SessionSortKey } from "@/types/api";
 
 const tabs = [
   { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
   { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
   { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
+
+// No default: sessions arrive by latest activity, which no column shows.
+const SORT_KEYS: readonly SessionSortKey[] = ["timestamp", "traces"];
 
 function getTotalCost(session: SessionListItem): number | null {
   return session.total_cost ?? null;
@@ -56,7 +60,10 @@ export default function SessionsPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState({ retentionDays: retention.retentionDays });
+    sort,
+    toggleSort,
+  } = useListPageState({ retentionDays: retention.retentionDays, sortKeys: SORT_KEYS });
+  const sortDirection = (key: SessionSortKey) => (sort?.key === key ? sort.order : undefined);
 
   const sessionQueryOptions = useMemo<SessionQueryOptions>(
     () => ({
@@ -65,6 +72,8 @@ export default function SessionsPage() {
       search_query: queryOptions.search_query,
       start_after: queryOptions.start_after,
       end_before: queryOptions.end_before,
+      sort: queryOptions.sort,
+      order: queryOptions.order,
     }),
     [queryOptions],
   );
@@ -165,9 +174,12 @@ export default function SessionsPage() {
                 <table className="data-table w-full tabular-nums [&_:is(th,td):nth-child(n+4)]:text-right">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border">
-                      <th className="w-[140px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Timestamp
-                      </th>
+                      <SortableHeader
+                        className="w-[140px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                        label="Timestamp"
+                        direction={sortDirection("timestamp")}
+                        onSort={() => toggleSort("timestamp")}
+                      />
                       <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Session ID
                       </th>
@@ -180,9 +192,12 @@ export default function SessionsPage() {
                       <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
                       </th>
-                      <th className="w-[70px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Traces
-                      </th>
+                      <SortableHeader
+                        className="w-[70px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                        label="Traces"
+                        direction={sortDirection("traces")}
+                        onSort={() => toggleSort("traces")}
+                      />
                     </tr>
                   </thead>
                   <tbody>

@@ -64,6 +64,10 @@ ALLOW_UNFILTERED_METHODS = {
     ("rest/services/trace_reader.py", "get_span_io"): (
         "per-span I/O keyed by trace_id + span_id; reached through a trace get_trace already scoped"
     ),
+    ("rest/services/trace_reader.py", "_trace_ids_by_span_metric"): (
+        "ranks list_traces' own scope, which carries customer_traffic_only(); the spans scan "
+        "is keyed to those trace ids and counts the same spans as the row it orders"
+    ),
 }
 
 SCAN = re.compile(r"FROM\s+(spans|traces)\b")

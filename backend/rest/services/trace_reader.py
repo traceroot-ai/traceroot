@@ -4,10 +4,11 @@ import math
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from db.clickhouse import get_clickhouse_client
 from db.clickhouse.query_settings import READ_QUERY_SETTINGS
-from rest.services.filters.translate import Predicate, build_conditions
+from rest.services.filters.translate import Predicate, build_conditions, span_time_bound
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.enums import EVALUATION_SPAN_KINDS
 from shared.span_attributes import (
@@ -52,6 +53,29 @@ INTERNAL_SOURCES = frozenset({DETECTOR_SOURCE, AGENT_SOURCE})
 DISTINCT_VALUES_LIMIT = 100
 DISTINCT_VALUES_CACHE_MAX = 256
 DISTINCT_VALUES_CACHE_TTL_SECONDS = 30
+
+
+# Sort keys each list accepts. ``None`` keeps the list's default order (newest first).
+TraceSort = Literal["timestamp", "latency", "spans", "errors"]
+SessionSort = Literal["timestamp", "traces"]
+UserSort = Literal["traces", "last_activity"]
+SortOrder = Literal["asc", "desc"]
+
+# The only text a sort direction can put into a query.
+_SQL_DIRECTION: dict[str, str] = {"asc": "ASC", "desc": "DESC"}
+
+# A trace's duration from its spans, NULL until a span has both ends.
+_TRACE_DURATION_MS = (
+    "if(min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL, "
+    "dateDiff('millisecond', min(span_start_time), max(span_end_time)), NULL)"
+)
+
+# Trace sort keys whose value only exists after aggregating a trace's spans.
+_TRACE_SPAN_SORTS: dict[str, str] = {
+    "latency": _TRACE_DURATION_MS,
+    "spans": "count(span_id)",
+    "errors": "countIf(status = 'ERROR')",
+}
 
 
 def customer_traffic_only(alias: str = "") -> str:
@@ -674,6 +698,7 @@ class TraceReaderService:
         filters: list[Predicate] | None,
         include_evaluations: bool,
         source_predicate: str,
+        scans_spans: bool = False,
     ) -> tuple[str, dict]:
         """Build the shared scope for trace rows, totals, and labeled candidate IDs."""
         # Build WHERE conditions
@@ -715,13 +740,14 @@ class TraceReaderService:
             )
             params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
-        # Filters scan spans (semi-joins), so a filtered list with no lower time bound
+        # Filters scan spans (semi-joins), as does sorting by a span aggregate
+        # (``scans_spans``), so either with no lower time bound
         # would be an unbounded full-project span scan in both the page and count queries.
         # Default a lookback window so those sub-queries prune monthly partitions, and bound
         # the trace query to the same window so the page, count, and span scans stay consistent.
         # A trace_ids lookup without filters scans no spans, so no window applies to it and
         # old named traces are still found; with filters the window applies as usual.
-        if filters and start_after is None:
+        if (filters or scans_spans) and start_after is None:
             params["start_after"] = default_lookback_start(normalized_end)
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
 
@@ -771,6 +797,55 @@ class TraceReaderService:
         ).result_rows
         return [row[0] for row in rows]
 
+    def _trace_ids_by_span_metric(
+        self, where_clause: str, params: dict, metric: str, direction: str
+    ) -> list[str]:
+        """One page of trace ids, ordered by an aggregate over each trace's spans.
+
+        Reads ids and the few span columns the metric needs, so ranking the whole
+        matching set never touches input or output text. A trace with no value (no
+        finished span, for latency) sorts last in either direction, and ties fall back
+        to newest first so that pages stay disjoint.
+
+        Args:
+            where_clause (str): The list's shared ``traces AS t`` scope.
+            params (dict): Parameters for that scope, plus ``limit`` and ``offset``.
+            metric (str): A ``_TRACE_SPAN_SORTS`` aggregate, never user input.
+            direction (str): ``"ASC"`` or ``"DESC"``.
+
+        Returns:
+            list[str]: The page's trace ids, in order.
+        """
+        query = f"""
+            WITH matched AS (
+                SELECT t.trace_id, t.trace_start_time
+                FROM traces AS t
+                WHERE {where_clause}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ),
+            span_metric AS (
+                SELECT trace_id, {metric} AS sort_value
+                FROM (
+                    SELECT trace_id, span_id, status, span_start_time, span_end_time
+                    FROM spans
+                    WHERE project_id = {{project_id:String}}{span_time_bound(params)}
+                      AND trace_id IN (SELECT trace_id FROM matched)
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id, span_id
+                )
+                GROUP BY trace_id
+            )
+            SELECT m.trace_id
+            FROM matched AS m
+            LEFT JOIN span_metric AS sm ON m.trace_id = sm.trace_id
+            ORDER BY sm.sort_value {direction} NULLS LAST,
+                     m.trace_start_time DESC, m.trace_id DESC
+            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+        """
+        result = self._client.query(query, parameters=params, settings=READ_QUERY_SETTINGS)
+        return [row[0] for row in result.result_rows]
+
     def list_traces(
         self,
         project_id: str,
@@ -784,6 +859,8 @@ class TraceReaderService:
         search_query: str | None = None,
         filters: list[Predicate] | None = None,
         include_evaluations: bool = False,
+        sort: TraceSort | None = None,
+        order: SortOrder = "desc",
     ) -> dict:
         """List traces with aggregated metrics from spans.
 
@@ -797,8 +874,17 @@ class TraceReaderService:
         On its own it applies no time window, since those traces can be weeks old.
         An explicit ``start_after``/``end_before`` still applies, and ``filters`` keep
         their default lookback because their span scans need a lower bound.
+
+        ``sort`` orders the whole matching set before it is paged; ``None`` is newest
+        first. Sorting by ``latency``, ``spans`` or ``errors`` aggregates the spans of
+        every matching trace, so it takes the same default lookback as ``filters``.
         """
         offset = page * limit
+        direction = _SQL_DIRECTION[order]
+        span_sort = _TRACE_SPAN_SORTS.get(sort or "")
+        # Only a timestamp sort reorders the page query itself. A span sort picks the
+        # page's ids first, and its rows are put back in that order below.
+        start_direction = direction if sort == "timestamp" else "DESC"
 
         where_clause, params = self._trace_list_where(
             project_id,
@@ -811,8 +897,17 @@ class TraceReaderService:
             filters,
             include_evaluations,
             customer_traffic_only("t"),
+            scans_spans=span_sort is not None,
         )
         params.update(limit=limit, offset=offset)
+
+        page_where, page_params = where_clause, params
+        page_ids: list[str] | None = None
+        if span_sort is not None:
+            page_ids = self._trace_ids_by_span_metric(where_clause, params, span_sort, direction)
+            page_where = f"{where_clause} AND t.trace_id IN {{page_ids:Array(String)}}"
+            # The ids are already this page, so the page query must not skip any.
+            page_params = {**params, "page_ids": page_ids, "offset": 0}
 
         # Page the traces FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
         # instead of FINAL), then aggregate spans for ONLY that page's trace_ids.
@@ -834,25 +929,21 @@ class TraceReaderService:
                         t.trace_id, t.project_id, t.name, t.trace_start_time,
                         t.user_id, t.session_id, t.input, t.output, t.metadata_map
                     FROM traces AS t
-                    WHERE {where_clause}
+                    WHERE {page_where}
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
                 -- trace_id breaks start-time ties (millisecond precision), so OFFSET
                 -- pages are disjoint and repeatable: no tied trace is skipped or
                 -- repeated across pages (#1747).
-                ORDER BY trace_start_time DESC, trace_id DESC
+                ORDER BY trace_start_time {start_direction}, trace_id {start_direction}
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             span_agg AS (
                 SELECT
                     trace_id,
                     count(span_id) as span_count,
-                    if(
-                        min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL,
-                        dateDiff('millisecond', min(span_start_time), max(span_end_time)),
-                        NULL
-                    ) as duration_ms,
+                    {_TRACE_DURATION_MS} as duration_ms,
                     countIf(status = 'ERROR') as error_count,
                     sum(input_tokens) as total_input_tokens,
                     sum(output_tokens) as total_output_tokens,
@@ -886,7 +977,7 @@ class TraceReaderService:
                 p.metadata_map
             FROM page AS p
             LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
-            ORDER BY p.trace_start_time DESC, p.trace_id DESC
+            ORDER BY p.trace_start_time {start_direction}, p.trace_id {start_direction}
         """
 
         # Bounded by the shared read settings, page and count alike. Most span-level
@@ -896,8 +987,14 @@ class TraceReaderService:
         # back to the base table, whose ordering prunes by time only weakly — and it runs
         # twice per request, here and in the count below. A scan that wide must hit an
         # execution cap rather than run until the client gives up.
-        result = self._client.query(query, parameters=params, settings=READ_QUERY_SETTINGS)
-        rows = result.result_rows
+        rows = []
+        # An empty id list means the page is past the last trace: nothing to read.
+        if page_ids is None or page_ids:
+            result = self._client.query(query, parameters=page_params, settings=READ_QUERY_SETTINGS)
+            rows = result.result_rows
+        if page_ids:
+            position = {trace_id: index for index, trace_id in enumerate(page_ids)}
+            rows = sorted(rows, key=lambda row: position[row[0]])
 
         # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL).
         # The evaluation exclusion rides in {where_clause} — shared with the page above.
@@ -1247,6 +1344,8 @@ class TraceReaderService:
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         include_evaluations: bool = False,
+        sort: SessionSort | None = None,
+        order: SortOrder = "desc",
     ) -> dict:
         """List unique sessions with aggregated trace statistics.
 
@@ -1256,8 +1355,22 @@ class TraceReaderService:
         the project's per-session spend — the same trace hidden in one view and charged in
         another. The exclusion also keeps ``trace_count``, the token totals and the
         ``argMin``/``argMax`` displayed I/O consistent with what Traces shows.
+
+        ``sort`` orders every matching session before paging: ``"timestamp"`` by first
+        trace time, ``"traces"`` by trace count, and ``None`` by latest activity.
         """
         offset = page * limit
+        direction = _SQL_DIRECTION[order]
+        # (order of the paged ids, the same order over the final rows)
+        if sort == "timestamp":
+            page_order = f"min(t.trace_start_time) {direction}, t.session_id {direction}"
+            row_order = f"first_trace_time {direction}, td.session_id {direction}"
+        elif sort == "traces":
+            page_order = f"count() {direction}, max(t.trace_start_time) DESC, t.session_id DESC"
+            row_order = f"trace_count {direction}, last_trace_time DESC, td.session_id DESC"
+        else:
+            page_order = "max(t.trace_start_time) DESC, t.session_id DESC"
+            row_order = "last_trace_time DESC, td.session_id DESC"
 
         # Build WHERE conditions on the traces table
         conditions = [
@@ -1307,7 +1420,7 @@ class TraceReaderService:
                     LIMIT 1 BY t.project_id, t.trace_id
                 ) AS t
                 GROUP BY t.session_id
-                ORDER BY max(t.trace_start_time) DESC, t.session_id DESC
+                ORDER BY {page_order}
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             traces_dedup AS (
@@ -1357,7 +1470,7 @@ class TraceReaderService:
             FROM traces_dedup AS td
             LEFT JOIN span_agg AS sa ON td.trace_id = sa.trace_id
             GROUP BY td.session_id
-            ORDER BY last_trace_time DESC, td.session_id DESC
+            ORDER BY {row_order}
         """
 
         result = self._client.query(query, parameters=params)
@@ -1664,6 +1777,8 @@ class TraceReaderService:
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         include_evaluations: bool = False,
+        sort: UserSort | None = None,
+        order: SortOrder = "desc",
     ) -> dict:
         """List unique users with trace counts.
 
@@ -1671,8 +1786,21 @@ class TraceReaderService:
         user's ``trace_count`` and token/cost totals count the same traces the Traces view
         shows. An eval run that carries a ``user_id`` would otherwise inflate that user's
         spend — and could conjure a user who has no visible traces at all.
+
+        ``sort`` orders every matching user before paging: ``"traces"`` by trace count,
+        ``"last_activity"`` (and ``None``) by latest trace time.
         """
         offset = page * limit
+        direction = _SQL_DIRECTION[order]
+        if sort == "traces":
+            page_order = f"trace_count {direction}, last_trace_time DESC, user_id DESC"
+            row_order = f"up.trace_count {direction}, up.last_trace_time DESC, up.user_id DESC"
+        elif sort == "last_activity":
+            page_order = f"last_trace_time {direction}, user_id {direction}"
+            row_order = f"up.last_trace_time {direction}, up.user_id {direction}"
+        else:
+            page_order = "last_trace_time DESC, user_id DESC"
+            row_order = "up.last_trace_time DESC, up.user_id DESC"
 
         # Build WHERE conditions
         conditions = [
@@ -1721,7 +1849,7 @@ class TraceReaderService:
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
                 GROUP BY user_id
-                ORDER BY last_trace_time DESC, user_id DESC
+                ORDER BY {page_order}
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             user_traces AS (
@@ -1758,7 +1886,7 @@ class TraceReaderService:
                 st.total_cost
             FROM user_page AS up
             LEFT JOIN span_totals AS st ON up.user_id = st.user_id
-            ORDER BY up.last_trace_time DESC, up.user_id DESC
+            ORDER BY {row_order}
         """
 
         result = self._client.query(query, parameters=params)
