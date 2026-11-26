@@ -27,8 +27,10 @@ type Question = "role" | "company" | "uses" | "source";
 
 interface Draft {
   role: RoleId | null;
+  roleOther: string;
   company: string;
   uses: UseId[];
+  usesOther: string;
   source: SourceId | null;
   sourceOther: string;
 }
@@ -37,11 +39,15 @@ interface Draft {
 function patchFor(question: Question, draft: Draft, skipped: boolean): AnswersPatch {
   switch (question) {
     case "role":
-      return { role: skipped ? null : draft.role };
+      return !skipped && draft.role === "other"
+        ? { role: draft.role, roleOther: draft.roleOther.trim() || null }
+        : { role: skipped ? null : draft.role };
     case "company":
       return { company: skipped ? null : draft.company.trim() || null };
     case "uses":
-      return { uses: skipped ? [] : draft.uses };
+      return !skipped && draft.uses.includes("other")
+        ? { uses: draft.uses, usesOther: draft.usesOther.trim() || null }
+        : { uses: skipped ? [] : draft.uses };
     case "source":
       return skipped
         ? { source: null, sourceOther: null }
@@ -163,8 +169,10 @@ function Questions({
   };
   const [draft, setDraft] = useState<Draft>({
     role: saved.role,
+    roleOther: saved.roleOther ?? "",
     company: saved.company ?? "",
     uses: saved.uses,
+    usesOther: saved.usesOther ?? "",
     source: saved.source === "other" ? null : saved.source,
     sourceOther: saved.sourceOther ?? "",
   });
@@ -190,6 +198,8 @@ function Questions({
     );
     const acknowledged = await saves.current;
     if (changed.current) return;
+    if (skipped && question === "role") setDraft({ ...draft, role: null, roleOther: "" });
+    if (skipped && question === "uses") setDraft({ ...draft, uses: [], usesOther: "" });
     if (!last) {
       // If this optional save failed, a refresh can still return to this answer.
       setStep({ index: index + 1, persist: acknowledged });
@@ -241,8 +251,17 @@ function Questions({
             options={ROLE_OPTIONS}
             wide={["leadership"]}
             picked={draft.role ? [draft.role] : []}
-            onPick={(id) => setDraft({ ...draft, role: draft.role === id ? null : id })}
+            onPick={(id) =>
+              setDraft({ ...draft, role: draft.role === id ? null : id, roleOther: "" })
+            }
           />
+          {draft.role === "other" && (
+            <OtherAnswer
+              label="Describe your role (optional)"
+              value={draft.roleOther}
+              onChange={(roleOther) => setDraft({ ...draft, roleOther })}
+            />
+          )}
         </Screen>
       )}
 
@@ -282,6 +301,7 @@ function Questions({
             onPick={(id) =>
               setDraft({
                 ...draft,
+                usesOther: id === "other" ? "" : draft.usesOther,
                 uses: draft.uses.includes(id)
                   ? draft.uses.filter((use) => use !== id)
                   : draft.uses.length < MAX_USES
@@ -290,6 +310,13 @@ function Questions({
               })
             }
           />
+          {draft.uses.includes("other") && (
+            <OtherAnswer
+              label="Describe your use case (optional)"
+              value={draft.usesOther}
+              onChange={(usesOther) => setDraft({ ...draft, usesOther })}
+            />
+          )}
         </Screen>
       )}
 
@@ -306,16 +333,11 @@ function Questions({
             picked={draft.source ? [draft.source] : []}
             onPick={(id) => setDraft({ ...draft, source: draft.source === id ? null : id })}
           />
-          {/* What is typed here stays in our database: `ph-no-capture` keeps
-              analytics' autocapture and session replay off it. */}
-          <input
-            type="text"
-            value={draft.sourceOther}
-            onChange={(event) => setDraft({ ...draft, sourceOther: event.target.value })}
+          <OtherAnswer
+            label="Somewhere else"
             placeholder="Somewhere else? Tell us"
-            aria-label="Somewhere else"
-            maxLength={200}
-            className="ph-no-capture mt-2 h-8 w-full rounded-[3px] border border-border bg-background px-2.5 text-[13px] outline-none focus:border-ring"
+            value={draft.sourceOther}
+            onChange={(sourceOther) => setDraft({ ...draft, sourceOther })}
           />
         </Screen>
       )}
@@ -362,6 +384,30 @@ function Questions({
         />
       )}
     </div>
+  );
+}
+
+function OtherAnswer({
+  label,
+  placeholder = label,
+  value,
+  onChange,
+}: {
+  label: string;
+  placeholder?: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <input
+      type="text"
+      aria-label={label}
+      placeholder={placeholder}
+      value={value}
+      maxLength={200}
+      onChange={(event) => onChange(event.target.value)}
+      className="ph-no-capture mt-2 h-8 w-full rounded-[3px] border border-border bg-background px-2.5 text-[13px] outline-none focus:border-ring"
+    />
   );
 }
 
