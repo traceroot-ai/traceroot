@@ -5,15 +5,15 @@
  * customer traffic only (no detector or agent self-traces), no offline
  * evaluation traces.
  */
-import { LOOP_LIMITS } from "@traceroot/core/loops";
-
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const CHECK_TIMEOUT_MS = 15_000;
 
-/** The start of a run's window: `lookbackHours` before `now`, clamped as the agent clamps it. */
+/**
+ * The start of a run's window: `lookbackHours` before `now`. A Loop's hours are
+ * checked to be a whole number in 1..168 when it is saved, so they are used as stored.
+ */
 export function loopWindowStart(lookbackHours: number, now: Date): Date {
-  const hours = Math.min(Math.max(Math.floor(lookbackHours) || 1, 1), LOOP_LIMITS.maxLookbackHours);
-  return new Date(now.getTime() - hours * 3_600_000);
+  return new Date(now.getTime() - lookbackHours * 3_600_000);
 }
 
 /**
