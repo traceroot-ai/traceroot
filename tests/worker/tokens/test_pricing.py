@@ -47,22 +47,32 @@ def _standard_price_entries() -> list[dict]:
     return json.loads(PRICES_JSON.read_text())
 
 
+def _cache_entry(entry: dict) -> dict:
+    long = entry.get("longContext") or {}
+    item = {
+        "model_name": entry["modelName"],
+        "match_pattern": entry["matchPattern"],
+        "regional_premium": entry.get("regionalPremium"),
+        "prices": {
+            **entry["prices"],
+            MATCHED_MODEL_NAME: entry["modelName"],
+        },
+    }
+    threshold = long.get("thresholdTokens")
+    if threshold is not None:
+        item["long_context"] = {
+            "threshold": threshold,
+            "prices": {
+                key: value for key, value in long.get("prices", {}).items() if value is not None
+            },
+        }
+    return item
+
+
 @pytest.fixture(scope="module")
 def real_cache() -> list[dict]:
     """Build a pricing cache from the production standard-model-prices.json."""
-    entries = _standard_price_entries()
-    return [
-        {
-            "model_name": entry["modelName"],
-            "match_pattern": entry["matchPattern"],
-            "regional_premium": entry.get("regionalPremium"),
-            "prices": {
-                **entry["prices"],
-                MATCHED_MODEL_NAME: entry["modelName"],
-            },
-        }
-        for entry in entries
-    ]
+    return [_cache_entry(entry) for entry in _standard_price_entries()]
 
 
 CODEX_MODEL_PRICES = [
@@ -1591,3 +1601,166 @@ def test_the_price_check_picks_the_row_the_worker_prices_with(real_cache):
 
     assert script == worker
     assert sum(name is not None for name in worker.values()) > len(ids) // 2
+
+
+def _priced(model: str, **counts: int) -> float:
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    cost = cost_from_buckets(get_model_price(model), TokenBuckets(**counts))
+    assert cost is not None
+    return cost
+
+
+class TestLongContextTiers:
+    """Over the prompt threshold the whole request uses the long card.
+
+    The prompt is uncached input plus cache read plus cache write. The boundary
+    itself stays on the short card; one token past it switches.
+    """
+
+    def test_haiku_5_5_over_100k_is_the_published_long_rate(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced(
+                "claude-haiku-5-5", input_uncached=150_000, output=2_000
+            ) == pytest.approx(0.08)
+
+    def test_haiku_5_5_boundary(self, real_cache):
+        short = 0.0000001
+        long = 0.0000005
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced("claude-haiku-5-5", input_uncached=100_000) == pytest.approx(
+                100_000 * short
+            )
+            assert _priced("claude-haiku-5-5", input_uncached=100_001) == pytest.approx(
+                100_001 * long
+            )
+
+    def test_a_regional_haiku_long_prompt_keeps_the_premium(self, real_cache):
+        long = 0.0000005
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced(
+                "us.anthropic.claude-haiku-5-5", input_uncached=150_000
+            ) == pytest.approx(150_000 * long * 1.1)
+            assert _priced(
+                "global.anthropic.claude-haiku-5-5", input_uncached=150_000
+            ) == pytest.approx(150_000 * long)
+
+    def test_gpt_5_6_sol_over_272k_is_double_input_and_one_and_a_half_output(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced("gpt-5.6-sol", input_uncached=300_000, output=10_000) == pytest.approx(
+                2.70
+            )
+
+    @pytest.mark.parametrize(
+        "model",
+        ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-cyber"],
+    )
+    def test_gpt_5_6_family_boundary(self, real_cache, model):
+        card = next(e for e in real_cache if e["model_name"] == model)["prices"]
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced(model, input_uncached=272_000) == pytest.approx(272_000 * card["input"])
+            assert _priced(model, input_uncached=272_001) == pytest.approx(
+                272_001 * card["input"] * 2
+            )
+
+    def test_prompt_counts_cache_tokens_toward_the_threshold(self, real_cache):
+        # 90k uncached + 10k cache read is the boundary. One more cache read crosses it.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            at = _priced("claude-haiku-5-5", input_uncached=90_000, cache_read=10_000)
+            over = _priced("claude-haiku-5-5", input_uncached=90_000, cache_read=10_001)
+        assert at == pytest.approx(90_000 * 0.0000001 + 10_000 * 0.00000001)
+        assert over == pytest.approx(90_000 * 0.0000005 + 10_001 * 0.00000005)
+
+    def test_cache_write_crosses_the_threshold(self, real_cache):
+        # 90k uncached + 10k cache write is the boundary. One more write crosses it,
+        # and the write tokens themselves move onto the long card.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            at = _priced("claude-haiku-5-5", input_uncached=90_000, cache_write=10_000)
+            over = _priced("claude-haiku-5-5", input_uncached=90_000, cache_write=10_001)
+        assert at == pytest.approx(90_000 * 0.0000001 + 10_000 * 0.000000125)
+        assert over == pytest.approx(90_000 * 0.0000005 + 10_001 * 0.000000625)
+
+    def test_load_cache_nests_long_rows_and_keeps_a_zero_rate(self, monkeypatch):
+        from decimal import Decimal
+
+        rows = [
+            (
+                "claude-haiku-5-5",
+                "(?i)^claude-haiku-5-5$",
+                Decimal("1.1"),
+                100_000,
+                "input",
+                Decimal("0.0000001"),
+            ),
+            (
+                "claude-haiku-5-5",
+                "(?i)^claude-haiku-5-5$",
+                Decimal("1.1"),
+                100_000,
+                "input_long",
+                Decimal("0"),
+            ),
+            ("claude-haiku-4-5", "(?i)^claude-haiku-4-5$", None, None, "output", 0.000005),
+        ]
+
+        class _Cursor:
+            def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchall(self):
+                return rows
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        class _Conn:
+            def cursor(self):
+                return _Cursor()
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr("worker.tokens.pricing.psycopg2.connect", lambda _url: _Conn())
+        monkeypatch.setattr("worker.tokens.pricing._cache", None)
+        from worker.tokens import pricing
+
+        try:
+            loaded = pricing._load_cache()
+        finally:
+            pricing._cache = None
+        haiku = next(entry for entry in loaded if entry["model_name"] == "claude-haiku-5-5")
+        older = next(entry for entry in loaded if entry["model_name"] == "claude-haiku-4-5")
+        assert haiku["prices"]["input"] == pytest.approx(0.0000001)
+        assert haiku["long_context"] == {"threshold": 100_000, "prices": {"input": 0.0}}
+        assert "input_long" not in haiku["prices"]
+        assert "long_context" not in older
+        assert older["prices"]["output"] == pytest.approx(0.000005)
+
+    def test_a_zero_long_rate_is_used_and_a_zero_threshold_is_real(self):
+        from worker.tokens.buckets import TokenBuckets
+        from worker.tokens.pricing import cost_from_buckets
+
+        prices = {
+            "input": 1e-6,
+            "output": 0,
+            "long": {"threshold": 0, "prices": {"input": 0}},
+        }
+        buckets = TokenBuckets(
+            input_uncached=11,
+            output=0,
+            cache_read=0,
+            cache_write=0,
+            cache_write_1h=0,
+        )
+        assert cost_from_buckets(prices, buckets) == pytest.approx(0)
+
+    def test_a_model_without_a_tier_ignores_length(self, real_cache):
+        card = next(e for e in real_cache if e["model_name"] == "claude-haiku-4-5")["prices"]
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert _priced(
+                "claude-haiku-4-5", input_uncached=200_000, output=1_000
+            ) == pytest.approx(200_000 * card["input"] + 1_000 * card["output"])

@@ -57,8 +57,17 @@ export async function runJevDetection(params: {
 
   return {
     ...decisionFinding(result.answers.gate.noul, result.answers.label),
-    // Priced from the token counts by the calculateCost fallback.
     inferenceCost: 0,
+    inferenceCalls: [
+      {
+        input: result.usage.inputTokens,
+        output: result.usage.outputTokens,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cacheWrite1h: 0,
+        cost: 0,
+      },
+    ],
     inferenceInputTokens: result.usage.inputTokens,
     inferenceOutputTokens: result.usage.outputTokens,
     inferenceSource: "byok",

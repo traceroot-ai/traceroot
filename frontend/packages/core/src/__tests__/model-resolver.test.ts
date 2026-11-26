@@ -88,6 +88,34 @@ describe("resolvePiModel", () => {
     expect(m.provider).toBe("openai");
   });
 
+  it("zeros flat rates for catalogue rows with a long-context tier", async () => {
+    // Hosted replacements copy the short card into pi-ai's cost. That makes
+    // usage.cost.total positive, so callers never ask the price file.
+    // Deleting cost throws inside pi-ai's calculateCost; zeros report total 0.
+    const { calculateCost } = await import("@earendil-works/pi-ai");
+    const zeros = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    for (const id of ["gpt-5.6-sol", "gpt-5.6-terra", "claude-haiku-5-5"]) {
+      const m = resolvePiModel(id, null);
+      expect(m.cost, id).toEqual(zeros);
+      const usage = {
+        input: 300_000,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 300_000,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      };
+      expect(calculateCost(m, usage).total, id).toBe(0);
+    }
+  });
+
+  it("keeps the short card for hosted models without a long-context tier", () => {
+    for (const id of ["gpt-6-sol", "claude-sonnet-5-5"]) {
+      const m = resolvePiModel(id, null);
+      expect(m.cost.input + m.cost.output, id).toBeGreaterThan(0);
+    }
+  });
+
   it("uses openai-completions for BYOK DeepSeek with provider mapped to openai", () => {
     const cfg: ProviderModelConfig = {
       adapter: "deepseek",

@@ -16,6 +16,7 @@ vi.mock("@traceroot/core", () => ({
   prisma: {},
   syncStandardPrices: vi.fn(async () => {}),
   calculateCost: vi.fn(async () => 0),
+  priceReportedCall: vi.fn(async (_model: string, call: { cost: number }) => call.cost),
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
 }));
 vi.mock("../session.js", () => ({

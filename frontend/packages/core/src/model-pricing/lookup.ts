@@ -1,6 +1,14 @@
 import { prisma } from "../lib/prisma.ts";
 import { registerCacheClear } from "./sync-standard-prices.ts";
 
+export interface LongContextPrices {
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  cacheWrite1h: number | null;
+}
+
 export interface ModelPricing {
   input: number;
   output: number;
@@ -11,6 +19,10 @@ export interface ModelPricing {
   // case the combined `cacheWrite` rate (which already equals the 5-minute rate) is
   // used. Only `cacheWrite1h` is populated in the price table today.
   cacheWrite1h: number | null;
+  // A prompt over `threshold` tokens (uncached + cache read + cache write) is
+  // billed on `prices`. Null means one rate at any length. A null long rate
+  // keeps that category on the short card. A rate of 0 is used.
+  long: { threshold: number; prices: LongContextPrices } | null;
 }
 
 interface CachedModel {
@@ -74,6 +86,7 @@ async function loadCache(): Promise<CachedModel[]> {
     for (const p of m.prices) {
       priceMap[p.usageType] = Number(p.price);
     }
+    const threshold = m.longContextThreshold ?? null;
     return {
       modelName: m.modelName,
       matcher: compileMatchPattern(m.matchPattern, m.modelName),
@@ -84,6 +97,19 @@ async function loadCache(): Promise<CachedModel[]> {
         cacheRead: priceMap["cacheRead"] ?? null,
         cacheWrite: priceMap["cacheWrite"] ?? null,
         cacheWrite1h: priceMap["cacheWrite1h"] ?? null,
+        long:
+          threshold == null
+            ? null
+            : {
+                threshold,
+                prices: {
+                  input: priceMap["input_long"] ?? null,
+                  output: priceMap["output_long"] ?? null,
+                  cacheRead: priceMap["cacheRead_long"] ?? null,
+                  cacheWrite: priceMap["cacheWrite_long"] ?? null,
+                  cacheWrite1h: priceMap["cacheWrite1h_long"] ?? null,
+                },
+              },
       },
     };
   });
@@ -91,8 +117,22 @@ async function loadCache(): Promise<CachedModel[]> {
   return cache;
 }
 
-function scaleRate(rate: number | null, premium: number): number | null {
+function scaleRate(rate: number | null | undefined, premium: number): number | null {
   return rate == null ? null : rate * premium;
+}
+
+function scaleLong(long: ModelPricing["long"], premium: number): ModelPricing["long"] {
+  if (long == null) return long;
+  return {
+    threshold: long.threshold,
+    prices: {
+      input: scaleRate(long.prices.input, premium),
+      output: scaleRate(long.prices.output, premium),
+      cacheRead: scaleRate(long.prices.cacheRead, premium),
+      cacheWrite: scaleRate(long.prices.cacheWrite, premium),
+      cacheWrite1h: scaleRate(long.prices.cacheWrite1h, premium),
+    },
+  };
 }
 
 function ratesFor(modelId: string, model: CachedModel): ModelPricing {
@@ -104,6 +144,21 @@ function ratesFor(modelId: string, model: CachedModel): ModelPricing {
     cacheRead: scaleRate(model.prices.cacheRead, premium),
     cacheWrite: scaleRate(model.prices.cacheWrite, premium),
     cacheWrite1h: scaleRate(model.prices.cacheWrite1h, premium),
+    long: scaleLong(model.prices.long, premium),
+  };
+}
+
+function cardForPrompt(pricing: ModelPricing, promptTokens: number): ModelPricing {
+  const long = pricing.long;
+  if (long == null || promptTokens <= long.threshold) return pricing;
+  const next = long.prices;
+  return {
+    ...pricing,
+    input: next.input ?? pricing.input,
+    output: next.output ?? pricing.output,
+    cacheRead: next.cacheRead ?? pricing.cacheRead,
+    cacheWrite: next.cacheWrite ?? pricing.cacheWrite,
+    cacheWrite1h: next.cacheWrite1h ?? pricing.cacheWrite1h,
   };
 }
 
@@ -154,18 +209,21 @@ export function calculateCostFromPricing(
   const cacheRead = Math.max(cacheReadTokens, 0);
   const cacheWrite = Math.max(cacheWriteTokens, 0);
   const cacheWrite1h = Math.min(Math.max(cacheWrite1hTokens, 0), cacheWrite);
+  // The 1-hour write is already inside cacheWrite, so it is not added again.
+  const promptTokens = input + cacheRead + cacheWrite;
+  const card = cardForPrompt(pricing, promptTokens);
   const remainder = cacheWrite - cacheWrite1h;
-  const cacheWriteRate = pricing.cacheWrite ?? 0;
+  const cacheWriteRate = card.cacheWrite ?? 0;
 
   // `|| cacheWriteRate` (not `??`): a 0 rate is treated as unset and falls back to the
   // base cache-write rate, matching the Python worker's truthy `_rate` fallback so the
   // two cost formulas agree for every input (incl. an explicit cacheWrite1h of 0).
   return (
-    input * pricing.input +
-    output * pricing.output +
-    cacheRead * (pricing.cacheRead ?? 0) +
+    input * card.input +
+    output * card.output +
+    cacheRead * (card.cacheRead ?? 0) +
     remainder * cacheWriteRate +
-    cacheWrite1h * (pricing.cacheWrite1h || cacheWriteRate)
+    cacheWrite1h * (card.cacheWrite1h || cacheWriteRate)
   );
 }
 
@@ -191,5 +249,28 @@ export async function calculateCost(
     cacheReadTokens,
     cacheWriteTokens,
     cacheWrite1hTokens,
+  );
+}
+
+export interface ReportedCall {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cacheWrite1h?: number;
+  /** Provider or stream total. 0 means this call still needs the price file. */
+  cost: number;
+}
+
+/** Keep a positive reported cost. Otherwise price this one call from the catalogue. */
+export async function priceReportedCall(modelId: string, call: ReportedCall): Promise<number> {
+  if (call.cost > 0) return call.cost;
+  return calculateCost(
+    modelId,
+    call.input,
+    call.output,
+    call.cacheRead ?? 0,
+    call.cacheWrite ?? 0,
+    call.cacheWrite1h ?? 0,
   );
 }

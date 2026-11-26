@@ -7,6 +7,27 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@traceroot/core", () => ({
   calculateCost: mocks.calculateCost,
+  priceReportedCall: async (
+    modelId: string,
+    call: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      cacheWrite1h?: number;
+      cost: number;
+    },
+  ) => {
+    if (call.cost > 0) return call.cost;
+    return mocks.calculateCost(
+      modelId,
+      call.input,
+      call.output,
+      call.cacheRead ?? 0,
+      call.cacheWrite ?? 0,
+      call.cacheWrite1h ?? 0,
+    );
+  },
 }));
 
 import { UsageAccumulator } from "../usage-accumulator.js";
@@ -25,6 +46,7 @@ const messageEnd = (usage: Record<string, unknown>, model = "test-model"): Agent
 describe("UsageAccumulator", () => {
   beforeEach(() => {
     mocks.calculateCost.mockClear();
+    mocks.calculateCost.mockResolvedValue(0.42);
   });
 
   it("sums usage across message_end events and uses the stream-reported cost", async () => {
@@ -44,13 +66,47 @@ describe("UsageAccumulator", () => {
     expect(mocks.calculateCost).not.toHaveBeenCalled();
   });
 
+  it("prices each unpriced call on its own counts instead of the sum", async () => {
+    mocks.calculateCost.mockResolvedValueOnce(0.02).mockResolvedValueOnce(0.02);
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 20_000, output: 0 }));
+    acc.onEvent(messageEnd({ input: 20_000, output: 0 }));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(mocks.calculateCost).toHaveBeenNthCalledWith(1, "test-model", 20_000, 0, 0, 0, 0);
+    expect(mocks.calculateCost).toHaveBeenNthCalledWith(2, "test-model", 20_000, 0, 0, 0, 0);
+    expect(usage?.inputTokens).toBe(40_000);
+    expect(usage?.cost).toBeCloseTo(0.04);
+  });
+
   it("falls back to the pricing table when the stream reports zero cost", async () => {
     const acc = new UsageAccumulator();
     acc.onEvent(messageEnd({ input: 10, output: 5, cacheRead: 2, cacheWrite: 1 }));
 
     const usage = await acc.toTokenUsage(true);
-    expect(mocks.calculateCost).toHaveBeenCalledWith("test-model", 10, 5, 2, 1);
+    expect(mocks.calculateCost).toHaveBeenCalledWith("test-model", 10, 5, 2, 1, 0);
     expect(usage).toMatchObject({ isByok: true, cost: 0.42 });
+  });
+
+  it("asks the catalogue for a 300K-token gpt-5.6-sol call when the stream reported 0", async () => {
+    // Long-context models zero pi-ai's flat rates, so usage.cost.total is 0.
+    // The long card itself is covered in model-pricing.test.ts.
+    mocks.calculateCost.mockResolvedValueOnce(2.4);
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 300_000, output: 0, cost: { total: 0 } }, "gpt-5.6-sol"));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(mocks.calculateCost).toHaveBeenCalledWith("gpt-5.6-sol", 300_000, 0, 0, 0, 0);
+    expect(usage?.cost).toBe(2.4);
+  });
+
+  it("keeps a reported cost when the message carried no tokens", async () => {
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ cost: { total: 0.01 } }));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(mocks.calculateCost).not.toHaveBeenCalled();
+    expect(usage?.cost).toBeCloseTo(0.01);
   });
 
   it("warns when pricing is missing so the run is visibly unbilled", async () => {
@@ -89,6 +145,18 @@ describe("UsageAccumulator", () => {
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+
+  it("keeps stream-reported costs when the pricing lookup fails mid-run", async () => {
+    mocks.calculateCost.mockRejectedValueOnce(new Error("pricing db down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 10, output: 5, cost: { total: 0.01 } }));
+    acc.onEvent(messageEnd({ input: 20, output: 0 }));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(usage?.cost).toBeCloseTo(0.01);
+    errorSpy.mockRestore();
   });
 
   it("carries the last reported cumulative session total", async () => {

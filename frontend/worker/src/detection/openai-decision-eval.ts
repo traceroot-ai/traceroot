@@ -166,6 +166,7 @@ export async function runOpenAIDecisionDetection(params: {
     // charge output and full-rate cache, which Decisions does not bill.
     inferenceCost: result.cost ?? 0,
     skipCostFallback: true,
+    inferenceCalls: [],
     inferenceInputTokens: result.usage.inputTokens,
     inferenceOutputTokens: result.usage.outputTokens,
     inferenceSource: "byok",

@@ -43,6 +43,27 @@ vi.mock("@traceroot/core", () => ({
   prisma: mockPrisma,
   PlanType: { FREE: "free", PRO: "pro" },
   calculateCost: mockCalculateCost,
+  priceReportedCall: async (
+    modelId: string,
+    call: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      cacheWrite1h?: number;
+      cost: number;
+    },
+  ) => {
+    if (call.cost > 0) return call.cost;
+    return mockCalculateCost(
+      modelId,
+      call.input,
+      call.output,
+      call.cacheRead ?? 0,
+      call.cacheWrite ?? 0,
+      call.cacheWrite1h ?? 0,
+    );
+  },
 }));
 
 vi.mock("../../queues/detector-run-queue.js", () => ({
@@ -512,6 +533,16 @@ describe("processTrace — finding + RCA", () => {
       summary: "clean",
       data: {},
       inferenceCost: 0,
+      inferenceCalls: [
+        {
+          input: 1000,
+          output: 500,
+          cacheRead: 0,
+          cacheWrite: 0,
+          cacheWrite1h: 0,
+          cost: 0,
+        },
+      ],
       inferenceInputTokens: 1000,
       inferenceOutputTokens: 500,
       inferenceSource: "byok",
@@ -522,7 +553,7 @@ describe("processTrace — finding + RCA", () => {
 
     await processTrace("t1", "p1", ["d1"]);
 
-    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500);
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500, 0, 0, 0);
     expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
@@ -578,6 +609,109 @@ describe("processTrace — finding + RCA", () => {
           inputTokens: 1000,
           outputTokens: 7,
           cost: 0,
+        }),
+      ],
+    });
+  });
+
+  it("prices each zero-cost call on its own counts, including a long prompt", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: "glm-5.2",
+        detectionProvider: "zai",
+        detectionSource: "byok",
+        enableRca: false,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceCalls: [
+        {
+          input: 150_000,
+          output: 10,
+          cacheRead: 0,
+          cacheWrite: 0,
+          cacheWrite1h: 0,
+          cost: 0,
+        },
+      ],
+      inferenceInputTokens: 150_000,
+      inferenceOutputTokens: 10,
+      inferenceSource: "byok",
+      inferenceModel: "glm-5.2",
+      inferenceProvider: "zai",
+    });
+    mockCalculateCost.mockResolvedValue(0.02);
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 150_000, 10, 0, 0, 0);
+  });
+
+  it("keeps a positive reported cost and still prices an earlier zero-cost attempt", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: "glm-5.2",
+        detectionProvider: "zai",
+        detectionSource: "byok",
+        enableRca: false,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0.01,
+      inferenceCalls: [
+        {
+          input: 20_000,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          cacheWrite1h: 0,
+          cost: 0,
+        },
+        {
+          input: 20_000,
+          output: 20,
+          cacheRead: 0,
+          cacheWrite: 0,
+          cacheWrite1h: 0,
+          cost: 0.01,
+        },
+      ],
+      inferenceInputTokens: 40_000,
+      inferenceOutputTokens: 20,
+      inferenceSource: "byok",
+      inferenceModel: "glm-5.2",
+      inferenceProvider: "zai",
+    });
+    mockCalculateCost.mockResolvedValueOnce(0.02);
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockCalculateCost).toHaveBeenCalledTimes(1);
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 20_000, 0, 0, 0, 0);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          model: "glm-5.2",
+          inputTokens: 40_000,
+          outputTokens: 20,
+          cost: 0.03,
         }),
       ],
     });
@@ -740,6 +874,14 @@ describe("processTrace — usage-meter classification", () => {
     summary: "clean",
     data: {},
     inferenceCost: 0,
+    inferenceCalls: [] as Array<{
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+      cacheWrite1h: number;
+      cost: number;
+    }>,
     inferenceInputTokens: 0,
     inferenceOutputTokens: 0,
     inferenceSource: "system",
@@ -767,6 +909,30 @@ describe("processTrace — usage-meter classification", () => {
 
     expect(mockWriteRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed", usedInference: true }),
+    );
+  });
+
+  it("does not mark a cache-only run as inference-using", async () => {
+    // Cache tokens alone do not count toward detector quota. Long-context
+    // tiers are not modelled on this path (#2940).
+    mockRunDetection.mockResolvedValue({
+      ...BASE_RESULT,
+      inferenceCalls: [
+        {
+          input: 0,
+          output: 0,
+          cacheRead: 900,
+          cacheWrite: 100,
+          cacheWrite1h: 0,
+          cost: 0,
+        },
+      ],
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "completed", usedInference: false }),
     );
   });
 

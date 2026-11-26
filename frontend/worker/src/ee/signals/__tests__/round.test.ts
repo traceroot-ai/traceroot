@@ -5,7 +5,30 @@ const { mockApply, mockCalculateCost } = vi.hoisted(() => ({
   mockCalculateCost: vi.fn(),
 }));
 vi.mock("../write.js", () => ({ applyAssignment: mockApply }));
-vi.mock("@traceroot/core", () => ({ calculateCost: mockCalculateCost }));
+vi.mock("@traceroot/core", () => ({
+  calculateCost: mockCalculateCost,
+  priceReportedCall: async (
+    modelId: string,
+    call: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      cacheWrite1h?: number;
+      cost: number;
+    },
+  ) => {
+    if (call.cost > 0) return call.cost;
+    return mockCalculateCost(
+      modelId,
+      call.input,
+      call.output,
+      call.cacheRead ?? 0,
+      call.cacheWrite ?? 0,
+      call.cacheWrite1h ?? 0,
+    );
+  },
+}));
 
 import type { AssignmentRow, SignalsBackend, WaitingHitRow } from "../backend-client.js";
 import { runAssignmentRound, type RoundDeps } from "../round.js";
@@ -456,6 +479,54 @@ describe("runAssignmentRound", () => {
     });
     expect(chat.cost).toBeCloseTo(0.004);
     expect(emb).toMatchObject({ inputTokens: 20, cost: 0.5 });
+  });
+
+  it("prices each zero-cost call before summing a model", async () => {
+    mockCalculateCost.mockImplementation(async (_model: string, input: number) => input * 1e-6);
+    const { backend } = fakeBackend([row(1)]);
+    const { db, aiRows } = fakeDb();
+    const roundDeps = deps(db, backend);
+    roundDeps.models = async (usage) => ({
+      chat: {
+        assign: async () => ({
+          choice: "none",
+          reason: "",
+          newSignal: { title: "T", covers: "T", excludes: "" },
+        }),
+        write: async () => {
+          usage.push({
+            model: "gpt-5.6-luna",
+            provider: "openai",
+            isByok: false,
+            inputTokens: 20_000,
+            outputTokens: 0,
+            cost: 0,
+          });
+          usage.push({
+            model: "gpt-5.6-luna",
+            provider: "openai",
+            isByok: false,
+            inputTokens: 20_000,
+            outputTokens: 0,
+            cacheReadTokens: 15_000,
+            cacheWriteTokens: 1_000,
+            cost: 0,
+          });
+          return { title: "T", covers: "T", excludes: "" };
+        },
+        validate: async () => [true],
+      },
+      jev: null,
+    });
+    await runAssignmentRound(roundDeps, "p", "d");
+    const luna = mockCalculateCost.mock.calls.filter((call) => call[0] === "gpt-5.6-luna");
+    expect(luna.map((call) => [call[1], call[3], call[4]])).toEqual([
+      [20_000, 0, 0],
+      [20_000, 15_000, 1_000],
+    ]);
+    const chat = aiRows.find((row) => row.model === "gpt-5.6-luna")!;
+    expect(chat.inputTokens).toBe(40_000);
+    expect(chat.cost).toBeCloseTo(0.04);
   });
 
   it("fails the job when the ClickHouse copy cannot be written, after assigning in Postgres", async () => {

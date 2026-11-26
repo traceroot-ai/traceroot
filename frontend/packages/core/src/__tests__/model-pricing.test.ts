@@ -25,6 +25,7 @@ const CLAUDE: ModelPricing = {
   cacheRead: 0.0000005,
   cacheWrite: 0.00000625,
   cacheWrite1h: 0.00001,
+  long: null,
 };
 
 describe("calculateCostFromPricing — cache-write 1-hour portion", () => {
@@ -242,6 +243,156 @@ describe("regional prefix list", () => {
       }
     }
     expect([...seen].sort()).toEqual([...REGIONAL_PREFIXES].sort());
+  });
+});
+
+describe("calculateCostFromPricing — long context", () => {
+  const longPrices = {
+    input: 0.0000005,
+    output: 0.0000025,
+    cacheRead: 0.00000005,
+    cacheWrite: 0.000000625,
+    cacheWrite1h: 0.000001,
+  };
+  const haiku: ModelPricing = {
+    input: 0.0000001,
+    output: 0.0000005,
+    cacheRead: 0.00000001,
+    cacheWrite: 0.000000125,
+    cacheWrite1h: 0.0000002,
+    long: { threshold: 100_000, prices: longPrices },
+  };
+
+  it("stays on the short card at the threshold and switches one token past it", () => {
+    expect(calculateCostFromPricing(haiku, 100_000, 0)).toBeCloseTo(100_000 * 0.0000001, 12);
+    expect(calculateCostFromPricing(haiku, 100_001, 0)).toBeCloseTo(100_001 * 0.0000005, 12);
+  });
+
+  it("counts cache read toward the prompt length", () => {
+    expect(calculateCostFromPricing(haiku, 90_000, 0, 10_001, 0)).toBeCloseTo(
+      90_000 * 0.0000005 + 10_001 * 0.00000005,
+      12,
+    );
+  });
+
+  it("counts cache write toward the prompt length and prices those writes on the long card", () => {
+    expect(calculateCostFromPricing(haiku, 90_000, 0, 0, 10_001)).toBeCloseTo(
+      90_000 * 0.0000005 + 10_001 * 0.000000625,
+      12,
+    );
+  });
+
+  it("uses a long rate of 0 instead of falling back to the short rate", () => {
+    const free: ModelPricing = {
+      ...haiku,
+      long: { threshold: 0, prices: { ...longPrices, input: 0, output: 0 } },
+    };
+    expect(calculateCostFromPricing(free, 11, 1)).toBeCloseTo(0, 12);
+  });
+
+  it("keeps the short rate for a category the long card does not set", () => {
+    const partial: ModelPricing = {
+      input: 0.0000001,
+      output: 0.0000005,
+      cacheRead: null,
+      cacheWrite: 0.000000125,
+      cacheWrite1h: null,
+      long: {
+        threshold: 10,
+        prices: {
+          input: null,
+          output: null,
+          cacheRead: null,
+          cacheWrite: null,
+          cacheWrite1h: null,
+        },
+      },
+    };
+    // Over the threshold, with no long rates at all. Every category stays short,
+    // and a missing cache-read rate contributes nothing.
+    const cost = calculateCostFromPricing(partial, 11, 1, 4, 2);
+    expect(cost).toBeCloseTo(11 * 0.0000001 + 1 * 0.0000005 + 2 * 0.000000125, 12);
+  });
+});
+
+describe("getModelPricing — long rows", () => {
+  it("reads the *_long rows into the long card, including an explicit 0", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([
+      {
+        modelName: "claude-haiku-5-5",
+        matchPattern: "(?i)^claude-haiku-5-5$",
+        longContextThreshold: 100_000,
+        prices: [
+          { usageType: "input", price: 0.0000001 },
+          { usageType: "output", price: 0.0000005 },
+          { usageType: "input_long", price: 0.0000005 },
+          { usageType: "output_long", price: 0.0000025 },
+          { usageType: "cacheWrite_long", price: 0 },
+        ],
+      },
+    ]);
+    const pricing = await lookup("claude-haiku-5-5");
+    expect(pricing?.long).toEqual({
+      threshold: 100_000,
+      prices: {
+        input: 0.0000005,
+        output: 0.0000025,
+        cacheRead: null,
+        cacheWrite: 0,
+        cacheWrite1h: null,
+      },
+    });
+  });
+
+  it("prices a zero-cost 300K gpt-5.6-sol call on the long card and keeps a positive reported cost", async () => {
+    const { priceReportedCall: priceCall } = await loadWithCatalogue([
+      {
+        modelName: "gpt-5.6-sol",
+        matchPattern: "(?i)^gpt-5\\.6-sol$",
+        longContextThreshold: 272_000,
+        prices: [
+          { usageType: "input", price: 0.000004 },
+          { usageType: "output", price: 0.00002 },
+          { usageType: "input_long", price: 0.000008 },
+          { usageType: "output_long", price: 0.00003 },
+        ],
+      },
+    ]);
+
+    expect(await priceCall("gpt-5.6-sol", { input: 10, output: 0, cost: 0.01 })).toBeCloseTo(
+      0.01,
+      12,
+    );
+    expect(await priceCall("gpt-5.6-sol", { input: 272_000, output: 0, cost: 0 })).toBeCloseTo(
+      272_000 * 0.000004,
+      12,
+    );
+    expect(await priceCall("gpt-5.6-sol", { input: 300_000, output: 0, cost: 0 })).toBeCloseTo(
+      300_000 * 0.000008,
+      12,
+    );
+  });
+
+  it("applies the regional premium to a long prompt", async () => {
+    const { getModelPricing: lookup, calculateCostFromPricing: price } = await loadWithCatalogue([
+      {
+        modelName: "claude-haiku-5-5",
+        matchPattern: "(?i)^(jp\\.)?anthropic\\.claude-haiku-5-5$",
+        regionalPremium: 1.1,
+        longContextThreshold: 100_000,
+        prices: [
+          { usageType: "input", price: 1e-7 },
+          { usageType: "output", price: 5e-7 },
+          { usageType: "input_long", price: 5e-7 },
+          { usageType: "output_long", price: 2.5e-6 },
+        ],
+      },
+    ]);
+    const pricing = await lookup("jp.anthropic.claude-haiku-5-5");
+    expect(pricing?.input).toBeCloseTo(1.1e-7, 12);
+    expect(pricing?.long?.threshold).toBe(100_000);
+    expect(pricing?.long?.prices.input).toBeCloseTo(5.5e-7, 12);
+    expect(price(pricing!, 100_001, 0)).toBeCloseTo(100_001 * 5.5e-7, 12);
   });
 });
 

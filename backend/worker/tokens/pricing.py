@@ -42,7 +42,6 @@ def _load_cache() -> list[dict]:
     if _cache is not None:
         return _cache
 
-    models: list[dict] = []
     try:
         conn = psycopg2.connect(settings.database_url)
         try:
@@ -50,7 +49,7 @@ def _load_cache() -> list[dict]:
                 cur.execute(
                     """
                     SELECT m.model_name, m.match_pattern, m.regional_premium,
-                           p.usage_type, p.price
+                           m.long_context_threshold, p.usage_type, p.price
                     FROM standard_models m
                     JOIN standard_model_prices p ON p.model_id = m.id
                     ORDER BY m.model_name, p.usage_type
@@ -70,7 +69,7 @@ def _load_cache() -> list[dict]:
 
     # Group rows by model_name
     by_model: dict[str, dict] = {}
-    for model_name, match_pattern, regional_premium, usage_type, price in rows:
+    for model_name, match_pattern, regional_premium, threshold, usage_type, price in rows:
         if model_name not in by_model:
             by_model[model_name] = {
                 "model_name": model_name,
@@ -78,13 +77,23 @@ def _load_cache() -> list[dict]:
                 "regional_premium": (
                     float(regional_premium) if regional_premium is not None else None
                 ),
+                "long_context_threshold": int(threshold) if threshold is not None else None,
                 "prices": {},
+                "long_prices": {},
             }
-        by_model[model_name]["prices"][usage_type] = (
-            float(price) if isinstance(price, Decimal) else price
-        )
+        rate = float(price) if isinstance(price, Decimal) else price
+        if usage_type.endswith("_long"):
+            by_model[model_name]["long_prices"][usage_type[: -len("_long")]] = rate
+        else:
+            by_model[model_name]["prices"][usage_type] = rate
 
-    models = list(by_model.values())
+    models = []
+    for entry in by_model.values():
+        long_prices = entry.pop("long_prices")
+        threshold = entry.pop("long_context_threshold")
+        if threshold is not None:
+            entry["long_context"] = {"threshold": threshold, "prices": long_prices}
+        models.append(entry)
     _cache = models
     return _cache
 
@@ -94,15 +103,28 @@ def _load_cache() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _rates_for(entry: dict, model: str) -> dict:
-    """Card for ``model``, times the regional premium on a regional Bedrock profile."""
-    prices = entry["prices"]
-    premium = entry.get("regional_premium")
-    if not premium or _REGIONAL_PROFILE.match(model) is None:
-        return prices
-    # The matched-row name rides in the card during tests, so only floats scale.
+def _scaled(rates: dict, premium: float | None) -> dict:
+    """``rates`` times ``premium``, or ``rates`` itself when there is none.
+
+    The matched-row name rides in the card during tests, so only floats scale.
+    """
+    if not premium:
+        return rates
     return {
-        key: value * premium if isinstance(value, float) else value for key, value in prices.items()
+        key: value * premium if isinstance(value, float) else value for key, value in rates.items()
+    }
+
+
+def _rates_for(entry: dict, model: str) -> dict:
+    """Card for ``model``: the regional premium when due, plus the long-context tier."""
+    premium = entry.get("regional_premium") if _REGIONAL_PROFILE.match(model) else None
+    prices = _scaled(entry["prices"], premium)
+    long = entry.get("long_context")
+    if not long:
+        return prices
+    return {
+        **prices,
+        "long": {"threshold": long["threshold"], "prices": _scaled(long["prices"], premium)},
     }
 
 
@@ -144,6 +166,35 @@ def _rate(prices: dict[str, float], key: str, *fallbacks: str) -> Decimal:
     return Decimal(0)
 
 
+def _prompt_tokens(buckets: TokenBuckets) -> int:
+    """Tokens that count toward a long-context threshold.
+
+    Uncached input, cache read, and cache write. The 1-hour write is already
+    inside ``cache_write``, so it is not added again. Output does not count.
+    """
+    return max(buckets.input_uncached, 0) + max(buckets.cache_read, 0) + max(buckets.cache_write, 0)
+
+
+def _prices_for_prompt_length(prices: dict, buckets: TokenBuckets) -> dict:
+    """Short card at or under the threshold, long card one token past it.
+
+    No long card prices exactly as before. A missing long rate keeps that
+    category on the short rate. A long rate of 0 is a real rate, matching
+    the TypeScript ``??`` fallback, and a threshold of 0 is a real threshold.
+    """
+    long = prices.get("long")
+    if not isinstance(long, dict):
+        return prices
+    threshold = long.get("threshold")
+    if threshold is None or _prompt_tokens(buckets) <= int(threshold):
+        return prices
+    chosen = dict(prices)
+    for key, long_rate in long.get("prices", {}).items():
+        if long_rate is not None:
+            chosen[key] = long_rate
+    return chosen
+
+
 def _bucket_cost_terms(
     prices: dict[str, float] | None, buckets: TokenBuckets
 ) -> dict[str, Decimal] | None:
@@ -169,6 +220,8 @@ def _bucket_cost_terms(
     """
     if not prices:
         return None
+
+    prices = _prices_for_prompt_length(prices, buckets)
 
     # Reconcile the 1-hour portion here too — this is the single source of truth for
     # the cost formula, so it must price each write token once for ANY TokenBuckets,

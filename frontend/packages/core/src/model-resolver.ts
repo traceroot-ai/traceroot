@@ -78,10 +78,25 @@ const hostedFallbacks: Partial<Record<string, HostedFallback>> = {
   },
 };
 
+function catalogHasLongContext(modelId: string): boolean {
+  return (standardModels as Array<{ modelName: string; longContext?: unknown }>).some(
+    (row) => row.modelName === modelId && row.longContext != null,
+  );
+}
+
+/** Flat zeros so pi-ai's calculateCost still runs and reports total 0. */
+const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
 /**
  * Build a pi-ai Model object with the correct `api` protocol while preserving
  * pi-ai registry data (pricing, context window) when available.
  * Falls back to a manual object for models not in the registry.
+ *
+ * A catalogue row with a long-context tier must not carry pi-ai's flat short
+ * rates. Those rates make usage.cost.total positive, and callers that keep any
+ * positive total never ask the price file. Zero the rates instead of deleting
+ * `cost`: pi-ai's calculateCost reads model.cost.input and throws if it is
+ * missing.
  */
 function buildFallbackModel(
   modelId: string,
@@ -94,7 +109,11 @@ function buildFallbackModel(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const registryModel = getModel(provider as any, modelId as any);
   if (registryModel) {
-    return { ...registryModel, api: apiProtocol } as Model<Api>;
+    const model = { ...registryModel, api: apiProtocol } as Model<Api>;
+    if (catalogHasLongContext(modelId)) {
+      (model as { cost: typeof ZERO_COST }).cost = { ...ZERO_COST };
+    }
+    return model;
   }
   // Standard prices are per token; pi-ai expects dollars per million tokens.
   const prices = hostedFallback
@@ -108,12 +127,14 @@ function buildFallbackModel(
     baseUrl: hostedFallback ? ADAPTER_DEFAULT_BASE_URL[provider] : "",
     reasoning: false,
     input: ["text", "image"] as ("text" | "image")[],
-    cost: {
-      input: (prices?.input ?? 0) * 1_000_000,
-      output: (prices?.output ?? 0) * 1_000_000,
-      cacheRead: (prices?.cacheRead ?? 0) * 1_000_000,
-      cacheWrite: (prices?.cacheWrite ?? 0) * 1_000_000,
-    },
+    cost: catalogHasLongContext(modelId)
+      ? { ...ZERO_COST }
+      : {
+          input: (prices?.input ?? 0) * 1_000_000,
+          output: (prices?.output ?? 0) * 1_000_000,
+          cacheRead: (prices?.cacheRead ?? 0) * 1_000_000,
+          cacheWrite: (prices?.cacheWrite ?? 0) * 1_000_000,
+        },
     contextWindow: 200000,
     maxTokens: hostedFallback ? 128_000 : 64_000,
     ...hostedFallback,
