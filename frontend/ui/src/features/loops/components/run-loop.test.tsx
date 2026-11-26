@@ -60,6 +60,13 @@ describe("RunLoop", () => {
     );
   });
 
+  it("names a pause before the plan, as the run route does", () => {
+    render(<RunLoop projectId="p1" loopId="l1" active={false} planBlocked paused />);
+    expect(screen.getByRole("button", { name: "Run now" }).parentElement?.title).toBe(
+      LOOP_RUN_PAUSED,
+    );
+  });
+
   it("has no reason when it can run", () => {
     render(
       <RunLoop projectId="p1" loopId="l1" active={false} planBlocked={false} paused={false} />,

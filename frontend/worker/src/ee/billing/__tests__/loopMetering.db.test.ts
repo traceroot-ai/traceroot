@@ -94,6 +94,66 @@ async function addAgentRun(ids: Ids) {
   return session.id;
 }
 
+/**
+ * A run whose model failed before answering, as the agent route persists it:
+ * the kickoff, then an empty assistant row carrying the error.
+ */
+async function addFailedModelRun(ids: Ids) {
+  const session = await prisma.aISession.create({
+    data: { projectId: ids.projectId, workspaceId: ids.workspaceId },
+  });
+  const turn = {
+    workspaceId: ids.workspaceId,
+    sessionId: session.id,
+    kind: "loop",
+    turnKind: "loop_execution",
+  } as const;
+  await prisma.aIMessage.createMany({
+    data: [
+      { ...turn, role: "user", content: "Run the loop" },
+      { ...turn, role: "assistant", content: "", metadata: { runError: "401 invalid key" } },
+    ],
+  });
+  await prisma.$transaction((tx) =>
+    createRun(tx, {
+      loopId: ids.loop.id,
+      projectId: ids.projectId,
+      trigger: "manual",
+      status: "failed",
+      data: { sessionId: session.id },
+    }),
+  );
+  return session.id;
+}
+
+/** A run whose agent answered only with tool calls: no assistant text, a usage-only row. */
+async function addToolOnlyRun(ids: Ids) {
+  const session = await prisma.aISession.create({
+    data: { projectId: ids.projectId, workspaceId: ids.workspaceId },
+  });
+  const turn = {
+    workspaceId: ids.workspaceId,
+    sessionId: session.id,
+    kind: "loop",
+    turnKind: "loop_execution",
+  } as const;
+  await prisma.aIMessage.createMany({
+    data: [
+      { ...turn, role: "user", content: "Run the loop" },
+      { ...turn, role: "tool_step", content: "", metadata: { toolName: "loop_submit_summary" } },
+      {
+        ...turn,
+        role: "assistant",
+        content: "",
+        isByok: false,
+        inputTokens: 500,
+        outputTokens: 50,
+      },
+    ],
+  });
+  return session.id;
+}
+
 function periodWindow() {
   const now = Date.now();
   return { createTime: { gte: new Date(now - 3_600_000), lt: new Date(now + 3_600_000) } };
@@ -146,6 +206,25 @@ describe.skipIf(!url)("meterLoopRuns on Postgres", () => {
     const { usage } = await meter(ids, PlanType.FREE);
     expect(usage.runsUsed).toBe(3);
     expect(usage.systemInputTokens).toBe(3000);
+  });
+
+  it("does not count a run whose model failed before it replied", async () => {
+    const ids = await setup("free");
+    await addAgentRun(ids);
+    await addFailedModelRun(ids);
+    await addFailedModelRun(ids);
+
+    const { usage } = await meter(ids, PlanType.FREE);
+    expect(usage.runsUsed).toBe(1);
+  });
+
+  it("counts a run whose agent replied only with tool calls", async () => {
+    const ids = await setup("free");
+    await addToolOnlyRun(ids);
+    await addFailedModelRun(ids);
+
+    const { usage } = await meter(ids, PlanType.FREE);
+    expect(usage.runsUsed).toBe(1);
   });
 
   it("keeps a deleted Loop's runs counted", async () => {

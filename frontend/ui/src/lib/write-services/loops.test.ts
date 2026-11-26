@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // One transaction client for the service's reads and writes; the root client
 // carries only the audit row, written after the transaction commits.
-const { tx, root, listWorkspaceModels } = vi.hoisted(() => ({
+const { tx, root, listWorkspaceModels, billing } = vi.hoisted(() => ({
   tx: {
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
@@ -13,6 +13,7 @@ const { tx, root, listWorkspaceModels } = vi.hoisted(() => ({
   },
   root: { auditLog: { create: vi.fn() }, loop: { findFirst: vi.fn() } },
   listWorkspaceModels: vi.fn(),
+  billing: { enabled: true },
 }));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const { detectorModelProblem } = await importOriginal<typeof import("@traceroot/core")>();
@@ -26,6 +27,8 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     hasMinRole: (userRole: string, minRole: string) =>
       ["VIEWER", "MEMBER", "ADMIN"].indexOf(userRole) >=
       ["VIEWER", "MEMBER", "ADMIN"].indexOf(minRole),
+    PlanType: { FREE: "free", STARTER: "starter", PRO: "pro" },
+    isBillingEnabled: () => billing.enabled,
     detectorModelProblem,
     listWorkspaceModels,
   };
@@ -97,6 +100,7 @@ beforeEach(() => {
     loopRow({ ...data, id: "l1" }),
   );
   root.auditLog.create.mockResolvedValue({});
+  billing.enabled = true;
   listWorkspaceModels.mockResolvedValue({ systemModels: [], byokProviders: [] });
 });
 
@@ -437,7 +441,7 @@ describe("requestLoopRun", () => {
     tx.project.findUnique.mockResolvedValue({
       workspaceId: "w1",
       deleteTime: null,
-      workspace: { loopBlocked: false },
+      workspace: { loopBlocked: false, billingPlan: "free" },
     });
     tx.$queryRaw.mockResolvedValue([{ id: "l1", name: "Daily review", status: "active" }]);
     tx.loopRun.aggregate.mockResolvedValue({ _max: { seq: 2 } });
@@ -485,21 +489,42 @@ describe("requestLoopRun", () => {
     expect(root.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it("refuses when the workspace has used its plan's loop runs", async () => {
+  const blockedOn = (billingPlan: string) =>
     tx.project.findUnique.mockResolvedValue({
       workspaceId: "w1",
       deleteTime: null,
-      workspace: { loopBlocked: true },
+      workspace: { loopBlocked: true, billingPlan },
     });
+
+  it("refuses when a Free workspace has used its plan's loop runs", async () => {
+    blockedOn("free");
     expect(await requestLoopRun({ ...base, loopId: "l1" })).toEqual({
       ok: false,
       status: 409,
       error: LOOP_RUN_PLAN_BLOCKED,
     });
     expect(tx.project.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ include: { workspace: { select: { loopBlocked: true } } } }),
+      expect.objectContaining({
+        include: { workspace: { select: { loopBlocked: true, billingPlan: true } } },
+      }),
     );
     expect(tx.loopRun.create).not.toHaveBeenCalled();
+  });
+
+  it.each(["starter", "pro"])("runs on a %s plan even with the flag still set", async (plan) => {
+    blockedOn(plan);
+    tx.loopRun.findFirst.mockResolvedValue(null);
+    expect(await requestLoopRun({ ...base, loopId: "l1" })).toMatchObject({
+      ok: true,
+      data: { status: "pending", trigger: "manual" },
+    });
+  });
+
+  it("runs on Free with the flag set when billing is off", async () => {
+    billing.enabled = false;
+    blockedOn("free");
+    tx.loopRun.findFirst.mockResolvedValue(null);
+    expect(await requestLoopRun({ ...base, loopId: "l1" })).toMatchObject({ ok: true });
   });
 
   it("answers 404 for another project's Loop, or one deleted before the lock", async () => {
@@ -556,7 +581,7 @@ describe("a Loop deleted mid-write, and other write failures", () => {
     tx.project.findUnique.mockResolvedValue({
       workspaceId: "w1",
       deleteTime: null,
-      workspace: { loopBlocked: false },
+      workspace: { loopBlocked: false, billingPlan: "free" },
     });
     tx.$queryRaw.mockResolvedValue([{ id: "l1", name: "Daily review", status: "active" }]);
     tx.loopRun.findFirst.mockResolvedValue(null);

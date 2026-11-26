@@ -63,17 +63,21 @@ export function runToDto(run: LoopRun): LoopRunDto {
   };
 }
 
-/** Attach each Loop's last run, run count, mean cost and signal count: four queries, however many Loops. */
+/**
+ * Attach each Loop's last run, run count, mean cost and signal count. The last
+ * run is one indexed lookup per Loop (a project has at most five), so the read
+ * never scans a Loop's whole run history.
+ */
 async function summarize(db: Db, loops: Loop[]): Promise<LoopSummaryDto[]> {
   if (loops.length === 0) return [];
   const loopIds = loops.map((l) => l.id);
   const detectorIds = loops.map((l) => l.detectorId);
   const [lastRuns, counted, signals] = await Promise.all([
-    db.loopRun.findMany({
-      where: { loopId: { in: loopIds } },
-      orderBy: [{ loopId: "asc" }, { seq: "desc" }],
-      distinct: ["loopId"],
-    }),
+    Promise.all(
+      loopIds.map((loopId) =>
+        db.loopRun.findFirst({ where: { loopId }, orderBy: { seq: "desc" } }),
+      ),
+    ),
     db.loopRun.groupBy({
       by: ["loopId"],
       where: { loopId: { in: loopIds }, status: { in: [...COUNTED_RUN_STATUSES] } },
@@ -86,7 +90,7 @@ async function summarize(db: Db, loops: Loop[]): Promise<LoopSummaryDto[]> {
       _count: { _all: true },
     }),
   ]);
-  const lastByLoop = new Map(lastRuns.map((r) => [r.loopId, r]));
+  const lastByLoop = new Map(lastRuns.flatMap((r) => (r ? [[r.loopId, r] as const] : [])));
   const countedByLoop = new Map(counted.map((c) => [c.loopId, c]));
   const signalsByDetector = new Map(signals.map((s) => [s.detectorId, s._count._all]));
   return loops.map((loop) => {

@@ -9,7 +9,8 @@ vi.mock("@/lib/auth-helpers", () => ({
   requireProjectAccess: vi.fn(),
 }));
 
-import { UI_DELETE_REASON, readDeleteReason } from "./route-helpers";
+import type { NextRequest } from "next/server";
+import { MAX_PAGE, UI_DELETE_REASON, readDeleteReason, readPaging } from "./route-helpers";
 
 const request = (body: unknown) => ({ json: async () => body }) as unknown as Request;
 
@@ -30,5 +31,24 @@ describe("readDeleteReason", () => {
     expect(await readDeleteReason(request(undefined))).toBe(UI_DELETE_REASON);
     expect(await readDeleteReason(request(["reason"]))).toBe(UI_DELETE_REASON);
     expect(await readDeleteReason(request({ reason: 5 }))).toBe(UI_DELETE_REASON);
+  });
+});
+
+describe("readPaging", () => {
+  const paging = (query: string) =>
+    readPaging({
+      nextUrl: new URL(`http://localhost/api?${query}`),
+    } as unknown as NextRequest);
+
+  it("defaults, and bounds limit and page", () => {
+    expect(paging("")).toEqual({ page: 0, limit: 50 });
+    expect(paging("page=x&limit=y")).toEqual({ page: 0, limit: 50 });
+    expect(paging("page=-3&limit=0")).toEqual({ page: 0, limit: 1 });
+    expect(paging("page=4&limit=500")).toEqual({ page: 4, limit: 200 });
+  });
+
+  it("caps a huge page so the offset stays a safe integer", () => {
+    expect(paging("page=99999999999999999999&limit=200")).toEqual({ page: MAX_PAGE, limit: 200 });
+    expect(Number.isSafeInteger(MAX_PAGE * 200)).toBe(true);
   });
 });
