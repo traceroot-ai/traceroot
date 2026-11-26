@@ -81,6 +81,7 @@ export function ConnectStep({
   const { data: workspace } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
   const [changingChannel, setChangingChannel] = useState(false);
+  const [showChannelPrompt, setShowChannelPrompt] = useState(false);
 
   // No GitHub App set up on this deployment (no client id or app name): GitHub
   // could only show an error page, so the row says so and offers nothing.
@@ -173,6 +174,7 @@ export function ConnectStep({
         {pickingChannel && canManage && (
           <ChannelPicker
             workspaceId={workspaceId}
+            showPrompt={showChannelPrompt && !slack?.channel}
             selectedId={slack?.channel?.id}
             onSaved={() => setChangingChannel(false)}
           />
@@ -182,7 +184,14 @@ export function ConnectStep({
       <div className="flex flex-col items-center gap-2">
         <button
           type="button"
-          onClick={onContinue}
+          disabled={slackLoading || (!!slack?.connected && !slack.channel && !workspace)}
+          onClick={() => {
+            if (canManage && slack?.connected && !slack.channel) {
+              setShowChannelPrompt(true);
+              return;
+            }
+            onContinue();
+          }}
           className={cn(buttonVariants({ size: "sm" }), "h-8 w-full text-[13px]")}
         >
           Continue
@@ -269,10 +278,12 @@ function ConnectLink({
 function ChannelPicker({
   workspaceId,
   selectedId,
+  showPrompt,
   onSaved,
 }: {
   workspaceId: string;
   selectedId: string | undefined;
+  showPrompt: boolean;
   onSaved: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -354,7 +365,13 @@ function ChannelPicker({
         </p>
       )}
       <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-        Pick a channel from the list.
+        {showPrompt ? (
+          <span role="alert" className="text-danger">
+            Choose a Slack channel or select Skip for now.
+          </span>
+        ) : (
+          "Pick a channel from the list."
+        )}
         {data?.hasPrivateChannelAccess === false &&
           " Private channels show up once the traceroot app is invited to them."}
       </p>

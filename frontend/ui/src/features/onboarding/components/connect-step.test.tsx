@@ -234,14 +234,25 @@ describe("choosing a Slack channel", () => {
     expect(screen.getByRole("alert").textContent).toContain("Slack refused the channel.");
   });
 
-  it("keeps Continue and Skip while the channel is still to pick", () => {
+  it("asks for a channel before continuing and still allows an explicit skip", () => {
     renderStep();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(onContinue).toHaveBeenCalledOnce();
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Choose a Slack channel");
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(onSkip).toHaveBeenCalledOnce();
   });
 });
 
 describe("a Slack channel chosen", () => {
+  it("continues immediately when the channel is already saved", () => {
+    slack.status = { connected: true, teamName: "Acme", channel: { id: "C1", name: "alerts" } };
+    renderStep();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(onContinue).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("says where alerts go, and can change it", async () => {
     slack.status = { connected: true, teamName: "Acme", channel: { id: "C1", name: "alerts" } };
     slack.channels = {
