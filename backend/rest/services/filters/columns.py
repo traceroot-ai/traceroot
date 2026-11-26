@@ -23,6 +23,7 @@ class FilterLevel(StrEnum):
     SPAN_AGGREGATE = "SPAN_AGGREGATE"  # trace_id IN (SELECT … GROUP BY trace_id HAVING …)
     KEYED_MAP = "KEYED_MAP"  # inline traces-row Map match OR the span semi-join, by key
     SIGNAL = "SIGNAL"  # trace_id IN (SELECT … FROM signal_assignments WHERE …)
+    LABEL = "LABEL"  # app-only match resolved through Postgres before the ClickHouse query
 
 
 class FilterType(StrEnum):
@@ -307,6 +308,19 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
 )
 
 FILTER_COLUMNS_BY_NAME: dict[str, FilterColumn] = {c.name: c for c in FILTER_COLUMNS}
+
+# App trace lists can resolve labels from the project catalog. Keep this out of the
+# ClickHouse/public registry, which also drives SQL and detector trigger validation.
+LABEL_FILTER_COLUMN = FilterColumn(
+    name="label",
+    label="Label",
+    ch_type="String",
+    level=FilterLevel.LABEL,
+    type=FilterType.CATEGORICAL,
+    operators=(FilterOperator.IN,),
+    value_source=ValueSource.DISTINCT_QUERY,
+    detector_trigger=False,
+)
 
 
 def get_column(name: str) -> FilterColumn | None:
