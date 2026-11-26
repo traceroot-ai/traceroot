@@ -25,6 +25,10 @@ import {
 } from "../queues/loop-run-queue.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
+/** The session create is one row write: a hung agent service must not hold the run's slot. */
+export const LOOP_SESSION_TIMEOUT_MS = 30_000;
+export const LOOP_SESSION_TIMEOUT_ERROR =
+  "The agent service did not create the loop session in time.";
 
 export const LOOP_NO_SUMMARY = "The run ended without a summary.";
 
@@ -193,10 +197,19 @@ async function callAgent(params: {
 
   // Created first, as runRcaSession does, so the run links to its chat even
   // when the run itself fails.
-  const sessionRes = await fetch(
-    `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
-    { method: "POST", headers, body: JSON.stringify({ title: params.title }) },
-  );
+  let sessionRes: Response;
+  try {
+    sessionRes = await fetch(`${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: params.title }),
+      signal: AbortSignal.timeout(LOOP_SESSION_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // A failed run, not a timed-out one: the agent never started on it.
+    if (isAbort(error)) throw new Error(LOOP_SESSION_TIMEOUT_ERROR);
+    throw error;
+  }
   if (!sessionRes.ok) {
     throw new Error(`Failed to create the loop session: HTTP ${sessionRes.status}`);
   }

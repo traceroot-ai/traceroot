@@ -24,7 +24,12 @@ import {
   LOOP_PLAN_SKIP,
   startLoopRun,
 } from "../../loops/start.js";
-import { noTracesSkip, processLoopRun } from "../loop-run-processor.js";
+import {
+  LOOP_SESSION_TIMEOUT_ERROR,
+  LOOP_SESSION_TIMEOUT_MS,
+  noTracesSkip,
+  processLoopRun,
+} from "../loop-run-processor.js";
 
 vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret-0123456789abcdef");
 
@@ -455,6 +460,39 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       expect(fetchMock.mock.calls.map(([target]) => String(target))).not.toContainEqual(
         expect.stringContaining("/loop-runs/"),
       );
+    });
+
+    it("gives the session create its own short timeout, and fails the run when it fires", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+      // The session's timer fires at once; any other keeps its real length.
+      const timeout = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockImplementation((ms) =>
+          ms === LOOP_SESSION_TIMEOUT_MS
+            ? AbortSignal.abort(new DOMException("The operation timed out.", "TimeoutError"))
+            : realTimeout(ms),
+        );
+      // A hung agent service: the request settles only when its signal aborts.
+      fetchMock.mockImplementation(
+        (_target: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            const signal = init.signal!;
+            if (signal.aborted) reject(signal.reason);
+            signal.addEventListener("abort", () => reject(signal.reason));
+          }),
+      );
+
+      await runJob(run.id);
+
+      expect(timeout).toHaveBeenCalledWith(LOOP_SESSION_TIMEOUT_MS);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "failed",
+        error: LOOP_SESSION_TIMEOUT_ERROR,
+        sessionId: null,
+      });
     });
 
     it("records the agent's outcome: a failed answer fails the run", async () => {
