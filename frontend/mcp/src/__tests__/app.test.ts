@@ -1,7 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { serve } from "@hono/node-server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApp, parseAllowedHosts } from "../app.js";
+import { createApp, parseAllowedHosts, parseListenPort } from "../app.js";
 import { PROBE_PATH } from "../credential-check.js";
 import { EXPOSED_TOOLS } from "../exposure.js";
 import { SERVER_INSTRUCTIONS } from "../instructions.js";
@@ -411,5 +411,24 @@ describe("parseAllowedHosts", () => {
     for (const raw of [undefined, "", " , ,"]) {
       expect(parseAllowedHosts(raw)).toBeUndefined();
     }
+  });
+});
+
+describe("parseListenPort", () => {
+  it("reads the URL's port", () => {
+    expect(parseListenPort("http://localhost:8200")).toBe(8200);
+    expect(parseListenPort("http://mcp:9000/mcp")).toBe(9000);
+  });
+
+  it("keeps an explicit default port", () => {
+    expect(parseListenPort("http://0.0.0.0:80")).toBe(80);
+    expect(parseListenPort("https://user:pw@mcp.example:443/mcp")).toBe(443);
+    expect(parseListenPort("http://[::1]:80")).toBe(80);
+  });
+
+  it("falls back to 8200 when the URL names no port", () => {
+    expect(parseListenPort("http://mcp")).toBe(8200);
+    expect(parseListenPort("https://user:pw@mcp.example/a:1")).toBe(8200);
+    expect(parseListenPort("http://[::1]")).toBe(8200);
   });
 });

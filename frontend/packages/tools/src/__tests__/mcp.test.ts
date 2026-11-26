@@ -79,6 +79,19 @@ describe("toMcpTool", () => {
     expect(url.searchParams.get("limit")).toBe("3");
   });
 
+  it("drops a hidden param a default supplies", async () => {
+    const fetchImpl = fakeFetch(200, {});
+    const tool = toMcpTool(listTraces, {
+      client: clientWith(fetchImpl),
+      hiddenParams: ["project_id"],
+      defaults: () => ({ project_id: "other", limit: 10 }),
+    });
+    await tool.execute({});
+    const url = requestedUrl(fetchImpl);
+    expect(url.searchParams.has("project_id")).toBe(false);
+    expect(url.searchParams.get("limit")).toBe("10");
+  });
+
   it("applies defaults but lets the caller's value win", async () => {
     const fetchImpl = fakeFetch(200, {});
     const tool = toMcpTool(listTraces, {
@@ -114,6 +127,16 @@ describe("toMcpTool", () => {
     const result = await tool.execute({ project_id: "p" });
     expect(result.isError).toBeUndefined();
     expect(JSON.parse(result.content[0]!.text)).toEqual({ a: 1 });
+  });
+
+  it("renders an undefined result as JSON null text", async () => {
+    const tool = toMcpTool(listTraces, {
+      client: clientWith(fakeFetch(200, {})),
+      transformResult: () => undefined,
+    });
+    const result = await tool.execute({ project_id: "p" });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]!.text).toBe("null");
   });
 
   it("returns an API failure as an isError result carrying the detail", async () => {
