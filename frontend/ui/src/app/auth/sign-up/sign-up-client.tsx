@@ -168,7 +168,11 @@ function SignUpContent({
         title={
           connection ? `Create an account to connect ${connection.name}` : "Create your account"
         }
-        subtitle="Start tracing and improving your AI agents."
+        subtitle={
+          connection
+            ? `Then set up a project for ${connection.name} to read.`
+            : "Start tracing and improving your AI agents."
+        }
       />
       {connection && (
         <div className="mb-5 space-y-2">
