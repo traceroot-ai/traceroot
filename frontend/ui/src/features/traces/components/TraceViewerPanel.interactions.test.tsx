@@ -253,6 +253,20 @@ describe("TraceViewerPanel header actions", () => {
     expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(true);
   });
 
+  it("copies the trace id from the header", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    renderPanel({ traceOverride: undefined });
+    fireEvent.click(screen.getByTitle("Copy trace id"));
+    expect(writeText).toHaveBeenCalledWith("trace-1");
+    vi.unstubAllGlobals();
+  });
+
+  it("offers no trace id copy under an override", () => {
+    renderPanel();
+    expect(screen.queryByTitle("Copy trace id")).toBeNull();
+  });
+
   it("closes the panel from the X button", () => {
     const onClose = vi.fn();
     renderPanel({ onClose });
