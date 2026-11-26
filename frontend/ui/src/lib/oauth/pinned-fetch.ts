@@ -33,6 +33,12 @@ type Deps = { lookup: typeof dnsLookup; request: typeof httpsRequest };
  * connection while the hostname stays the Host, SNI and certificate identity,
  * and redirects are returned, never followed. The plugin applies the timeout
  * (through the signal) and the body cap.
+ *
+ * Copied from fetchClientMetadataResource in @better-auth/cimd 1.7.15
+ * (dist/node.mjs); the only behavior change is maxHeaderSize. The plugin has
+ * no option for it, and the Node --max-http-header-size flag would raise the
+ * limit on every request web receives. Upgrading @better-auth/cimd means
+ * re-syncing this copy with that file.
  */
 export function pinnedMetadataFetch(deps: Deps = { lookup: dnsLookup, request: httpsRequest }) {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {

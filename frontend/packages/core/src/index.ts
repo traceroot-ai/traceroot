@@ -13,11 +13,14 @@ export { resolveWorkspaceApiKey } from "./lib/workspace-api-key.ts";
 export {
   EMAIL_COLORS,
   EMAIL_FONT_STACK,
-  EMAIL_LOGO_URL,
+  EMAIL_STOCK_LOGOS,
+  emailLogo,
+  emailLogoImg,
   EMAIL_PIXEL_WORDMARK_URL,
   escapeHtml,
   renderEmailCard,
 } from "./lib/email-card.ts";
+export type { EmailLogo } from "./lib/email-card.ts";
 
 // Re-export Prisma types
 export type {

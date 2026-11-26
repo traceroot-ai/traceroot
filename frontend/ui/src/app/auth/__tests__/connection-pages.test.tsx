@@ -98,8 +98,8 @@ describe.each(PAGES)("$name page while connecting an assistant", (c) => {
   });
 
   it.each([
-    ["google", "Google"],
-    ["agentid", "AgentID"],
+    ["google", "Continue with Google"],
+    ["agentid", "Continue with AgentID"],
   ] as const)("returns a %s sign-in to the authorization", async (provider, label) => {
     await renderPage(c.page, { callbackUrl: CALLBACK });
     fireEvent.click(screen.getByRole("button", { name: label }));

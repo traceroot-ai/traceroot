@@ -1,8 +1,8 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/app/auth/use-hydrated";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -11,10 +11,18 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Logo } from "@/components/Logo";
+import {
+  AgentIdNote,
+  AuthError,
+  AuthField,
+  AuthFooter,
+  AuthHeader,
+  AuthLayout,
+  AuthProviderOptions,
+  PasswordInput,
+} from "@/components/auth/auth-layout";
 import type { SocialProvider } from "@/lib/social-providers";
-import { SocialSignInButtons } from "../social-sign-in-buttons";
+import { useSocialSignIn } from "../use-social-sign-in";
 import { ClientVerifiedBy, UnverifiedClientNotice } from "@/features/oauth-connect";
 import type { OAuthClientDisplay } from "@/lib/oauth/client-display";
 
@@ -27,11 +35,17 @@ type SignInForm = z.infer<typeof signInSchema>;
 
 type SignInContentProps = {
   socialProviders: SocialProvider[];
+  /** Only when SMTP is set up, since the reset link goes out by email. */
+  passwordResetEnabled?: boolean;
   // Set when this sign-in is part of connecting an assistant (lib/oauth/client-display).
   connection?: OAuthClientDisplay | null;
 };
 
-function SignInContent({ socialProviders, connection = null }: SignInContentProps) {
+function SignInContent({
+  socialProviders,
+  passwordResetEnabled = false,
+  connection = null,
+}: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -44,7 +58,7 @@ function SignInContent({ socialProviders, connection = null }: SignInContentProp
       : "/auth/sign-up";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const hydrated = useHydrated();
 
   const {
     register,
@@ -77,90 +91,86 @@ function SignInContent({ socialProviders, connection = null }: SignInContentProp
     }
   }
 
+  const social = useSocialSignIn(socialProviders, callbackUrl, setError);
+
+  const field = "h-10 pl-[13px] text-[14px]";
+
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mb-2 flex justify-center">
-            <Logo size="lg" />
-          </div>
-          <CardTitle className="text-[15px] font-medium">
-            {connection ? `Sign in to connect ${connection.name}` : "Sign in to traceroot"}
-          </CardTitle>
+    <AuthLayout>
+      <AuthHeader
+        title={connection ? `Sign in to connect ${connection.name}` : "Welcome back"}
+        subtitle="Sign in to traceroot to see your traces and agents."
+      />
+      {connection && (
+        <div className="mb-5 space-y-2">
           <ClientVerifiedBy client={connection} />
-        </CardHeader>
-        <CardContent className="space-y-5">
           <UnverifiedClientNotice client={connection} />
+        </div>
+      )}
+      <AuthProviderOptions social={social} />
+      <div className="space-y-5">
+        <AuthError message={error} />
 
-          {error && (
-            <div className="border border-danger-border bg-danger-soft p-3 text-[12px] text-danger">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Email</label>
+        <form method="post" onSubmit={handleSubmit(onSubmit)}>
+          <div className="space-y-4">
+            <AuthField label="Email" error={errors.email?.message}>
               <Input
                 type="email"
                 placeholder="you@example.com"
-                className="h-8 text-[13px]"
+                autoComplete="email"
+                className={field}
                 {...register("email")}
               />
-              {errors.email && (
-                <p className="mt-1 text-[12px] text-danger">{errors.email.message}</p>
-              )}
-            </div>
+            </AuthField>
 
-            <div>
-              <label className="mb-1 block text-[13px] font-medium">Password</label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="********"
-                  className="h-8 pr-10 text-[13px]"
-                  {...register("password")}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1 text-[12px] text-danger">{errors.password.message}</p>
-              )}
-            </div>
+            <AuthField
+              label="Password"
+              error={errors.password?.message}
+              action={
+                passwordResetEnabled && (
+                  <Link
+                    href="/auth/forgot-password"
+                    className="text-[12px] text-brand hover:underline"
+                  >
+                    Forgot?
+                  </Link>
+                )
+              }
+            >
+              <PasswordInput
+                placeholder="********"
+                autoComplete="current-password"
+                className={field}
+                {...register("password")}
+              />
+            </AuthField>
+          </div>
 
-            <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign in"}
-            </Button>
-          </form>
-
-          <SocialSignInButtons
-            providers={socialProviders}
-            callbackURL={callbackUrl}
-            onError={setError}
-          />
-
-          <p className="text-center text-[12px] text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link href={signUpHref} className="font-medium text-brand hover:underline">
-              Sign up
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+          <Button
+            type="submit"
+            size="sm"
+            className="mt-6 h-10 w-full text-[14px] font-[600] text-primary-ink"
+            disabled={isLoading || !hydrated}
+          >
+            {isLoading ? "Signing in..." : "Sign in"}
+          </Button>
+        </form>
+      </div>
+      <AgentIdNote intent="sign-in" social={social} className="mt-4" />
+      <AuthFooter>
+        Don&apos;t have an account?{" "}
+        <Link href={signUpHref} className="font-medium text-brand hover:underline">
+          Sign up
+        </Link>
+      </AuthFooter>
+    </AuthLayout>
   );
 }
 
-export function SignInClient({ socialProviders, connection }: SignInContentProps) {
+export function SignInClient(props: SignInContentProps) {
   return (
     <Suspense>
-      <SignInContent socialProviders={socialProviders} connection={connection} />
+      <SignInContent {...props} />
     </Suspense>
   );
 }
