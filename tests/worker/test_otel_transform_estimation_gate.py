@@ -293,6 +293,48 @@ def test_claude_agent_sdk_typescript_scope_llm_span_still_estimated():
 
 
 # ---------------------------------------------------------------------------
+# Anthropic's token-counting endpoint is free and generates nothing. The
+# openinference-anthropic span carries the model and the prompt, the estimation bait.
+# ---------------------------------------------------------------------------
+
+
+def _count_tokens_span(name: str, span_id: str) -> dict:
+    return _span_with(
+        [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("llm.provider", "anthropic"),
+            make_attr("llm.model_name", MODEL),
+            make_attr(
+                "input.value",
+                '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", '
+                '"content": "What\'s the weather in Tokyo?"}]}',
+            ),
+            make_attr("llm.input_messages.0.message.role", "user"),
+            make_attr("llm.input_messages.0.message.content", "What's the weather in Tokyo?"),
+            make_attr("output.value", '{"input_tokens": 21}'),
+        ],
+        span_id=span_id,
+        name=name,
+    )
+
+
+def test_anthropic_count_tokens_spans_get_no_estimated_tokens():
+    spans = _transform(
+        [
+            _count_tokens_span("messages.count_tokens", "00f067aa0ba902b7"),
+            _count_tokens_span("beta.messages.count_tokens", "00f067aa0ba902b8"),
+        ],
+        scope_name="openinference.instrumentation.anthropic",
+    )
+    assert [span["name"] for span in spans] == [
+        "messages.count_tokens",
+        "beta.messages.count_tokens",
+    ]
+    for span in spans:
+        _assert_no_fabricated_tokens(span)
+
+
+# ---------------------------------------------------------------------------
 # Errored spans must NOT be estimated
 #
 # A call the provider rejected (400 credit-exhausted, auth failure, a reject

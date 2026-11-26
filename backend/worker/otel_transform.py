@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 # ("@traceroot-ai/claude-agent-sdk") reports real per-turn usage and is excluded.
 _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES = frozenset({"traceroot.claude-agent-sdk"})
 
+# openinference-anthropic records Anthropic's free token-counting endpoint as an LLM
+# span with the model and the prompt, but it generates nothing and costs nothing.
+_TOKEN_COUNTING_SPAN_NAMES = frozenset({"messages.count_tokens", "beta.messages.count_tokens"})
+
 
 def _has_recorded_response(output: Any) -> bool:
     """Whether a span's recorded output represents an actual produced response.
@@ -1142,6 +1146,7 @@ def transform_otel_to_clickhouse(
                         and not _is_embedding_span(span_attrs)
                         and not errored_without_response
                         and not _scope_skips_text_token_estimation(scope_name)
+                        and span_name not in _TOKEN_COUNTING_SPAN_NAMES
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
                         # spans. Embedding parents can restate a provider child's input,
