@@ -3,7 +3,7 @@
 Receives Vapi `end-of-call-report` server webhooks and exports each call as a TraceRoot trace with:
 
 - The Vapi `call.id` as the TraceRoot `session_id`
-- A root `AGENT` span (`vapi.call`) carrying the call transcript, summary, and total reported cost
+- A root `AGENT` span (`vapi.call`) carrying the call transcript, summary, and total reported cost when present
 - Child `LLM` spans for assistant turns (with model name)
 - Child `TOOL` spans for tool/function calls (with tool name, arguments, and result)
 

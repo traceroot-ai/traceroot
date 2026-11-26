@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from worker.otel_transform import transform_otel_to_clickhouse
 
 VAPI_EXAMPLE_DIR = Path(__file__).resolve().parents[2] / "examples" / "python" / "vapi-webhook"
@@ -119,6 +121,19 @@ def _sample_vapi_report() -> dict[str, Any]:
 def test_ignores_non_end_of_call_events() -> None:
     assert build_vapi_trace_plan({"message": {"type": "status-update"}}) is None
     assert build_vapi_trace_plan({}) is None
+
+
+def test_rejects_report_missing_call_id() -> None:
+    with pytest.raises(ValueError, match="missing a non-empty call ID"):
+        build_vapi_trace_plan({"message": {"type": "end-of-call-report", "call": {"id": "  "}}})
+
+
+def test_prefers_envelope_cost_over_call_cost() -> None:
+    payload = _sample_vapi_report()
+    payload["message"]["cost"] = 0.0875
+    plan = build_vapi_trace_plan(payload)
+    assert plan is not None
+    assert plan.root.attributes["llm.cost.total"] == 0.0875
 
 
 def test_vapi_report_transforms_into_traceroot_trace_with_session_llm_tool_and_cost() -> None:

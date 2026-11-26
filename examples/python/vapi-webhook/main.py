@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
+from collections import OrderedDict
 from typing import Any
 
 from converter import SpanSpec, VapiTracePlan, build_vapi_trace_plan
@@ -22,6 +24,10 @@ traceroot.initialize()
 _tracer = trace.get_tracer("traceroot.vapi")
 
 app = FastAPI(title="TraceRoot Vapi Webhook Importer")
+
+_MAX_SEEN_CALL_IDS = 10_000
+_seen_call_ids: OrderedDict[str, None] = OrderedDict()
+_seen_lock = asyncio.Lock()
 
 
 def _emit_span(spec: SpanSpec, parent_context: Any | None = None) -> Any:
@@ -75,9 +81,27 @@ async def vapi_webhook(
         )
 
     payload = await request.json()
-    plan = build_vapi_trace_plan(payload)
+    try:
+        plan = build_vapi_trace_plan(payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     if plan is None:
         return {"status": "ignored"}
 
-    emit_vapi_trace_plan(plan)
+    async with _seen_lock:
+        if plan.call_id in _seen_call_ids:
+            return {"status": "duplicate", "call_id": plan.call_id}
+        _seen_call_ids[plan.call_id] = None
+        if len(_seen_call_ids) > _MAX_SEEN_CALL_IDS:
+            _seen_call_ids.popitem(last=False)
+
+    try:
+        await asyncio.to_thread(emit_vapi_trace_plan, plan)
+    except Exception:
+        async with _seen_lock:
+            _seen_call_ids.pop(plan.call_id, None)
+        raise
     return {"status": "exported", "call_id": plan.call_id}

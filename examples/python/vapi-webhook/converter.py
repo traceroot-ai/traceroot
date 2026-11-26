@@ -99,7 +99,10 @@ def build_vapi_trace_plan(
     artifact = envelope.get("artifact") if isinstance(envelope.get("artifact"), dict) else {}
     analysis = envelope.get("analysis") if isinstance(envelope.get("analysis"), dict) else {}
 
-    call_id = str(call.get("id") or envelope.get("callId") or "unknown-call")
+    raw_call_id = call.get("id") or envelope.get("callId")
+    if not isinstance(raw_call_id, str) or not raw_call_id.strip():
+        raise ValueError("Vapi end-of-call-report is missing a non-empty call ID")
+    call_id = raw_call_id.strip()
     trace_id = _deterministic_hex(f"vapi-trace:{call_id}", 32)
     root_span_id = _deterministic_hex(f"vapi-root:{call_id}", 16)
 
@@ -251,9 +254,25 @@ def build_vapi_trace_plan(
     elif artifact.get("transcript"):
         root_attrs["traceroot.span.output"] = _stringify(artifact["transcript"])
 
-    call_cost = call.get("cost")
-    if call_cost is None and isinstance(call.get("costBreakdown"), dict):
-        call_cost = call["costBreakdown"].get("total")
+    env_breakdown = (
+        envelope.get("costBreakdown") if isinstance(envelope.get("costBreakdown"), dict) else {}
+    )
+    call_breakdown = (
+        call.get("costBreakdown") if isinstance(call.get("costBreakdown"), dict) else {}
+    )
+    call_cost = next(
+        (
+            val
+            for val in (
+                envelope.get("cost"),
+                call.get("cost"),
+                env_breakdown.get("total"),
+                call_breakdown.get("total"),
+            )
+            if val is not None
+        ),
+        None,
+    )
     if isinstance(call_cost, (int, float)) and not isinstance(call_cost, bool) and call_cost >= 0:
         root_attrs["llm.cost.total"] = float(call_cost)
 

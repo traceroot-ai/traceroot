@@ -20,12 +20,12 @@ pip install fastapi uvicorn python-dotenv traceroot
 
 ## Set up
 
-1. Set your traceroot API key (and optional webhook secret) in `.env`:
+1. Set your traceroot API key and webhook secret in `.env` (`VAPI_WEBHOOK_SECRET` is required for public deployments; unauthenticated mode is for local testing only):
 
 ```bash
 TRACEROOT_API_KEY=your_traceroot_api_key_here
+VAPI_WEBHOOK_SECRET=your_vapi_webhook_secret  # required for public deployments
 # TRACEROOT_HOST_URL=http://localhost:8000  # self-hosted only
-# VAPI_WEBHOOK_SECRET=your_vapi_webhook_secret
 ```
 
 2. Run the webhook importer from the example directory:
@@ -67,7 +67,7 @@ Place a test call in Vapi and confirm the trace arrives after the call ends:
 ## Limitations
 
 - Traces are emitted once the call completes (`end-of-call-report` fires ~5–15 seconds after hang-up), not streamed mid-call.
-- Token counts are only recorded if included in the webhook payload; call-level cost is taken from Vapi's `call.cost`.
+- Token counts are not currently imported from the webhook; call-level cost is taken from Vapi's `message.cost` / `call.cost`.
 - If `compliancePlan.pciEnabled` is enabled on your Vapi assistant, Vapi omits transcripts and artifacts from webhooks.
 
 ## Run the example
