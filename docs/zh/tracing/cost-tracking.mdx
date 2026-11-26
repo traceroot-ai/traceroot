@@ -202,7 +202,7 @@ traceroot 会从已插桩的 LLM 调用里采集 token 用量。只要上报的 
 | [响应中带价格](#响应中带价格) | 响应里的价格 | [Exa](/integrations/exa) |
 | [按次固定价格](#按次固定价格) | 你的单次调用价格 | [PredictLeads](/integrations/predictleads) |
 | [按 credit 或配额计费](#按-credit-或配额计费) | 消耗的 credit 数 × 你的每 credit 价格 | [Tavily](/integrations/tavily) |
-| [按使用时长计费](#按使用时长计费) | 使用的分钟数 × 你的每分钟价格 | [TinyFish](/integrations/tinyfish) |
+| [按使用时长计费](#按使用时长计费) | 使用时长 × 你的每分钟或每小时价格 | [TinyFish](/integrations/tinyfish)、[Notte](/integrations/notte) |
 
 #### 响应中带价格
 
@@ -220,4 +220,4 @@ traceroot 会从已插桩的 LLM 调用里采集 token 用量。只要上报的 
 
 #### 按使用时长计费
 
-有些工具按时间计费，例如按分钟计费的远程浏览器。给会话计时，乘以你的每分钟价格，并在 `finally` 代码块里上报，这样失败的会话也会被计入。这只是估算值：提供商按它自己的用量记录计费，时长可能略长一些。[TinyFish](/integrations/tinyfish) 的浏览器会话就是这种计费方式。
+有些工具按时间计费，例如按分钟或按小时计费的远程浏览器。给会话计时，乘以你的费率，并在 `finally` 代码块里上报，这样失败的会话也会被计入。这只是估算值：提供商按它自己的用量记录计费，时长可能略长一些。[TinyFish](/integrations/tinyfish) 和 [Notte](/integrations/notte) 的浏览器会话都使用这种计费方式。
