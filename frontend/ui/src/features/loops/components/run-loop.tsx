@@ -22,18 +22,19 @@ interface RunLoopProps {
 /**
  * Run now. Queues a manual run; a worker picks it up on its next tick, so until
  * one does the run stays Queued (the runs table shows it, and looks again every 10 s).
- * Disabled, with the reason, while a run is active, the plan's runs are used up,
- * or the Loop is paused.
+ * Disabled, with the reason, while a run is active, the Loop is paused, or the
+ * plan's runs are used up.
  */
 export function RunLoop({ projectId, loopId, active, planBlocked, paused }: RunLoopProps) {
   const run = useRunLoop(projectId, loopId);
   const busy = active || run.isPending;
+  // The same order the run route checks: an active run, then a pause, then the plan.
   const reason = active
     ? LOOP_RUN_IN_PROGRESS
-    : planBlocked
-      ? LOOP_RUN_PLAN_BLOCKED
-      : paused
-        ? LOOP_RUN_PAUSED
+    : paused
+      ? LOOP_RUN_PAUSED
+      : planBlocked
+        ? LOOP_RUN_PLAN_BLOCKED
         : null;
   return (
     <div className="flex items-center gap-2" aria-live="polite">

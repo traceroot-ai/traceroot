@@ -206,12 +206,26 @@ describe("Loop detail", () => {
   });
 
   it("says when the Free plan's loop runs are used up, with a link to billing", () => {
-    mocks.workspace = { data: { loopBlocked: true, currentUsage: { loop: { runsUsed: 30 } } } };
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "free", currentUsage: { loop: { runsUsed: 30 } } },
+    };
     render(<LoopDetailPage />);
     expect(screen.getByText(/30 loop runs are used/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "upgrade" }).getAttribute("href")).toBe(
       "/workspaces/ws-1/settings/billing",
     );
+  });
+
+  it("lets a paid workspace run with the flag still set, and says nothing about a limit", () => {
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "pro", currentUsage: { loop: { runsUsed: 30 } } },
+    };
+    render(<LoopDetailPage />);
+    expect(screen.queryByText(/loop runs are used/)).toBeNull();
+    const button = screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(mocks.runNow).toHaveBeenCalledTimes(1);
   });
 
   it("says nothing about a limit while runs remain", () => {
@@ -225,7 +239,9 @@ describe("Loop detail", () => {
       isLoading: false,
       error: null,
     };
-    mocks.workspace = { data: { loopBlocked: true, currentUsage: { loop: { runsUsed: 30 } } } };
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "free", currentUsage: { loop: { runsUsed: 30 } } },
+    };
     render(<LoopDetailPage />);
     const dry = screen.getByText(/Dry run: this loop records a summary/);
     expect(screen.getAllByText(/Dry run/)).toHaveLength(1);
@@ -278,7 +294,9 @@ describe("Loop detail", () => {
   });
 
   it("disables Run now, and says why, when the plan's loop runs are used up", () => {
-    mocks.workspace = { data: { loopBlocked: true, currentUsage: { loop: { runsUsed: 30 } } } };
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "free", currentUsage: { loop: { runsUsed: 30 } } },
+    };
     render(<LoopDetailPage />);
     const button = screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);

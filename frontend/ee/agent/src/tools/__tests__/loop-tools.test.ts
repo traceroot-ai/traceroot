@@ -81,7 +81,10 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 beforeEach(() => {
   process.env.BACKEND_INTERNAL_URL = "http://fastapi.test";
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe("createLoopTools", () => {
   it("offers exactly the Loop's read, memory and summary tools", () => {
@@ -664,6 +667,9 @@ describe("get_signal", () => {
 
 describe("loop memory notes", () => {
   it("loop_recall shows a note's expiry and leaves out a missing loop", async () => {
+    // Recall hides expired notes by the real clock: pin it to NOW so the note stays live.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     const { tool, db } = build();
     db.loopMemory.findMany.mockResolvedValueOnce([
       {

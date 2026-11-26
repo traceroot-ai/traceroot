@@ -359,7 +359,7 @@ export interface DetectorUsageData {
 }
 
 // Loop run usage (nested in UsageStats.loop). Same shape and rules as detector scans:
-// runsUsed counts runs that called the agent (BYOK + system); the Free plan caps it.
+// runsUsed counts runs in which the agent replied (BYOK + system); the Free plan caps it.
 export interface LoopUsageData {
   runsUsed: number;
   systemTokenCost: number;

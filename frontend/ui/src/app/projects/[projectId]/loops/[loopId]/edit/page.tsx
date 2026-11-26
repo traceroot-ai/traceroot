@@ -39,7 +39,9 @@ export default function EditLoopPage() {
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading loop..." />
             </div>
-          ) : error || !loop ? (
+          ) : !loop ? (
+            // Only a loop that never loaded: once it has, a failed background refetch
+            // keeps the form and its unsaved edits.
             <p className="p-4 text-[13px] text-destructive">
               {error instanceof Error ? error.message : "Loop not found"}
             </p>
