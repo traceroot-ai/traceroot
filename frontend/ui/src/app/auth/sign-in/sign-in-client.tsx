@@ -99,7 +99,11 @@ function SignInContent({
     <AuthLayout>
       <AuthHeader
         title={connection ? `Sign in to connect ${connection.name}` : "Welcome back"}
-        subtitle="Sign in to traceroot to see your traces and agents."
+        subtitle={
+          connection
+            ? `Then choose the project ${connection.name} can read.`
+            : "Sign in to traceroot to see your traces and agents."
+        }
       />
       {connection && (
         <div className="mb-5 space-y-2">

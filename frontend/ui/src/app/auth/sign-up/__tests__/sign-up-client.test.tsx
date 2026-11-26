@@ -292,6 +292,7 @@ describe("SignUpPage", () => {
     expect(
       screen.getByRole("heading", { name: "Create an account to connect Claude" }),
     ).toBeTruthy();
+    expect(screen.getByText("Then set up a project for Claude to read.")).toBeTruthy();
     expect(screen.getByText("claude.ai")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     fillForm();
