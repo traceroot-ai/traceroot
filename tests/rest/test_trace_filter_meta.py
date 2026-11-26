@@ -82,7 +82,7 @@ class TestFilterFields:
         resp = client.get("/api/v1/projects/p1/traces/filter-fields")
         assert resp.status_code == 200
         fields = resp.json()["fields"]
-        assert {f["field"] for f in fields} == {c.name for c in reg.FILTER_COLUMNS}
+        assert {f["field"] for f in fields} == {c.name for c in reg.FILTER_COLUMNS} | {"label"}
 
     def test_serializes_field_shape_from_registry(self, client):
         fields = {
@@ -96,6 +96,11 @@ class TestFilterFields:
         assert model["operators"] == ["in"]
         assert model["value_source"] == "distinct_query"
         assert model["enum_values"] == []
+
+        label = fields["label"]
+        assert label["type"] == "categorical"
+        assert label["operators"] == ["in"]
+        assert label["value_source"] == "distinct_query"
 
         cost = fields["cost"]
         assert cost["type"] == "numeric"
