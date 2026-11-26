@@ -224,6 +224,8 @@ def _eval_condition(trace_summary: dict, condition: dict) -> bool:
         return False
 
     op = condition.get("op")
+    if not isinstance(op, str):
+        return False
     value = condition.get("value")
 
     actual = trace_summary.get(field)
