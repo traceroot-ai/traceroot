@@ -150,8 +150,8 @@ describe("Loop metering", () => {
         _count: { id: 3 },
         _sum: { inputTokens: 900, outputTokens: 90, cost: 0.2 },
       },
-      // A row whose fields Postgres left empty.
-      { model: null, provider: null, isByok: null, _count: { id: 1 }, _sum: {} },
+      // A system row whose model and provider Postgres left empty.
+      { model: null, provider: null, isByok: false, _count: { id: 1 }, _sum: {} },
     ];
     const groupBy = vi.mocked(prisma.aIMessage.groupBy);
     const sessionsOnly = groupBy.getMockImplementation()!;
