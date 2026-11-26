@@ -235,6 +235,25 @@ describe("MCP app", () => {
     expect(new URL(toolCalls(fetchImpl)[1][0]).searchParams.get("limit")).toBe("150");
   });
 
+  it("returns a session's traces without their content", async () => {
+    const { app } = appWith(() => ({
+      status: 200,
+      body: {
+        session_id: "s1",
+        traces: [{ trace_id: "t1", name: "turn", status: "ok", input: "prompt", output: "answer" }],
+      },
+    }));
+    const client = await connect(app);
+    const tools = await client.listTools();
+    expect(tools.tools.find((tool) => tool.name === "get_session")!.description).toContain(
+      "read those for one trace with get_trace",
+    );
+    const result = await client.callTool({ name: "get_session", arguments: { session_id: "s1" } });
+
+    const payload = JSON.parse((result.content as { text: string }[])[0].text);
+    expect(payload.traces).toEqual([{ trace_id: "t1", name: "turn", status: "ok" }]);
+  });
+
   it("serves a 2025-era client on the same endpoint", async () => {
     const { app, fetchImpl } = appWith(() => ({ status: 200, body: { traces: [] } }));
     const response = await app.fetch(

@@ -22,6 +22,9 @@
     "trace_count": 2,
     "first_trace_time": "2026-06-01T09:00:00Z",
     "last_trace_time": "2026-06-01T10:00:00Z",
-    "traces": [{ "trace_id": "trace-001" }, { "trace_id": "trace-002" }]
+    "traces": [
+      { "trace_id": "trace-001", "input": "hello", "output": "hi" },
+      { "trace_id": "trace-002", "input": "thanks", "output": "bye" }
+    ]
   }
 }
