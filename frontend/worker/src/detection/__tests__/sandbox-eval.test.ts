@@ -6,13 +6,26 @@ const {
   mockFetchProviderConfig,
   mockFindByokKey,
   mockIsSystemModelId,
+  mockCalculateCost,
 } = vi.hoisted(() => ({
   mockComplete: vi.fn(),
   mockResolvePiModel: vi.fn(),
   mockFetchProviderConfig: vi.fn(),
   mockFindByokKey: vi.fn().mockResolvedValue(null),
   mockIsSystemModelId: vi.fn(),
+  mockCalculateCost: vi.fn(
+    async (
+      _model: string,
+      _input = 0,
+      _output = 0,
+      _cacheRead = 0,
+      _cacheWrite = 0,
+      _cacheWrite1h = 0,
+    ) => 0,
+  ),
 }));
+
+vi.mock("@traceroot/core", () => ({ calculateCost: mockCalculateCost }));
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
@@ -910,6 +923,109 @@ describe("runDetectionForTrace", () => {
       expect(result.identified).toBe(true);
       expect(result.inferenceCost).toBeCloseTo(0.004, 6);
       expect(result.inferenceSource).toBe("system");
+    });
+
+    it("returns each zero-cost attempt for the processor to price", async () => {
+      const tokens = (input: number, cacheRead = 0) => ({
+        input,
+        output: 10,
+        cacheRead,
+        cacheWrite: 0,
+        totalTokens: input + 10,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      });
+      mockComplete
+        .mockResolvedValueOnce({
+          content: [{ type: "text", text: "ignoring instructions" }],
+          usage: tokens(20_000, 5_000),
+          stopReason: "stop",
+          model: "claude-haiku-5-5",
+        })
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: "toolCall",
+              name: "submit_result",
+              arguments: { identified: false, summary: "clean", data: {} },
+            },
+          ],
+          usage: tokens(30_000),
+          stopReason: "toolUse",
+          model: "claude-haiku-5-5",
+        });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockCalculateCost).not.toHaveBeenCalled();
+      expect(result.inferenceCost).toBe(0);
+      expect(result.inferenceCalls).toEqual([
+        {
+          input: 20_000,
+          output: 10,
+          cacheRead: 5_000,
+          cacheWrite: 0,
+          cacheWrite1h: 0,
+          cost: 0,
+        },
+        {
+          input: 30_000,
+          output: 10,
+          cacheRead: 0,
+          cacheWrite: 0,
+          cacheWrite1h: 0,
+          cost: 0,
+        },
+      ]);
+      expect(result.inferenceInputTokens).toBe(50_000);
+    });
+
+    it("returns a cache-only attempt with its 1-hour write counts", async () => {
+      mockComplete.mockResolvedValueOnce({
+        content: [
+          {
+            type: "toolCall",
+            name: "submit_result",
+            arguments: { identified: false, summary: "clean", data: {} },
+          },
+        ],
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 800,
+          cacheWrite1h: 800,
+          totalTokens: 800,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "toolUse",
+        model: "claude-haiku-5-5",
+      });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockCalculateCost).not.toHaveBeenCalled();
+      expect(result.inferenceCalls).toEqual([
+        {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 800,
+          cacheWrite1h: 800,
+          cost: 0,
+        },
+      ]);
+      expect(result.inferenceInputTokens).toBe(0);
+      expect(result.inferenceOutputTokens).toBe(0);
     });
 
     it("captures BYOK source attribution with positive cost", async () => {

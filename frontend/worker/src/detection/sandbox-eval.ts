@@ -3,6 +3,7 @@ import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 // scope the call is recorded as a real LLM span; otherwise pure passthrough.
 import { tracedComplete as complete } from "./traced-complete.js";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
+import type { ReportedCall } from "@traceroot/core";
 import {
   findByokKeyForPiProvider,
   fetchProviderConfig,
@@ -41,8 +42,13 @@ export interface EvalResult {
   summary: string;
   data: Record<string, unknown>;
   error?: string;
-  /** Sum of `response.usage.cost.total` (USD) across attempts; 0 on early-exit error paths. */
+  /**
+   * Sum of provider-reported costs across attempts. Zero-cost calls are priced
+   * per call in the processor — same shape as UsageAccumulator.
+   */
   inferenceCost: number;
+  /** One entry per complete() attempt that produced tokens. */
+  inferenceCalls: ReportedCall[];
   /** Sum of `response.usage.input` tokens across attempts. */
   inferenceInputTokens: number;
   /** Sum of `response.usage.output` tokens across attempts. */
@@ -110,6 +116,7 @@ function errorResult(
   inferenceOutputTokens = 0,
   inferenceModel: string | null = null,
   inferenceProvider: string | null = null,
+  inferenceCalls: ReportedCall[] = [],
 ): EvalResult {
   return {
     identified: false,
@@ -117,6 +124,7 @@ function errorResult(
     data: {},
     error: message,
     inferenceCost,
+    inferenceCalls,
     inferenceInputTokens,
     inferenceOutputTokens,
     inferenceSource: source,
@@ -203,6 +211,18 @@ export async function runDetectionForTrace(params: {
         // error carries those tokens. Attribute them as the LLM path does, so
         // the billed call still gets a usage row instead of being dropped.
         const usage = usageFromError(err);
+        const calls: ReportedCall[] = usage
+          ? [
+              {
+                input: usage.inputTokens,
+                output: usage.outputTokens,
+                cacheRead: 0,
+                cacheWrite: 0,
+                cacheWrite1h: 0,
+                cost: 0,
+              },
+            ]
+          : [];
         return errorResult(
           err instanceof Error ? err.message : String(err),
           source,
@@ -211,6 +231,7 @@ export async function runDetectionForTrace(params: {
           usage?.outputTokens ?? 0,
           usage ? detector.detectionModel || JEV_DEFAULT_MODEL_ID : null,
           usage ? LLMAdapter.TYPESAFE : null,
+          calls,
         );
       }
     }
@@ -308,6 +329,7 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
   let inferenceOutputTokens = 0;
   let inferenceModel: string | null = null;
   let inferenceProvider: string | null = null;
+  const inferenceCalls: ReportedCall[] = [];
 
   // Per-attempt cap, read at call time so the deployed value is honored.
   const timeoutMs = parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS);
@@ -340,9 +362,29 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         break;
       }
 
-      inferenceCost += response.usage?.cost?.total ?? 0;
-      inferenceInputTokens += response.usage?.input ?? 0;
-      inferenceOutputTokens += response.usage?.output ?? 0;
+      const attemptUsage = response.usage;
+      const reported = attemptUsage?.cost?.total ?? 0;
+      const attemptInput = attemptUsage?.input ?? 0;
+      const attemptOutput = attemptUsage?.output ?? 0;
+      const attemptCacheRead = attemptUsage?.cacheRead ?? 0;
+      const attemptCacheWrite = attemptUsage?.cacheWrite ?? 0;
+      const attemptCacheWrite1h = attemptUsage?.cacheWrite1h ?? 0;
+      inferenceInputTokens += attemptInput;
+      inferenceOutputTokens += attemptOutput;
+      if (reported > 0 || attemptInput || attemptOutput || attemptCacheRead || attemptCacheWrite) {
+        // Provider totals only. A zero cost is priced per call in the processor
+        // so two short attempts never become one long prompt, and a later
+        // successful attempt cannot drop an earlier unpriced one.
+        inferenceCalls.push({
+          input: attemptInput,
+          output: attemptOutput,
+          cacheRead: attemptCacheRead,
+          cacheWrite: attemptCacheWrite,
+          cacheWrite1h: attemptCacheWrite1h,
+          cost: reported,
+        });
+        if (reported > 0) inferenceCost += reported;
+      }
       inferenceModel = response.model ?? inferenceModel;
       inferenceProvider = response.provider ?? inferenceProvider;
 
@@ -356,6 +398,7 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
           summary: typeof args.summary === "string" ? args.summary : "",
           data: (args.data as Record<string, unknown>) ?? {},
           inferenceCost,
+          inferenceCalls,
           inferenceInputTokens,
           inferenceOutputTokens,
           inferenceSource: source,
@@ -410,5 +453,6 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
     inferenceOutputTokens,
     inferenceModel,
     inferenceProvider,
+    inferenceCalls,
   );
 }

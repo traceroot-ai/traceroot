@@ -21,6 +21,7 @@ vi.mock("@traceroot/core", () => ({
   prisma: { project: { count: async () => 0 } },
   syncStandardPrices: async () => {},
   calculateCost: async () => 0,
+  priceReportedCall: async (_model: string, call: { cost: number }) => call.cost,
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
 }));
 vi.mock("@hono/node-server", () => ({ serve: () => {} }));

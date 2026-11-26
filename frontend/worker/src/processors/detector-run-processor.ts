@@ -1,6 +1,6 @@
 import { Worker, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
-import { prisma, PlanType, calculateCost } from "@traceroot/core";
+import { prisma, PlanType, priceReportedCall, type ReportedCall } from "@traceroot/core";
 import type { DetectorRunJob, DetectorRunResult } from "../queues/detector-run-queue.js";
 import {
   DETECTOR_RUN_QUEUE,
@@ -100,25 +100,23 @@ export interface ScanUsage {
   inferenceProvider: string | null;
   /** See EvalResult.skipCostFallback. */
   skipCostFallback?: boolean;
+  /** One entry per attempt. Zero-cost calls are priced here, not as a sum. */
+  inferenceCalls: ReportedCall[];
 }
 
 async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
-  if (
-    usage.inferenceCost > 0 ||
-    usage.skipCostFallback ||
-    !usage.inferenceModel ||
-    usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
-  ) {
+  // Decisions bills output at zero. Re-pricing those counts from the catalogue
+  // would charge output the list rate. A skipped fallback keeps the eval's cost.
+  if (usage.skipCostFallback || !usage.inferenceModel || !usage.inferenceCalls?.length) {
     return usage.inferenceCost;
   }
 
   try {
-    const fallback = await calculateCost(
-      usage.inferenceModel,
-      usage.inferenceInputTokens,
-      usage.inferenceOutputTokens,
-    );
-    return fallback > 0 ? fallback : usage.inferenceCost;
+    let total = 0;
+    for (const call of usage.inferenceCalls) {
+      total += await priceReportedCall(usage.inferenceModel, call);
+    }
+    return total;
   } catch (err) {
     console.error(
       `[Detector] Failed to calculate local pricing fallback for model ${usage.inferenceModel}:`,
@@ -272,6 +270,7 @@ async function runSingleDetector(params: {
     inferenceModel: result.inferenceModel,
     inferenceProvider: result.inferenceProvider,
     skipCostFallback: result.skipCostFallback,
+    inferenceCalls: result.inferenceCalls ?? [],
   };
 
   if (!result.identified) {
