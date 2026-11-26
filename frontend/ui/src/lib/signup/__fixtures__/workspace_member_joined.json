@@ -1,0 +1,7 @@
+{
+  "event": "workspace_member_joined",
+  "occurred_at": "2026-11-06T16:30:00.000Z",
+  "user": { "id": "u_123" },
+  "workspace": { "id": "ws_acme_1", "created_by": "u_100" },
+  "via": "invite"
+}
