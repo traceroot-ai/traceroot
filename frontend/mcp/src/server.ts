@@ -21,6 +21,7 @@ import { redactCredentials } from "./redaction.js";
 import type { CallRecorder } from "./telemetry.js";
 import {
   LIST_TRACES_DEFAULT_LIMIT,
+  compactSession,
   compactTraceList,
   traceListDefaults,
   traceReadDefaults,
@@ -31,6 +32,8 @@ const GET_TRACE_NOTE =
   " On this surface the default is fields=skeleton, and the trace-level input, output and metadata are left out unless fields asks for io, metadata or full.";
 const LIST_TRACES_NOTE =
   " Each row is a summary without the trace's input, output or metadata; read those for one trace with get_trace.";
+const GET_SESSION_NOTE =
+  " Each trace is a summary without its input, output or metadata; read those for one trace with get_trace.";
 
 /**
  * run_sql rows on this surface: a small default and a hard cap, so one query
@@ -110,6 +113,12 @@ const TOOL_OPTIONS: Readonly<Record<string, Partial<ToMcpToolOptions>>> = {
         description: `Rows to return: ${SQL_DEFAULT_ROWS} when left out, at most ${SQL_MAX_ROWS.toLocaleString("en-US")}. Aggregate in the query rather than reading many rows.`,
       },
     },
+  },
+  get_session: {
+    transformResult: compactSession,
+    // The registry's wording promises I/O summaries, which this surface leaves out.
+    description:
+      registryDescription("get_session").replace(", I/O summaries)", ")") + GET_SESSION_NOTE,
   },
   get_trace: {
     defaults: traceReadDefaults,

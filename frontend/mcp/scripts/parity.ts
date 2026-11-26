@@ -100,18 +100,23 @@ function drop(value: unknown, names: string[]): unknown {
   return Object.fromEntries(Object.entries(value).filter(([name]) => !names.includes(name)));
 }
 
-/** `drop` applied to each row of a list result's `data`. */
-function dropFromRows(value: unknown, names: string[]): unknown {
+/** `drop` applied to each row of a result's `key` list (a list result's `data` by default). */
+function dropFromRows(value: unknown, names: string[], key = "data"): unknown {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
-  const { data } = value as { data?: unknown };
-  if (!Array.isArray(data)) return value;
-  return { ...value, data: data.map((row) => drop(row, names)) };
+  const rows = (value as Record<string, unknown>)[key];
+  if (!Array.isArray(rows)) return value;
+  return { ...value, [key]: rows.map((row) => drop(row, names)) };
 }
 
 function normalise(value: unknown, entries: (keyof typeof NORMALISE)[] = []): unknown {
   return entries.reduce((acc, name) => {
-    const entry: { drop: readonly string[]; dropFromRows?: readonly string[] } = NORMALISE[name];
-    return dropFromRows(drop(acc, [...entry.drop]), [...(entry.dropFromRows ?? [])]);
+    const entry: {
+      drop: readonly string[];
+      dropFromRows?: readonly string[];
+      dropFromTraces?: readonly string[];
+    } = NORMALISE[name];
+    const rows = dropFromRows(drop(acc, [...entry.drop]), [...(entry.dropFromRows ?? [])]);
+    return dropFromRows(rows, [...(entry.dropFromTraces ?? [])], "traces");
   }, value);
 }
 

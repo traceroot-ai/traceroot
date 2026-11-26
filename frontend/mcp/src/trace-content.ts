@@ -71,6 +71,27 @@ export function compactTraceList(result: unknown): unknown {
   return { ...result, data };
 }
 
+/** Session trace fields that carry user content; get_trace returns them for one trace. */
+const SESSION_CONTENT_FIELDS = ["input", "output", "metadata"] as const;
+
+/**
+ * Keep the session's summary and each of its traces' ids, names, times and
+ * status, and drop each trace's content, as a trace list does: a long session
+ * would otherwise return every turn's full input and output.
+ */
+export function compactSession(result: unknown): unknown {
+  if (!isObject(result) || !Array.isArray(result.traces)) {
+    return result;
+  }
+  const traces = result.traces.map((row) => {
+    if (!isObject(row)) return row;
+    const kept = { ...row };
+    for (const field of SESSION_CONTENT_FIELDS) delete kept[field];
+    return kept;
+  });
+  return { ...result, traces };
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
