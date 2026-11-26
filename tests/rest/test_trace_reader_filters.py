@@ -462,11 +462,18 @@ def test_both_queries_carry_an_execution_ceiling_and_the_readonly_flag():
 # stale name. The predicates must judge only the latest version.
 
 _DEDUP = "LIMIT 1 BY t.project_id, t.trace_id"
+_PAGE_LIMIT = "LIMIT {limit:UInt32}"
 
 
-def _predicates_follow_dedup(sql: str, *predicates: str) -> bool:
-    dedup = sql.index(_DEDUP)
-    return all(sql.index(p) > dedup for p in predicates)
+def _judged_after_dedup(sql: str, *predicates: str, until: str | None = None) -> bool:
+    """Each predicate filters the deduped rows: after the first dedup, and before ``until``.
+
+    ``until`` marks the end of the stage that decides membership (the page's LIMIT), so a
+    predicate that moved to a later stage, such as the per-page row read, fails too.
+    """
+    start = sql.index(_DEDUP) + len(_DEDUP)
+    end = sql.index(until, start) if until else len(sql)
+    return all(p in sql[start:end] for p in predicates)
 
 
 def test_trace_attribute_predicates_judge_the_latest_trace_version():
@@ -488,8 +495,8 @@ def test_trace_attribute_predicates_judge_the_latest_trace_version():
         "t.user_id = {user_id:String}",
         "{search_kw:String}",
     )
-    assert _predicates_follow_dedup(page_sql, *predicates)
-    assert _predicates_follow_dedup(count_sql, *predicates)
+    assert _judged_after_dedup(page_sql, *predicates, until=_PAGE_LIMIT)
+    assert _judged_after_dedup(count_sql, *predicates)
 
 
 def test_label_candidates_judge_the_latest_trace_version():
@@ -509,7 +516,7 @@ def test_label_candidates_judge_the_latest_trace_version():
     )
 
     sql = svc._client.query.call_args.args[0]
-    assert _predicates_follow_dedup(sql, "t.name ILIKE {name:String}")
+    assert _judged_after_dedup(sql, "t.name ILIKE {name:String}")
 
 
 def test_session_search_judges_the_latest_trace_version():
@@ -524,5 +531,7 @@ def test_session_search_judges_the_latest_trace_version():
     page_sql = svc._client.query.call_args_list[0].args[0]
     count_sql = svc._client.query.call_args_list[1].args[0]
     session_page, traces_dedup = page_sql.split("traces_dedup AS", 1)
-    for sql in (session_page, traces_dedup, count_sql):
-        assert _predicates_follow_dedup(sql, "t.session_id ILIKE {search_kw:String}")
+    search = "t.session_id ILIKE {search_kw:String}"
+    assert _judged_after_dedup(session_page, search, until=_PAGE_LIMIT)
+    assert _judged_after_dedup(traces_dedup, search)
+    assert _judged_after_dedup(count_sql, search)
