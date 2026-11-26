@@ -145,17 +145,20 @@ function parseWindow(searchParams: URLSearchParams): {
   return { window: { from, to } };
 }
 
-/** A single retained window for list counts, panel traces and the chart. */
-async function retainedWindow(window: { from: Date; to: Date } | undefined, workspaceId: string) {
+/** The workspace's billing plan; a missing workspace reads as free. */
+async function workspacePlan(workspaceId: string): Promise<string> {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { billingPlan: true },
   });
+  return workspace?.billingPlan ?? PlanType.FREE;
+}
+
+/** A single retained window for list counts, panel traces and the chart. */
+function retainedWindow(window: { from: Date; to: Date } | undefined, plan: string) {
   const to = window?.to ?? new Date();
   const requested = window?.from ?? new Date(to.getTime() - 7 * 86_400_000);
-  const from = new Date(
-    clampStartAfter(workspace?.billingPlan ?? PlanType.FREE, requested.toISOString())!,
-  );
+  const from = new Date(clampStartAfter(plan, requested.toISOString())!);
   return { from: from > to ? to : from, to };
 }
 
@@ -213,7 +216,7 @@ async function listResponse(
     statuses: statuses.size > 0 ? [...statuses] : undefined,
     title,
     signalId,
-    hitsIn: window ? await retainedWindow(window, workspaceId) : undefined,
+    hitsIn: window ? retainedWindow(window, await workspacePlan(workspaceId)) : undefined,
     page,
     limit,
   });
@@ -299,13 +302,19 @@ export async function handleGetSignal(
   if (error) return errorResponse(error, 400);
   const tz = searchParams.get("tz") || "UTC";
   if (!isValidTimeZone(tz)) return errorResponse("tz must be an IANA time zone", 400);
-  const effectiveWindow = await retainedWindow(window, auth.project.workspaceId);
+  const plan = await workspacePlan(auth.project.workspaceId);
+  const effectiveWindow = retainedWindow(window, plan);
+  // The plan's cutoff, null for unlimited retention. The RCA shown must come from a
+  // finding with a hit seen at or after it, the rule the public API's finding
+  // reads apply to an RCA inherited from a signal.
+  const cutoff = clampStartAfter(plan, null);
   const result = await getSignal(prisma, {
     projectId,
     signalId,
     from: effectiveWindow.from,
     to: effectiveWindow.to,
     tz,
+    retentionCutoff: cutoff ? new Date(cutoff) : undefined,
   });
   if (!result) return errorResponse("Signal not found", 404);
   if (result.merged) return successResponse(result);
