@@ -12,6 +12,7 @@ import {
   PlanType,
   detectorModelProblem,
   isBillingEnabled,
+  isLoopRunBlocked,
   listWorkspaceModels,
 } from "@traceroot/core";
 import {
@@ -21,6 +22,7 @@ import {
   LOOP_RUN_IN_PROGRESS,
   LOOP_RUN_PAUSED,
   LOOP_RUN_PLAN_BLOCKED,
+  countFreeLoopRunsUsed,
   createLoopSchema,
   createLoopWithDetector,
   createRun,
@@ -367,8 +369,9 @@ export async function deleteLoop(input: {
 /**
  * "Run now": a pending manual run for the worker's next tick. One active run
  * per Loop, none while it is paused or a Free workspace's plan runs are used
- * up (the worker would only skip it). A paid workspace is never refused on the
- * flag, the same check the worker makes before it starts a run.
+ * up (the worker would only skip it). The runs used are counted live, the same
+ * count the worker checks before it starts a run; a paid workspace is never
+ * refused.
  */
 export async function requestLoopRun(input: {
   actorUserId: string;
@@ -380,7 +383,7 @@ export async function requestLoopRun(input: {
   try {
     outcome = await prisma.$transaction(async (tx): EditOutcome<ServiceResult<LoopRunDto>> => {
       const access = await requireProjectMember(tx, input.projectId, input.actorUserId, {
-        include: { workspace: { select: { loopBlocked: true, billingPlan: true } } },
+        include: { workspace: { select: { billingPlan: true } } },
       });
       if (!access.ok) return { result: access };
 
@@ -389,8 +392,11 @@ export async function requestLoopRun(input: {
       if (loop.status !== "active") {
         return { result: { ok: false, status: 409, error: LOOP_RUN_PAUSED } };
       }
-      const { workspace } = access.project;
-      if (isBillingEnabled() && workspace.loopBlocked && workspace.billingPlan === PlanType.FREE) {
+      if (
+        isBillingEnabled() &&
+        access.project.workspace.billingPlan === PlanType.FREE &&
+        isLoopRunBlocked(PlanType.FREE, await countFreeLoopRunsUsed(tx, access.workspaceId))
+      ) {
         return { result: { ok: false, status: 409, error: LOOP_RUN_PLAN_BLOCKED } };
       }
       if (await hasActiveRun(tx, loop.id)) {
