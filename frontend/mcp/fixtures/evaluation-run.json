@@ -6,7 +6,7 @@
   "dataset_id": "dataset-001",
   "dataset_version_id": "version-001",
   "run_number": 1,
-  "status": "complete",
+  "status": "completed",
   "environment": "fixture",
   "candidate_version": "v1",
   "started_at": "2026-06-01T11:00:00Z",
@@ -23,10 +23,10 @@
   "scores": [
     {
       "name": "correctness",
-      "direction": "higher",
+      "direction": "higher_is_better",
       "unit": null,
       "value": 1,
-      "value_type": "number",
+      "value_type": "numeric",
       "observed_count": 1
     }
   ],
