@@ -14,6 +14,12 @@ export interface OAuthClientDisplay {
   // by whoever controls that host. A dynamically registered client sent its
   // name in an unauthenticated request, so nothing vouches for it.
   verifiedHost: string | null;
+  // A self-registered client whose every redirect URI is a loopback address
+  // (http://localhost, 127.0.0.1 or [::1], RFC 8252 §7.3): the authorization
+  // code can only reach a program on the user's own computer, such as a CLI.
+  // Still unverified, so it changes how the screens word the warning, not
+  // what the client may do.
+  localOnly?: boolean;
 }
 
 // better-auth's cimd plugin marks the rows it creates with this discovery id.
@@ -44,7 +50,20 @@ export function describeOAuthClient(row: {
     verifiedHost ||
     redirectHost(row.redirectUris?.[0]) ||
     "An unnamed application";
-  return { name, verifiedHost };
+  const redirects = row.redirectUris ?? [];
+  const localOnly = !verifiedHost && redirects.length > 0 && redirects.every(isLoopbackRedirect);
+  return { name, verifiedHost, localOnly };
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export function isLoopbackRedirect(uri: string): boolean {
+  try {
+    const url = new URL(uri);
+    return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function redirectHost(uri: string | undefined): string | null {
