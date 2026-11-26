@@ -2,12 +2,9 @@
 
 import { Fragment, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { LoadingState } from "@/components/ui/loading-state";
-import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { sdkHostUrl } from "./commands";
-import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { SectionLink } from "./SectionLink";
 import {
@@ -15,7 +12,6 @@ import {
   type SetupCommandSurface,
   type SetupSnippet,
 } from "./use-setup-command-copied";
-import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 import {
   ALL_LANGS,
   INTEGRATION_GROUPS,
@@ -30,19 +26,12 @@ const OWN_PICKER_GROUPS = INTEGRATION_GROUPS.map((group) =>
   group.category === "framework" ? { ...group, label: "Frameworks" } : group,
 );
 
-/** A step's heading, with the stack's docs link beside it when no picker sits above. */
-function StepHeading({ n, title, docs }: { n: number; title: string; docs?: IntegrationOption }) {
-  const heading = (
+/** A step's heading. The stack's docs link sits under the picker. */
+function StepHeading({ n, title }: { n: number; title: string }) {
+  return (
     <p className="text-[13px] font-medium text-foreground">
       {n}. {title}
     </p>
-  );
-  if (!docs) return heading;
-  return (
-    <div className="flex items-center justify-between gap-3">
-      {heading}
-      <SectionLink href={docs.href}>View {docs.name} docs</SectionLink>
-    </div>
   );
 }
 
@@ -82,7 +71,16 @@ function LangTabs({
   );
 }
 
-/** The stack picker as a numbered step, for a tab that has no picker above it. */
+/** How many stacks the picker keeps folded until it is expanded. */
+const FOLDED_COUNT = INTEGRATIONS.filter((integration) => !integration.common).length;
+
+/**
+ * The stack picker as a numbered step.
+ *
+ * Folded, it shows the ten common stacks; one control below the groups shows
+ * the rest, each in its own group after the common ones, so nothing already on
+ * screen moves when it opens. The selected stack stays visible folded or not.
+ */
 function OwnStackPicker({
   selected,
   onSelect,
@@ -92,6 +90,7 @@ function OwnStackPicker({
   onSelect: (id: string) => void;
   step: number;
 }) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
@@ -101,14 +100,20 @@ function OwnStackPicker({
         </SectionLink>
       </div>
 
-      {/* One group for the one choice, as in `StackSelector`: the headings
+      {/* One group for the one choice: the headings
           split the cards visually, and a group per heading would be announced
           as two separate choices. */}
       <div role="radiogroup" aria-label="Integration" className="space-y-3">
         {OWN_PICKER_GROUPS.map((group) => {
-          const items = INTEGRATIONS.filter(
+          const inGroup = INTEGRATIONS.filter(
             (integration) => integration.category === group.category,
           );
+          const items = [
+            ...inGroup.filter((integration) => integration.common),
+            ...inGroup.filter(
+              (integration) => !integration.common && (expanded || integration.id === selected.id),
+            ),
+          ];
           if (items.length === 0) return null;
 
           return (
@@ -128,6 +133,15 @@ function OwnStackPicker({
           );
         })}
       </div>
+
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((open) => !open)}
+        className="block text-[12px] font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+      >
+        {expanded ? "Show fewer" : `Show ${FOLDED_COUNT} more`}
+      </button>
 
       <a
         href={selected.href}
@@ -230,8 +244,8 @@ function numbered(steps: NumberedStep[]) {
 
 interface WalkthroughProps {
   integration: IntegrationOption;
-  /** Set when the tab picks the stack itself, as a step of its own. */
-  onSelect?: (id: string) => void;
+  /** The tab's own stack picker, which is one of the steps. */
+  onSelect: (id: string) => void;
   /** Called once a snippet is on the clipboard. */
   onCopy: (snippet: SetupSnippet) => void;
 }
@@ -258,9 +272,7 @@ function PluginWalkthrough({
         />
       </div>
     ),
-    ...(onSelect
-      ? [(n: number) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />]
-      : []),
+    (n) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />,
     (n) => (
       <div className="space-y-2">
         <StepHeading n={n} title="Configure" />
@@ -276,11 +288,7 @@ function PluginWalkthrough({
     ),
     (n) => (
       <div className="space-y-2">
-        <StepHeading
-          n={n}
-          title={`Use ${integration.name} as usual`}
-          docs={onSelect ? undefined : integration}
-        />
+        <StepHeading n={n} title={`Use ${integration.name} as usual`} />
         <p className="text-[12px] text-muted-foreground">
           Send a prompt in {integration.name} to send your first trace.
         </p>
@@ -328,19 +336,18 @@ function SdkWalkthrough({
           value={example.installCommand}
           onCopy={() => onCopy("sdk_install")}
         />
+        {/* PyPI still holds versions before 0.1.0, and pip on Python 3.10 or older
+            quietly picks one of them, after which every step below fails. */}
+        {resolvedLang === "python" && (
+          <p className="text-[12px] text-muted-foreground">Needs Python 3.11 or later.</p>
+        )}
       </div>
     ),
     (n) => <EnvironmentStep n={n} lang={resolvedLang} onCopy={onCopy} />,
-    ...(onSelect
-      ? [(n: number) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />]
-      : []),
+    (n) => <OwnStackPicker selected={integration} onSelect={onSelect} step={n} />,
     (n) => (
       <div className="space-y-2">
-        <StepHeading
-          n={n}
-          title={`Initialize traceroot for ${integration.name}`}
-          docs={onSelect ? undefined : integration}
-        />
+        <StepHeading n={n} title={`Initialize traceroot for ${integration.name}`} />
         {langTabs}
         <CodeBlock
           label={resolvedLang}
@@ -363,36 +370,23 @@ function SdkWalkthrough({
 
 interface ManualTabProps {
   projectId: string;
-  /**
-   * The stack, for a caller that has already asked for it above this section —
-   * onboarding's manual step, which asks for it together with the model key —
-   * so the walkthrough follows that answer instead of asking a second time.
-   *
-   * Optional, because the traces page passes none: there the tab asks for the
-   * stack itself.
-   */
-  integration?: IntegrationOption;
   /** Where the walkthrough is shown, for the copy events. */
   surface?: SetupCommandSurface;
 }
 
 /**
- * Instrumenting by hand, as an SDK walkthrough or, for a coding agent, a plugin one, each
- * followed by the unnumbered external integrations. Without an `integration` the tab adds
- * its own stack picker as a step; with one, the docs link moves beside a step heading.
+ * Instrumenting by hand, as an SDK walkthrough or, for a coding agent, a plugin one.
+ * The stack picker is one of the steps. GitHub and Slack are connected in their own
+ * sign-up step and in workspace settings.
  */
-export function ManualTab({ projectId, integration, surface = "project" }: ManualTabProps) {
-  const { data: project, isLoading: projectLoading } = useProject(projectId);
-  const workspaceId = project?.workspace_id;
+export function ManualTab({ projectId, surface = "project" }: ManualTabProps) {
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
   const [lang, setLang] = useState<Lang>("python");
 
   const selectedIntegration =
-    integration ??
-    INTEGRATIONS.find((candidate) => candidate.id === selectedIntegrationId) ??
-    INTEGRATIONS[0];
+    INTEGRATIONS.find((candidate) => candidate.id === selectedIntegrationId) ?? INTEGRATIONS[0];
   const { setup } = selectedIntegration;
-  const onSelect = integration ? undefined : setSelectedIntegrationId;
+  const onSelect = setSelectedIntegrationId;
   const recordSnippetCopy = useSetupSnippetCopied(projectId, surface);
   const onCopy = (snippet: SetupSnippet) => recordSnippetCopy(snippet, selectedIntegration.id);
 
@@ -420,17 +414,6 @@ export function ManualTab({ projectId, integration, surface = "project" }: Manua
           onLangChange={setLang}
         />
       )}
-
-      <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">External integrations</p>
-        {projectLoading ? (
-          <LoadingState label="Loading integrations..." />
-        ) : workspaceId ? (
-          <ExternalIntegrations workspaceId={workspaceId} />
-        ) : (
-          <WorkspaceUnavailable />
-        )}
-      </div>
     </div>
   );
 }

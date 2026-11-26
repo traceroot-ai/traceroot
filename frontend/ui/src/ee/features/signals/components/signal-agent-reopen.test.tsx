@@ -9,6 +9,9 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/proj-1/signals",
 }));
 vi.mock("@/components/layout/sidebar", () => ({ Sidebar: () => null }));
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: null, isPending: false }),
+}));
 vi.mock("@/lib/hooks/use-retention", () => ({
   useRetention: () => ({ retentionDays: null }),
 }));

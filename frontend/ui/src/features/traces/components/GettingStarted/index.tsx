@@ -1,40 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkle, Code2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { AITab } from "./AITab";
-import { ManualTab } from "./ManualTab";
-import { useSetupRouteChosen } from "./use-setup-command-copied";
-
-type Tab = "ai" | "manual";
+import { FirstTraceLine } from "@/components/first-trace-line";
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { SetupTabs, type SetupTab } from "./SetupTabs";
 
 interface GettingStartedProps {
   projectId: string;
+  /**
+   * The watch for the project's first trace, kept by the traces page: waiting,
+   * then the trace that arrived for the moment before the page opens it.
+   */
+  wait: TraceWait;
 }
 
 /**
- * Two routes to the same outcome, named for what the reader gets.
- *
- * "Using AI" says what the automatic route actually is — a coding agent edits
- * the repository — which is the thing a reader weighs before choosing it. The
- * pairing with "Manual" is looser than a strict antonym, and that is the trade:
- * naming the mechanism costs a little symmetry and buys an informed choice.
+ * The traces page of a project with no traces yet: the setup tabs under the
+ * page's own heading, and the line that says the page is watching for the
+ * first trace — the same line the end of sign-up shows.
  *
  * Nothing sits above the switch. The stack is picked inside the manual tab, as
- * one of its steps, and the model key is asked for during onboarding rather
- * than on this page.
+ * one of its steps.
  */
-export function GettingStarted({ projectId }: GettingStartedProps) {
-  const [tab, setTab] = useState<Tab>("ai");
-  const recordRoute = useSetupRouteChosen(projectId, "project");
-
-  // Records only an actual change of tab.
-  const switchTo = (next: Tab) => {
-    if (next === tab) return;
-    recordRoute(next === "ai" ? "command" : "manual");
-    setTab(next);
-  };
+export function GettingStarted({ projectId, wait }: GettingStartedProps) {
+  const [tab, setTab] = useState<SetupTab>("ai");
 
   return (
     <div className="w-full p-4">
@@ -43,38 +32,22 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
         <p className="mt-1 text-[13px] text-muted-foreground">
           No traces in this project yet. Get started in a few minutes with the command below.
         </p>
-
-        <div className="mt-4 flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => switchTo("ai")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
-              tab === "ai"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
-          >
-            <Sparkle className="h-3.5 w-3.5" />
-            Using AI
-          </button>
-          <button
-            type="button"
-            onClick={() => switchTo("manual")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
-              tab === "manual"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
-          >
-            <Code2 className="h-3.5 w-3.5" />
-            Manual
-          </button>
+        <div className="mt-2">
+          <FirstTraceLine wait={wait} align="start" />
         </div>
 
         <div className="mt-4">
-          {tab === "ai" ? <AITab projectId={projectId} /> : <ManualTab projectId={projectId} />}
+          <SetupTabs
+            projectId={projectId}
+            surface="project"
+            tab={tab}
+            onTabChange={setTab}
+            commandCopy={{
+              title: "Run this in your project",
+              label: "bash",
+              note: "It asks before editing your code. Needs Node.js 20.12 or later.",
+            }}
+          />
         </div>
       </div>
     </div>
