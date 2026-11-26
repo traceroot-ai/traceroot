@@ -165,9 +165,7 @@ function OnboardingContent() {
   // committed and lost its response leaves it null, which is what
   // `createOrAdoptWorkspace` is for.
   const createdWorkspace = useRef<{ id: string; name: string } | null>(null);
-  // Creating starts by itself, once: the workspace and project are made with
-  // default names as soon as the account is known to need them. After that only
-  // Try again starts it.
+  // Personal accounts start automatically once their workspace list has loaded.
   const started = useRef(false);
 
   // Determine mode from query params
@@ -280,12 +278,11 @@ function OnboardingContent() {
   const canAddProject =
     !!target && !target.is_demo && (target.role === "ADMIN" || target.role === "MEMBER");
 
-  // A new account's own workspace and project are created by themselves once the
-  // session is known and the setup check has settled on "this account needs a
-  // workspace" (or a failed check fell through — see the render guard below).
-  // Never in project-only mode: that waits for the click above.
+  const needsWorkspaceChoice =
+    !isPersonalEmail(session?.user?.email) && !workspaces?.some((workspace) => !workspace.is_demo);
   const readyToCreate =
     !isProjectOnlyMode &&
+    !needsWorkspaceChoice &&
     !!session &&
     !isPending &&
     !workspacesLoading &&
@@ -415,7 +412,9 @@ function OnboardingContent() {
             <p className="text-[13px] text-muted-foreground">
               {isProjectOnlyMode
                 ? "Add a project to an existing workspace"
-                : "Setting up your workspace and first project"}
+                : needsWorkspaceChoice
+                  ? "Join a team or create a workspace"
+                  : "Setting up your workspace and first project"}
             </p>
           </div>
         </div>
@@ -507,6 +506,16 @@ function OnboardingContent() {
                   onClick={() => router.push(returnTo ?? "/workspaces")}
                 >
                   Cancel
+                </Button>
+              </div>
+            ) : needsWorkspaceChoice && !isLoading && !createdProject ? (
+              <div className="flex flex-col items-center gap-3 text-center">
+                <p className="text-[13px] text-muted-foreground">
+                  To join your team, open your workspace invitation email or ask a workspace admin
+                  to invite you.
+                </p>
+                <Button size="sm" onClick={handleSubmit} disabled={switcher.switching}>
+                  Create my own workspace
                 </Button>
               </div>
             ) : (
