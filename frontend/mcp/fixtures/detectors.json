@@ -9,7 +9,11 @@
         "created_at": "2026-05-20T08:00:00Z"
       }
     ],
-    "meta": { "limit": 50, "total": 1 }
+    "meta": {
+      "limit": 50,
+      "page": 1,
+      "total": 1
+    }
   },
   "detail": {
     "detector_id": "detector-001",
@@ -17,6 +21,19 @@
     "template": "failure",
     "enabled": true,
     "created_at": "2026-05-20T08:00:00Z",
-    "prompt": "Flag calls that pass invalid arguments to a tool."
+    "prompt": "Flag calls that pass invalid arguments to a tool.",
+    "output_schema": [
+      {
+        "name": "tool",
+        "type": "string"
+      }
+    ],
+    "sample_rate": 100,
+    "enable_rca": true,
+    "detection_model": null,
+    "detection_provider": null,
+    "detection_source": "system",
+    "updated_at": "2026-05-21T08:00:00Z",
+    "trigger_conditions": null
   }
 }

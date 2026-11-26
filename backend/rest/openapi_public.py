@@ -408,8 +408,9 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "run_sql": {
         "name": "run_sql",
         "description": (
-            "Run one read-only query on TraceRoot's SQL API: a single SELECT over "
-            "the project's documented spans and traces tables, nothing else. Call "
+            "Run one read-only query on TraceRoot's SQL API: a single SELECT, "
+            "UNION or WITH query over the project's documented spans and traces "
+            "tables, nothing else. Call "
             "get_sql_schema first to see their columns. Rows are capped and may be "
             "truncated. SQL reference: https://traceroot.ai/docs/cli/sql"
         ),
