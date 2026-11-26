@@ -514,7 +514,12 @@ function OnboardingContent() {
                   To join your team, open your workspace invitation email or ask a workspace admin
                   to invite you.
                 </p>
-                <Button size="sm" onClick={handleSubmit} disabled={switcher.switching}>
+                <Button
+                  variant="outline"
+                  className="min-h-9"
+                  onClick={handleSubmit}
+                  disabled={switcher.switching}
+                >
                   Create my own workspace
                 </Button>
               </div>
