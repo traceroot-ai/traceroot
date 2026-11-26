@@ -657,13 +657,9 @@ def test_ok_status_llm_span_still_gets_estimated_tokens():
     _assert_estimated_tokens(spans[0])
 
 
-# ── Inline images ────────────────────────────────────────────────────────────────
-#
-# A base64 image is billed by the provider per pixel, not per character. Ingest moves
-# inline images out of span text after the transform (and only where extraction is
-# enabled), so estimation sees the raw base64: at ~4 characters a token, a 1280x720
-# screenshot becomes tens of thousands of prompt tokens. Estimation must skip the
-# images extract_attachments would find.
+# ---------------------------------------------------------------------------
+# Inline images are billed per pixel: their base64 must not be estimated as text
+# ---------------------------------------------------------------------------
 
 PNG = make_png(64, 64, pad=40_000)
 PROMPT = "Click the Submit button."

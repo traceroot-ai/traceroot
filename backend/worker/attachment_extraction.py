@@ -328,11 +328,7 @@ class _ImageDropper(_Extractor):
 
 
 def without_inline_images(text: str) -> str:
-    """``text`` with every image ``extract_attachments`` would find removed.
-
-    For token estimation, which runs in the OTLP transform and must not count an image's
-    base64 as prompt text, whether or not extraction is enabled for the project.
-    """
+    """``text`` with every image ``extract_attachments`` would find removed, for token estimation."""
     return _ImageDropper().rewrite(text)
 
 
