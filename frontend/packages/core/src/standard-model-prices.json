@@ -13,6 +13,19 @@
     }
   },
   {
+    "id": "tr-claude-mythos-5-2",
+    "modelName": "claude-mythos-5-2",
+    "matchPattern": "(?i)^(anthropic\\/|global\\.anthropic\\.)?claude-mythos-5-2(\\[1m\\])?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000008,
+      "output": 0.00004,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.00001,
+      "cacheWrite1h": 0.000016
+    }
+  },
+  {
     "id": "tr-claude-fable-5-1",
     "modelName": "claude-fable-5-1",
     "matchPattern": "(?i)^(anthropic[/.])?claude-fable-5-1(\\[1m\\])?$",

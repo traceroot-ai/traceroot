@@ -1134,6 +1134,11 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
     ("claude-sonnet-4.5", "claude-sonnet-4-5"),
     ("claude-haiku-4.5", "claude-haiku-4-5"),
+    # Mythos 5.2 — bare, gateway slug and Bedrock global ids
+    ("claude-mythos-5-2", "claude-mythos-5-2"),
+    ("claude-mythos-5-2[1m]", "claude-mythos-5-2"),
+    ("anthropic/claude-mythos-5-2", "claude-mythos-5-2"),
+    ("global.anthropic.claude-mythos-5-2", "claude-mythos-5-2"),
     # Fast mode on Opus 4.7 — separately priced at 6x standard (not 4.8's 2x)
     ("anthropic/claude-opus-4.7-fast", "claude-opus-4-7-fast"),
     ("claude-opus-4-7-fast", "claude-opus-4-7-fast"),
@@ -1141,6 +1146,34 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-3.5-sonnet", "claude-3-5-sonnet"),
     ("claude-3.5-haiku", "claude-3-5-haiku"),
 ]
+
+
+CLAUDE_MYTHOS_5_2_NON_MATCHES = [
+    ("claude-mythos-5-2", "claude-mythos-5-1"),
+    ("claude-mythos-5-2", "claude-mythos-5-2-fast"),
+    # Bedrock bills the in-region id at 8.8 / 44, not the row's 8 / 40.
+    ("claude-mythos-5-2", "anthropic.claude-mythos-5-2"),
+]
+
+
+class TestClaudeMythos52PublishedPrices:
+    """Assert the provider-published rates directly
+    (https://platform.claude.com/docs/en/about-claude/pricing)."""
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "claude-mythos-5-2")
+        assert entry["prices"]["input"] == pytest.approx(8e-06)  # $8 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(4e-05)  # $40 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(2e-07)  # $0.20 / 1M tokens
+        assert entry["prices"]["cacheWrite"] == pytest.approx(1e-05)  # $10 / 1M tokens
+        assert entry["prices"]["cacheWrite1h"] == pytest.approx(1.6e-05)  # $16 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", CLAUDE_MYTHOS_5_2_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestClaudeFastAndDotNotationIds:
