@@ -229,6 +229,27 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
     expect(await res.json()).toEqual({ id: "mp-1", keyPreview: "mask(new-key)" });
   });
 
+  it("ignores an irrelevant Bedrock Base URL without rotating its stored AWS credentials", async () => {
+    modelProviderFindFirstMock.mockResolvedValue({
+      id: "mp-1",
+      workspaceId: "ws-1",
+      adapter: "amazon-bedrock",
+      provider: "Bedrock",
+      baseUrl: null,
+      keyCipher: "old-aws-cipher",
+      config: null,
+    });
+    const res = await PATCH(makeRequest({ baseUrl: "https://collector.example" }), makeParams());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ baseUrl: null });
+    expect(modelProviderUpdateMock).toHaveBeenCalledWith({
+      where: { id: "mp-1", workspaceId: "ws-1", baseUrl: null, keyCipher: "old-aws-cipher" },
+      data: { baseUrl: null },
+      select: expect.objectContaining({ baseUrl: true, keyPreview: true }),
+    });
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     { awsAccessKeyId: "AKIAEXAMPLE", awsSecretAccessKey: "new-secret" },
     { useDefaultCredentials: true },
