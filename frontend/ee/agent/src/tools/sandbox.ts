@@ -211,7 +211,7 @@ export function createReadTool(executor: Executor): AgentTool<any> {
         // original selection, not the possibly incomplete cat result above.
         const selection = limit === undefined ? cmd : `${cmd} | head -n ${limit}`;
         const sizeResult = await executor.exec(`${selection} | wc -c`, { signal });
-        if (sizeResult.code !== 0) {
+        if (sizeResult.code !== 0 || sizeResult.stderr.trim()) {
           throw new Error(sizeResult.stderr || `Failed to read file: ${path}`);
         }
         // split/slice/join excludes the delimiter after the last selected line.
@@ -221,11 +221,12 @@ export function createReadTool(executor: Executor): AgentTool<any> {
         const start = byteOffset ?? 0;
         if (start > selectedBytes) throw new Error("byteOffset is beyond the selected content");
         const readBytes = Math.min(DEFAULT_MAX_BYTES + 4, selectedBytes - start);
+        if (readBytes === 0) return { content: [{ type: "text", text: "" }], details: undefined };
         const chunkResult = await executor.exec(
           `${selection} | tail -c +${start + 1} | head -c ${readBytes} | base64`,
           { signal },
         );
-        if (chunkResult.code !== 0) {
+        if (chunkResult.code !== 0 || chunkResult.stderr.trim()) {
           throw new Error(chunkResult.stderr || `Failed to read file: ${path}`);
         }
         // Base64 keeps executor UTF-8 decoding from corrupting a partial character.

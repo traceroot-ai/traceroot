@@ -410,13 +410,25 @@ export async function updateDetector(input: {
       });
       if (!existing) return { result: DETECTOR_NOT_FOUND };
 
-      const { changed, data } = diffPatch(
-        { ...patch, authorUserId: input.actorUserId },
+      const { changed, data } = diffPatch(patch, {
+        ...existing,
+        triggerConditions: existing.trigger?.conditions ?? [],
+      });
+      const approvesConfiguration = patchSchema.required().safeParse(input.patch).success;
+      if (changed.length === 0 && !approvesConfiguration) {
+        return { result: { ok: true, data: existing, changed } };
+      }
+      // Partial edits cannot approve the configuration fields they did not send.
+      const authorship = diffPatch(
         {
-          ...existing,
-          triggerConditions: existing.trigger?.conditions ?? [],
+          authorUserId:
+            approvesConfiguration || existing.authorUserId === input.actorUserId
+              ? input.actorUserId
+              : null,
         },
+        existing,
       );
+      changed.push(...authorship.changed);
       if (changed.length === 0) return { result: { ok: true, data: existing, changed } };
 
       const { triggerConditions: conditions, ...columns } = data;
@@ -424,6 +436,7 @@ export async function updateDetector(input: {
         where: { id: existing.id },
         data: {
           ...(columns as Omit<typeof columns, "outputSchema"> & { outputSchema?: object }),
+          ...authorship.data,
           // Turning signals on groups hits from now on, never the ones detected
           // while it was off.
           ...(columns.enableSignals === true ? { signalsEnabledAt: new Date() } : {}),

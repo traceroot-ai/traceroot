@@ -43,6 +43,7 @@ const storedDetector = {
   sampleRate: 25,
   enabled: true,
   enableRca: true,
+  enableSignals: true,
   detectionModel: "claude-sonnet-5",
   detectionProvider: "anthropic",
   detectionSource: "system",
@@ -52,6 +53,23 @@ const storedDetector = {
     conditions: [{ field: "environment", op: "=", value: "prod" }],
   },
 };
+
+function completePatch(overrides: Record<string, unknown> = {}) {
+  return {
+    name: storedDetector.name,
+    prompt: storedDetector.prompt,
+    outputSchema: storedDetector.outputSchema,
+    sampleRate: storedDetector.sampleRate,
+    enabled: storedDetector.enabled,
+    enableRca: storedDetector.enableRca,
+    enableSignals: storedDetector.enableSignals,
+    triggerConditions: storedDetector.trigger.conditions,
+    detectionModel: storedDetector.detectionModel,
+    detectionProvider: storedDetector.detectionProvider,
+    detectionSource: storedDetector.detectionSource,
+    ...overrides,
+  };
+}
 
 const provenance = { transport: "public-api" as const };
 
@@ -129,7 +147,7 @@ describe("updateDetector", () => {
       return { ...row };
     });
 
-    const save = runUpdate({ name: storedDetector.name });
+    const save = runUpdate(completePatch());
     try {
       await vi.waitFor(() => {
         expect(tx.$queryRaw.mock.calls.length > 0 || tx.detector.update.mock.calls.length > 0).toBe(
@@ -164,7 +182,7 @@ describe("updateDetector", () => {
   it("attributes the saved configuration to the current actor, not the patch's author", async () => {
     mockAccess();
     const result = await runUpdate(
-      { name: "Renamed", authorUserId: "forged-user" },
+      completePatch({ name: "Renamed", authorUserId: "forged-user" }),
       { actorUserId: "u2" },
     );
 
@@ -179,22 +197,124 @@ describe("updateDetector", () => {
     });
   });
 
-  it("claims a legacy configuration when a member explicitly saves its unchanged values", async () => {
-    mockAccess();
-    tx.detector.findFirst.mockResolvedValue({ ...storedDetector, authorUserId: null });
+  it.each([null, "other-author"])(
+    "claims an unchanged configuration authored by %s only with a complete validated save",
+    async (authorUserId) => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue({ ...storedDetector, authorUserId });
 
-    expect(await runUpdate({ name: storedDetector.name })).toMatchObject({
+      expect(await runUpdate(completePatch())).toMatchObject({
+        ok: true,
+        changed: ["author_user_id"],
+        data: { authorUserId: "u1" },
+      });
+      expect(tx.detector.update.mock.calls[0][0].data).toEqual({ authorUserId: "u1" });
+      expect(root.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorUserId: "u1",
+          summary: { changed: ["author_user_id"] },
+        }),
+      });
+    },
+  );
+
+  it.each([null, "other-author"])(
+    "leaves author %s unchanged for a partial no-op, without writing or auditing",
+    async (authorUserId) => {
+      mockAccess();
+      const existing = { ...storedDetector, authorUserId };
+      tx.detector.findFirst.mockResolvedValue(existing);
+
+      expect(await runUpdate({ name: existing.name })).toEqual({
+        ok: true,
+        changed: [],
+        data: existing,
+      });
+      expect(tx.detector.update).not.toHaveBeenCalled();
+      expect(root.auditLog.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not approve a removed author's instructions when another member only toggles enabled", async () => {
+    mockAccess();
+    const existing = {
+      ...storedDetector,
+      authorUserId: "removed-author",
+      name: "Injected instructions",
+      prompt: "Other unreviewed instructions",
+    };
+    tx.detector.findFirst.mockResolvedValue(existing);
+    tx.detector.update.mockImplementation(async ({ data }) => ({ ...existing, ...data }));
+
+    expect(await runUpdate({ enabled: false })).toMatchObject({
       ok: true,
-      changed: ["author_user_id"],
-      data: { authorUserId: "u1" },
+      changed: ["enabled", "author_user_id"],
+      data: { name: existing.name, prompt: existing.prompt, enabled: false, authorUserId: null },
     });
-    expect(tx.detector.update.mock.calls[0][0].data).toEqual({ authorUserId: "u1" });
-    expect(root.auditLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        actorUserId: "u1",
-        summary: { changed: ["author_user_id"] },
-      }),
+    expect(tx.detector.update.mock.calls[0][0].data).toEqual({
+      enabled: false,
+      authorUserId: null,
     });
+  });
+
+  it("does not attribute another member's injected partial edit to an existing authorized author", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue({
+      ...storedDetector,
+      authorUserId: "authorized-author",
+    });
+
+    expect(
+      await runUpdate({ name: "Injected instructions", prompt: "Run an unrelated command" }),
+    ).toMatchObject({
+      ok: true,
+      changed: ["name", "prompt", "author_user_id"],
+      data: { name: "Injected instructions", authorUserId: null },
+    });
+    expect(tx.detector.update.mock.calls[0][0].data.authorUserId).toBeNull();
+  });
+
+  it("keeps a legacy configuration unapproved after a partial edit", async () => {
+    mockAccess();
+    const existing = { ...storedDetector, authorUserId: null };
+    tx.detector.findFirst.mockResolvedValue(existing);
+    tx.detector.update.mockImplementation(async ({ data }) => ({ ...existing, ...data }));
+
+    expect(await runUpdate({ name: "Renamed" })).toMatchObject({
+      ok: true,
+      changed: ["name"],
+      data: { name: "Renamed", authorUserId: null },
+    });
+    expect(tx.detector.update.mock.calls[0][0].data).toEqual({ name: "Renamed" });
+  });
+
+  it("keeps the same author for a partial configuration edit", async () => {
+    mockAccess();
+    expect(await runUpdate({ name: "Renamed" })).toMatchObject({
+      ok: true,
+      changed: ["name"],
+      data: { name: "Renamed", authorUserId: "u1" },
+    });
+    expect(tx.detector.update.mock.calls[0][0].data).toEqual({ name: "Renamed" });
+  });
+
+  it.each(
+    Object.keys(completePatch()).flatMap((field) => [
+      { field, supplied: "missing" },
+      { field, supplied: "undefined" },
+    ]),
+  )("does not approve a configuration with $field $supplied", async ({ field, supplied }) => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue({ ...storedDetector, authorUserId: "other-author" });
+    const patch: Record<string, unknown> = completePatch({
+      name: "Renamed",
+      prompt: "New analysis prompt",
+    });
+    if (supplied === "missing") delete patch[field];
+    else patch[field] = undefined;
+
+    expect(await runUpdate(patch)).toMatchObject({ ok: true, data: { authorUserId: null } });
+    expect(tx.detector.update.mock.calls[0][0].data.authorUserId).toBeNull();
   });
 
   it("does not allow a client to assign authorship without saving a supported configuration field", async () => {

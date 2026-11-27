@@ -127,10 +127,44 @@ describe("read byte continuation", () => {
       const tail = await tool.execute("past-cap", { ...input, path, byteOffset: cap + 3 });
       expect(fragment(tail)).toBe(":tail");
       expect(tail.details?.nextByteOffset).toBeUndefined();
+      const end = await tool.execute("exact-end", {
+        ...input,
+        path,
+        byteOffset: Buffer.byteLength(source),
+      });
+      expect(fragment(end)).toBe("");
+      expect(end.details?.nextByteOffset).toBeUndefined();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it.each([" | wc -c", " | base64"])(
+    "propagates producer errors hidden by a successful %s pipeline",
+    async (suffix) => {
+      const directory = await mkdtemp(join(tmpdir(), "agent-read-"));
+      const path = join(directory, "disappearing trace.jsonl");
+      const executor = fileExecutor("data");
+      const exec = promisify(execFile);
+      let failedPipeline: { code: number; stderr: string } | undefined;
+      executor.exec = vi.fn(async (command) => {
+        if (command.endsWith(suffix)) await rm(path);
+        const result = await exec("sh", ["-c", command]);
+        const output = { stdout: result.stdout, stderr: result.stderr, code: 0 };
+        if (command.endsWith(suffix)) failedPipeline = output;
+        return output;
+      });
+      try {
+        await writeFile(path, "data");
+        await expect(
+          createReadTool(executor).execute("deleted", { ...input, path, byteOffset: 0 }),
+        ).rejects.toThrow("No such file");
+        expect(failedPipeline).toMatchObject({ code: 0, stderr: expect.stringContaining(path) });
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("rejects an empty range if the file shrinks after measuring it", async () => {
     const executor = fileExecutor("still measured as nonempty");
