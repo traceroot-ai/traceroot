@@ -30,3 +30,5 @@ Actual Chrome + those services: changed the password through the form, confirmed
 [HTTP/DB results](live-results.json) · [Browser results](browser-results.json)
 
 Production deployment and external remediation retesting have not been performed. Already issued CLI JWT expiry/validation policy is unchanged.
+
+The real browser also observed HTTP 403 from the pre-existing public GitHub star-count widget (`api.github.com/repos/traceroot-ai/traceroot`); authentication requests passed and no page exception occurred.

@@ -88,8 +88,12 @@
         "label": "Change password form"
       },
       {
-        "at": 1,
-        "label": "Submit and confirmation"
+        "at": 1.84,
+        "label": "Submit password change"
+      },
+      {
+        "at": 2.65,
+        "label": "Password changed confirmation"
       }
     ]
   }
