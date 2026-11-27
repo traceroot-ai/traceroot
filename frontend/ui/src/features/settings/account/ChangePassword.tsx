@@ -76,7 +76,7 @@ export function ChangePassword({ onChanged }: { onChanged: () => void }) {
         <AuthField label="Confirm password" error={errors.confirmPassword?.message}>
           <PasswordInput autoComplete="new-password" {...register("confirmPassword")} />
         </AuthField>
-        <Button type="submit" size="sm" disabled={isSubmitting}>
+        <Button type="submit" variant="outline" size="sm" disabled={isSubmitting}>
           {isSubmitting ? "Changing password..." : "Change password"}
         </Button>
       </form>

@@ -17,7 +17,7 @@ export default function AccountSessionsSettingsPage() {
   }, [setHeaderContent]);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full flex-col sm:flex-row">
       <SettingsLayout
         tabs={ACCOUNT_SETTINGS_TABS}
         activeTab="sessions"
