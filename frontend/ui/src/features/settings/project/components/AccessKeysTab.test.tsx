@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImpersonationError } from "@/lib/api/errors";
 import { getAccessKeys, createAccessKey, updateAccessKey, deleteAccessKey } from "@/lib/api";
@@ -285,3 +285,72 @@ it("does not trust administrator data after the session request fails", () => {
   expect(screen.queryByRole("button", { name: "Create new API key" })).toBeNull();
   expect(getAccessKeys).not.toHaveBeenCalled();
 });
+
+const oneTimeResponse = {
+  data: {
+    id: "new-key",
+    key: "tr-identity-owned-secret",
+    key_hint: "tr-owned",
+    name: "Created integration",
+    expire_time: null,
+    last_use_time: null,
+    create_time: "2026-01-01T00:00:00Z",
+  },
+};
+
+function keyView(client: QueryClient, projectId = "p") {
+  return (
+    <QueryClientProvider client={client}>
+      <AccessKeysTab projectId={projectId} />
+    </QueryClientProvider>
+  );
+}
+
+function submitNewKey() {
+  fireEvent.click(screen.getByRole("button", { name: "Create new API key" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create" }));
+}
+
+it.each(["sessionPending", "sessionRefetching", "sessionError", "account", "project"] as const)(
+  "hides both one-time secret render paths after a change in %s",
+  async (change) => {
+    state.role = "MEMBER";
+    vi.mocked(createAccessKey).mockResolvedValue(oneTimeResponse);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(keyView(client));
+    submitNewKey();
+    expect(await screen.findByText(oneTimeResponse.data.key)).toBeTruthy();
+    expect(document.body.textContent).toContain(`TRACEROOT_API_KEY="${oneTimeResponse.data.key}"`);
+
+    if (change === "sessionError") state.sessionError = new Error("Session unavailable");
+    else if (change === "account") state.userId = "another-user";
+    else if (change !== "project") state[change] = true;
+    rerender(keyView(client, change === "project" ? "another-project" : "p"));
+
+    expect(document.body.textContent).not.toContain(oneTimeResponse.data.key);
+    expect(screen.queryByRole("button", { name: "Copy API key" })).toBeNull();
+  },
+);
+
+it.each(["account", "project"] as const)(
+  "does not display a late creation response after switching %s",
+  async (change) => {
+    state.role = "MEMBER";
+    let complete!: (response: typeof oneTimeResponse) => void;
+    vi.mocked(createAccessKey).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(keyView(client));
+    submitNewKey();
+    await waitFor(() => expect(createAccessKey).toHaveBeenCalledWith("p", undefined));
+    if (change === "account") state.userId = "another-user";
+    rerender(keyView(client, change === "project" ? "another-project" : "p"));
+    await act(async () => complete(oneTimeResponse));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.body.textContent).not.toContain(oneTimeResponse.data.key);
+  },
+);

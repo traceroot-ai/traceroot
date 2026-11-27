@@ -63,7 +63,12 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyData, setNewKeyData] = useState<{ key: string; keyHint: string } | null>(null);
+  const [newKeyData, setNewKeyData] = useState<{
+    key: string;
+    keyHint: string;
+    userId: string;
+    projectId: string;
+  } | null>(null);
   const [editingKey, setEditingKey] = useState<{ id: string; name: string } | null>(null);
   const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -75,10 +80,16 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   });
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createAccessKey(projectId, name || undefined),
-    onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
-      setNewKeyData({ key: response.data.key, keyHint: response.data.key_hint });
+    mutationFn: ({ name, projectId }: { name: string; projectId: string; userId: string }) =>
+      createAccessKey(projectId, name || undefined),
+    onSuccess: (response, owner) => {
+      queryClient.invalidateQueries({ queryKey: ["access-keys", owner.projectId] });
+      setNewKeyData({
+        key: response.data.key,
+        keyHint: response.data.key_hint,
+        userId: owner.userId,
+        projectId: owner.projectId,
+      });
       setNewKeyName("");
       setShowCreateDialog(false);
     },
@@ -103,7 +114,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   });
 
   const handleCreate = () => {
-    createMutation.mutate(newKeyName);
+    if (canCreateKeys && userId) createMutation.mutate({ name: newKeyName, projectId, userId });
   };
 
   const handleCloseNewKey = () => {
@@ -118,8 +129,13 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   const accessKeys = canListKeys ? data?.access_keys || [] : [];
 
-  const envBlockContent = newKeyData
-    ? `TRACEROOT_API_KEY="${newKeyData.key}"`
+  const createdKey =
+    canCreateKeys && newKeyData?.userId === userId && newKeyData.projectId === projectId
+      ? newKeyData
+      : null;
+
+  const envBlockContent = createdKey
+    ? `TRACEROOT_API_KEY="${createdKey.key}"`
     : accessKeys.length > 0
       ? `TRACEROOT_API_KEY="${formatKeyHint(accessKeys[0].key_hint)}"`
       : `TRACEROOT_API_KEY="tr-..."`;
@@ -165,7 +181,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         </div>
       </div>
 
-      {newKeyData && (
+      {createdKey && (
         <div className="border border-success-border bg-success-soft">
           <div className="px-4 py-3">
             <p className="mb-2 text-xs font-medium text-success">
@@ -173,9 +189,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             </p>
             <div className="mb-2 flex items-center gap-2">
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
-                {newKeyData.key}
+                {createdKey.key}
               </code>
-              <CopyButton aria-label="Copy API key" value={newKeyData.key} variant="outline" />
+              <CopyButton aria-label="Copy API key" value={createdKey.key} variant="outline" />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
               I&apos;ve copied the key

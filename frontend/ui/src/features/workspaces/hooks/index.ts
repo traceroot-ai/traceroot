@@ -1,6 +1,7 @@
 /**
  * Workspace feature hooks
  */
+import { useCallback } from "react";
 import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { getWorkspaces, getWorkspace } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
@@ -41,10 +42,11 @@ export function useWorkspace(
     isPending: sessionPending,
     isRefetching: sessionRefetching,
     error: sessionError,
+    refetch: refetchSession,
   } = useSession();
   const identityPending = sessionPending || sessionRefetching;
   const userId = identityPending || sessionError ? undefined : session?.user.id;
-  return useQuery({
+  const query = useQuery({
     queryKey: ["workspace", workspaceId, userId],
     queryFn: () => {
       if (!userId) throw new ApiError(401, "Unauthorized");
@@ -53,4 +55,13 @@ export function useWorkspace(
     enabled: enabled && !!workspaceId && !identityPending,
     ...queryOptions,
   });
+  const refetchQuery = query.refetch;
+  const refetch = useCallback(
+    async (options?: Parameters<typeof query.refetch>[0]) => {
+      if (!userId) await refetchSession();
+      return refetchQuery(options);
+    },
+    [userId, refetchSession, refetchQuery],
+  );
+  return { ...query, refetch };
 }
