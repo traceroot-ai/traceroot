@@ -1495,9 +1495,33 @@
     }
   },
   {
+    "id": "tr-grok-4-3",
+    "modelName": "grok-4.3",
+    "matchPattern": "(?i)^(xai\\/)?grok-4[.-]3$",
+    "provider": "xai",
+    "prices": {
+      "input": 0.00000125,
+      "output": 0.0000025,
+      "cacheRead": 0.0000002,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-grok-4-5",
+    "modelName": "grok-4.5",
+    "matchPattern": "(?i)^(xai\\/)?grok-4[.-]5$",
+    "provider": "xai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.000006,
+      "cacheRead": 0.0000003,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-grok-4-6",
     "modelName": "grok-4.6",
-    "matchPattern": "(?i)^(xai\\/)?grok-4\\.6(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(xai\\/)?grok-4[.-]6(-[\\d-]+)?$",
     "provider": "xai",
     "prices": {
       "input": 0.000002,
@@ -1509,7 +1533,7 @@
   {
     "id": "tr-grok-4-7",
     "modelName": "grok-4.7",
-    "matchPattern": "(?i)^(xai\\/)?grok-4\\.7(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(xai\\/)?grok-4[.-]7(-[\\d-]+)?$",
     "provider": "xai",
     "prices": {
       "input": 0.000002,
@@ -1546,7 +1570,7 @@
   {
     "id": "tr-grok-4-20",
     "modelName": "grok-4.20",
-    "matchPattern": "(?i)^(xai\\/)?grok-4\\.20(-[a-z0-9-]+)?$",
+    "matchPattern": "(?i)^(xai\\/)?grok-4[.-]20(-[a-z0-9-]+)?$",
     "provider": "xai",
     "prices": {
       "input": 0.00000125,
@@ -1558,7 +1582,7 @@
   {
     "id": "tr-grok-4",
     "modelName": "grok-4",
-    "matchPattern": "(?i)^(xai\\/)?grok-4(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(xai\\/)?grok-4(-\\d{4})?$",
     "provider": "xai",
     "prices": {
       "input": 0.00000125,

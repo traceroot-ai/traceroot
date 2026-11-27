@@ -233,6 +233,7 @@ GLM_NON_MATCHES = [
 
 XAI_MODEL_CASES = [
     ("grok-4.20", "grok-4.20"),
+    ("grok-4-20", "grok-4.20"),
     ("xai/grok-4.20", "grok-4.20"),
     ("grok-4.20-20260601", "grok-4.20"),
     ("grok-4.20-0309-reasoning", "grok-4.20"),
@@ -245,16 +246,28 @@ XAI_MODEL_CASES = [
     ("grok-4", "grok-4"),
     ("xai/grok-4", "grok-4"),
     ("grok-4-0709", "grok-4"),
+    ("grok-4.3", "grok-4.3"),
+    ("grok-4-3", "grok-4.3"),
+    ("xai/grok-4.3", "grok-4.3"),
+    ("grok-4.5", "grok-4.5"),
+    ("grok-4-5", "grok-4.5"),
+    ("xai/grok-4.5", "grok-4.5"),
     ("grok-4.6", "grok-4.6"),
+    ("grok-4-6", "grok-4.6"),
     ("xai/grok-4.6", "grok-4.6"),
     ("grok-4.6-20260601", "grok-4.6"),
     ("grok-4.7", "grok-4.7"),
+    ("grok-4-7", "grok-4.7"),
     ("xai/grok-4.7", "grok-4.7"),
     ("grok-4.7-20260921", "grok-4.7"),
 ]
 
 # (pattern owner, id it must not absorb): adjacent versions, a longer version, -fast variants.
 XAI_NON_MATCHES = [
+    ("grok-4", "grok-4-5"),
+    ("grok-4", "grok-4-6"),
+    ("grok-4", "grok-4-7"),
+    ("grok-4", "grok-4-20"),
     ("grok-4.6", "grok-4"),
     ("grok-4.6", "grok-4.5"),
     ("grok-4.6", "grok-4.60"),
@@ -578,6 +591,25 @@ class TestGpt62AstraModelIds:
         assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
             f"the {owner} pattern must not absorb {model_id}"
         )
+
+
+# $ per 1M tokens: input, cached input, output
+GROK_4X_PUBLISHED_RATES = {
+    "grok-4.3": (1.25, 0.20, 2.50),
+    "grok-4.5": (2.00, 0.30, 6.00),
+}
+
+
+class TestGrok4xPublishedPrices:
+    """Assert the absolute, provider-published rate directly
+    (https://docs.x.ai/developers/models)."""
+
+    @pytest.mark.parametrize("model_name,rates", GROK_4X_PUBLISHED_RATES.items())
+    def test_published_rates(self, real_cache, model_name, rates):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        expected = dict(zip(("input", "cacheRead", "output"), rates))
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
 
 
 class TestGemini3xPublishedPrices:
