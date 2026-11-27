@@ -368,8 +368,10 @@ it("prevents resetting or replacing a pending creation, then permits the next ac
   const { rerender } = render(keyView(client));
   submitNewKey();
   await waitFor(() => expect(createAccessKey).toHaveBeenCalledTimes(1));
-  fireEvent.keyDown(within(screen.getByRole("dialog")).getByLabelText("Name (optional)"), {
-    key: "Enter",
+  await act(async () => {
+    fireEvent.keyDown(within(screen.getByRole("dialog")).getByLabelText("Name (optional)"), {
+      key: "Enter",
+    });
   });
   expect(createAccessKey).toHaveBeenCalledTimes(1);
   fireEvent.keyDown(document, { key: "Escape" });
