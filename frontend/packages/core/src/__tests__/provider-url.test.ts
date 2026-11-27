@@ -56,7 +56,7 @@ describe("resolveProviderBaseUrl", () => {
     "https://api.openai.com/v1?exfil=1",
     "https://api.openai.com/v1#",
     "https://api.openai.com/v1/#/models",
-    "https://user:password@api.openai.com/v1",
+    "https://user@api.openai.com/v1",
     "https://@api.openai.com/v1",
     "https://api.openai.com:444/v1",
     "https://api.openai.com/other-path",

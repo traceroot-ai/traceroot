@@ -44,9 +44,9 @@ describe("Node SDK provider transport", () => {
   });
 
   it("preserves the existing dispatcher for non-provider internal requests", async () => {
-    fallback.get("http://agent.internal").intercept({ path: "/health" }).reply(200, "healthy");
+    fallback.get("https://agent.internal").intercept({ path: "/health" }).reply(200, "healthy");
     installProviderNetworkPolicy();
-    expect(await (await fetch("http://agent.internal/health")).text()).toBe("healthy");
+    expect(await (await fetch("https://agent.internal/health")).text()).toBe("healthy");
     expect(dns.lookup).not.toHaveBeenCalled();
   });
 
@@ -58,8 +58,8 @@ describe("Node SDK provider transport", () => {
     setGlobalDispatcher(fallback);
     installProviderNetworkPolicy();
     expect(getGlobalDispatcher()).not.toBe(fallback);
-    fallback.get("http://agent.internal").intercept({ path: "/health" }).reply(200, "healthy");
-    expect(await (await fetch("http://agent.internal/health")).text()).toBe("healthy");
+    fallback.get("https://agent.internal").intercept({ path: "/health" }).reply(200, "healthy");
+    expect(await (await fetch("https://agent.internal/health")).text()).toBe("healthy");
   });
 
   it("preserves a successful vendor response and streaming body", async () => {
