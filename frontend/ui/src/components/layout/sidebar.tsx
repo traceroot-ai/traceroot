@@ -163,7 +163,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   {collapsed ? (
                     <div className="mx-3 mt-2 border-t border-border" aria-hidden />
                   ) : (
-                    <div className="px-4 pb-1 pt-4 text-[12px] font-medium text-muted-foreground">
+                    <div className="flex items-center gap-1.5 px-4 pb-1 pt-4 text-[12px] font-medium text-muted-foreground">
+                      <span aria-hidden className="h-1.5 w-1.5 shrink-0 bg-primary" />
                       {group.label}
                     </div>
                   )}
