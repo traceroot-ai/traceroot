@@ -28,7 +28,7 @@
   {
     "id": "tr-claude-fable-5-1",
     "modelName": "claude-fable-5-1",
-    "matchPattern": "(?i)^(anthropic[/.])?claude-fable-5-1(\\[1m\\])?$",
+    "matchPattern": "(?i)^(anthropic[/.]|global\\.anthropic\\.)?claude-fable-5[.-]1(\\[1m\\])?$",
     "provider": "anthropic",
     "prices": {
       "input": 0.00001,

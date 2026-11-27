@@ -1079,7 +1079,9 @@ class TestClaudeBedrockAndVertexIds:
             (prefix + e["modelName"], e["modelName"])
             for e in _standard_price_entries()
             for prefix in (
-                ["", "anthropic/", "anthropic."] if e["provider"] == "anthropic" else [""]
+                ["", "anthropic/", "anthropic.", "global.anthropic."]
+                if e["provider"] == "anthropic"
+                else [""]
             )
         ],
     )
@@ -1180,6 +1182,9 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-opus-4.8", "claude-opus-4-8"),
     ("claude-opus-4.8", "claude-opus-4-8"),
     ("claude-opus-4.8[1m]", "claude-opus-4-8"),
+    # Fable 5.1 — OpenRouter's dotted slug and Bedrock's global profile
+    ("anthropic/claude-fable-5.1", "claude-fable-5-1"),
+    ("global.anthropic.claude-fable-5-1", "claude-fable-5-1"),
     ("claude-opus-4.7", "claude-opus-4-7"),
     ("claude-opus-4.6", "claude-opus-4-6"),
     ("claude-opus-4.5", "claude-opus-4-5"),
