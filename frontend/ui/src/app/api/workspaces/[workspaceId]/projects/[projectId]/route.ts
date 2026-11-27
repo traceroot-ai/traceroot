@@ -1,12 +1,13 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Role, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { projectDetailsResponse } from "@/lib/project-response";
 import { readDeleteReason } from "@/lib/route-helpers";
 import { deleteProject, updateProject, type ProjectPatch } from "@/lib/write-services/projects";
 
@@ -30,17 +31,6 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
       deleteTime: null,
     },
     include: {
-      accessKeys: {
-        select: {
-          id: true,
-          keyHint: true,
-          name: true,
-          expireTime: true,
-          lastUseTime: true,
-          createTime: true,
-        },
-        orderBy: { createTime: "desc" },
-      },
       alertConfig: true,
     },
   });
@@ -49,26 +39,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Project not found", 404);
   }
 
-  return successResponse({
-    id: project.id,
-    name: project.name,
-    trace_ttl_days: project.traceTtlDays,
-    rca_model: project.rcaModel,
-    rca_provider: project.rcaProvider,
-    rca_source: project.rcaSource,
-    alert_emails: project.alertConfig?.emailAddresses ?? [],
-    alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
-    access_keys: project.accessKeys.map((k) => ({
-      id: k.id,
-      key_hint: k.keyHint,
-      name: k.name,
-      expire_time: k.expireTime,
-      last_use_time: k.lastUseTime,
-      create_time: k.createTime,
-    })),
-    create_time: project.createTime,
-    update_time: project.updateTime,
-  });
+  return successResponse(projectDetailsResponse(project, membershipResult.membership.role));
 }
 
 // PATCH /api/workspaces/[workspaceId]/projects/[projectId] - Update project (ADMIN+)

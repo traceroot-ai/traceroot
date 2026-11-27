@@ -1,13 +1,13 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
-import { prisma, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
+import { prisma } from "@traceroot/core";
 import {
   requireAuth,
   requireProjectAccess,
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
-import { isDemoViewer } from "@/lib/demo-workspace";
+import { projectDetailsResponse } from "@/lib/project-response";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -39,22 +39,10 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
   }
 
   return successResponse({
-    id: project.id,
+    ...projectDetailsResponse(project, accessResult.membership.role),
     read_at: readAt,
     workspace_id: project.workspaceId,
-    name: project.name,
-    trace_ttl_days: project.traceTtlDays,
-    rca_model: project.rcaModel,
-    rca_provider: project.rcaProvider,
-    rca_source: project.rcaSource,
-    // Alert recipients are team emails; demo viewers do not get them.
-    alert_emails: isDemoViewer(project.workspaceId, accessResult.membership.role)
-      ? []
-      : (project.alertConfig?.emailAddresses ?? []),
-    alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
     access_key_count: project._count.accessKeys,
-    create_time: project.createTime,
-    update_time: project.updateTime,
   });
 }
 export const GET = withImpersonationPolicy(handleGET);

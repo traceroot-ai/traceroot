@@ -28,7 +28,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/support/route-guard", () => ({
   withImpersonationPolicy: (handler: unknown) => handler,
 }));
-vi.mock("@traceroot/core", () => ({
+vi.mock("@traceroot/core", async (original) => ({
+  ...(await original<typeof import("@traceroot/core")>()),
   prisma: { workspace: { findUnique: async () => mocks.workspace } },
   Role: { ADMIN: "ADMIN", MEMBER: "MEMBER", VIEWER: "VIEWER" },
   getRetentionDays: () => 7,

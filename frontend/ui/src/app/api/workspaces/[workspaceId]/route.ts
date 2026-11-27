@@ -1,13 +1,13 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Role, getRetentionDays } from "@traceroot/core";
+import { prisma, Role, hasMinRole, getRetentionDays } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
-import { isDemoViewer, isDemoWorkspace } from "@/lib/demo-workspace";
+import { isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPlainObject } from "@/lib/is-plain-object";
 import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
 import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
@@ -47,16 +47,15 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
   }
 
   const isDemo = isDemoWorkspace(workspace.id);
-  // Demo viewers read this for the General page, but not the billing state.
-  const billing = isDemoViewer(workspace.id, membership.role)
-    ? {}
-    : {
+  const billing = hasMinRole(membership.role, Role.ADMIN)
+    ? {
         billingPlan: workspace.billingPlan,
         billingCustomerId: workspace.billingCustomerId,
         billingSubscriptionId: workspace.billingSubscriptionId,
         billingStatus: workspace.billingStatus,
         currentUsage: workspace.currentUsage,
-      };
+      }
+    : {};
   return successResponse({
     id: workspace.id,
     name: workspace.name,

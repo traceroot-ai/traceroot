@@ -20,7 +20,7 @@ const createAccessKeySchema = z.object({
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
-// GET /api/projects/[projectId]/api-keys - List access keys
+// GET /api/projects/[projectId]/api-keys - List access keys (ADMIN+)
 async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
 
@@ -28,11 +28,8 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.ADMIN);
   if (accessResult.error) return accessResult.error;
-  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
-    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
-  }
 
   const accessKeys = await prisma.accessKey.findMany({
     where: { projectId },

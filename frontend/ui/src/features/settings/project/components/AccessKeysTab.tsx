@@ -4,6 +4,9 @@ import { useId, useState } from "react";
 import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
+import { hasMinRole, Role } from "@traceroot/core";
+import { useProject } from "@/features/projects/hooks";
+import { useWorkspace } from "@/features/workspaces/hooks";
 import { Button } from "@/components/ui/button";
 import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
@@ -44,6 +47,10 @@ function formatKeyHint(keyHint: string): string {
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
   const formId = useId();
+  const { data: project } = useProject(projectId);
+  const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
+  const canListKeys = workspace?.role === Role.ADMIN;
+  const canCreateKeys = workspace ? hasMinRole(workspace.role, Role.MEMBER) : false;
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -55,6 +62,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["access-keys", projectId],
     queryFn: () => getAccessKeys(projectId),
+    enabled: canListKeys,
   });
 
   const createMutation = useMutation({
@@ -99,7 +107,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     }
   };
 
-  const accessKeys = data?.access_keys || [];
+  const accessKeys = canListKeys ? data?.access_keys || [] : [];
 
   const envBlockContent = newKeyData
     ? `TRACEROOT_API_KEY="${newKeyData.key}"`
@@ -107,7 +115,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       ? `TRACEROOT_API_KEY="${formatKeyHint(accessKeys[0].key_hint)}"`
       : `TRACEROOT_API_KEY="tr-..."`;
 
-  if (error instanceof ImpersonationError) {
+  if (canListKeys && error instanceof ImpersonationError) {
     return (
       <p role="alert" className="text-sm text-muted-foreground">
         {error.message}
@@ -122,14 +130,16 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <h2 className="text-[15px] font-medium">Project API Keys</h2>
           <Info className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
-        <AddButton
-          onClick={() => {
-            createMutation.reset();
-            setShowCreateDialog(true);
-          }}
-        >
-          Create new API key
-        </AddButton>
+        {canCreateKeys && (
+          <AddButton
+            onClick={() => {
+              createMutation.reset();
+              setShowCreateDialog(true);
+            }}
+          >
+            Create new API key
+          </AddButton>
+        )}
       </div>
 
       <div className="border">
@@ -296,7 +306,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       </Dialog>
 
       <div className="border">
-        {isLoading ? (
+        {!canListKeys ? (
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">
+            Only workspace administrators can view existing API keys.
+          </div>
+        ) : isLoading ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">Loading API keys...</div>
         ) : accessKeys.length === 0 ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">

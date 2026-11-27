@@ -6,6 +6,15 @@ import { ImpersonationError } from "@/lib/api/errors";
 import { getAccessKeys, createAccessKey, updateAccessKey, deleteAccessKey } from "@/lib/api";
 import { AccessKeysTab } from "./AccessKeysTab";
 
+const state = vi.hoisted(() => ({ role: "ADMIN" as "ADMIN" | "MEMBER" | "VIEWER" | undefined }));
+
+vi.mock("@/features/projects/hooks", () => ({
+  useProject: () => ({ data: { workspace_id: "w" } }),
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({ data: state.role ? { role: state.role } : undefined }),
+}));
+
 vi.mock("@/lib/api", () => ({
   getAccessKeys: vi.fn(),
   createAccessKey: vi.fn(),
@@ -15,6 +24,7 @@ vi.mock("@/lib/api", () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  state.role = "ADMIN";
 });
 
 it("shows the restriction instead of an empty key list", async () => {
@@ -134,3 +144,65 @@ it("associates the API key name field with its visible label", () => {
   fireEvent.click(screen.getByRole("button", { name: "Create new API key" }));
   expect(within(screen.getByRole("dialog")).getByLabelText("Name (optional)")).toBeTruthy();
 });
+
+it("lets a member create a key without reading or displaying the existing inventory", async () => {
+  state.role = "MEMBER";
+  vi.mocked(createAccessKey).mockResolvedValue({
+    data: {
+      id: "new-key",
+      key: "tr-created-once",
+      key_hint: "tr-created",
+      name: "Member integration",
+      expire_time: null,
+      last_use_time: null,
+      create_time: "2026-01-01T00:00:00Z",
+    },
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["access-keys", "p"], {
+    access_keys: [{ id: "private-key", name: "Existing private key", key_hint: "tr-private-hint" }],
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+
+  expect(
+    screen.getByText("Only workspace administrators can view existing API keys."),
+  ).toBeTruthy();
+  expect(screen.queryByText(/No API keys yet/)).toBeNull();
+  expect(screen.queryByText("Existing private key")).toBeNull();
+  expect(screen.queryByText(/tr-priv[.][.][.]hint/)).toBeNull();
+  expect(getAccessKeys).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "Create new API key" }));
+  const dialog = within(screen.getByRole("dialog", { name: "Create API Key" }));
+  fireEvent.change(dialog.getByLabelText("Name (optional)"), {
+    target: { value: "Member integration" },
+  });
+  fireEvent.click(dialog.getByRole("button", { name: "Create" }));
+
+  expect(await screen.findByText("tr-created-once")).toBeTruthy();
+  expect(createAccessKey).toHaveBeenCalledWith("p", "Member integration");
+  expect(getAccessKeys).not.toHaveBeenCalled();
+  expect(screen.queryByText("Existing private key")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "I've copied the key" }));
+  expect(screen.queryByText("tr-created-once")).toBeNull();
+});
+
+it.each(["VIEWER", undefined] as const)(
+  "does not fetch or offer key creation for role %s",
+  (role) => {
+    state.role = role;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AccessKeysTab projectId="p" />
+      </QueryClientProvider>,
+    );
+    expect(getAccessKeys).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Create new API key" })).toBeNull();
+    expect(screen.queryByText(/No API keys yet/)).toBeNull();
+  },
+);
