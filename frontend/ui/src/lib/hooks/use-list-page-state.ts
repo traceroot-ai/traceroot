@@ -2,7 +2,7 @@
  * Composed hook for list page state with URL-synced date filter and pagination.
  * Combines pagination, URL-based date filtering, and search with coordinated page resets.
  *
- * URL params: page_index, page_limit, date_filter, start, end, filters, search
+ * URL params: page_index, page_limit, date_filter, start, end, filters, search, sort, order
  * Use this for pages that need shared filter state (traces, users, sessions, detector page).
  */
 import { useCallback, useMemo, useRef } from "react";
@@ -10,18 +10,21 @@ import { useUrlPagination } from "./use-url-pagination";
 import { useUrlDateFilter } from "./use-url-date-filter";
 import { useUrlKeywordSearch } from "./use-url-keyword-search";
 import { useUrlFilters } from "./use-url-filters";
-import type { Predicate } from "@/types/api";
+import { useUrlSort } from "./use-url-sort";
+import type { ListSort, Predicate, SortOrder } from "@/types/api";
 
-interface QueryOptions {
+interface QueryOptions<K extends string> {
   page: number;
   limit: number;
   search_query?: string;
   start_after?: string;
   end_before?: string;
   filters?: Predicate[];
+  sort?: K;
+  order?: SortOrder;
 }
 
-interface UseListPageStateReturn {
+interface UseListPageStateReturn<K extends string> {
   // Pagination
   page: number;
   limit: number;
@@ -40,6 +43,9 @@ interface UseListPageStateReturn {
   // Structured attribute filters (URL-synced)
   filters: Predicate[];
   updateFilters: ReturnType<typeof useUrlFilters>["setFilters"];
+  // Column sort (URL-synced); undefined is the list's default order
+  sort: ListSort<K> | undefined;
+  toggleSort: (key: K) => void;
   // Combined state for convenience
   state: {
     page: number;
@@ -51,19 +57,29 @@ interface UseListPageStateReturn {
     filters: Predicate[];
   };
   // Ready-to-use query options for API
-  queryOptions: QueryOptions;
+  queryOptions: QueryOptions<K>;
 }
 
-export function useListPageState(
+export function useListPageState<K extends string = never>(
   options: {
     defaultLimit?: number;
     defaultDateFilterId?: string;
     retentionDays?: number | null;
     // Must be a stable reference (a module-level constant) -- see useUrlFilters.
     defaultFilters?: Predicate[];
+    // Columns the list can sort by, and the one its default order already follows.
+    sortKeys?: readonly K[];
+    defaultSort?: ListSort<K>;
   } = {},
-): UseListPageStateReturn {
-  const { defaultLimit = 50, defaultDateFilterId, retentionDays, defaultFilters } = options;
+): UseListPageStateReturn<K> {
+  const {
+    defaultLimit = 50,
+    defaultDateFilterId,
+    retentionDays,
+    defaultFilters,
+    sortKeys,
+    defaultSort,
+  } = options;
 
   // URL-synced pagination hook - persists page/limit in URL
   const pagination = useUrlPagination(defaultLimit);
@@ -121,8 +137,11 @@ export function useListPageState(
   // just-set filter from stale params).
   const { filters, setFilters } = useUrlFilters(pagination.resetPageState, defaultFilters);
 
+  // Column sort (URL-synced), resetting the page the same way filters do.
+  const { sort, toggleSort } = useUrlSort(sortKeys, pagination.resetPageState, defaultSort);
+
   // Build query options for API call
-  const queryOptions = useMemo<QueryOptions>(
+  const queryOptions = useMemo<QueryOptions<K>>(
     () => ({
       page: pagination.page,
       limit: pagination.limit,
@@ -130,6 +149,7 @@ export function useListPageState(
       start_after: timestamps.startAfter,
       end_before: timestamps.endBefore,
       filters,
+      ...(sort && { sort: sort.key, order: sort.order }),
     }),
     [
       pagination.page,
@@ -138,6 +158,7 @@ export function useListPageState(
       timestamps.startAfter,
       timestamps.endBefore,
       filters,
+      sort,
     ],
   );
 
@@ -160,6 +181,9 @@ export function useListPageState(
     // Filters
     filters,
     updateFilters: setFilters,
+    // Sort
+    sort,
+    toggleSort,
     // Combined state
     state: {
       page: pagination.page,

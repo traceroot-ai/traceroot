@@ -15,7 +15,7 @@ import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-i
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
-import type { TraceListItem } from "@/types/api";
+import type { ListSort, TraceListItem, TraceSortKey } from "@/types/api";
 import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
@@ -50,6 +50,10 @@ const tabs = [
   { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
   { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
+
+const SORT_KEYS: readonly TraceSortKey[] = ["timestamp", "latency", "spans", "errors"];
+// The list arrives newest first, so its Timestamp header is marked before any click.
+const DEFAULT_SORT: ListSort<TraceSortKey> = { key: "timestamp", order: "desc" };
 
 /** How long "Your first trace arrived. Opening it…" shows before the trace opens. */
 const FIRST_TRACE_OPEN_DELAY_MS = 1500;
@@ -87,7 +91,13 @@ export default function TracesPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState({ retentionDays: retention.retentionDays });
+    sort,
+    toggleSort,
+  } = useListPageState({
+    retentionDays: retention.retentionDays,
+    sortKeys: SORT_KEYS,
+    defaultSort: DEFAULT_SORT,
+  });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
   // Scope of the open trace. The list is customer-only, so selecting a row
@@ -394,6 +404,8 @@ export default function TracesPage() {
                   visibleColumns={visibleColumns}
                   signalIdsByTrace={signalIds?.signalIds}
                   signalIdsFailed={signalIdsFailed}
+                  sort={sort ?? DEFAULT_SORT}
+                  onSort={toggleSort}
                 />
               </div>
 

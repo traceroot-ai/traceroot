@@ -8,6 +8,7 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
+import { SortableHeader } from "@/components/sortable-header";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
@@ -26,12 +27,16 @@ import type { UserQueryOptions } from "@/lib/api/users";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
+import type { ListSort, UserSortKey } from "@/types/api";
 
 const tabs = [
   { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
   { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
   { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
+
+const SORT_KEYS: readonly UserSortKey[] = ["traces", "last_activity"];
+const DEFAULT_SORT: ListSort<UserSortKey> = { key: "last_activity", order: "desc" };
 
 export default function UsersPage() {
   const params = useParams();
@@ -55,7 +60,15 @@ export default function UsersPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState({ retentionDays: retention.retentionDays });
+    sort,
+    toggleSort,
+  } = useListPageState({
+    retentionDays: retention.retentionDays,
+    sortKeys: SORT_KEYS,
+    defaultSort: DEFAULT_SORT,
+  });
+  const shownSort = sort ?? DEFAULT_SORT;
+  const sortDirection = (key: UserSortKey) => (shownSort.key === key ? shownSort.order : undefined);
 
   // Build user query options from shared state
   const userQueryOptions = useMemo<UserQueryOptions>(
@@ -65,6 +78,8 @@ export default function UsersPage() {
       search_query: queryOptions.search_query,
       start_after: queryOptions.start_after,
       end_before: queryOptions.end_before,
+      sort: queryOptions.sort,
+      order: queryOptions.order,
     }),
     [queryOptions],
   );
@@ -169,18 +184,24 @@ export default function UsersPage() {
                       <th className="whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
-                      <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Traces
-                      </th>
+                      <SortableHeader
+                        className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                        label="Traces"
+                        direction={sortDirection("traces")}
+                        onSort={() => toggleSort("traces")}
+                      />
                       <th className="w-[110px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Tokens
                       </th>
                       <th className="w-[100px] whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
                       </th>
-                      <th className="w-[160px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Last Activity
-                      </th>
+                      <SortableHeader
+                        className="w-[160px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                        label="Last Activity"
+                        direction={sortDirection("last_activity")}
+                        onSort={() => toggleSort("last_activity")}
+                      />
                     </tr>
                   </thead>
                   <tbody>

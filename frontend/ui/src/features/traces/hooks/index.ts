@@ -40,6 +40,8 @@ export function tracesQueryKey(projectId: string, options: TraceQueryOptions = {
     // Canonical (order-independent) filter key so two equivalent filter sets share
     // one cache entry and hover-prefetch lands under the key the list hook reads.
     canonicalizeFilters(options.filters),
+    options.sort,
+    options.order,
   ] as const;
 }
 
@@ -176,6 +178,8 @@ export function useUsers(projectId: string, options: UserQueryOptions = {}) {
       options.search_query,
       options.start_after,
       options.end_before,
+      options.sort,
+      options.order,
     ],
     queryFn: () => getUsers(projectId, options, user),
     enabled: sessionReady && !!projectId,
@@ -200,6 +204,8 @@ export function useSessions(projectId: string, options: SessionQueryOptions = {}
       options.search_query,
       options.start_after,
       options.end_before,
+      options.sort,
+      options.order,
     ],
     queryFn: () => getSessions(projectId, options, user),
     enabled: sessionReady && !!projectId,

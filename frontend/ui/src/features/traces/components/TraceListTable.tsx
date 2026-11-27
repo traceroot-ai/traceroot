@@ -5,7 +5,8 @@
 import type { ReactElement } from "react";
 import Link from "next/link";
 import { signalDeepLinkPath } from "@traceroot/core/signals";
-import type { TraceListItem } from "@/types/api";
+import type { ListSort, TraceListItem, TraceSortKey } from "@/types/api";
+import { SortableHeader } from "@/components/sortable-header";
 import {
   formatDuration,
   formatDate,
@@ -44,6 +45,14 @@ const HEADER_WIDTH: Partial<Record<FixedColumnId, string>> = {
   cost: "w-[80px] text-right",
 };
 
+// The columns the list route can sort by. Any other header stays plain text.
+const SORT_KEYS: Partial<Record<FixedColumnId, TraceSortKey>> = {
+  timestamp: "timestamp",
+  errors: "errors",
+  spans: "spans",
+  latency: "latency",
+};
+
 interface TraceListTableProps {
   projectId: string;
   traces: TraceListItem[];
@@ -55,6 +64,10 @@ interface TraceListTableProps {
   signalIdsByTrace?: Record<string, string[]>;
   /** Reading the signal ids failed: the column says so rather than staying blank. */
   signalIdsFailed?: boolean;
+  /** The order the rows are in, to mark that column's header. */
+  sort?: ListSort<TraceSortKey>;
+  /** Sort by a column. Without it, no header is clickable. */
+  onSort?: (key: TraceSortKey) => void;
 }
 
 export function TraceListTable({
@@ -65,6 +78,8 @@ export function TraceListTable({
   visibleColumns,
   signalIdsByTrace,
   signalIdsFailed = false,
+  sort,
+  onSort,
 }: TraceListTableProps) {
   const hasAddedColumns = visibleColumns.some((id) => !isDefaultOnColumn(id));
   const hasColumns = visibleColumns.length > 0;
@@ -76,7 +91,13 @@ export function TraceListTable({
         <thead className="sticky top-0 bg-background">
           <tr className="border-b border-border">
             {visibleColumns.map((id, position) => (
-              <ColumnHeader key={id} id={id} isLast={position === visibleColumns.length - 1} />
+              <ColumnHeader
+                key={id}
+                id={id}
+                isLast={position === visibleColumns.length - 1}
+                sort={sort}
+                onSort={onSort}
+              />
             ))}
           </tr>
         </thead>
@@ -107,7 +128,17 @@ export function TraceListTable({
   );
 }
 
-function ColumnHeader({ id, isLast }: { id: FixedColumnId; isLast: boolean }) {
+function ColumnHeader({
+  id,
+  isLast,
+  sort,
+  onSort,
+}: {
+  id: FixedColumnId;
+  isLast: boolean;
+  sort: ListSort<TraceSortKey> | undefined;
+  onSort: ((key: TraceSortKey) => void) | undefined;
+}) {
   const label = fixedColumnLabel(id);
   const isDefaultOn = isDefaultOnColumn(id);
   const className = cn(
@@ -115,6 +146,17 @@ function ColumnHeader({ id, isLast }: { id: FixedColumnId; isLast: boolean }) {
     isDefaultOn ? HEADER_WIDTH[id] : ADDED_COLUMN_WIDTH,
     !isLast && CELL_BORDER,
   );
+  const sortKey = SORT_KEYS[id];
+  if (sortKey && onSort) {
+    return (
+      <SortableHeader
+        className={className}
+        label={label}
+        direction={sort?.key === sortKey ? sort.order : undefined}
+        onSort={() => onSort(sortKey)}
+      />
+    );
+  }
   // An opted-in column is narrow enough for its label to outrun it, so that one truncates
   // and keeps the full text in a title; the defaults are sized to fit theirs.
   if (isDefaultOn) return <th className={className}>{label}</th>;

@@ -15,7 +15,7 @@ from rest.rate_limit import (
 from rest.retention import clamp_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.users import UserListResponse
-from rest.services.trace_reader import get_trace_reader_service
+from rest.services.trace_reader import SortOrder, UserSort, get_trace_reader_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,11 @@ async def list_users(
         description="Include offline-evaluation traces in the per-user counts and "
         "totals. Excluded by default, matching the Traces list.",
     ),
+    sort: UserSort | None = Query(
+        None,
+        description="traces or last_activity; latest activity when omitted",
+    ),
+    order: SortOrder = Query("desc", description="Sort direction, used with sort"),
 ):
     """List unique users for a project with trace counts."""
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
@@ -54,6 +59,8 @@ async def list_users(
             start_after=start_after,
             end_before=end_before,
             include_evaluations=include_evaluations,
+            sort=sort,
+            order=order,
         )
         return result
     except Exception as e:

@@ -269,7 +269,7 @@ def _validate_numeric(x: object, pred: Predicate, col: FilterColumn) -> None:
 SPAN_TIME_BOUND_LOOKBACK_HOURS = 1
 
 
-def _span_time_bound(params: dict) -> str:
+def span_time_bound(params: dict) -> str:
     """The active-window lower bound on span scans, when the list has a start date.
 
     Bounds ``span_start_time`` at ``start_after`` minus a small lookback so a span that
@@ -292,7 +292,7 @@ def _span_semijoin(value_columns: Sequence[str], tail: str, params: dict) -> str
     dedups ReplacingMergeTree spans to the latest ``ch_update_time`` version per span BEFORE
     ``tail`` applies (like the aggregate/distinct paths), so a stale row can't match a value
     the latest version no longer has; it is scoped to the same ``project_id`` as the outer
-    query (tenant isolation); and it carries ``_span_time_bound``'s lower bound with
+    query (tenant isolation); and it carries ``span_time_bound``'s lower bound with
     deliberately NO upper bound (see that helper). The result keys on ``t.trace_id``, so it
     filters the page query and the count query alike.
 
@@ -314,7 +314,7 @@ def _span_semijoin(value_columns: Sequence[str], tail: str, params: dict) -> str
     inner = (
         f"SELECT {', '.join(projection)} "
         "FROM spans "
-        "WHERE project_id = {project_id:String}" + _span_time_bound(params) + " "
+        "WHERE project_id = {project_id:String}" + span_time_bound(params) + " "
         "ORDER BY ch_update_time DESC "
         "LIMIT 1 BY project_id, trace_id, span_id"
     )

@@ -222,6 +222,18 @@ export type Predicate =
   | { field: string; key?: string; op: "eq"; value: number | string }
   | { field: string; key?: string; op: "contains"; value: string };
 
+export type SortOrder = "asc" | "desc";
+
+/** A list's column sort. The keys are the ones the list route accepts. */
+export interface ListSort<K extends string = string> {
+  key: K;
+  order: SortOrder;
+}
+
+export type TraceSortKey = "timestamp" | "latency" | "spans" | "errors";
+export type SessionSortKey = "timestamp" | "traces";
+export type UserSortKey = "traces" | "last_activity";
+
 export interface TraceQueryOptions {
   page?: number;
   limit?: number;
@@ -238,6 +250,9 @@ export interface TraceQueryOptions {
   // Include offline-evaluation traces, which the backend excludes from the default
   // list. Keyed off the dedicated `is_evaluation` flag, not `environment`.
   include_evaluations?: boolean;
+  // Server-side sort of the whole result; newest first when omitted.
+  sort?: TraceSortKey;
+  order?: SortOrder;
 }
 
 /**
@@ -306,6 +321,8 @@ export interface SessionQueryOptions {
   search_query?: string;
   start_after?: string;
   end_before?: string;
+  sort?: SessionSortKey;
+  order?: SortOrder;
 }
 
 // AI token usage stats (nested in UsageStats.ai)
