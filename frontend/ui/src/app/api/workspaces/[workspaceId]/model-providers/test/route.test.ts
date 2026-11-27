@@ -323,6 +323,80 @@ describe("POST model-providers/test - network providers succeed", () => {
   });
 });
 
+describe("POST model-providers/test - openai custom Base URL checks model IDs", () => {
+  const ollama = {
+    adapter: "openai",
+    apiKey: "ollama",
+    baseUrl: "http://host.docker.internal:11434/v1",
+  };
+  const listing = (...ids: string[]) => ({
+    ...okResponse(),
+    json: async () => ({ object: "list", data: ids.map((id) => ({ id, object: "model" })) }),
+  });
+
+  it("fails when the server doesn't serve a configured model", async () => {
+    fetchMock.mockResolvedValue(listing("qwen3-4b-local:latest"));
+    const res = await POST(makeRequest({ ...ollama, models: ["gpt-6.1-sol"] }), makeParams());
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "Connected, but the server doesn't serve: gpt-6.1-sol",
+      detail: "Available models: qwen3-4b-local:latest",
+    });
+  });
+
+  it("passes when every configured model is listed, ignoring Ollama's :latest tag", async () => {
+    fetchMock.mockResolvedValue(listing("qwen3-4b-local:latest", "llama3.2:3b"));
+    const res = await POST(
+      makeRequest({ ...ollama, models: ["qwen3-4b-local", " llama3.2:3b ", ""] }),
+      makeParams(),
+    );
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it("does not let a configured :latest tag match a bare ID on other servers", async () => {
+    fetchMock.mockResolvedValue(listing("model-a"));
+    const res = await POST(
+      makeRequest({
+        ...ollama,
+        baseUrl: "http://vllm.internal:8000/v1",
+        models: ["model-a:latest"],
+      }),
+      makeParams(),
+    );
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "Connected, but the server doesn't serve: model-a:latest",
+      detail: "Available models: model-a",
+    });
+  });
+
+  it("does not check models against the default OpenAI host", async () => {
+    fetchMock.mockResolvedValue(listing("gpt-4o"));
+    const res = await POST(
+      makeRequest({ adapter: "openai", apiKey: "k", models: ["gpt-6.1-sol"] }),
+      makeParams(),
+    );
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it("stays connected when the JSON body has no data list", async () => {
+    fetchMock.mockResolvedValue({ ...okResponse(), json: async () => ({ data: {} }) });
+    const res = await POST(makeRequest({ ...ollama, models: ["anything"] }), makeParams());
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it("stays connected when the listing isn't JSON", async () => {
+    fetchMock.mockResolvedValue({
+      ...okResponse(),
+      json: async () => {
+        throw new SyntaxError("Unexpected token");
+      },
+    });
+    const res = await POST(makeRequest({ ...ollama, models: ["anything"] }), makeParams());
+    expect(await res.json()).toEqual({ success: true });
+  });
+});
+
 describe("POST model-providers/test - error responses", () => {
   // Every status-code-based provider surfaces the same HTTP error shape.
   const httpErrorAdapters: Array<Record<string, unknown>> = [

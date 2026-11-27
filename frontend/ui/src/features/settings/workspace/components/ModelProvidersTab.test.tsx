@@ -288,6 +288,39 @@ describe("ModelProvidersTab", () => {
     );
   });
 
+  it("sends each model ID once when testing a provider", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "openai",
+          provider: "OpenAI",
+          keyPreview: "sk-...",
+          baseUrl: "http://localhost:11434/v1",
+          customModels: ["qwen3:0.6b", " qwen3:0.6b "],
+          withDefaultModels: false,
+          config: null,
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+    mocks.testModelProvider.mockResolvedValue({ success: true });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.testModelProvider).toHaveBeenCalledWith(
+      "ws-1",
+      expect.objectContaining({ models: ["qwen3:0.6b"] }),
+    );
+  });
+
   it("adds the adapter default first, then the first unused catalog model", async () => {
     renderTab();
     fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));

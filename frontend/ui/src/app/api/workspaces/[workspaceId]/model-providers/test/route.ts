@@ -34,6 +34,7 @@ const testSchema = z.object({
   providerId: z.string().optional(), // use stored key from DB
   baseUrl: z.string().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
+  models: z.array(z.string()).optional(), // model IDs the provider will be saved with
   // Bedrock-specific
   awsAccessKeyId: z.string().optional(),
   awsSecretAccessKey: z.string().optional(),
@@ -65,13 +66,28 @@ async function readErrorMessage(res: Response, signal: AbortSignal): Promise<str
 
 // Bounded connectivity check for a "list models"-style GET endpoint. Both the
 // fetch and the error-body read run under a single deadline.
+// With `listIds`, a 200 body is also parsed as an OpenAI-style `{ data: [{ id }] }`
+// list; `ids` stays undefined when the body has no such list.
 async function checkEndpoint(
   url: string,
   headers: Record<string, string>,
-): Promise<{ ok: true } | { ok: false; error: string; detail?: string }> {
+  listIds = false,
+): Promise<{ ok: true; ids?: string[] } | { ok: false; error: string; detail?: string }> {
   return withTimeout(async (signal) => {
     const res = await fetch(url, { headers, signal });
-    if (res.ok) return { ok: true as const };
+    if (res.ok) {
+      if (!listIds) return { ok: true as const };
+      try {
+        const body = (await res.json()) as { data?: unknown };
+        const ids = Array.isArray(body?.data)
+          ? body.data.map((m: { id?: unknown }) => String(m?.id))
+          : undefined;
+        return { ok: true as const, ids };
+      } catch (err) {
+        if (signal.aborted) throw err;
+        return { ok: true as const };
+      }
+    }
 
     // Check status before reading the body — 401/403 never need the provider's message.
     if (res.status === 401) {
@@ -104,6 +120,21 @@ async function checkEndpoint(
 function adapterBaseUrl(adapter: string, baseUrl?: string): string {
   return (baseUrl || ADAPTER_DEFAULT_BASE_URL[adapter]).replace(/\/$/, "");
 }
+
+// A Base URL on another host than the adapter's default points at a self-hosted
+// or proxied server (Ollama, vLLM, LiteLLM), which only serves the models it lists.
+function isCustomHost(adapter: string, baseUrl?: string): boolean {
+  if (!baseUrl) return false;
+  try {
+    return new URL(baseUrl).host !== new URL(ADAPTER_DEFAULT_BASE_URL[adapter]).host;
+  } catch {
+    return false;
+  }
+}
+
+// Ollama lists `name:latest` but also serves the bare `name`. Only the listed side
+// gets the alias: a configured `name:latest` must be listed as is.
+const withBareLatest = (ids: string[]) => ids.flatMap((id) => [id, id.replace(/:latest$/, "")]);
 
 // POST /api/workspaces/[workspaceId]/model-providers/test
 async function handlePOST(request: NextRequest, { params }: RouteParams) {
@@ -151,9 +182,26 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       case "openai": {
         const openaiBase = adapterBaseUrl(adapter, baseUrl);
         const url = `${openaiBase}/models`;
-        const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` });
+        const models = (result.data.models ?? []).map((m) => m.trim()).filter(Boolean);
+        const listIds = models.length > 0 && isCustomHost(adapter, baseUrl);
+        const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` }, listIds);
         if (!check.ok)
           return successResponse({ success: false, error: check.error, detail: check.detail });
+        // Reachable is not enough: a server that enforces model names answers
+        // 404 on every call to a model it doesn't serve.
+        if (check.ids) {
+          const served = new Set(withBareLatest(check.ids));
+          const missing = models.filter((m) => !served.has(m));
+          if (missing.length > 0) {
+            return successResponse({
+              success: false,
+              error: `Connected, but the server doesn't serve: ${missing.join(", ")}`,
+              detail: check.ids.length
+                ? `Available models: ${check.ids.slice(0, 20).join(", ")}`
+                : "The server lists no models",
+            });
+          }
+        }
         break;
       }
 
