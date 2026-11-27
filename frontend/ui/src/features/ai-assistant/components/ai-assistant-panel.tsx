@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { isDecisionAdapter } from "@traceroot/core";
+import { isDecisionAdapter, isDecisionModelId } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
@@ -45,6 +45,12 @@ interface AiAssistantPanelProps {
    * whole panel.
    */
   emptyState?: ReactNode;
+  /**
+   * Page placement only: content at the top of the page column, under the
+   * header, shown whatever the conversation and the model list are doing — the
+   * project home's next steps.
+   */
+  pageTop?: ReactNode;
 }
 
 /**
@@ -63,6 +69,7 @@ export function AiAssistantPanel({
   compact = false,
   variant = "rail",
   emptyState,
+  pageTop,
 }: AiAssistantPanelProps) {
   // In page placement the root spans the full page so the header's bottom
   // border runs edge to edge like every other section header; only the
@@ -99,8 +106,12 @@ export function AiAssistantPanel({
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId && canInteract,
   });
-  // Decision models (TypeSafe) cannot run chat.
-  const chatProviders = llmModels?.byokProviders.filter((g) => !isDecisionAdapter(g.adapter)) ?? [];
+  // Decision models (a TypeSafe provider, or a detector-only alias on a chat
+  // provider such as gpt-6-luna-decisions) cannot run chat.
+  const chatProviders =
+    llmModels?.byokProviders
+      .filter((g) => !isDecisionAdapter(g.adapter))
+      .map((g) => ({ ...g, models: g.models.filter((m) => !isDecisionModelId(m.id)) })) ?? [];
   const hasModels =
     !llmModels ||
     llmModels.systemModels.some((g) => g.models.length > 0) ||
@@ -211,6 +222,7 @@ export function AiAssistantPanel({
             : "flex min-h-0 flex-1 flex-col"
         }
       >
+        {variant === "page" && pageTop && <div className="px-4 pt-4 empty:hidden">{pageTop}</div>}
         {/* Unsupported model warning */}
         {canInteract && unsupportedModels.length > 0 && (
           <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-[12px]">

@@ -17,7 +17,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-export const NAV_HOME: NavItem = { key: "home", label: "Home", segment: "home", icon: House };
+export const NAV_HOME: NavItem = { key: "home", label: "Agent", segment: "home", icon: House };
 
 /** The product loop: see what the agent did, find what went wrong, verify the fix. */
 export const NAV_GROUPS: NavGroup[] = [

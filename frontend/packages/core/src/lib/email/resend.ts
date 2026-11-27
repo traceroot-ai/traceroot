@@ -102,6 +102,13 @@ export interface OutboundEmail {
 
 const POSTAL_ADDRESS = "989 Market St, San Francisco, CA 94103";
 
+/**
+ * Where a product email's own layout wants the postal address: put this in the
+ * HTML, inside an element styled to match the email, and the address replaces
+ * it. Without it, the address goes in its own paragraph at the end.
+ */
+export const PRODUCT_FOOTER_SLOT = "<!--traceroot:postal-address-->";
+
 /** Product mail carries the postal address in both bodies, so the legal footer cannot be forgotten by a caller. */
 function withProductFooter(email: Pick<OutboundEmail, "text" | "html">): {
   text: string;
@@ -109,6 +116,12 @@ function withProductFooter(email: Pick<OutboundEmail, "text" | "html">): {
 } {
   const text = `${email.text.trimEnd()}\n\nTraceRoot, Inc. · ${POSTAL_ADDRESS}`;
   if (!email.html) return { text };
+  if (email.html.includes(PRODUCT_FOOTER_SLOT)) {
+    return {
+      text,
+      html: email.html.replace(PRODUCT_FOOTER_SLOT, `TraceRoot, Inc. · ${POSTAL_ADDRESS}`),
+    };
+  }
   const footer = `<p style="font-size:12px;color:#777">TraceRoot, Inc. · ${POSTAL_ADDRESS}</p>`;
   const close = email.html.lastIndexOf("</body>");
   const html =
@@ -218,18 +231,23 @@ export async function ensureContact(
   return { ok: true };
 }
 
-/** PATCH /contacts/{email}/topics; the body is a root-level array. */
+/**
+ * PATCH /contacts/{email}/topics; the body is a root-level array. A failure is
+ * `rejected` when nothing was applied for certain: the provider answered with an
+ * error, or nothing was sent. Without `rejected` (a network error or no answer)
+ * the write may or may not have been applied.
+ */
 export async function setTopicSubscription(
   email: string,
   subscription: TopicSubscription,
   options: ResendOptions = {},
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; rejected?: boolean }> {
   const config = resendConfig(options.env);
   if (!config.apiKey || !config.productTopicId) {
     console.warn(
       "[resend] topic update skipped: RESEND_API_KEY and RESEND_PRODUCT_TOPIC_ID are both required",
     );
-    return { ok: false };
+    return { ok: false, rejected: true };
   }
 
   const result = await request(
@@ -240,7 +258,7 @@ export async function setTopicSubscription(
   );
   if (!result.ok) {
     warn(`topic ${subscription}`, result);
-    return { ok: false };
+    return result.status === null ? { ok: false } : { ok: false, rejected: true };
   }
   return { ok: true };
 }
