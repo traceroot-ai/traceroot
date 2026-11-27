@@ -39,6 +39,19 @@
     }
   },
   {
+    "id": "tr-claude-mythos-5-1",
+    "modelName": "claude-mythos-5-1",
+    "matchPattern": "(?i)^(anthropic\\/|global\\.anthropic\\.)?claude-mythos-5-1(\\[1m\\])?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.00000025,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
     "id": "tr-claude-fable-5",
     "modelName": "claude-fable-5",
     "matchPattern": "(?i)^(anthropic\\/)?(claude-fable-5(\\[1m\\])?(-\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-fable-5(-\\d{8})?(-v\\d+:\\d+)?)$",
