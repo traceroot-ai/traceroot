@@ -182,6 +182,45 @@ it("uses an empty retained window instead of counting expired traces", async () 
   });
 });
 
+it("holds a signal's RCA and hits to the plan's retention cutoff", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-01T00:00:00Z"));
+  try {
+    // 15 days and the one-hour boundary buffer before now.
+    const cutoff = new Date("2026-09-15T23:00:00Z");
+    const requested = new Date("2026-01-01T00:00:00Z");
+    const cases = [
+      { workspace: { billingPlan: "free" }, from: cutoff, retentionCutoff: cutoff },
+      // A missing workspace reads as free.
+      { workspace: null, from: cutoff, retentionCutoff: cutoff },
+      // Unlimited retention clamps nothing and passes no cutoff.
+      { workspace: { billingPlan: "enterprise" }, from: requested, retentionCutoff: undefined },
+    ];
+    for (const { workspace, from, retentionCutoff } of cases) {
+      core.workspace.mockResolvedValueOnce(workspace);
+      core.getSignal.mockResolvedValueOnce(null);
+      await handleGetSignal(
+        req(undefined, "?start_after=2026-01-01T00:00:00Z&end_before=2026-10-01T00:00:00Z"),
+        signalParams,
+      );
+      expect(core.workspace).toHaveBeenLastCalledWith({
+        where: { id: "w1" },
+        select: { billingPlan: true },
+      });
+      expect(core.getSignal).toHaveBeenLastCalledWith(expect.objectContaining({ tag: "prisma" }), {
+        projectId: "p1",
+        signalId: "s1",
+        from,
+        to: new Date("2026-10-01T00:00:00Z"),
+        tz: "UTC",
+        retentionCutoff,
+      });
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 describe("reads", () => {
   it("lists one page of a detector's signals, optionally by status", async () => {
     core.listSignals.mockResolvedValue({ signals: [{ id: "s1" }], total: 51 });

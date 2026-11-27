@@ -671,6 +671,86 @@ describe("reads", () => {
     ]);
   });
 
+  describe("with a retention cutoff", () => {
+    const cutoff = new Date("2026-09-15T23:00:00Z");
+    /** A signal with these openings, where only `seen` findings have a hit since the cutoff. */
+    const cutoffDb = (rcas: ReturnType<typeof rca>[], seen: string[]) => ({
+      signal: {
+        findFirst: vi.fn(async () => ({
+          id: "a",
+          detectorId: "d",
+          reopenSeq: 2,
+          mergedIntoId: null,
+          rcas,
+        })),
+      },
+      signalHit: {
+        findMany: vi.fn(async (args: { where: Record<string, unknown> }) =>
+          "seenAt" in args.where ? seen.map((findingId) => ({ findingId })) : [],
+        ),
+        findFirst: vi.fn(async () => ({ traceId: "trace-0" })),
+      },
+      signalStatusEvent: { findMany: vi.fn(async () => []) },
+      detector: { findMany: vi.fn(async () => []) },
+      $queryRaw: vi.fn(async () => []),
+    });
+
+    it("picks the newest answer whose finding has a hit seen since the cutoff", async () => {
+      const db = cutoffDb(
+        [rca(2, "failed"), rca(1, "done", "cause one"), rca(0, "done", "cause zero")],
+        ["f0"],
+      );
+      const r = await getSignal(db as never, {
+        projectId: "p",
+        signalId: "a",
+        retentionCutoff: cutoff,
+      });
+      // Only the openings with an answer are looked up.
+      expect(db.signalHit.findMany).toHaveBeenCalledWith({
+        where: { findingId: { in: ["f1", "f0"] }, seenAt: { gte: cutoff } },
+        select: { findingId: true },
+      });
+      // Opening 1's answer is newer, but no hit of its finding was seen since the cutoff.
+      expect(r).toMatchObject({
+        signal: {
+          canonicalRca: {
+            findingId: "f0",
+            reopenSeq: 0,
+            result: "cause zero",
+            sessionId: "sess-0",
+            traceId: "trace-0",
+          },
+        },
+      });
+      expect(db.signalHit.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { findingId: "f0" } }),
+      );
+    });
+
+    it("returns no canonical RCA when no answered opening's finding was seen since", async () => {
+      const db = cutoffDb([rca(1, "done", "cause one"), rca(0, "done", "cause zero")], []);
+      const r = await getSignal(db as never, {
+        projectId: "p",
+        signalId: "a",
+        retentionCutoff: cutoff,
+      });
+      expect(r).toMatchObject({ signal: { canonicalRca: null } });
+      // No analysed trace is read for an answer that is not shown.
+      expect(db.signalHit.findFirst).not.toHaveBeenCalled();
+
+      // Without an answer there is nothing to look up.
+      const unanswered = cutoffDb([rca(0, "failed")], []);
+      await getSignal(unanswered as never, {
+        projectId: "p",
+        signalId: "a",
+        retentionCutoff: cutoff,
+      });
+      expect(unanswered.signalHit.findMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ seenAt: expect.anything() }) }),
+      );
+    });
+  });
+
   const bareSignalDb = (rows: { bucket: string; hits: number; offsetMinutes?: number }[]) => {
     const queryRaw = vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => rows);
     return {

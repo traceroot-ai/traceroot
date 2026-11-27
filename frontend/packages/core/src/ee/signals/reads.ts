@@ -321,6 +321,31 @@ export async function recentSignalHits(
 }
 
 /**
+ * The openings whose finding has a hit seen at or after `cutoff`, out of those
+ * with an answer: the rule the public API's inherited RCA read applies
+ * (`_read_inherited_rca` in backend/rest/services/detector_reader.py). Every
+ * opening when there is no cutoff.
+ */
+async function openingsSeenSince<T extends { findingId: string; result: string | null }>(
+  db: Pick<PrismaClient, "signalHit">,
+  openings: T[],
+  cutoff: Date | undefined,
+): Promise<T[]> {
+  if (!cutoff) return openings;
+  const answered = openings.filter((o) => o.result !== null);
+  if (answered.length === 0) return answered;
+  const seen = await db.signalHit.findMany({
+    where: {
+      findingId: { in: [...new Set(answered.map((o) => o.findingId))] },
+      seenAt: { gte: cutoff },
+    },
+    select: { findingId: true },
+  });
+  const retained = new Set(seen.map((h) => h.findingId));
+  return answered.filter((o) => retained.has(o.findingId));
+}
+
+/**
  * One signal with its criteria, canonical RCA, recent hits and status history.
  * A merged signal returns only where it went, so a caller can follow it.
  */
@@ -335,6 +360,12 @@ export async function getSignal(
     now?: Date;
     /** An IANA zone name the caller has already validated; local buckets follow it. */
     tz?: string;
+    /**
+     * The plan's retention cutoff; absent for unlimited retention. When given, the
+     * canonical RCA is picked only from openings whose finding has a hit seen at
+     * or after it.
+     */
+    retentionCutoff?: Date;
   },
 ) {
   const signal = await db.signal.findFirst({
@@ -373,7 +404,7 @@ export async function getSignal(
   if (signal.mergedIntoId) return { merged: true as const, mergedIntoId: signal.mergedIntoId };
 
   const { rcas, ...rest } = signal;
-  const canonical = pickCanonicalRca(rcas);
+  const canonical = pickCanonicalRca(await openingsSeenSince(db, rcas, params.retentionCutoff));
   const window = readWindow(params.from, params.to, params.now);
   const tz = params.tz ?? "UTC";
   const [hits, events, names, series, analysed] = await Promise.all([
@@ -412,7 +443,8 @@ export async function getSignal(
       ...rest,
       detectorName: names.get(rest.detectorId) ?? null,
       rca: rcaSummary(rcas, rest.reopenSeq),
-      // The newest opening that kept a successful answer: a later failed or
+      // The newest opening that kept a successful answer, out of those whose finding
+      // was seen since the retention cutoff when there is one: a later failed or
       // pending attempt on a shared finding does not take it away.
       canonicalRca: canonical
         ? {
