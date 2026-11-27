@@ -292,15 +292,19 @@ describe.skipIf(!url)("Loops on Postgres", () => {
       await message(`s_failed_${suffix}`, "assistant", "");
       await session(`s_chat_${suffix}`);
       await message(`s_chat_${suffix}`, "assistant", "hello", "chat");
-      // Running: one before its session, one that has already replied (counted above).
-      const running = async (sessionId: string | null) => {
+      // Running, one per Loop as a Loop never has two: one before its session, and one
+      // that has already replied (counted above).
+      const second = await db.$transaction((tx) =>
+        createLoopWithDetector(tx, { ...newLoop("used-2"), projectId }),
+      );
+      const running = async (loopId: string, sessionId: string | null) => {
         const run = await db.$transaction((tx) =>
-          createRun(tx, { loopId: loop.id, projectId, trigger: "manual" }),
+          createRun(tx, { loopId, projectId, trigger: "manual" }),
         );
         await db.loopRun.update({ where: { id: run.id }, data: { status: "running", sessionId } });
       };
-      await running(null);
-      await running(`s_tool_${suffix}`);
+      await running(loop.id, null);
+      await running(second.id, `s_tool_${suffix}`);
 
       expect(await db.$transaction((tx) => countFreeLoopRunsUsed(tx, workspaceId))).toBe(3);
       expect(await db.$transaction((tx) => countFreeLoopRunsUsed(tx, ids.workspace))).toBe(0);
