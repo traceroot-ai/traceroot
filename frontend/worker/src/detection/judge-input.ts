@@ -141,6 +141,17 @@ function partText(part: JsonValue): string {
   return JSON.stringify(part);
 }
 
+/** A message as JSON, without the bytes of an OpenTelemetry GenAI `blob` part (an inline file). */
+function messageJson(message: Record<string, JsonValue>): string {
+  if (!Array.isArray(message.parts)) return JSON.stringify(message);
+  const parts = message.parts.map((part) =>
+    isObject(part) && part.type === "blob" && typeof part.content === "string"
+      ? { ...part, content: "[blob]" }
+      : part,
+  );
+  return JSON.stringify({ ...message, parts });
+}
+
 function messageText(message: Record<string, JsonValue>): string {
   const { content } = message;
   const pieces: string[] = [];
@@ -157,7 +168,10 @@ function messageText(message: Record<string, JsonValue>): string {
       );
     }
   }
-  return pieces.join("\n");
+  const text = pieces.join("\n");
+  // No text under `content` or `tool_calls`: a record that happens to have a `role` field, or a
+  // message whose body is elsewhere (`parts`, `function_call`). Shown whole, not as empty text.
+  return text.trim() ? text : messageJson(message);
 }
 
 /** Messages become one field each, so a pass shortens each message on its own. */
