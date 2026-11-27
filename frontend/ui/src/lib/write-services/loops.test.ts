@@ -2,17 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // One transaction client for the service's reads and writes; the root client
 // carries only the audit row, written after the transaction commits.
-const { tx, root, listWorkspaceModels } = vi.hoisted(() => ({
+const { tx, root, listWorkspaceModels, billing } = vi.hoisted(() => ({
   tx: {
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
     loop: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    loopRun: { findFirst: vi.fn(), aggregate: vi.fn(), create: vi.fn() },
+    loopRun: { findFirst: vi.fn(), findMany: vi.fn(), aggregate: vi.fn(), create: vi.fn() },
+    aIMessage: { groupBy: vi.fn() },
     detector: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     $queryRaw: vi.fn(),
   },
   root: { auditLog: { create: vi.fn() }, loop: { findFirst: vi.fn() } },
   listWorkspaceModels: vi.fn(),
+  billing: { enabled: true },
 }));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const { detectorModelProblem } = await importOriginal<typeof import("@traceroot/core")>();
@@ -26,6 +28,10 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     hasMinRole: (userRole: string, minRole: string) =>
       ["VIEWER", "MEMBER", "ADMIN"].indexOf(userRole) >=
       ["VIEWER", "MEMBER", "ADMIN"].indexOf(minRole),
+    PlanType: { FREE: "free", STARTER: "starter", PRO: "pro" },
+    isBillingEnabled: () => billing.enabled,
+    isLoopRunBlocked: (plan: string, runsUsed: number) =>
+      billing.enabled && plan === "free" && runsUsed >= 30,
     detectorModelProblem,
     listWorkspaceModels,
   };
@@ -97,6 +103,7 @@ beforeEach(() => {
     loopRow({ ...data, id: "l1" }),
   );
   root.auditLog.create.mockResolvedValue({});
+  billing.enabled = true;
   listWorkspaceModels.mockResolvedValue({ systemModels: [], byokProviders: [] });
 });
 
@@ -437,9 +444,11 @@ describe("requestLoopRun", () => {
     tx.project.findUnique.mockResolvedValue({
       workspaceId: "w1",
       deleteTime: null,
-      workspace: { loopBlocked: false },
+      workspace: { billingPlan: "free" },
     });
     tx.$queryRaw.mockResolvedValue([{ id: "l1", name: "Daily review", status: "active" }]);
+    tx.aIMessage.groupBy.mockResolvedValue([]);
+    tx.loopRun.findMany.mockResolvedValue([]);
     tx.loopRun.aggregate.mockResolvedValue({ _max: { seq: 2 } });
     tx.loopRun.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: "r3",
@@ -485,21 +494,62 @@ describe("requestLoopRun", () => {
     expect(root.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it("refuses when the workspace has used its plan's loop runs", async () => {
+  // The plan's runs used, as Postgres reads them: one row per session the agent
+  // replied in, and the runs running now.
+  const used = (replied: number, running: { sessionId: string | null }[] = []) => {
+    tx.aIMessage.groupBy.mockResolvedValue(
+      Array.from({ length: replied }, (_, i) => ({ sessionId: `s${i}` })),
+    );
+    tx.loopRun.findMany.mockResolvedValue(running);
+  };
+  const onPlan = (billingPlan: string) =>
     tx.project.findUnique.mockResolvedValue({
       workspaceId: "w1",
       deleteTime: null,
-      workspace: { loopBlocked: true },
+      workspace: { billingPlan },
     });
+
+  it("refuses once a Free workspace has used its plan's loop runs, counted live", async () => {
+    used(30);
     expect(await requestLoopRun({ ...base, loopId: "l1" })).toEqual({
       ok: false,
       status: 409,
       error: LOOP_RUN_PLAN_BLOCKED,
     });
-    expect(tx.project.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ include: { workspace: { select: { loopBlocked: true } } } }),
-    );
+    expect(tx.aIMessage.groupBy).toHaveBeenCalledWith({
+      by: ["sessionId"],
+      where: expect.objectContaining({ workspaceId: "w1", kind: "loop" }),
+    });
     expect(tx.loopRun.create).not.toHaveBeenCalled();
+  });
+
+  it("counts a running run that has not replied yet, but a replied one only once", async () => {
+    used(29, [{ sessionId: null }]);
+    expect(await requestLoopRun({ ...base, loopId: "l1" })).toMatchObject({
+      error: LOOP_RUN_PLAN_BLOCKED,
+    });
+    used(29, [{ sessionId: "s0" }]);
+    tx.loopRun.findFirst.mockResolvedValue(null);
+    expect(await requestLoopRun({ ...base, loopId: "l1" })).toMatchObject({ ok: true });
+  });
+
+  it.each(["starter", "pro"])("runs on a %s plan whatever it has used", async (plan) => {
+    onPlan(plan);
+    used(40);
+    tx.loopRun.findFirst.mockResolvedValue(null);
+    expect(await requestLoopRun({ ...base, loopId: "l1" })).toMatchObject({
+      ok: true,
+      data: { status: "pending", trigger: "manual" },
+    });
+    expect(tx.aIMessage.groupBy).not.toHaveBeenCalled();
+  });
+
+  it("runs on Free past the cap when billing is off", async () => {
+    billing.enabled = false;
+    used(40);
+    tx.loopRun.findFirst.mockResolvedValue(null);
+    expect(await requestLoopRun({ ...base, loopId: "l1" })).toMatchObject({ ok: true });
+    expect(tx.aIMessage.groupBy).not.toHaveBeenCalled();
   });
 
   it("answers 404 for another project's Loop, or one deleted before the lock", async () => {
@@ -556,9 +606,11 @@ describe("a Loop deleted mid-write, and other write failures", () => {
     tx.project.findUnique.mockResolvedValue({
       workspaceId: "w1",
       deleteTime: null,
-      workspace: { loopBlocked: false },
+      workspace: { billingPlan: "free" },
     });
     tx.$queryRaw.mockResolvedValue([{ id: "l1", name: "Daily review", status: "active" }]);
+    tx.aIMessage.groupBy.mockResolvedValue([]);
+    tx.loopRun.findMany.mockResolvedValue([]);
     tx.loopRun.findFirst.mockResolvedValue(null);
     tx.loopRun.aggregate.mockResolvedValue({ _max: { seq: 2 } });
     tx.loopRun.create.mockRejectedValueOnce(p2025());

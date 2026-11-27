@@ -68,6 +68,16 @@ export const COUNTED_RUN_WHERE = {
   sessionId: { not: null },
 };
 
+/**
+ * The rows of a Loop turn in which the agent replied: a tool call, or assistant
+ * text. A model that fails before answering leaves only the kickoff and an
+ * empty assistant row that carries the error. The plan counts a run from these.
+ */
+export const LOOP_REPLIED_MESSAGE_WHERE = [
+  { role: "tool_step" },
+  { role: "assistant", content: { not: "" } },
+];
+
 export const LOOP_MEMORY = { keyMaxLength: 200, contentMaxBytes: 8 * 1024 } as const;
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth-helpers";
 import { isDemoViewer, isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPlainObject } from "@/lib/is-plain-object";
+import { loopPlanState } from "@/lib/loop-plan-state";
 import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
 import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
 
@@ -55,8 +56,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
         billingCustomerId: workspace.billingCustomerId,
         billingSubscriptionId: workspace.billingSubscriptionId,
         billingStatus: workspace.billingStatus,
-        currentUsage: workspace.currentUsage,
-        loopBlocked: workspace.loopBlocked,
+        ...(await loopPlanState(workspace)),
       };
   return successResponse({
     id: workspace.id,
@@ -72,6 +72,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
       trace_ttl_days: p.traceTtlDays,
       access_key_count: p._count.accessKeys,
       create_time: p.createTime,
+      last_ingested_at: p.lastIngestedAt,
     })),
     create_time: workspace.createTime,
     ...billing,

@@ -8,6 +8,8 @@ import type { LoopRunDto } from "@traceroot/core/loops/pure";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   list: { data: undefined as unknown, isLoading: false, error: null as Error | null },
+  // The project's unfiltered count, which the loop limit is read from.
+  unfiltered: { data: undefined as unknown, isLoading: false, error: null as Error | null },
   keyword: "",
   updateKeyword: vi.fn(),
   setStatus: vi.fn(),
@@ -37,7 +39,8 @@ vi.mock("@/features/loops/components/loops-empty", () => ({
   LoopsEmpty: () => <p>No loops yet</p>,
 }));
 vi.mock("@/features/loops/hooks/use-loops", () => ({
-  useLoopList: () => mocks.list,
+  useLoopList: (_projectId: string, query: { search_query?: string; limit?: number }) =>
+    query.limit === 1 && !query.search_query ? mocks.unfiltered : mocks.list,
   useSetLoopStatus: () => ({ mutate: mocks.setStatus, isPending: false, error: null }),
   useDeleteLoop: () => ({
     mutate: mocks.deleteLoop,
@@ -86,6 +89,11 @@ const withLoops = (loops: Loop[], total = loops.length) => {
     isLoading: false,
     error: null,
   };
+  mocks.unfiltered = {
+    data: { data: loops.slice(0, 1), meta: { page: 0, limit: 1, total } },
+    isLoading: false,
+    error: null,
+  };
 };
 
 beforeEach(() => {
@@ -96,6 +104,7 @@ beforeEach(() => {
   mocks.keyword = "";
   mocks.deleteError = null;
   mocks.list = { data: undefined, isLoading: false, error: null };
+  mocks.unfiltered = { data: undefined, isLoading: false, error: null };
 });
 afterEach(() => {
   cleanup();
@@ -249,6 +258,40 @@ describe("Loops list", () => {
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Daily at 09:00 (CET)"));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/loops/l1");
+  });
+
+  it("does not open the row on a click inside its menu, between the actions", () => {
+    withLoops([loop()]);
+    render(<LoopsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Coding agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }).parentElement!);
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps New loop disabled at the limit while a search shows fewer loops", () => {
+    mocks.keyword = "Loop 1";
+    withLoops([loop({ id: "l1", name: "Loop 1" })]);
+    mocks.unfiltered = {
+      data: { data: [loop()], meta: { page: 0, limit: 1, total: 5 } },
+      isLoading: false,
+      error: null,
+    };
+    render(<LoopsPage />);
+    expect((screen.getByRole("button", { name: "New loop" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.getByText("5 of 5 loops used")).toBeTruthy();
+  });
+
+  it("keeps New loop disabled until the project's loop count has loaded", () => {
+    mocks.keyword = "inventory";
+    withLoops([loop({ id: "l1", name: "Inventory check" })]);
+    mocks.unfiltered = { data: undefined, isLoading: true, error: null };
+    render(<LoopsPage />);
+    expect((screen.getByRole("button", { name: "New loop" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.queryByText(/loops used/)).toBeNull();
   });
 
   it("disables New loop at five loops and says why", () => {

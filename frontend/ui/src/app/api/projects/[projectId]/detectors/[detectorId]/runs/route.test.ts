@@ -18,10 +18,14 @@ vi.mock("@traceroot/core/signals", () => ({
 }));
 
 const workspaceFindUniqueMock = vi.fn();
+const detectorFindFirstMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   prisma: {
     workspace: {
       findUnique: (...args: unknown[]) => workspaceFindUniqueMock(...args),
+    },
+    detector: {
+      findFirst: (...args: unknown[]) => detectorFindFirstMock(...args),
     },
   },
   PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
@@ -47,6 +51,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+import { USER_DETECTOR_WHERE } from "@traceroot/core/loops/pure";
 import { GET } from "./route";
 
 const backendFetchMock = vi.fn();
@@ -85,6 +90,8 @@ beforeEach(() => {
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireProjectAccessMock.mockResolvedValue({ project: { workspaceId: "ws-1" } });
   workspaceFindUniqueMock.mockResolvedValue({ billingPlan: "free" });
+  detectorFindFirstMock.mockReset();
+  detectorFindFirstMock.mockResolvedValue({ id: "det-1" });
 });
 
 describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
@@ -103,6 +110,17 @@ describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
     });
     const res = await GET(makeRequest(), makeParams());
     expect(res.status).toBe(403);
+    expect(backendFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for a loop's hidden detector, or one outside the project, without reading runs", async () => {
+    detectorFindFirstMock.mockResolvedValue(null);
+    const res = await GET(makeRequest(), makeParams());
+    expect(res.status).toBe(404);
+    expect(detectorFindFirstMock).toHaveBeenCalledWith({
+      where: { id: "det-1", projectId: "proj-1", ...USER_DETECTOR_WHERE },
+      select: { id: true },
+    });
     expect(backendFetchMock).not.toHaveBeenCalled();
   });
 

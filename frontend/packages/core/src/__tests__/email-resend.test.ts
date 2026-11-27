@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  PRODUCT_FOOTER_SLOT,
   ensureContact,
   isProductMailConfigured,
   sendEmail,
@@ -78,6 +79,17 @@ describe("sendEmail", () => {
       headers,
       tags: [{ name: "t", value: "a_b" }],
     });
+  });
+
+  it("puts the postal address in the layout's own slot when there is one, once", async () => {
+    const api = mockResend(200, { id: "email-3" });
+    const html = `<body><div><p style="font-size:12px">${PRODUCT_FOOTER_SLOT}</p></div></body>`;
+    await sendEmail({ ...email, html }, api);
+    const { body } = api.sent();
+    expect(body.html).toBe(
+      '<body><div><p style="font-size:12px">TraceRoot, Inc. · 989 Market St, San Francisco, CA 94103</p></div></body>',
+    );
+    expect(body.text).toBe("hello\n\nTraceRoot, Inc. · 989 Market St, San Francisco, CA 94103");
   });
 
   it("sends transactional mail with no topic, no reply-to and the text unchanged", async () => {
@@ -170,7 +182,10 @@ describe("setTopicSubscription", () => {
     expect(init.method).toBe("PATCH");
     expect(body).toEqual([{ id: "topic-123", subscription: "opt_out" }]);
     const noTopic = mockResend(200, {}, { RESEND_PRODUCT_TOPIC_ID: undefined });
-    expect(await setTopicSubscription("a@x.io", "opt_in", noTopic)).toEqual({ ok: false });
+    expect(await setTopicSubscription("a@x.io", "opt_in", noTopic)).toEqual({
+      ok: false,
+      rejected: true,
+    });
     expect(noTopic.fetchImpl).not.toHaveBeenCalled();
   });
 });

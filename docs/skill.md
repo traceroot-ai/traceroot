@@ -28,7 +28,7 @@ Follow the setup prompt in https://traceroot.ai/docs/getting-started/coding-agen
 - All pages: https://traceroot.ai/docs/llms.txt
 - Coding agents, skills, and docs MCP: https://traceroot.ai/docs/getting-started/coding-agents.md
 - Tracing setup by hand, self-hosting, and troubleshooting: https://traceroot.ai/docs/tracing/get-started.md
-- CLI: https://traceroot.ai/docs/cli/get-started.md, and `traceroot <command> --help` for every flag
+- CLI: https://traceroot.ai/docs/cli/get-started.md, https://traceroot.ai/docs/cli/scripting.md for JSON output and exit codes, and `traceroot <command> --help` for every flag
 - Integrations: https://traceroot.ai/docs/integrations/overview.md
 - Evaluations: https://traceroot.ai/docs/evals/get-started.md
 - Detectors: https://traceroot.ai/docs/detectors/introduction.md

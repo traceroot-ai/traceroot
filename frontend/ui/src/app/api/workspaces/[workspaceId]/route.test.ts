@@ -22,6 +22,7 @@ const workspaceFindUniqueMock = vi.fn();
 const workspaceDeleteMock = vi.fn();
 const memberCountMock = vi.fn();
 const auditCreateMock = vi.fn();
+const loopPlanStateMock = vi.fn();
 
 // The mutating handlers delegate to the write service, which runs its own
 // membership check, its reads and its audit inside a transaction on this
@@ -49,8 +50,13 @@ vi.mock("@traceroot/core", () => {
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
     prisma: client,
+    getRetentionDays: () => 7,
   };
 });
+// The Loop plan state is read live (its own tests cover how); here only that the route returns it.
+vi.mock("@/lib/loop-plan-state", () => ({
+  loopPlanState: (...args: unknown[]) => loopPlanStateMock(...args),
+}));
 
 const requireAuthMock = vi.fn();
 const requireWorkspaceMembershipMock = vi.fn();
@@ -67,7 +73,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
-import { PUT, DELETE } from "./route";
+import { GET, PUT, DELETE } from "./route";
 
 function makeRequest(body: unknown) {
   return { json: async () => body } as unknown as Parameters<typeof PUT>[0];
@@ -89,6 +95,65 @@ beforeEach(() => {
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireWorkspaceMembershipMock.mockReset();
   requireWorkspaceMembershipMock.mockResolvedValue({ membership: { role: "ADMIN" } });
+  loopPlanStateMock.mockReset();
+  loopPlanStateMock.mockImplementation(
+    async (w: { loopBlocked?: boolean; currentUsage?: unknown }) => ({
+      loopBlocked: w.loopBlocked,
+      currentUsage: w.currentUsage,
+    }),
+  );
+});
+
+describe("GET /api/workspaces/[workspaceId]", () => {
+  it("returns the ingestion date on embedded projects for the Projects table", async () => {
+    workspaceFindUniqueMock.mockResolvedValue({
+      id: "ws-1",
+      name: "Acme",
+      billingPlan: "free",
+      createTime: new Date("2026-10-01T00:00:00Z"),
+      updateTime: new Date("2026-11-13T23:00:00Z"),
+      projects: [
+        {
+          id: "p1",
+          name: "Project",
+          lastIngestedAt: new Date("2026-11-13T12:34:56Z"),
+          _count: { accessKeys: 0 },
+        },
+      ],
+      _count: { members: 1 },
+    });
+    const res = (await GET(makeRequest(undefined), makeParams())) as MockResponse;
+    expect(JSON.parse(JSON.stringify(await res.json()))).toMatchObject({
+      id: "ws-1",
+      projects: [{ id: "p1", last_ingested_at: "2026-11-13T12:34:56.000Z" }],
+    });
+  });
+});
+
+describe("GET /api/workspaces/[workspaceId]: the Loop plan state", () => {
+  it("returns the Loop plan state read live for the workspace", async () => {
+    const stored = {
+      id: "ws-1",
+      name: "Acme",
+      billingPlan: "free",
+      loopBlocked: false,
+      currentUsage: { loop: { runsUsed: 29 } },
+      createTime: new Date("2026-10-01T00:00:00Z"),
+      projects: [],
+      _count: { members: 1 },
+    };
+    workspaceFindUniqueMock.mockResolvedValue(stored);
+    loopPlanStateMock.mockResolvedValue({
+      loopBlocked: true,
+      currentUsage: { loop: { runsUsed: 30 } },
+    });
+    const res = (await GET(makeRequest(undefined), makeParams())) as MockResponse;
+    expect(await res.json()).toMatchObject({
+      loopBlocked: true,
+      currentUsage: { loop: { runsUsed: 30 } },
+    });
+    expect(loopPlanStateMock).toHaveBeenCalledWith(stored);
+  });
 });
 
 describe("PUT /api/workspaces/[workspaceId]", () => {
