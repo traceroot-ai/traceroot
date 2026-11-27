@@ -69,6 +69,8 @@ beforeEach(() => {
     adapter: "anthropic",
     provider: "Claude",
     config: null,
+    baseUrl: null,
+    keyCipher: "old-cipher",
   });
   modelProviderDuplicateMock.mockResolvedValue(null);
   modelProviderUpdateMock.mockImplementation(async (args: { data: unknown }) => args.data);
@@ -137,5 +139,70 @@ describe("PATCH model-providers/[providerId]", () => {
     const body = await res.json();
     expect(body.error).toBe("A provider with this name already exists in this workspace");
     expect(modelProviderUpdateMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PATCH model-providers/[providerId] - credential destination binding", () => {
+  it.each(["https://collector.example/v1", null])(
+    "requires a replacement key when changing the destination to %j",
+    async (baseUrl) => {
+      modelProviderFindFirstMock.mockResolvedValue({
+        id: "mp-1",
+        workspaceId: "ws-1",
+        adapter: "openai",
+        provider: "OpenAI",
+        baseUrl: "https://original.example/v1",
+        keyCipher: "old-cipher",
+        config: null,
+      });
+      const res = await PATCH(makeRequest({ baseUrl }), makeParams());
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "Re-enter the API key when changing the Base URL.",
+      });
+      expect(modelProviderUpdateMock).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows an unchanged destination without replacing the key", async () => {
+    const res = await PATCH(makeRequest({ baseUrl: null, enabled: false }), makeParams());
+    expect(res.status).toBe(200);
+    expect(modelProviderUpdateMock.mock.calls[0][0].data).toMatchObject({
+      baseUrl: null,
+      enabled: false,
+    });
+  });
+
+  it("replaces the destination and credential together", async () => {
+    const res = await PATCH(
+      makeRequest({ baseUrl: "https://new.example/v1", apiKey: "new-key" }),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+    expect(modelProviderUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "mp-1", workspaceId: "ws-1", baseUrl: null, keyCipher: "old-cipher" },
+        data: expect.objectContaining({
+          baseUrl: "https://new.example/v1",
+          keyCipher: "enc(new-key)",
+        }),
+      }),
+    );
+  });
+
+  it("rejects a stale key rotation after a concurrent destination change", async () => {
+    modelProviderUpdateMock.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) => {
+        if (where.keyCipher === "old-cipher" && where.baseUrl === null) {
+          throw Object.assign(new Error("Record changed"), { code: "P2025" });
+        }
+        return { baseUrl: "https://collector.example/v1", keyCipher: "enc(new-key)" };
+      },
+    );
+    const res = await PATCH(makeRequest({ apiKey: "new-key" }), makeParams());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "Model provider changed. Reload and try again." });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

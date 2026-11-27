@@ -97,6 +97,15 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     useDefaultCredentials,
   } = result.data;
 
+  if (
+    existing.adapter !== "amazon-bedrock" &&
+    baseUrl !== undefined &&
+    baseUrl !== existing.baseUrl &&
+    !apiKey
+  ) {
+    return errorResponse("Re-enter the API key when changing the Base URL.", 400);
+  }
+
   const data: Record<string, unknown> = {};
   if (provider !== undefined) {
     if (provider !== existing.provider) {
@@ -145,7 +154,13 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
 
   try {
     const updated = await prisma.modelProvider.update({
-      where: { id: providerId },
+      // A concurrent destination change must not receive a key rotation intended for the old URL.
+      where: {
+        id: providerId,
+        workspaceId,
+        baseUrl: existing.baseUrl,
+        keyCipher: existing.keyCipher,
+      },
       data,
       select: {
         id: true,
@@ -168,6 +183,9 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
 
     return successResponse(updated);
   } catch (error) {
+    if (isPrismaKnownError(error, "P2025")) {
+      return errorResponse("Model provider changed. Reload and try again.", 409);
+    }
     if (isPrismaKnownError(error, "P2002")) {
       return errorResponse("A provider with this name already exists in this workspace", 409);
     }

@@ -516,34 +516,71 @@ describe("POST model-providers/test - amazon-bedrock (no network)", () => {
   });
 });
 
-describe("POST model-providers/test - stored key resolution", () => {
-  it("decrypts the stored key when only providerId is supplied", async () => {
-    prismaFindFirstMock.mockResolvedValue({ keyCipher: "cipher" });
-    decryptKeyMock.mockReturnValue("decrypted-key");
+describe("POST model-providers/test - write-only stored credentials", () => {
+  it.each([
+    "openai",
+    "anthropic",
+    "azure",
+    "google",
+    "deepseek",
+    "openrouter",
+    "xai",
+    "moonshot",
+    "zai",
+    "typesafe",
+  ])(
+    "does not resolve a saved key for %s or send it to a supplied destination",
+    async (adapter) => {
+      prismaFindFirstMock.mockResolvedValue({ keyCipher: "cipher" });
+      decryptKeyMock.mockReturnValue("stored-secret");
+      fetchMock.mockResolvedValue(okResponse());
+      const res = await POST(
+        makeRequest({
+          adapter,
+          providerId: "prov-1",
+          baseUrl: "https://collector.example/whoami?exfil=1#",
+        }),
+        makeParams(),
+      );
+      expect(await res.json()).toEqual({
+        success: false,
+        error: "Re-enter the API key to test this connection.",
+      });
+      expect(prismaFindFirstMock).not.toHaveBeenCalled();
+      expect(decryptKeyMock).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([undefined, "", "   "])(
+    "does not send a request with a missing or blank key (%j)",
+    async (apiKey) => {
+      const res = await POST(makeRequest({ adapter: "openai", apiKey }), makeParams());
+      expect(await res.json()).toEqual({
+        success: false,
+        error: "Re-enter the API key to test this connection.",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses only the supplied key even when a legacy client includes providerId", async () => {
     fetchMock.mockResolvedValue(okResponse());
-
-    const res = await POST(makeRequest({ adapter: "openai", providerId: "prov-1" }), makeParams());
-
+    const res = await POST(
+      makeRequest({
+        adapter: "openai",
+        providerId: "prov-1",
+        apiKey: "new-key",
+      }),
+      makeParams(),
+    );
     expect(await res.json()).toEqual({ success: true });
-    expect(decryptKeyMock).toHaveBeenCalledWith("cipher");
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.openai.com/v1/models",
-      expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
+      expect.objectContaining({ headers: { Authorization: "Bearer new-key" }, redirect: "error" }),
     );
-  });
-
-  it("proceeds without a key when the providerId is not found", async () => {
-    prismaFindFirstMock.mockResolvedValue(null);
-    fetchMock.mockResolvedValue(okResponse());
-
-    const res = await POST(makeRequest({ adapter: "openai", providerId: "missing" }), makeParams());
-
-    expect(await res.json()).toEqual({ success: true });
+    expect(prismaFindFirstMock).not.toHaveBeenCalled();
     expect(decryptKeyMock).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.openai.com/v1/models",
-      expect.objectContaining({ headers: { Authorization: "Bearer undefined" } }),
-    );
   });
 });
 

@@ -1,7 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { Role, LLMAdapter, ADAPTER_DEFAULT_BASE_URL, prisma, decryptKey } from "@traceroot/core";
+import { Role, LLMAdapter, ADAPTER_DEFAULT_BASE_URL } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -30,8 +30,7 @@ const ADAPTER_VALUES = [
 
 const testSchema = z.object({
   adapter: z.enum(ADAPTER_VALUES),
-  apiKey: z.string().optional(),
-  providerId: z.string().optional(), // use stored key from DB
+  apiKey: z.string().trim().optional(),
   baseUrl: z.string().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   // Bedrock-specific
@@ -70,7 +69,7 @@ async function checkEndpoint(
   headers: Record<string, string>,
 ): Promise<{ ok: true } | { ok: false; error: string; detail?: string }> {
   return withTimeout(async (signal) => {
-    const res = await fetch(url, { headers, signal });
+    const res = await fetch(url, { headers, signal, redirect: "error" });
     if (res.ok) return { ok: true as const };
 
     // Check status before reading the body — 401/403 never need the provider's message.
@@ -134,16 +133,13 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { adapter, baseUrl, awsAccessKeyId, awsSecretAccessKey, useDefaultCredentials } =
     result.data;
 
-  // Resolve API key: use provided key, or fetch from DB via providerId
-  let apiKey = result.data.apiKey;
-  if (!apiKey && result.data.providerId) {
-    const provider = await prisma.modelProvider.findFirst({
-      where: { id: result.data.providerId, workspaceId },
-      select: { keyCipher: true },
+  // A connectivity check must not turn a write-only stored key into an outbound credential.
+  const apiKey = result.data.apiKey;
+  if (adapter !== "amazon-bedrock" && !apiKey) {
+    return successResponse({
+      success: false,
+      error: "Re-enter the API key to test this connection.",
     });
-    if (provider?.keyCipher) {
-      apiKey = decryptKey(provider.keyCipher);
-    }
   }
 
   try {
@@ -164,6 +160,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
         const check = await withTimeout(async (signal) => {
           const res = await fetch(`${anthropicBase}/v1/messages`, {
             method: "POST",
+            redirect: "error",
             headers: {
               "x-api-key": apiKey || "",
               "anthropic-version": "2023-06-01",
