@@ -1,0 +1,52 @@
+---
+title: BYOK
+description: 用你自己的 LLM API key 驱动 traceroot Agent
+---
+
+默认情况下，traceroot 为 traceroot Agent 提供系统模型。通过 BYOK，你可以使用自己的 API key，自行决定用哪个模型。
+
+## 默认模型
+
+| 提供商 | 模型（第一个是默认模型） |
+|----------|--------------------------------------|
+| Anthropic | `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-5`, `claude-sonnet-5-5`, `claude-sonnet-4-6`, `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-5-5`, `claude-haiku-4-5` |
+| OpenAI | `gpt-5.5`, `gpt-6-luna`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5`, `gpt-5-mini`, `o3`, `gpt-5.3-codex`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-6-sol` |
+
+每个系统模型的说明见[支持的模型](/zh/integrations/internal-models)。
+
+## 支持的提供商
+
+OpenAI, Anthropic, DeepSeek, xAI, Moonshot (Kimi), Z.AI (GLM), Google Gemini, OpenRouter, Azure OpenAI, AWS Bedrock, TypeSafe AI.
+
+## BYOK 模型目录
+
+| 提供商 | 模型 |
+|----------|--------|
+| OpenAI | `gpt-6.2-sol`, `gpt-6.2-astra`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6-luna-decisions`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-cyber`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.2`, `gpt-5.2-pro`, `gpt-5`, `gpt-5-mini`, `o3` |
+| Anthropic | `claude-fable-5-2`, `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-opus-4-5`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-haiku-4-5` |
+| Google Gemini | `gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-2.5-pro` |
+| DeepSeek | `deepseek-v4-pro`, `deepseek-flash`, `deepseek-v4-flash` |
+| xAI | `grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20`, `grok-4.20-0309-non-reasoning`, `grok-4`, `grok-build-0.1` |
+| Moonshot (Kimi) | `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6`, `kimi-k2.5`, `kimi-k2-thinking` |
+| Z.AI (GLM) | `glm-5.2`, `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.1`, `glm-5`, `glm-5-turbo`, `glm-4.7`, `glm-4.7-flash`, `glm-4.7-flashx`, `glm-4.6`, `glm-4.5`, `glm-4.5-air`, `glm-4.5-airx`, `glm-4.5-flash` |
+| TypeSafe AI | `jev-1.13.0`, `jev-1.14.0` |
+
+TypeSafe AI 只用于运行 detector，不会出现在对话或 RCA 的模型选择器里。
+
+`gpt-6-luna-decisions` 同样只用于 detector。它通过 [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions) 用 `gpt-6-luna` 判断 trace。这个 API 返回的是一个类别及其概率，没有文本，和 Jev 的方式相同。运行、span 和成本都记录在 `gpt-6-luna` 名下。
+
+**注意：** Azure OpenAI、AWS Bedrock 和 OpenRouter 没有预设的模型目录，可以直接填写任意模型 ID。
+
+## 设置
+
+1. 在仪表盘里进入 **Workspace Settings -> Model Providers**
+2. 选择一个提供商
+3. 输入你的 API key
+4. 如果使用自托管或经过代理的模型，可以设置自定义 base URL
+5. 保存。key 会加密存储，并且只在你的工作空间内有效
+
+配置完成后，AI 对话界面的模型选择器会同时显示系统模型和你的 BYOK 模型。
+
+<Frame caption="Model Providers：Add Provider 和已配置的提供商，key 已打码">
+  <img src="/images/model_providers_v1.png" alt="Settings 页面里选中了 Model Providers，显示 Add Provider 和 Configured Providers，key 已打码" />
+</Frame>

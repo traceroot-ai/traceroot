@@ -1,0 +1,171 @@
+---
+title: 运行你的第一个 agent 评测
+sidebarTitle: 快速上手
+description: 用 Python 或 TypeScript 构建一个小数据集，并为 agent 的回答打分。
+---
+
+## 1. 安装 SDK
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot
+    ```
+  </Tab>
+</Tabs>
+
+## 2. 定义数据集
+
+`Dataset` 用来存放你的用例。每个用例有一个 `input` 和一个可选的 `expected` 答案。
+
+只要数据集会被重复运行，就请显式设置 `key`。数据集靠它来标识，所以之后改名也不会开启一段新的历史。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset, evaluate
+
+    ds = Dataset("Capitals QA", key="capitals-qa")
+    ds.add({"country": "France"}, expected="Paris")
+    ds.add({"country": "Japan"}, expected="Tokyo")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset, evaluate } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("Capitals QA", null, { key: "capitals-qa" });
+    ds.add({ country: "France" }, { expected: "Paris" });
+    ds.add({ country: "Japan" }, { expected: "Tokyo" });
+    ```
+  </Tab>
+</Tabs>
+
+## 3. 编写 task
+
+task 就是被评测的系统。它把 `input` 映射成 `output`，可以是异步函数。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    CAPITALS = {"France": "Paris", "Japan": "Tokyo"}
+
+    def task(input):
+        return CAPITALS.get(input["country"], "")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const CAPITALS: Record<string, string> = { France: "Paris", Japan: "Tokyo" };
+
+    function task(input: unknown) {
+      return CAPITALS[(input as { country: string }).country] ?? "";
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## 4. 编写 scorer
+
+scorer 接收用例的 `input`、`output`、`expected` 和 `metadata`，并返回一个值。指标的名字取自函数名。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    def matches_expected(input, output, expected=None):
+        return output == expected
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import type { ScorerContext } from "@traceroot-ai/traceroot";
+
+    function matchesExpected({ output, expected }: ScorerContext) {
+      return output === expected;
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## 5. 运行
+
+`local=True` 会完整运行 eval，但不向任何地方上报，所以没有 API key 也能试用。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    result = evaluate(
+        name="capitals",
+        dataset=ds,
+        task=task,
+        scorers=[matches_expected],
+        candidate_version="capitals-v1",
+        local=True,
+    )
+    print(result.summary())
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const result = await evaluate({
+      name: "capitals",
+      dataset: ds,
+      task,
+      scorers: [matchesExpected],
+      candidateVersion: "capitals-v1",
+      local: true,
+    });
+    console.log(result.summary());
+    ```
+  </Tab>
+</Tabs>
+
+去掉 `local`，这次运行就会上报到 traceroot，使用的凭证和追踪 SDK 相同。在 shell 里导出它们：
+
+```bash
+export TRACEROOT_API_KEY="your-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # 自托管：填你的 API 的 origin，例如 http://localhost:8000
+```
+
+*（更想用 `.env` 文件？除非你的运行时会自动加载它，否则需要自己加载：Python 里用 `load_dotenv()`，TypeScript 里用 `dotenv` 的 `config()`，做法见[追踪快速上手](/zh/tracing/get-started)。）*
+
+`candidate_version` 用来标注每次运行测试的对象：模型 id、提示词版本或 git sha。运行按 `evaluation_key` 归入同一段历史，它默认等于 `name`。
+
+<Frame caption="Evaluations：评测名称、运行名称、数据集、成本和耗时">
+  <img src="/images/evals_list_v1.png" alt="Evaluations 列表，展示 Support agent golden set 的五次运行，包括运行名称、数据集、成本、平均成本和耗时" />
+</Frame>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="数据集" icon="table" href="/zh/evals/datasets">
+    编写、管理版本并发布数据集。
+  </Card>
+  <Card title="Scorers" icon="ruler" href="/zh/evals/scorers">
+    代码 scorer 和 LLM-as-a-judge。
+  </Card>
+  <Card title="运行 eval" icon="play" href="/zh/evals/running-evals">
+    <code>evaluate()</code> 的全部选项。
+  </Card>
+  <Card title="查看结果" icon="list-check" href="/zh/evals/reading-results">
+    按指标的汇总和按用例的结果。
+  </Card>
+</CardGroup>
+
+## 运行示例
+
+克隆仓库，端到端地运行一个完整的工具 agent eval。
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/agent-eval">
+    运行 Python 示例
+  </Card>
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/agent-eval">
+    运行 TypeScript 示例
+  </Card>
+</CardGroup>

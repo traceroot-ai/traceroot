@@ -1,0 +1,70 @@
+---
+title: 在终端里使用告警
+sidebarTitle: 告警
+description: 用 traceroot CLI 读取、创建、修改、暂停和删除告警
+---
+
+任何凭证都可以读取阈值[告警](/zh/alerts/overview)，创建、修改、暂停或删除告警则需要[浏览器登录](/zh/cli/authentication#浏览器登录与-api-key)。告警通过 Slack 发送通知，所以要先给工作空间[连接 Slack](/zh/alerts/overview#slack-通知) 才能收到。
+
+## 读取告警
+
+```bash
+traceroot alerts list --search latency
+traceroot alerts get <alert-id>
+```
+
+`alerts list` 接受 `--search`（按名称匹配，不区分大小写）、`--limit`（默认 50，最大 200）和 `--page`（从 0 开始）。`alerts get` 显示完整的规则和它的评估状态。
+
+## 创建告警
+
+把规则写在一个文件里：
+
+```json rule.json
+{
+  "name": "p95 latency over 2 seconds",
+  "view": "SPANS",
+  "measure": "latency",
+  "aggregation": "p95",
+  "window": "10m",
+  "threshold_operator": ">",
+  "threshold": 2000,
+  "renotify": { "mode": "OFF" }
+}
+```
+
+```bash
+traceroot alerts create --from-file rule.json
+```
+
+这里的每个字段都是必填的。`filters` 和 `no_data_mode` 是可选的。要重复发送通知，把 `renotify` 设置为 `{ "mode": "EVERY", "interval_minutes": 60 }`。
+
+这些字段也有对应的 flag：`--name`、`--view`、`--measure`、`--aggregation`、`--window`、`--threshold-operator`、`--threshold`、`--filters` 和 `--renotify`。flag 会覆盖文件里的同名字段。CLI 0.6.1 不接受 `--no-data-mode`，所以请在文件里设置 `no_data_mode`。
+
+[规则参考](/zh/alerts/rule-reference)列出了所有的度量、聚合方式、时间窗口和筛选条件，以及各项限制。文件和 stdin 的用法见[发送 JSON 请求体](/zh/cli/scripting#发送-json-请求体)。同一条规则创建两次会得到两个告警。`alerts list` 显示每个告警的 ID。
+
+## 修改告警
+
+```bash
+traceroot alerts update <alert-id> --threshold 1500
+```
+
+只发送有变化的部分。修改后的结果会结合已保存的规则一起校验，所以新的聚合方式必须适用于已保存的度量。`--filters` 和 `--renotify` 接受 JSON，`--filters` 会替换整个列表。
+
+修改度量、聚合方式、筛选条件、时间窗口、运算符、阈值或无数据模式，会让规则[从头开始](/zh/alerts/rule-reference#重新开始)。修改名称或 renotify 不会，不过修改 renotify 会重新启动一个[已停放](/zh/alerts/rule-reference#状态)的告警。响应里的 `state_reset` 和 `page_cleared` 会说明发生了什么。
+
+## 暂停或恢复
+
+```bash
+traceroot alerts status <alert-id> --status PAUSED
+traceroot alerts status <alert-id> --status ACTIVE
+```
+
+暂停会保留告警停下时的严重级别。恢复会让它从头开始。设置成它当前已有的状态不会产生任何变化。已停放的告警不能暂停，尝试暂停会以退出码 1 退出，请改为恢复它。
+
+## 删除告警
+
+```bash
+traceroot alerts delete <alert-id> --reason "Replaced by a stricter rule"
+```
+
+删除是永久性的，并且需要提供 [`--reason`](/zh/cli/scripting#共用的-flag)。尚未关闭的告警会被直接丢弃，不会标记为已解决，响应里的 `page_cleared` 会说明是否发生了这种情况。

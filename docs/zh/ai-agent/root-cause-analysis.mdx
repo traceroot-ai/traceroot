@@ -1,0 +1,17 @@
+---
+title: 根因分析
+description: traceroot Agent 如何找出 trace 中失败的根因
+---
+
+当一条 trace 包含错误时，traceroot Agent 会结合 trace 数据、生产源代码和 GitHub 活动找出根因。使用前需要先设置 [GitHub 集成](/zh/ai-agent/github-integration)。
+
+## 工作方式
+
+1. **检查 trace**：查看出错的 span、调用层级、输入输出数据和耗时
+2. **克隆仓库**：把你的仓库在对应的 commit 上克隆到隔离的沙箱里
+3. **读取生产源代码**：读取 span 属性里记录的具体文件和代码行
+4. **找出根因**：把 trace 数据和源代码关联起来，解释哪里出了问题
+
+## 沙箱隔离
+
+agent 运行在完全隔离的沙箱里。它可以读取 trace 数据并克隆你的源代码，但无法访问你的生产数据库、API 或基础设施。

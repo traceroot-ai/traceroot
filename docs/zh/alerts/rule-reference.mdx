@@ -1,0 +1,154 @@
+---
+title: 规则参考
+description: 告警设置和状态的完整参考
+---
+
+这份参考说明告警规则的每一项设置、规则可能处于的状态，以及适用的限制。想一步步创建第一个告警，请看[简介](/zh/alerts/overview)。
+
+## 度量
+
+告警度量的对象是 span。每个度量都有单位，你填写的阈值使用这个单位。
+
+| 度量 | ID | 单位 | 读取的内容 |
+| --- | --- | --- | --- |
+| Count | `count` | span | 窗口内的 span 数量。 |
+| Trace ID | `trace_id` | trace | 每个 span 所属的 trace。用 `uniq` 聚合可以统计不重复的 trace 数。 |
+| Latency | `latency` | 毫秒 | 单个 span 从开始到结束经过的时间。 |
+| Cost | `cost` | USD | 单个 span 上记录的成本。 |
+| Input tokens | `input_tokens` | token | 单个 span 上记录的输入 token。 |
+| Output tokens | `output_tokens` | token | 单个 span 上记录的输出 token。 |
+| Total tokens | `total_tokens` | token | 单个 span 上记录的输入与输出 token 之和。 |
+| Total tokens per second | `total_tokens_per_second` | token/秒 | span 的 token 总数除以它的持续时间。没有测得持续时间的 span 没有这个值。 |
+| Unique user ids | `unique_user_ids` | 用户 | trace 所属的用户。用 `uniq` 聚合可以统计不重复的用户数。 |
+| Unique session ids | `unique_session_ids` | 会话 | trace 所属的会话。用 `uniq` 聚合可以统计不重复的会话数。 |
+
+## 聚合方式
+
+每个度量支持以下聚合方式：
+
+| 度量 | 聚合方式 |
+| --- | --- |
+| Count | 仅 `count` |
+| Trace ID, Unique user ids, Unique session ids | 仅 `uniq` |
+| Latency, Cost, Input tokens, Output tokens, Total tokens, Total tokens per second | `sum`, `avg`, `min`, `max`, `p50`, `p75`, `p90`, `p95`, `p99`, `uniq` |
+
+表单只提供有效的组合，其余组合会被 API 拒绝。
+
+`uniq` 统计不重复的值，所以它的结果是一个数量，不带度量的单位。
+
+## 运算符和阈值
+
+聚合后的值会用六种运算符之一与阈值比较。表单里显示符号，Slack 消息里用文字写出。
+
+| 运算符 | 表单里 | Slack 里 |
+| --- | --- | --- |
+| `>` | &gt; | above |
+| `>=` | ≥ | at or above |
+| `<` | &lt; | below |
+| `<=` | ≤ | at or below |
+| `=` | = | equal to |
+| `!=` | ≠ | not equal to |
+
+一条规则只有一个阈值，范围在 `-1e34` 到 `1e34` 之间。如果需要两个级别，比如警告和严重，请创建两个告警。
+
+## 窗口
+
+窗口决定每次评估回看多长时间：**1m**、**5m**、**10m**、**30m**、**1h** 或 **2h**。默认是 **10m**。
+
+窗口决定的是每次检查读取多少最近的数据，与通知的频率无关。窗口为 `1m` 的规则每分钟检查一次，其他规则每 5 分钟检查一次。每个窗口的结束时间是 30 秒之前，所以晚到的 span 也会被计入。
+
+## 筛选条件
+
+筛选条件限定要度量哪些 span。一个 span 必须符合规则上的所有筛选条件。表单会忽略只填了一半的行。
+
+| 字段 | 匹配的内容 | 运算符 |
+| --- | --- | --- |
+| `model_name` | span 调用的模型 | `=`, `contains` |
+| `environment` | 记录 span 时所在的环境 | `=`, `contains` |
+| `status` | span 的状态，`OK` 或 `ERROR` | `=`, `contains` |
+| `span_kind` | span 的类型，例如 `LLM`、`AGENT` 或 `TOOL` | `=`, `contains` |
+| `name` | span 的名称 | `=`, `contains` |
+| `is_root` | span 是否为所在 trace 的根 span（`true` 或 `false`） | `=` |
+| `metadata` | span 上的一个元数据值。需要指定 key。 | `=`, `contains` |
+
+**Unique user ids** 和 **Unique session ids** 只能用在没有筛选条件的规则上。
+
+## 窗口内没有数据时
+
+`count` 和 `uniq` 在空窗口上的值是 `0`，所以这项设置对它们不起作用。想在流量停止时得到通知，可以对 `count` `<` `1` 设置告警。
+
+其他所有聚合方式，包括 `sum`，在窗口内没有记录该度量的 span 时都为空，比如对没有成本的 span 求成本之和。这时由 **When a window has no data** 决定怎么处理：
+
+| 模式 | 表单里 | 行为 |
+| --- | --- | --- |
+| `HOLD`（默认） | Show no data, don't notify | 规则显示 **No Data**。不发送任何消息，也不关闭任何告警。已经打开的告警会保持打开，直到数据恢复。 |
+| `ZERO` | Treat as zero | 空窗口按 `0` 计算，并照常与阈值比较。 |
+| `NOTIFY` | Notify when data stops | 数据中断本身会发送一条通知，数据恢复时再发送一条。开启 renotify 后，中断消息会按相同的间隔重复发送。 |
+
+在 `NOTIFY` 模式下，中断持续的时间达到规则的窗口长度后才会发出消息。窗口更长时，这个时间是 10 分钟。
+
+## Renotify
+
+Renotify 控制一条持续越过阈值的规则是否重复发送消息。
+
+- **Off (alert only on transitions)**，默认值：规则只在进入 **Alert** 和恢复时通知。
+- **Re-alert at a regular interval**：规则处于 **Alert** 期间，每隔 *N* 分钟重复发送一次越过阈值的消息。间隔默认是 60 分钟。
+
+## 严重级别
+
+严重级别是最近一次评估的结果。列表里的徽标显示严重级别，规则未处于活跃状态时显示它的状态。
+
+| 严重级别 | 显示为 | 含义 |
+| --- | --- | --- |
+| `UNKNOWN` | No Data | 规则还没有被评估过，或者刚刚被编辑或恢复。 |
+| `OK` | OK | 值在阈值以内。 |
+| `ALERT` | Alert | 值越过了阈值。 |
+| `NO_DATA` | No Data | 窗口内没有可度量的内容。 |
+
+上一次运行失败的规则会在列表里显示 **Failing**，并附上错误信息。它会按正常的调度重试：窗口为 `1m` 的在下一分钟重试，窗口更长的在 5 分钟内重试。
+
+## 状态
+
+状态说明这条规则是否正在被评估。
+
+| 状态 | 含义 |
+| --- | --- |
+| `ACTIVE` | 规则按调度被评估。 |
+| `PAUSED` | 你停止了这条规则。在恢复之前，它不会被评估，也不会发送任何消息。 |
+| `PARKED` | 规则保存的设置无法评估，所以 traceroot 停止了它。 |
+
+只有 traceroot 会设置 `PARKED`，徽标里会写明原因。想让一条被停放的规则重新运行，可以修改原因里指出的设置并保存，或者恢复它。如果保存时没有任何改动，或者只改了名称，规则仍然保持停放。被停放的规则无法暂停。
+
+## 重新开始
+
+有些操作会让规则重新开始：它的严重级别回到 **No Data**，直到下一次评估，未关闭的告警也会关闭。如果指标仍然越过阈值，下一次评估会发出一个新的告警。
+
+关闭一个未关闭的告警时，会有一条 `[OK]` 消息进入 Slack 的发送队列，通常在一分钟左右发出。只有 Slack 收到过这个告警的告警通知（`[ALERT]` 或 `[NO_DATA]`）时，才会发送这条消息：如果第一条告警通知还在重试，或者始终没有送达，频道里就没有需要关闭的内容。一条仍在重试的重复通知不会拦住它，因为第一条告警通知已经到达频道。这条消息不代表指标已经恢复：它不带测得的数值，只写明是谁编辑或恢复了规则。如果指标仍然越过阈值，新的 `[ALERT]` 会紧跟在这条 `[OK]` 之后。规则在暂停状态下被编辑时，这条消息照样发送，因为它关闭的那个告警已经通知过。如果 Slack 在大约 30 分钟内一直拒收这条消息，它会重新入队，最多再入队三次。如果没有设置频道、Slack 连接不完整，或者 Slack 明确拒绝了这条消息，它不会再次发送。
+
+删除一条有未关闭告警的规则时，会立即发送同样的 `[OK]`。如果删除者的账户设置了显示名称，消息里会写明是谁删除了规则。发送的条件也相同：只有 Slack 收到过这个告警的告警通知（`[ALERT]` 或 `[NO_DATA]`）时才发送。这条消息只发送一次：如果没有设置频道，或者 Slack 没有接受它，它不会再次发送，删除操作仍然会完成。
+
+| 操作 | 是否重新开始 |
+| --- | --- |
+| 恢复 | 总是 |
+| 编辑筛选条件、度量、聚合方式、运算符、阈值、窗口或无数据模式 | 是 |
+| 只编辑 renotify | 否，但会让被停放的规则重新运行 |
+| 重命名，或保存时没有改动 | 否 |
+| 暂停 | 否，评估会停止 |
+
+## 限制
+
+- **每个项目 100 个告警**，所有套餐都一样。暂停和被停放的告警也计入上限。剩余数量少于 10 个时，列表会显示已经用了多少个。达到上限后，**New Alert** 会被禁用。
+- **名称**必填，最长 200 个字符，可以重复：把同一条规则创建两次，会得到两条规则。
+- 每条规则最多 **50 个筛选条件**。
+- **Renotify** 间隔为 1 到 10,080 分钟。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="简介" icon="bell" href="/zh/alerts/overview">
+    创建你的第一个告警并连接 Slack。
+  </Card>
+  <Card title="traceroot Agent" icon="brain" href="/zh/ai-agent/overview">
+    应用内置的 agent，可以替你起草告警。
+  </Card>
+</CardGroup>

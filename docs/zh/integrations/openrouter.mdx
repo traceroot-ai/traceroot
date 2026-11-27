@@ -1,0 +1,158 @@
+---
+title: OpenRouter
+description: 通过兼容 OpenAI 的 SDK 追踪 OpenRouter 调用
+---
+
+OpenRouter 兼容 OpenAI：使用标准的 `openai` SDK，并把 base URL 设为 OpenRouter 的地址（`https://openrouter.ai/api/v1`）。traceroot 通过已有的 OpenAI 插桩采集这些调用，不需要 OpenRouter 专用的 instrumentor 或枚举值。同样的做法也适用于 xAI、Moonshot、Z.AI 和其他 [OpenAI 兼容的提供商](/zh/integrations/openai-compatible)。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot openai
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot openai
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url="https://openrouter.ai/api/v1",
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+
+    client = openai.OpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    # 这次 OpenRouter 调用由 traceroot 的 OpenAI 集成追踪
+    response = client.chat.completions.create(
+        model="openai/gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+    });
+
+    // 这次 OpenRouter 调用由 traceroot 的 OpenAI 集成追踪
+    const response = await openai.chat.completions.create({
+      model: 'openai/gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `ChatCompletion` 的 trace（TypeScript 下是 `OpenAI Chat Completions`）。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|---|---|
+| 模型 | 任意 OpenRouter 模型字符串，例如 `openai/gpt-4o-mini`、`anthropic/claude-sonnet-4` 或 `meta-llama/llama-4-maverick` |
+| 消息 | 输入的消息数组 |
+| 响应 | completion 内容 |
+| 工具调用 | 使用 OpenAI SDK 的工具调用 API 时，函数或工具调用的输入和输出 |
+| Token | 提示词 token、completion token 和总 token，前提是提供商返回了这些数据 |
+| 成本 | 路由到的 model ID 匹配 traceroot 价格表时计算得出，例如受支持的 `openai/...`、`anthropic/...` 或 `google/...` ID；其他情况下只采集 token，不计算成本 |
+| 延迟 | 请求耗时 |
+
+## 限制
+
+- OpenRouter 请求通过标准的 OpenAI 集成追踪。要计算 token 价格，需要提供商返回 usage 头，或者模型能被识别并映射到价格表。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 OpenRouter agent。
+
+<CardGroup cols={2}>
+  <Card
+    title="Python"
+    icon="python"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/openrouter-tool-agent"
+  >
+    运行 Python 的 OpenRouter tool-agent 示例
+  </Card>
+  <Card
+    title="TypeScript"
+    icon="js"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/openrouter"
+  >
+    运行 TypeScript 的 OpenRouter 示例
+  </Card>
+</CardGroup>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

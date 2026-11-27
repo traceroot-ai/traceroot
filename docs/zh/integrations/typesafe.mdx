@@ -1,0 +1,62 @@
+---
+title: TypeSafe AI
+description: 自动插桩通过 TypeSafe AI SDK 发起的 Jev 调用
+---
+
+自动采集每一次对 Jev 的调用。Jev 是 TypeSafe AI 的 System One 决策模型。每次 `systemOne` 调用都会成为一个 decision span，带有模型版本、token 用量、成本，以及问题、答案和概率。
+
+## 设置
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as typeSafe from '@typesafe-ai/sdk';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({ instrumentModules: { typeSafe } });
+    ```
+  </Tab>
+</Tabs>
+
+需要 `@traceroot-ai/traceroot` 0.5.0 或更高版本，以及 Node.js 20 或更高版本。
+
+## 使用
+
+初始化之后，所有 `systemOne` 调用都会被自动采集：
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```typescript
+    import { choice, TypeSafeClient } from '@typesafe-ai/sdk';
+
+    const client = new TypeSafeClient(); // 读取 TYPESAFE_API_KEY
+
+    // 这次调用会被自动追踪
+    const response = await client.systemOne({
+      state: { document: 'I was charged twice. Please fix this ASAP.' },
+      questions: {
+        category: choice('What is this ticket about?', {
+          billing: null,
+          technical: null,
+          other: null,
+        }),
+      },
+    });
+
+    console.log(response.answers.category.choice);
+    ```
+  </Tab>
+</Tabs>
+
+## 采集的内容
+
+| 属性 | 说明 |
+|---|---|
+| 模型 | 解析后的 Jev 版本，例如 `jev-1.13.0` |
+| 输入 | 发送给 Jev 的 `state` 和 `questions` |
+| 输出 | 答案和各自的概率 |
+| Token | 输入和输出 token |
+| 成本 | model ID 匹配 traceroot 价格表时计算得出 |
+| 延迟 | 请求耗时 |
+
+Jev 调用会被记录为 decision span。Jev 的工作是在你给出的选项里做选择，并不生成文本，所以它不归为 LLM span。

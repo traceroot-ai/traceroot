@@ -1,0 +1,152 @@
+---
+title: 数据集
+description: 一组有名字、有版本的用例，你的评测就在它上面运行
+---
+
+数据集是一组有名字的**用例**，每个用例有一个 `input`、一个可选的 `expected` 答案和可选的 `metadata`。你在代码里构建它，保存到磁盘，准备好之后再发布到平台。
+
+## 创建数据集
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset
+
+    ds = Dataset("Capitals QA", key="capitals-qa")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("Capitals QA", null, { key: "capitals-qa" });
+    ```
+  </Tab>
+</Tabs>
+
+数据集靠 `key` 来标识，它默认等于名称。只要数据集会被重复运行，就请显式设置它，这样之后给数据集改名也不会开启一段新的历史。
+
+## 添加用例
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    ds.add({"country": "France"}, expected="Paris")
+    ds.add({"country": "Japan"}, expected="Tokyo", id="case-japan")
+
+    print(len(ds))
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    ds.add({ country: "France" }, { expected: "Paris" });
+    ds.add({ country: "Japan" }, { expected: "Tokyo", id: "case-japan" });
+
+    console.log(ds.size);
+    ```
+  </Tab>
+</Tabs>
+
+- **`add(input, …)`**：添加一个用例并返回它。
+- **`upsert(case)`**：按 id 添加或替换，所以重复运行编写脚本也不会产生重复的用例。
+- **`update(id, …)`**：原地修改一个用例。
+- **`archive(id)`** / **`remove(id)`**：让一个用例退役，或者彻底删除它。
+
+用例的 id 由它的内容推导得出，所以添加用例或调整顺序都不会让其他用例重新编号。如果想用自己的标识符，比如工单号或数据仓库里的行 id，请传入 `id=`。
+
+## 保存和加载
+
+`save(path)` 把数据集写到磁盘，`load(path)` 再把它读回来。使用 `.jsonl` 路径，可以得到一种在 pull request 里 diff 起来很清晰的格式。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    ds.save("capitals-qa.jsonl")
+    ds = Dataset.load("capitals-qa.jsonl")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    ds.save("capitals-qa.jsonl");
+    const ds2 = Dataset.load("capitals-qa.jsonl");
+    ```
+  </Tab>
+</Tabs>
+
+## 发布版本
+
+`push()` 把数据集作为一个不可变的版本发布到平台。用例没有变化时，再次 push 不会做任何事；用例有变化时，会为同一个数据集发布一个新版本。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot.eval import PlatformDatasetSync
+
+    push = ds.push(PlatformDatasetSync())
+    print(push.status, push.version_number)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { PlatformDatasetSync } from "@traceroot-ai/traceroot";
+
+    const push = await ds.push(new PlatformDatasetSync());
+    console.log(push.status, push.versionNumber);
+    ```
+  </Tab>
+</Tabs>
+
+向一个已经存在的数据集发布时，交互式终端里会要求你确认。要在 CI 里跳过这个确认，可以传入 `on_existing=lambda info: True`（Python）/ `{ onExisting: () => true }`（TypeScript），或者设置 `TRACEROOT_ASSUME_YES=1`。拒绝确认会抛出 `DatasetPublishAborted`。
+
+运行 eval 之前不需要先发布：`evaluate()` 会替你发布本地数据集，并且从不弹出确认。详见[运行 eval](/zh/evals/running-evals)。
+
+<Frame caption="数据集行：Evaluations 标签页列出用到这个用例的每次运行">
+  <img src="/images/dataset_row_evals_v1.png" alt="数据集行面板的 Evaluations 标签页，列出用到这个用例的四次运行" />
+</Frame>
+
+## 拉取数据集
+
+把已发布的数据集拉取下来，得到的是一个普通的本地 `Dataset`。你可以遍历它、修改它、保存它，或者用它来运行评测。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import pull_dataset, pull_dataset_version
+
+    ds = pull_dataset("ds_…")                      # 当前版本
+    old = pull_dataset_version("…")                # 某个确切的版本
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { pullDataset, pullDatasetVersion } from "@traceroot-ai/traceroot";
+
+    const ds = await pullDataset("ds_…");          // 当前版本
+    const old = await pullDatasetVersion("…");     // 某个确切的版本
+    ```
+  </Tab>
+</Tabs>
+
+要复现过去的某次运行，请拉取那次运行记录的版本（`result.dataset.dataset_version_id`），再用你自己的 task 和 scorer 重新运行。
+
+如果只想看看发布了什么，不想拉取，可以用 [CLI](/zh/evals/cli) 列出数据集、它们的版本，以及某个版本里的用例：
+
+```bash
+traceroot datasets list
+traceroot datasets versions list <dataset-id>
+traceroot datasets versions get <version-id>
+```
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Scorers" icon="ruler" href="/zh/evals/scorers">
+    把用例的输出变成指标。
+  </Card>
+  <Card title="运行 eval" icon="play" href="/zh/evals/running-evals">
+    让 task 和 scorer 在一个数据集上运行。
+  </Card>
+  <Card title="在终端中使用" icon="terminal" href="/zh/evals/cli">
+    用 CLI 查看数据集和它们的版本。
+  </Card>
+</CardGroup>

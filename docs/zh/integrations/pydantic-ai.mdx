@@ -1,0 +1,91 @@
+---
+title: Pydantic AI
+description: 自动插桩 Pydantic AI 的 agent 运行、LLM 调用和工具调用
+---
+
+借助 [Pydantic AI](https://ai.pydantic.dev) 框架原生的 OpenTelemetry 插桩，自动采集其中的 agent 运行、LLM 调用和工具调用。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot pydantic-ai
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.PYDANTIC_AI])
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，所有 Pydantic AI 的 agent 运行和工具调用都会被自动采集：
+
+```python
+import traceroot
+from traceroot import Integration
+from pydantic_ai import Agent
+
+traceroot.initialize(integrations=[Integration.PYDANTIC_AI])
+
+agent = Agent(
+    "openai:gpt-4o-mini",
+    system_prompt="You are a helpful assistant.",
+)
+
+result = agent.run_sync("What is the capital of France?")
+print(result.output)
+
+traceroot.flush()
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `invoke_agent agent` 的 trace，名称取自 agent。没有传 `Agent(name=...)` 时，Pydantic AI 会从变量名推断出 `agent`。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| Agent 运行 | 每次 `agent.run()` / `agent.run_sync()` / `agent.run_stream()` 调用 |
+| 工具调用 | 每次工具调用，包含输入参数和结果 |
+| LLM 调用 | 原始 completion 请求，包含输入消息、输出消息和模型名称 |
+| Token 与成本 | 输入和输出 token 数；model ID 匹配 traceroot 价格表时计算成本 |
+| 缓存 token | 缓存读取和写入的 token 数，提供商上报时记录 |
+| 延迟 | 每次 agent 运行和每个 span 的耗时 |
+
+## 限制
+
+暂无已知限制。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/pydantic-ai-tool-agent">
+  运行 Python 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

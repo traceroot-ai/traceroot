@@ -89,7 +89,7 @@ npx skills add traceroot-ai/traceroot-skills --skill traceroot-cli
 
 ## CLI
 
-你的 agent 通过 traceroot CLI 操作你的项目：trace、detector 的 finding、告警、仪表盘、eval 和 SQL。请在运行过 setup 的目录里执行这些命令。在其他目录下，需要先用 `traceroot login` 登录，并[限定到某个项目](/cli/get-started#scope-to-a-project)。如果没有全局安装，把 `traceroot` 换成 `npx -y traceroot-cli@latest`。
+你的 agent 通过 traceroot CLI 操作你的项目：trace、detector 的 finding、告警、仪表盘、eval 和 SQL。请在运行过 setup 的目录里执行这些命令。在其他目录下，需要先用 `traceroot login` 登录，并[限定到某个项目](/zh/cli/get-started#限定到某个项目)。如果没有全局安装，把 `traceroot` 换成 `npx -y traceroot-cli@latest`。
 
 ```bash
 # 最近的 trace
@@ -107,11 +107,11 @@ traceroot evals runs list --json
 
 不加 `--fields full` 时，`traces get --json` 返回的 span 输入和输出为 `null`。
 
-运行 `traceroot <command> --help` 可以查看所有参数，运行 `traceroot doctor` 可以检查你的设置。[脚本与 CI](/cli/scripting)说明了脚本和 agent 可以依赖哪些行为。
+运行 `traceroot <command> --help` 可以查看所有参数，运行 `traceroot doctor` 可以检查你的设置。[脚本与 CI](/zh/cli/scripting)说明了脚本和 agent 可以依赖哪些行为。
 
 ## 追踪你的 coding agent
 
-[Claude Code](/integrations/claude-code)、[Codex](/integrations/codex) 和 [pi](/integrations/pi-cli) 的插件会把 coding agent 自己的会话发送到 traceroot。这和追踪你的应用是两件独立的事。会话里可能包含你的提示词、工具的输入和输出、命令以及文件内容。
+[Claude Code](/zh/integrations/claude-code)、[Codex](/zh/integrations/codex) 和 [pi](/zh/integrations/pi-cli) 的插件会把 coding agent 自己的会话发送到 traceroot。这和追踪你的应用是两件独立的事。会话里可能包含你的提示词、工具的输入和输出、命令以及文件内容。
 
 如果你为某个插件导出了 `TRACEROOT_API_KEY`，它也会作用于你或 agent 在这个 shell 里启动的其他程序，并且优先级高于仓库 env 文件里的 key。
 
@@ -121,7 +121,7 @@ traceroot evals runs list --json
   <Card title="追踪" icon="route" href="/zh/tracing/get-started">
     自己运行 setup、手动添加 SDK，以及排查问题。
   </Card>
-  <Card title="CLI" icon="terminal" href="/cli/get-started">
+  <Card title="CLI" icon="terminal" href="/zh/cli/get-started">
     在终端里处理 trace、finding、告警和 eval。
   </Card>
 </CardGroup>

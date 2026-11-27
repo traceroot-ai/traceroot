@@ -1,0 +1,159 @@
+---
+title: LangChain DeepAgents
+description: 追踪用 DeepAgents 构建的多 agent 研究流水线
+---
+
+自动采集 [DeepAgents](https://github.com/langchain-ai/deepagentsjs) 流水线里完整的多 agent 层级。DeepAgents 构建在 LangChain 之上，所以 traceroot 通过 LangChain 的 callback manager 给它插桩。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot deepagents langchain-core langchain-anthropic
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot deepagents @langchain/core @langchain/anthropic
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.LANGCHAIN])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as lcCallbackManager from '@langchain/core/callbacks/manager';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { langchain: lcCallbackManager },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, using_attributes
+    from deepagents import create_deep_agent
+
+    research_subagent = {
+        "name": "research-agent",
+        "description": "Searches the web to gather information on a topic.",
+        "system_prompt": "You are a thorough research agent. Cite sources and organise findings clearly.",
+        "tools": [web_search],
+    }
+
+    supervisor = create_deep_agent(
+        model="claude-sonnet-4-6",
+        system_prompt="You are a research supervisor. Delegate tasks to sub-agents and synthesise their outputs.",
+        subagents=[research_subagent],
+    )
+
+    @observe(name="research_session", type="agent")
+    def run_research(query: str) -> str:
+        result = supervisor.invoke({"messages": [{"role": "user", "content": query}]})
+        messages = result.get("messages", [])
+        return messages[-1].content if messages else ""
+
+    with using_attributes(user_id="demo-user", session_id="research-session"):
+        report = run_research("What are the latest AI agent frameworks in 2025?")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+    import { createDeepAgent, type SubAgent } from 'deepagents';
+    import { ChatAnthropic } from '@langchain/anthropic';
+    import { HumanMessage } from '@langchain/core/messages';
+
+    const llm = new ChatAnthropic({ model: 'claude-sonnet-4-20250514', temperature: 0 });
+
+    const researchSubAgent: SubAgent = {
+      name: 'research-agent',
+      description: 'Researches a specific topic in depth.',
+      systemPrompt: 'You are a thorough research agent. Gather comprehensive, current information and cite sources.',
+      tools: [internetSearch],
+    };
+
+    const supervisor = createDeepAgent({
+      model: llm,
+      tools: [internetSearch],
+      systemPrompt: 'You are a research supervisor. Delegate tasks to sub-agents and synthesise their outputs.',
+      subagents: [researchSubAgent],
+    });
+
+    await usingAttributes(
+      { userId: 'demo-user', sessionId: 'research-session' },
+      () =>
+        observe({ name: 'research_session', type: 'agent' }, async () => {
+          const result = await supervisor.invoke(
+            { messages: [new HumanMessage('What are the latest AI agent frameworks in 2025?')] },
+            { recursionLimit: 100 },
+          );
+          const messages = result.messages ?? [];
+          console.log(messages[messages.length - 1]?.content);
+        }),
+    );
+    ```
+  </Tab>
+</Tabs>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `research_session` 的 trace，这个名字就是传给 `observe` 的 name。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| supervisor 步骤 | supervisor 的每一步推理和委派 |
+| 子 agent 调用 | 每一次子 agent 调用，各有自己的 span |
+| 工具调用 | 子 agent 里工具的输入和输出 |
+| LLM 调用 | 整个 agent 层级里的所有 LLM 调用 |
+| token 用量 | 汇总所有 agent 和 LLM 调用 |
+| 成本 | 底层模型 ID 能匹配 traceroot 的价格表时汇总计算 |
+
+## 限制
+
+- DeepAgents 构建在 LangChain 之上。对于 TypeScript 项目，必须把 `@langchain/core/callbacks/manager` 配置到 `instrumentModules` 里。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/deepagents">
+    运行 Python 示例
+  </Card>
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/deepagents">
+    运行 TypeScript 示例
+  </Card>
+</CardGroup>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="TypeScript SDK 参考" icon="code" href="/zh/tracing/typescript-sdk">
+    查看完整的 TypeScript SDK 参考和配置选项。
+  </Card>
+</CardGroup>

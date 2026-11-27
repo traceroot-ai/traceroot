@@ -199,25 +199,25 @@ traceroot 会从已插桩的 LLM 调用里采集 token 用量。只要上报的 
 
 | 工具的计费方式 | 上报什么 | 示例 |
 | --- | --- | --- |
-| [响应中带价格](#响应中带价格) | 响应里的价格 | [Exa](/integrations/exa) |
-| [按次固定价格](#按次固定价格) | 你的单次调用价格 | [PredictLeads](/integrations/predictleads) |
-| [按 credit 或配额计费](#按-credit-或配额计费) | 消耗的 credit 数 × 你的每 credit 价格 | [Tavily](/integrations/tavily) |
-| [按使用时长计费](#按使用时长计费) | 使用时长 × 你的每分钟或每小时价格 | [TinyFish](/integrations/tinyfish)、[Notte](/integrations/notte) |
+| [响应中带价格](#响应中带价格) | 响应里的价格 | [Exa](/zh/integrations/exa) |
+| [按次固定价格](#按次固定价格) | 你的单次调用价格 | [PredictLeads](/zh/integrations/predictleads) |
+| [按 credit 或配额计费](#按-credit-或配额计费) | 消耗的 credit 数 × 你的每 credit 价格 | [Tavily](/zh/integrations/tavily) |
+| [按使用时长计费](#按使用时长计费) | 使用时长 × 你的每分钟或每小时价格 | [TinyFish](/zh/integrations/tinyfish)、[Notte](/zh/integrations/notte) |
 
 #### 响应中带价格
 
-有些提供商（例如 [Exa](/integrations/exa)）会返回每次请求的美元成本。直接透传这个值即可，Exa 页面里有示例代码。
+有些提供商（例如 [Exa](/zh/integrations/exa)）会返回每次请求的美元成本。直接透传这个值即可，Exa 页面里有示例代码。
 
 有些提供商在调用返回之后才结算价格。例如 [Apify](https://docs.apify.com/api/v2/actor-run-get) 建议在一次运行结束约 10 秒后再读取一次它的成本。请上报结算后的值。
 
 #### 按次固定价格
 
-如果每次调用的价格相同，就在每次调用时上报你的价格。重试算作另一次调用，有它自己的成本。traceroot 记录的是你上报的成本，所以提供商计费的每一次响应都要上报。例如 [PredictLeads](/integrations/predictleads) 对暂时没有返回数据的查询收费，对被拒绝的查询不收费。
+如果每次调用的价格相同，就在每次调用时上报你的价格。重试算作另一次调用，有它自己的成本。traceroot 记录的是你上报的成本，所以提供商计费的每一次响应都要上报。例如 [PredictLeads](/zh/integrations/predictleads) 对暂时没有返回数据的查询收费，对被拒绝的查询不收费。
 
 #### 按 credit 或配额计费
 
-有些提供商按 credit 计费，每个 credit 值多少美元取决于你的套餐。在你请求 usage 信息时，[Tavily](/integrations/tavily) 会返回一次搜索消耗的 credit 数。
+有些提供商按 credit 计费，每个 credit 值多少美元取决于你的套餐。在你请求 usage 信息时，[Tavily](/zh/integrations/tavily) 会返回一次搜索消耗的 credit 数。
 
 #### 按使用时长计费
 
-有些工具按时间计费，例如按分钟或按小时计费的远程浏览器。给会话计时，乘以你的费率，并在 `finally` 代码块里上报，这样失败的会话也会被计入。这只是估算值：提供商按它自己的用量记录计费，时长可能略长一些。[TinyFish](/integrations/tinyfish) 和 [Notte](/integrations/notte) 的浏览器会话都使用这种计费方式。
+有些工具按时间计费，例如按分钟或按小时计费的远程浏览器。给会话计时，乘以你的费率，并在 `finally` 代码块里上报，这样失败的会话也会被计入。这只是估算值：提供商按它自己的用量记录计费，时长可能略长一些。[TinyFish](/zh/integrations/tinyfish) 和 [Notte](/zh/integrations/notte) 的浏览器会话都使用这种计费方式。

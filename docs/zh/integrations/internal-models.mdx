@@ -1,0 +1,46 @@
+---
+title: 支持的模型
+description: traceroot Cloud 内置提供的全部 LLM 模型
+---
+
+traceroot Cloud 内置了下面这些模型，不需要 API key 就能使用。
+
+## Anthropic
+
+| 模型                | 说明                                                   |
+| ------------------- | ------------------------------------------------------ |
+| `claude-opus-4-8`   | 能力最强的模型，适合复杂推理和调试 |
+| `claude-opus-4-7`   | 上一代 Opus |
+| `claude-opus-4-6`   | 更早一代的 Opus |
+| `claude-sonnet-5`   | Sonnet 5，适合编码和 agent 类任务 |
+| `claude-sonnet-5-5` | 自适应思考，上下文窗口为 100 万 token |
+| `claude-sonnet-4-6` | 性能和速度均衡 |
+| `claude-opus-4-5`   | 更早一代的 Opus |
+| `claude-sonnet-4-5` | 上一代 Sonnet |
+| `claude-haiku-5-5`  | 速度快、成本低；没有 OpenAI key 时作为 detector 的备用模型 |
+| `claude-haiku-4-5`  | 速度快、轻量 |
+
+## OpenAI
+
+| 模型            | 说明                                              |
+| --------------- | ------------------------------------------------- |
+| `gpt-5.5`       | 默认的 OpenAI 模型 |
+| `gpt-6-luna`    | 速度快、成本低的 GPT-6 模型，detector 的默认模型 |
+| `gpt-5.4`       | 均衡的 GPT-5.4 模型 |
+| `gpt-5.4-mini`  | 速度快、成本效益高的 GPT-5.4 版本 |
+| `gpt-5.4-nano`  | 最小、成本最低的 GPT-5.4 版本 |
+| `gpt-5`         | 上一代旗舰模型 |
+| `gpt-5-mini`    | 速度快、成本效益高的 GPT-5 版本 |
+| `o3`            | 高级推理模型 |
+| `gpt-5.3-codex` | 针对代码优化的模型，通过 Responses API 调用 |
+| `gpt-5.6-sol`   | GPT-5.6，适合复杂推理和工具调用 |
+| `gpt-5.6-terra` | 成本效益高的 GPT-5.6 推理模型 |
+| `gpt-6-sol`     | GPT-6，适合推理、编码和工具调用 |
+
+## 用 BYOK 接入你自己的 key
+
+需要的模型不在列表里？通过 [BYOK](/zh/ai-agent/byok)，你可以带上自己的 API key，使用任何受支持的提供商，包括 Azure OpenAI、Google (Gemini)、Amazon Bedrock、xAI、DeepSeek、OpenRouter、Kimi、GLM 和 TypeSafe AI（仅限 detector）。
+
+<Card title="设置 BYOK" icon="key" href="/zh/ai-agent/byok">
+  使用你自己的 API key，决定由哪个模型驱动 traceroot Agent。
+</Card>

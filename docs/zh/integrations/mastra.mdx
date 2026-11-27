@@ -1,0 +1,126 @@
+---
+title: Mastra
+description: 通过 OTLP exporter 把 Mastra agent 的 trace 导出到 traceroot
+---
+
+用 `@traceroot-ai/mastra` exporter 包把 [Mastra](https://mastra.ai) agent 的 trace 导出到 traceroot。它接入的是 Mastra 内置的 OpenTelemetry 可观测性系统。
+
+## 安装
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/mastra @mastra/core @mastra/observability
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+在你的 Mastra 实例里把 traceroot 配置为 exporter：
+
+```typescript
+import { Mastra } from '@mastra/core';
+import { Observability } from '@mastra/observability';
+import { TraceRootExporter } from '@traceroot-ai/mastra';
+
+const exporter = new TraceRootExporter({
+  apiKey: process.env.TRACEROOT_API_KEY,
+});
+
+const mastra = new Mastra({
+  agents: { /* 你的 agent */ },
+  observability: new Observability({
+    configs: {
+      traceroot: {
+        serviceName: 'my-mastra-app',
+        exporters: [exporter],
+      },
+    },
+  }),
+});
+```
+
+## 使用
+
+配置完成之后，所有 agent 调用都会被自动追踪：
+
+```typescript
+import { Agent } from '@mastra/core/agent';
+import { anthropic } from '@ai-sdk/anthropic';
+
+const weatherAgent = new Agent({
+  id: 'weatherAgent',
+  name: 'Weather Agent',
+  instructions: 'You are a helpful weather assistant.',
+  model: anthropic('claude-haiku-4-5-20251001'),
+  tools: { /* 你的工具 */ },
+});
+
+const mastra = new Mastra({
+  agents: { weatherAgent },
+  observability: new Observability({
+    configs: {
+      traceroot: {
+        serviceName: 'mastra-weather-agent',
+        exporters: [exporter],
+      },
+    },
+  }),
+});
+
+const agent = mastra.getAgent('weatherAgent');
+
+// 传入固定的 threadId，把多次调用归到同一个会话下
+const result = await agent.generate("What's the weather in Tokyo?", {
+  threadId: 'session-123',
+  resourceId: 'user-456',
+});
+
+console.log(result.text);
+
+// 进程退出前把 trace 发送出去
+await exporter.flush();
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `agent run: 'weatherAgent'` 的 trace，名称取自 agent id。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| Agent 名称 | Mastra 的 agent ID |
+| 模型 | 底层 LLM 的模型名称 |
+| 消息 | 输入消息和对话历史 |
+| 响应 | 生成的文本输出 |
+| 工具调用 | 每次工具调用，包含输入和输出 |
+| Token | 输入和输出 token 数 |
+| 成本 | model ID 匹配 traceroot 价格表时计算 |
+| 延迟 | 每个 span 的请求耗时 |
+
+## 限制
+
+- 追踪需要通过 `@traceroot-ai/mastra` exporter 包导出 span，并且这个 exporter 要配置在 Mastra 的 `Observability` 系统里。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/mastra">
+  运行 TypeScript 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="TypeScript SDK 参考" icon="code" href="/zh/tracing/typescript-sdk">
+    查看完整的 TypeScript SDK 参考和配置选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

@@ -396,9 +396,81 @@
                 ]
               },
               {
+                "group": "CLI",
+                "pages": [
+                  "zh/cli/get-started",
+                  "zh/cli/authentication",
+                  "zh/cli/scripting",
+                  {
+                    "group": "命令",
+                    "expanded": true,
+                    "pages": [
+                      "zh/cli/traces",
+                      "zh/cli/detectors-and-findings",
+                      "zh/cli/alerts",
+                      "zh/cli/dashboards-and-widgets",
+                      "zh/cli/workspaces-and-projects",
+                      "zh/cli/sql"
+                    ]
+                  }
+                ]
+              },
+              {
                 "group": "Detectors",
                 "pages": [
                   "zh/detectors/introduction"
+                ]
+              },
+              {
+                "group": "Signals",
+                "pages": [
+                  "zh/signals/introduction"
+                ]
+              },
+              {
+                "group": "告警",
+                "pages": [
+                  "zh/alerts/overview",
+                  "zh/alerts/rule-reference"
+                ]
+              },
+              {
+                "group": "评测",
+                "pages": [
+                  "zh/evals/introduction",
+                  "zh/evals/get-started",
+                  "zh/evals/datasets",
+                  "zh/evals/scorers",
+                  "zh/evals/running-evals",
+                  "zh/evals/reading-results",
+                  "zh/evals/cli"
+                ]
+              },
+              {
+                "group": "仪表盘",
+                "pages": [
+                  "zh/dashboards/get-started"
+                ]
+              },
+              {
+                "group": "traceroot Agent",
+                "pages": [
+                  "zh/ai-agent/overview",
+                  {
+                    "group": "快速上手",
+                    "pages": [
+                      "zh/ai-agent/github-integration",
+                      "zh/ai-agent/byok"
+                    ]
+                  },
+                  {
+                    "group": "功能",
+                    "pages": [
+                      "zh/ai-agent/trace-analysis",
+                      "zh/ai-agent/root-cause-analysis",
+                      "zh/ai-agent/pr-creation"
+                    ]
+                  }
                 ]
               }
             ]
@@ -419,6 +491,78 @@
                   "zh/tracing/python-sdk",
                   "zh/tracing/typescript-sdk"
                 ]
+              },
+              {
+                "group": "框架",
+                "pages": [
+                  "zh/integrations/agno",
+                  "zh/integrations/autogen",
+                  "zh/integrations/claude-agent-sdk",
+                  "zh/integrations/crewai",
+                  "zh/integrations/dspy",
+                  "zh/integrations/google-adk",
+                  "zh/integrations/langchain",
+                  "zh/integrations/langchain-deepagents",
+                  "zh/integrations/llamaindex",
+                  "zh/integrations/mastra",
+                  "zh/integrations/microsoft-agent-framework",
+                  "zh/integrations/openai-agents-sdk",
+                  "zh/integrations/pi",
+                  "zh/integrations/pydantic-ai",
+                  "zh/integrations/vercel-ai"
+                ]
+              },
+              {
+                "group": "模型提供商",
+                "pages": [
+                  "zh/integrations/anthropic",
+                  "zh/integrations/gemini",
+                  "zh/integrations/mistral",
+                  "zh/integrations/openai",
+                  "zh/integrations/openai-compatible",
+                  "zh/integrations/openrouter",
+                  "zh/integrations/typesafe"
+                ]
+              },
+              {
+                "group": "Coding agent",
+                "pages": [
+                  "zh/integrations/claude-code",
+                  "zh/integrations/codex",
+                  "zh/integrations/pi-cli"
+                ]
+              },
+              {
+                "group": "工具与 API",
+                "pages": [
+                  "zh/integrations/exa",
+                  "zh/integrations/notte",
+                  "zh/integrations/predictleads",
+                  "zh/integrations/tavily",
+                  "zh/integrations/tinyfish"
+                ]
+              },
+              {
+                "group": "内部模型提供商",
+                "pages": [
+                  "zh/integrations/internal-models"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "API 参考",
+            "icon": "square-code",
+            "groups": [
+              {
+                "group": "概览",
+                "pages": [
+                  "zh/api-reference/authentication"
+                ]
+              },
+              {
+                "group": "接口",
+                "openapi": { "source": "api-reference/openapi.json", "directory": "zh/api-reference" }
               }
             ]
           }

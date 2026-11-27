@@ -1,0 +1,96 @@
+---
+title: 在终端里使用 detector 和 finding
+sidebarTitle: Detector 与 finding
+description: 用 traceroot CLI 读取 finding，以及创建、修改或删除 detector
+---
+
+任何凭证都可以读取你的 [detector](/zh/detectors/introduction) 发现的问题，管理 detector 则需要[浏览器登录](/zh/cli/authentication#浏览器登录与-api-key)。
+
+## 读取 detector
+
+```bash
+traceroot detectors list --since 7d
+traceroot detectors get <detector-id>
+```
+
+`detectors list` 接受 `--limit`（默认 50，最大 200），以及 `--since`、`--from` 和 `--to`。这些 flag 按 detector 的创建时间筛选，和它上次运行的时间无关。`detectors get` 显示完整的配置。
+
+## 读取 finding
+
+```bash
+traceroot findings list --since 24h --detector <detector>
+traceroot findings get <finding-id>
+traceroot findings get --trace <trace-id>
+```
+
+`findings list` 接受 `--limit`（默认 50，最大 200）、`--since`、`--from`、`--to`、`--detector`（ID、名称或模板）和 `--trace`。时间 flag 的取值和 [`traces list`](/zh/cli/traces#列出-trace) 相同。
+
+`findings get` 接受 finding ID 或 `--trace`，两者只能选一个。
+
+## 创建 detector
+
+```bash
+traceroot detectors create --name "Failed tasks" --template task --sample-rate 100
+```
+
+`--name` 和 `--template` 是必填的。如果项目里已经有同名的 detector，创建命令会原样返回那个 detector。
+
+| Flag | 含义 |
+| :- | :- |
+| `--template` | `failure`、`hallucination`、`logic`、`task` 或 `safety` 使用标准指令。`blank` 需要配合 `--prompt` |
+| `--prompt` | 指令，按原文保存。它会替换模板的标准指令 |
+| `--sample-rate` | 在匹配的 trace 里检查多大比例，0 到 100。默认：25 |
+| `--trigger-conditions` | 由 `{field, op, value}` 组成的 JSON 数组，用来限定检查哪些 trace |
+| `--output-schema` | 输出字段的 JSON 数组 |
+| `--detection-source` | `system` 或 `byok` |
+| `--detection-model`、`--detection-provider` | judge 模型。你的工作空间无法运行的模型会被拒绝 |
+| `--enabled`、`--enable-rca` | 开关，不带值 |
+
+触发条件支持：对 `model_name` 和 `environment` 使用 `=` 或 `!=`；对 `cost`、`total_tokens`、`duration_ms` 和 `errors` 使用 `>`、`>=`、`<`、`<=` 或 `=`；对 `metadata` 使用 `=` 或 `contains`，并带上一个 `key`。
+
+嵌套字段写在文件里更方便：
+
+```json detector.json
+{
+  "name": "Production task failures",
+  "template": "task",
+  "sample_rate": 100,
+  "trigger_conditions": [
+    { "field": "environment", "op": "=", "value": "production" }
+  ]
+}
+```
+
+```bash
+traceroot detectors create --from-file detector.json
+```
+
+文件和 stdin 的用法见[发送 JSON 请求体](/zh/cli/scripting#发送-json-请求体)。
+
+## 修改 detector
+
+```bash
+traceroot detectors update <detector-id> --sample-rate 50
+```
+
+只发送有变化的部分。`--trigger-conditions` 和 `--output-schema` 会替换整个数组，传 `[]` 会移除触发条件。模板不能修改。
+
+`--enabled` 和 `--enable-rca` 不带值，所以它们只能用来开启。要关闭某一项，请用文件：
+
+```json off.json
+{ "enabled": false }
+```
+
+```bash
+traceroot detectors update <detector-id> --from-file off.json
+```
+
+重新开启 detector 后，它不会回头检查过去的 trace。
+
+## 删除 detector
+
+```bash
+traceroot detectors delete <detector-id> --reason "Replaced by the task detector"
+```
+
+删除是永久性的，并且需要提供 [`--reason`](/zh/cli/scripting#共用的-flag)。这个 detector 的 finding 仍然可以读取。

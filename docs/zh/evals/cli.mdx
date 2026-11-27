@@ -1,0 +1,111 @@
+---
+title: 在终端中使用评测
+sidebarTitle: 在终端中使用
+description: 用 traceroot CLI 查看数据集、评测和运行
+---
+
+[traceroot CLI](/zh/cli/get-started) 读取的评测数据和 Web 应用里展示的相同：你的数据集、你发布的版本，以及为它们打分的运行。你不需要离开运行 eval 的那个终端。
+
+安装 CLI 和登录的方法见[快速上手](/zh/cli/get-started#安装)。项目 API key 读取的是它所属的项目。通过浏览器登录之后，请传入 `--project <id>` 或设置 `TRACEROOT_PROJECT_ID`，做法见[选择项目](/zh/cli/authentication#选择项目)。
+
+## 查找运行
+
+先找到评测，再缩小到它的运行，最后读取其中一次。每一步都会打印下一步要用的 id。
+
+```bash
+# 有哪些评测，每个评测有多少次运行，最近一次的结束状态是什么
+traceroot evals list
+
+# 这个评测的运行，最新的排在前面。RUN ID 这一列就是下一步要读取的
+traceroot evals runs list --evaluation-id <evaluation-id> --limit 20
+
+# 只看出错的运行
+traceroot evals runs list --status failed
+```
+
+`--status` 可以取 `running`、`completed`、`completed_with_errors`、`failed`、`incomplete` 或 `cancelled`。`evals list` 支持 `--name <substring>`，它按评测名称筛选，不区分大小写。
+
+运行列表里的一行只包含身份和结果：它是哪次运行，测试的对象是什么，什么时候开始。分数和计数是对一次运行的全部结果做的聚合，所以要读取这次运行本身才能看到。
+
+## 读取运行
+
+```bash
+traceroot evals runs get <run-id>
+```
+
+```
+support-triage · run #12 · completed
+candidate: git:9f2a1c        environment: ci
+dataset:   ds_2a97c1e04b6d8f3a5c7e9b1d20  @ 7345120984467456
+
+results    26 reported · 25 scored · 1 task error · 0 scorer errors · 1 errored · 0 not scored
+
+METRIC    VALUE   UNIT  CASES
+accuracy  0.84    —     25
+duration  1,205   ms    25     (mean per case)
+cost      0.0123  $     25     (mean per case)
+
+https://app.traceroot.ai/projects/…/evaluations/…
+```
+
+每个分数都是**带有这个分数的那些结果的平均值**，它并不代表整次运行的总分：
+
+- **数值型**分数的值是它的平均值，`CASES` 表示这个平均值覆盖了多少个结果。
+- **布尔型**分数的值是结果为 true 的占比，标注为 `(share true)`。
+- **分类型**分数没有平均值。它会打印 `categorical`，因为标签无法求平均。
+- **成本**和**耗时**标注为 `(mean per case)`。一次运行的总成本是另一个数字，通常大得多。
+
+## 读取数据集
+
+数据集的读取从数据集本身开始，一直到某个已发布版本里的用例。
+
+```bash
+traceroot datasets list --name triage        # 最新的排在前面，带有各自的当前版本
+traceroot datasets get <dataset-id>          # 名称、key、描述、当前版本
+traceroot datasets versions list <dataset-id>  # 已发布的版本；* 标记当前版本
+traceroot datasets versions get <version-id> --limit 50
+```
+
+`datasets versions get` 打印这个版本的用例：用例 id、input、expected，以及用例的来源 trace（如果有）。版本是不可变的，所以这就是一次运行实际测量的内容：从运行里取出 `dataset_version_id`，就能读到它背后的用例。
+
+还没有发布过任何内容的数据集没有版本可读。CLI 会直接说明这一点，不会打印一张空表。请先用 SDK 发布一个版本，做法见[数据集](/zh/evals/datasets)。
+
+## 脚本
+
+所有评测和数据集命令都支持 `--json`，它把 API 响应原样打印到 stdout。警告和计数输出到 stderr，所以重定向得到的仍然是合法的 JSON。
+
+```bash
+traceroot evals runs get <run-id> --json > run.json
+traceroot evals runs list --status failed --json | jq -r '.runs[].evaluation_run_id'
+```
+
+[退出码](/zh/cli/scripting#退出码)列出了每个退出码的含义，所以脚本不用解析消息，就能在网络失败（5）时重试，在运行不存在（4）时停止。
+
+## 关于输出需要知道的两件事
+
+**缺失的值打印为 `—`，绝不会打印成 `0`。** 还在进行中的运行没有已打分、task 错误或 scorer 错误的计数，这个破折号表达的正是这一点；`0` 则会声称有一次实际上没人做过的测量。`(none)` 是第三种情况：数据集存在，但没有已发布的版本。
+
+**每次读取返回一页。** 命令没有游标参数，所以当匹配的数量多于返回的数量时，它会在 stderr 上说明，并给出上限。列表默认返回 50 条，`--limit` 最大可以设到 200；`datasets versions get` 默认读取 200 个用例，`--limit` 最大可以设到 1000。要把整个数据集版本拉取到代码里，请使用 SDK 的 `pull_dataset_version()`。
+
+## 命令参考
+
+| 命令 | 作用 |
+| :-- | :-- |
+| `datasets list` | 列出项目的数据集，最新的排在前面。`--limit <n>`、`--name <substring>` |
+| `datasets get <dataset-id>` | 显示一个数据集，以及读取它的用例时所用的版本。 |
+| `datasets versions list <dataset-id>` | 列出一个数据集已发布的版本和各自的用例数量。`--limit <n>` |
+| `datasets versions get <version-id>` | 显示一个版本和它的一页用例。`--limit <n>`（默认 200，最大 1000） |
+| `evals list` | 列出评测，以及它们的运行次数和最近一次运行。`--limit <n>`、`--name <substring>` |
+| `evals runs list` | 列出运行，最新的排在前面。`--limit <n>`、`--evaluation-id <id>`、`--status <status>` |
+| `evals runs get <run-id>` | 显示一次运行：计数、每个 scorer 的平均值、每个用例的成本和耗时，以及它的 URL。 |
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="查看结果" icon="list-check" href="/zh/evals/reading-results">
+    <code>evaluate()</code> 在进程内返回的汇总和按用例的结果。
+  </Card>
+  <Card title="CLI" icon="terminal" href="/zh/cli/get-started">
+    trace、导出，以及 CLI 能读取的其他内容。
+  </Card>
+</CardGroup>

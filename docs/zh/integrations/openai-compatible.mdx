@@ -1,0 +1,121 @@
+---
+title: OpenAI 兼容的提供商
+description: 通过 OpenAI 集成追踪 xAI、Moonshot、Z.AI 和其他任何兼容 OpenAI 的 API
+---
+
+任何兼容 OpenAI API 的提供商，都可以通过 traceroot 的 OpenAI 集成来追踪。使用标准的 `openai` SDK，把客户端指向提供商的 base URL 就行，不需要针对某个提供商的 instrumentor 或枚举值。
+
+## Base URL
+
+| 提供商 | Base URL |
+|---|---|
+| xAI (Grok) | `https://api.x.ai/v1` |
+| Moonshot (Kimi) | `https://api.moonshot.ai/v1` |
+| Z.AI (GLM) | `https://open.bigmodel.cn/api/paas/v4` |
+
+其他兼容 OpenAI 的端点用法相同，包括 vLLM 或 LiteLLM 代理这类自托管的服务：把它的 URL 作为 base URL 传入即可。[OpenRouter](/zh/integrations/openrouter) 也是同样的用法。
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+    )
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    });
+    ```
+
+  </Tab>
+</Tabs>
+
+## 使用
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+
+    client = openai.OpenAI(
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+    )
+
+    # 这次 xAI 调用由 traceroot 的 OpenAI 集成追踪
+    response = client.chat.completions.create(
+        model="grok-4.20",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    });
+
+    // 这次 xAI 调用由 traceroot 的 OpenAI 集成追踪
+    const response = await openai.chat.completions.create({
+      model: 'grok-4.20',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+
+  </Tab>
+</Tabs>
+
+想换成 Moonshot 或 Z.AI，把 API key 和 base URL 换成上表里对应的值，再传入该提供商的某个 model ID，例如 `kimi-k2.6` 或 `glm-5.1`。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|---|---|
+| 模型 | 发送给提供商的 model ID，例如 `grok-4.20`、`kimi-k2.6` 或 `glm-5.1` |
+| 消息 | 输入的消息数组 |
+| 响应 | completion 内容 |
+| 工具调用 | 使用 OpenAI SDK 的工具调用 API 时，函数或工具调用的输入和输出 |
+| Token | 提示词 token、completion token 和总 token，前提是提供商返回了这些数据 |
+| 延迟 | 请求耗时 |
+| 成本 | model ID 在 traceroot 价格表里时计算得出 |
+
+## 成本
+
+只有列在 traceroot 价格表（[`standard-model-prices.json`](https://github.com/traceroot-ai/traceroot/blob/main/frontend/packages/core/src/standard-model-prices.json)）里的 model ID 才会计算成本。对其他模型的调用仍然会被追踪，包含消息、token 和延迟，只是没有成本。详见[成本跟踪](/zh/tracing/cost-tracking)。

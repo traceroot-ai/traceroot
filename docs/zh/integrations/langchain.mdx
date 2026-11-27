@@ -1,0 +1,178 @@
+---
+title: LangChain & LangGraph
+description: 自动插桩 LangChain 和 LangGraph 这两个 agent 框架
+---
+
+自动采集 LangChain chain 和 LangGraph graph 里的 agent 步骤、工具调用和 LLM 调用。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot langchain-core langchain-openai langgraph
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @langchain/core @langchain/openai @langchain/langgraph
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.LANGCHAIN])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as lcCallbackManager from '@langchain/core/callbacks/manager';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { langchain: lcCallbackManager },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+### 配合 LangGraph 使用
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from langchain_openai import ChatOpenAI
+    from langgraph.prebuilt import create_react_agent
+
+    llm = ChatOpenAI(model="gpt-4o")
+
+    tools = [search_tool, calculator_tool]
+    agent = create_react_agent(llm, tools=tools)
+
+    # 所有 agent 步骤都会被自动追踪
+    result = agent.invoke({
+        "messages": [{"role": "user", "content": "What is 2 + 2?"}]
+    })
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { ChatOpenAI } from '@langchain/openai';
+    import { HumanMessage } from '@langchain/core/messages';
+    import { END, START, StateGraph, Annotation } from '@langchain/langgraph';
+
+    const llm = new ChatOpenAI({ model: 'gpt-4o', temperature: 0 });
+
+    const AgentState = Annotation.Root({
+      query: Annotation<string>({ reducer: (_, v) => v, default: () => '' }),
+      answer: Annotation<string>({ reducer: (_, v) => v, default: () => '' }),
+    });
+
+    // 构建 graph，所有节点都会被自动追踪
+    const app = new StateGraph(AgentState)
+      .addNode('answer', async (state) => {
+        const response = await llm.invoke([new HumanMessage(state.query)]);
+        return { answer: response.content as string };
+      })
+      .addEdge(START, 'answer')
+      .addEdge('answer', END)
+      .compile();
+
+    const result = await app.invoke({ query: 'What is 2 + 2?' });
+    console.log(result.answer);
+    ```
+  </Tab>
+</Tabs>
+
+### 配合 LangChain 使用
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from langchain_openai import ChatOpenAI
+    from langchain_core.prompts import ChatPromptTemplate
+
+    llm = ChatOpenAI(model="gpt-4o")
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a helpful assistant."),
+        ("user", "{input}"),
+    ])
+
+    chain = prompt | llm
+
+    # chain 的执行会被自动追踪
+    result = chain.invoke({"input": "Hello!"})
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { ChatOpenAI } from '@langchain/openai';
+    import { ChatPromptTemplate } from '@langchain/core/prompts';
+
+    const llm = new ChatOpenAI({ model: 'gpt-4o' });
+    const prompt = ChatPromptTemplate.fromMessages([
+      ['system', 'You are a helpful assistant.'],
+      ['user', '{input}'],
+    ]);
+
+    const chain = prompt.pipe(llm);
+
+    // chain 的执行会被自动追踪
+    const result = await chain.invoke({ input: 'Hello!' });
+    ```
+  </Tab>
+</Tabs>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `RunnableSequence` 或 `CompiledStateGraph` 的 trace。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| agent 步骤 | 每一轮 agent 迭代作为一个 span |
+| 工具调用 | 每一次工具调用，包含输入和输出 |
+| LLM 调用 | chain 或 graph 里的所有 LLM 调用 |
+| graph 结构 | 各步骤之间的父子关系 |
+| token 用量 | 汇总所有 LLM 调用 |
+| 成本 | 底层模型 ID 能匹配 traceroot 的价格表时汇总计算 |
+
+## 限制
+
+- 对于 TypeScript，必须把 `@langchain/core/callbacks/manager` 配置到 `instrumentModules` 里，才能启用自动的 callback 追踪。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/langgraph-code-agent">
+    运行 Python 示例
+  </Card>
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/langchain">
+    运行 TypeScript 示例
+  </Card>
+</CardGroup>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="TypeScript SDK 参考" icon="code" href="/zh/tracing/typescript-sdk">
+    查看完整的 TypeScript SDK 参考和配置选项。
+  </Card>
+</CardGroup>

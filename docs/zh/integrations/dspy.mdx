@@ -1,0 +1,107 @@
+---
+title: DSPy
+description: 自动插桩 DSPy 的模块、签名和思维链推理
+---
+
+自动采集 [DSPy](https://github.com/stanfordnlp/dspy) 程序里的模块执行、签名预测和底层的 LLM 调用。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install "traceroot[dspy]"
+    ```
+  </Tab>
+</Tabs>
+
+`dspy` extra 会装上 DSPy 本身，以及负责发出 span 的 OpenInference instrumentor。
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.DSPY])
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，每一次 DSPy 模块调用和底层的 LLM 请求都会被自动追踪：
+
+```python
+import dspy
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.DSPY])
+
+# DSPy 从环境变量 OPENAI_API_KEY 读取 API key。
+dspy.configure(lm=dspy.LM("openai/gpt-4o-mini", max_tokens=1024))
+
+
+class CoTQA(dspy.Module):
+    """Chain-of-thought question-answering module."""
+
+    def __init__(self):
+        super().__init__()
+        self.cot = dspy.ChainOfThought("question -> answer")
+
+    def forward(self, question: str):
+        return self.cot(question=question)
+
+
+qa = CoTQA()
+
+# forward 调用、思维链步骤和 LLM 调用都会被采集
+result = qa(question="Why does ice float on water?")
+print(result.reasoning)
+print(result.answer)
+
+traceroot.flush()
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `CoTQA.forward` 的 trace，它是最外层的模块，下面嵌套着 `ChainOfThought.forward` 和 `Predict(StringSignature).forward`。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| 模块调用 | 每一次 `Module.__call__` / `Module.forward` 调用 |
+| 预测器 | `Predict`、`ChainOfThought`、`ReAct` 等，作为嵌套的 span |
+| 签名 | 每个签名上声明的输入和输出字段 |
+| LLM 调用 | 发给所配置的 `dspy.LM` 的原始 completion 请求 |
+| token 和成本 | 汇总的 token 用量；模型 ID 能匹配 traceroot 的价格表时还有成本 |
+| 延迟 | 每次模块调用和每次 LLM 调用的耗时 |
+
+## 限制
+
+- 需要通过 `pip install "traceroot[dspy]"` 安装 `dspy` extra。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/dspy-agent">
+  运行 Python 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

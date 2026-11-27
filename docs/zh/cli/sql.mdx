@@ -1,0 +1,188 @@
+---
+title: 只读 SQL
+description: 通过 CLI 或公开 API 查询你项目里的 span 和 trace
+---
+
+traceroot 的 SQL 网关可以对你项目的 trace 数据运行分析查询。它是只读的，并且限定在项目范围内：项目在认证时确定，SQL 文本和参数都无法覆盖它。
+
+你可以用 [traceroot CLI](/zh/cli/get-started) 或公开 API 查询这个网关。
+
+## 用 CLI 查询
+
+把查询作为一个带引号的参数传入，或者用 `-f, --file <path>` 从文件里读取：
+
+```bash
+traceroot sql "SELECT count() AS spans FROM spans WHERE span_start_time >= now() - INTERVAL 1 DAY"
+```
+
+默认输出是表格。用 `--csv` 输出 CSV，用 `--json` 输出完整的 API 响应，用 `--output <file>` 把选定的格式写入文件。
+
+```bash
+traceroot sql \
+  "SELECT span_id, trace_id, name, duration_ms FROM spans WHERE span_start_time >= now() - INTERVAL 7 DAY" \
+  --csv \
+  --max-rows 5000 \
+  --output spans.csv
+```
+
+`{name:Type}` 形式的占位符用 `--param name=value` 绑定，每个值一个 flag。参数和 SQL 文本始终是分开的。
+
+```bash
+traceroot sql \
+  "SELECT count() FROM spans WHERE span_start_time >= {since:DateTime64(3)} AND environment = {environment:String}" \
+  --param "since=2026-09-18 00:00:00" \
+  --param environment=production
+```
+
+同时使用 `--json` 和 `--csv`，或者重复同一个 `--param` 名称，命令都会以退出码 2 退出。表格的行数，以及表格或 CSV 的截断警告，都写到 stderr。使用 `--json` 时，请从响应里读取 `truncated`。用 `--output` 写出的文件不带终端样式。
+
+运行 `traceroot sql schema` 可以列出可用的表、列和 ClickHouse 类型。`traceroot sql --help` 列出所有 flag。
+
+## 查询示例
+
+请始终在 `span_start_time` 或 `trace_start_time` 上加一个时间条件，把这一列直接和常量比较：时间戳、参数，或者 `now() - INTERVAL 7 DAY` 这样的表达式。网关在读取底层的项目级视图时会用到这个范围，所以有时间边界的查询扫描的数据更少。
+
+### 最近出错的 span
+
+```sql
+SELECT span_id, trace_id, name, status_message, span_start_time
+FROM spans
+WHERE status = 'ERROR'
+  AND span_start_time >= now() - INTERVAL 1 DAY
+ORDER BY span_start_time DESC
+LIMIT 100
+```
+
+### 按模型统计 p95 延迟
+
+```sql
+SELECT model_name, quantile(0.95)(duration_ms) AS p95_ms
+FROM spans
+WHERE model_name IS NOT NULL
+  AND span_start_time >= now() - INTERVAL 7 DAY
+GROUP BY model_name
+ORDER BY p95_ms DESC
+```
+
+### 按模型统计七天内的成本
+
+```sql
+SELECT model_name, sum(cost) AS total_cost
+FROM spans
+WHERE model_name IS NOT NULL
+  AND span_start_time >= now() - INTERVAL 7 DAY
+GROUP BY model_name
+ORDER BY total_cost DESC
+```
+
+## 用 API 查询
+
+把项目 API key 作为 bearer token 发送到 `POST /api/v1/public/sql`：
+
+```bash
+curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \
+  --header "Authorization: Bearer $TRACEROOT_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "query": "SELECT model_name, sum(cost) AS total_cost FROM spans WHERE span_start_time >= {since:DateTime64(3)} GROUP BY model_name ORDER BY total_cost DESC",
+    "parameters": {"since": "2026-09-18 00:00:00"},
+    "max_rows": 1000
+  }'
+```
+
+[session token 或 CLI 访问令牌](/zh/api-reference/authentication#会话令牌和-cli-访问令牌)也可以用，需要带上 `project_id` 查询参数。
+
+成功的响应包含列名和类型、顺序与之一致的行数据、返回的行数、截断状态、耗时，以及 ClickHouse 提供的读取统计信息：
+
+```json
+{
+  "columns": [
+    {"name": "model_name", "type": "Nullable(String)"},
+    {"name": "total_cost", "type": "Nullable(Decimal(38, 9))"}
+  ],
+  "rows": [["gpt-5", "0.013500000"]],
+  "row_count": 1,
+  "truncated": false,
+  "elapsed_ms": 12,
+  "statistics": {"rows_read": 842, "bytes_read": 91736}
+}
+```
+
+`statistics` 是尽力提供的，可能为空。匹配的行数多于网关返回的行数时，`truncated` 为 `true`。请求里的 `max_rows` 可以调低服务端的上限，但不能调高。
+
+用 `GET /api/v1/public/sql/schema` 可以获取校验器和查询重写器使用的同一份 schema：
+
+```bash
+curl "$TRACEROOT_HOST_URL/api/v1/public/sql/schema" \
+  --header "Authorization: Bearer $TRACEROOT_API_KEY"
+```
+
+## 公开 schema
+
+查询只能引用两张逻辑表：
+
+| 表 | 内容 | 时间筛选列 |
+| :-- | :-- | :-- |
+| `spans` | span 的标识、时间、状态、模型、token、成本、环境、元数据和 Git 来源字段 | `span_start_time` |
+| `traces` | trace 的标识、时间、名称、用户、会话、Git、环境和元数据字段 | `trace_start_time` |
+
+权威的列清单和类型，请用 `traceroot sql schema --json` 或 `GET /api/v1/public/sql/schema` 获取。
+
+这两张表是在 traceroot 内部表之上精选出来的视图。它们有意排除了：
+
+- span 和 trace 的 `input` 与 `output` 内容；
+- 原始的元数据 JSON 文档；`metadata` 改为以一层的字符串 map 提供，用 `metadata['user_id']` 这样的表达式访问；
+- `project_id`、`ch_create_time`、`ch_update_time` 和内部分类字段；
+- 不属于客户流量的行；以及
+- 属于评测运行的所有 trace，包括它们的 span。
+
+## SQL 约定
+
+网关接受一条 `SELECT` 或 `UNION`。支持 CTE、子查询、join、分组、排序，以及 `row_number`、`rank` 和 `dense_rank` 窗口函数。函数采用白名单机制，名单里包含常用的聚合、日期分桶、字符串、类型转换、条件和元数据 map 函数。白名单之外的 ClickHouse 函数会被拒绝，即使 ClickHouse 本身支持它。
+
+网关会拒绝：
+
+- 多条语句、写操作、DDL 和控制语句；
+- `spans` 和 `traces` 以外的表，包括表函数；
+- 带数据库限定的名称，以及内部视图的名称；
+- `FINAL`、`SETTINGS` 和 `FORMAT` 子句；
+- 任何名为 `project_id` 的引用或别名；
+- 名为 `spans` 或 `traces` 的 CTE；
+- 对 `span_start_time` 或 `trace_start_time` 的筛选不符合要求的 `WHERE`：它必须是和常量的直接比较（`>=`、`>`、`<`、`<=`、`=` 或 `BETWEEN`），并用 `AND` 和子句的其余部分连接；以及
+- 名为 `project_id` 或以 `scope_` 开头的参数名，它们保留给服务端的范围限定使用。
+
+查询最长 65,536 个字符。一个请求最多绑定 100 个参数，这些参数序列化后的 JSON 最长 16,384 个字符。
+
+## 查询能回溯多久
+
+查询只能看到套餐保留期内的 trace 和 span：Free 是 15 天，Starter 是 30 天，Pro 是 90 天，Enterprise 没有限制。更早的行会被静默地排除在结果之外，不会报错。数据并没有被删除，所以升级套餐后，更早的行又可以读到了。
+
+## 执行限制与速率限制
+
+默认的执行限制如下：
+
+| 限制 | 默认值 |
+| :-- | --: |
+| 执行时间 | 30 秒 |
+| ClickHouse 结果行数 | 100,000 |
+| 结果大小 | 512 MiB |
+| 单个查询的内存 | 4 GiB |
+| 每个 REST 进程里单个项目的并发查询数 | 4 |
+| 每个 REST 进程里的并发查询总数 | 16 |
+
+网关会在返回结果之外多预留一行，用来检测截断。如果这一行存在，网关会去掉它并返回 `truncated: true`。超出时间、结果大小或内存限制的查询会失败，请缩小选取的列或时间范围后重试。
+
+在自托管部署里，运维人员可以用 `CLICKHOUSE_SQL_MAX_EXECUTION_TIME`、`CLICKHOUSE_SQL_MAX_RESULT_ROWS`、`CLICKHOUSE_SQL_MAX_RESULT_BYTES` 和 `CLICKHOUSE_SQL_MAX_MEMORY_USAGE` 修改这四项 ClickHouse 上限。
+
+并发限制不会让请求排队。只要任意一项进程级的并发名额已满，API 就会返回 HTTP 429，消息为 `Too many queries are running. Retry shortly.`，并带上一秒的 `Retry-After` 响应头。
+
+traceroot Cloud 还会按项目限制 SQL 请求的速率：
+
+| 套餐 | 每分钟请求数 |
+| :-- | --: |
+| Free | 20 |
+| Starter | 60 |
+| Pro | 120 |
+| Enterprise | 120 |
+
+在关闭了计费的自托管部署里，SQL 速率限制不生效。

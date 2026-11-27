@@ -1,0 +1,33 @@
+---
+title: Trace 分析
+description: 用自然语言向 traceroot Agent 询问你的 trace
+---
+
+在 traceroot 仪表盘的对话界面里，可以直接向 traceroot Agent 询问你的 trace。agent 能在你的全部 trace 历史里搜索、筛选和聚合。
+
+<Frame caption="traceroot Agent：一个关于最近 trace 的问题、它运行的查询，以及总结">
+  <img src="/images/trace_summary_v2.png" alt="traceroot Agent 总结最近 7 天的 trace" />
+</Frame>
+
+## 示例问题
+
+**错误**
+- "Summarize the errors in the last hour"
+- "What's the most common failure mode for this agent?"
+- "Show me all traces where the search tool failed"
+
+**性能**
+- "Which agent has the highest latency?"
+- "What's the average cost per trace this week?"
+- "Compare latency between gpt-4o and gpt-4o-mini calls"
+
+**数据探索**
+- "How many traces did user-123 generate today?"
+- "What's the total token spend this month?"
+- "Show me a breakdown of model usage across all traces"
+
+## 使用技巧
+
+- 时间范围要具体：“last hour” 比 “recent” 更好
+- 提到具体的服务或 agent，可以缩小搜索范围
+- 可以继续追问：agent 会在一次对话里保持上下文

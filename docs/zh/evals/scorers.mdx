@@ -1,0 +1,175 @@
+---
+title: Scorers
+description: 把用例的输出变成指标
+---
+
+scorer 接收用例的 `input`、`output`、`expected` 和 `metadata`，并返回一个指标。scorer 有两种：**代码 scorer** 由你写成一个函数，**LLM-as-a-judge** scorer 用模型给输出打分。
+
+## 代码 scorer
+
+任何函数都可以作为 scorer。指标的名字取自函数名。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    def reports_temp(input, output, expected=None, metadata=None):
+        return expected is not None and expected in (output or "")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import type { ScorerContext } from "@traceroot-ai/traceroot";
+
+    function reportsTemp({ output, expected }: ScorerContext) {
+      return typeof output === "string" && output.includes(String(expected));
+    }
+    ```
+  </Tab>
+</Tabs>
+
+可以返回布尔值、数字，或者下文列出的任意一种[返回值](#scorer-可以返回什么)。布尔值凭自身的取值决定通过还是失败。数字在你给出阈值之前只会被求平均。
+
+### 添加阈值
+
+用 `Scorer.code` 包装函数，就能给数值型指标设一条及格线。这样平台可以把每个分数标记为通过或失败，并在运行之间做比较。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Scorer
+
+    @Scorer.code(
+        key="covers_cities",
+        value_type="numeric",          # "numeric" | "boolean" | "categorical"
+        direction="higher_is_better",  # "higher_is_better" | "lower_is_better" | "none"
+        threshold=1.0,
+    )
+    def covers_cities(ctx):
+        cities = ctx.input["cities"]
+        output = (ctx.output or "").lower()
+        return sum(c.lower() in output for c in cities) / len(cities)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Scorer, type ScorerContext } from "@traceroot-ai/traceroot";
+
+    const coversCities = Scorer.code(
+      {
+        key: "covers_cities",
+        name: "covers_cities",
+        valueType: "numeric",          // "numeric" | "boolean" | "categorical"
+        direction: "higher_is_better", // "higher_is_better" | "lower_is_better" | "none"
+        threshold: 1.0,
+      },
+      (ctx: ScorerContext) => {
+        const cities = (ctx.input as { cities: string[] }).cities;
+        const output = String(ctx.output ?? "").toLowerCase();
+        return cities.filter((c) => output.includes(c.toLowerCase())).length / cities.length;
+      },
+    );
+    ```
+  </Tab>
+</Tabs>
+
+- **`key`** 用来标识 scorer。同一个 scorer 在 Python 和 TypeScript 里请使用相同的 `key`。
+- **`threshold` 和 `direction`** 决定一个数值型分数是否通过。
+- 指标的名字取自 scorer 的名字。如果你返回的 `Score` 用了别的名字，请把它也改成这个 scorer 的名字，否则阈值无法和它对应上。
+
+## LLM-as-a-judge
+
+对 judge 来说，模型和提示词就是 scorer。提示词里用 `{{input}}`、`{{output}}` 和 `{{expected}}` 占位符，它们会按用例逐个填入。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Scorer
+
+    is_grounded = Scorer.llm_judge(
+        name="is_grounded",
+        model="claude-haiku-5-5",
+        messages=[
+            {"role": "system", "content": "Reply 1.0 if the answer states concrete values, else 0.0."},
+            {"role": "user", "content": "ANSWER:\n{{output}}"},
+        ],
+        value_type="numeric",
+        threshold=1.0,
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Scorer } from "@traceroot-ai/traceroot";
+
+    const isGrounded = Scorer.llmJudge({
+      name: "is_grounded",
+      model: "claude-haiku-5-5",
+      messages: [
+        { role: "system", content: "Reply 1.0 if the answer states concrete values, else 0.0." },
+        { role: "user", content: "ANSWER:\n{{output}}" },
+      ],
+      valueType: "numeric",
+      threshold: 1.0,
+    });
+    ```
+  </Tab>
+</Tabs>
+
+如果只需要一条打分指令，可以用简写 `rubric="…"`。
+
+### 根据用例构建提示词
+
+要填入你自己的占位符，请传入一个返回模板取值的函数。它返回的是提示词里的变量，分数由 judge 模型给出。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    @Scorer.llm_judge(
+        name="comparison_present",
+        model="claude-haiku-5-5",
+        messages=[{"role": "user", "content": "Does {{answer}} compare {{cities}}? Reply 1.0 or 0.0."}],
+        value_type="numeric",
+        threshold=1.0,
+    )
+    def comparison_present(ctx):
+        return {"answer": ctx.output, "cities": " and ".join(ctx.input["cities"])}
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const comparisonPresent = Scorer.llmJudge(
+      {
+        name: "comparison_present",
+        model: "claude-haiku-5-5",
+        messages: [{ role: "user", content: "Does {{answer}} compare {{cities}}? Reply 1.0 or 0.0." }],
+        valueType: "numeric",
+        threshold: 1.0,
+      },
+      (ctx) => ({
+        answer: ctx.output,
+        cities: (ctx.input as { cities: string[] }).cities.join(" and "),
+      }),
+    );
+    ```
+  </Tab>
+</Tabs>
+
+传入 `complete=`（Python）/ `complete:`（TypeScript），也就是一个接收模型和消息并返回字符串的函数，可以替换掉真实的模型调用。这样 judge 在测试和 CI 里不需要 API key 也能运行。
+
+## scorer 可以返回什么
+
+- 一个**布尔值**或**数字**，
+- 一个 **`Score`**：`Score(name, value, comment=None, metadata=None)`，
+- 一个 **`Score` 列表**，或者一个 **`{metric: value}`** 映射，用于产出多个指标的 scorer，
+- 一个 **`DeferredScore`**：等待人工或异步审核的分数。它会被记录为待定，绝不会记成零分。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="运行 eval" icon="play" href="/zh/evals/running-evals">
+    让 task 和你的 scorer 在一个数据集上运行 eval。
+  </Card>
+  <Card title="查看结果" icon="list-check" href="/zh/evals/reading-results">
+    按指标的平均值、通过率和用例状态。
+  </Card>
+</CardGroup>

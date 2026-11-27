@@ -1,0 +1,36 @@
+---
+title: GitHub 集成
+description: 连接你的 GitHub 仓库，让 agent 可以访问源代码并自动创建 PR
+---
+
+有了 GitHub 集成，traceroot Agent 可以在沙箱里克隆你的仓库，读取失败 span 背后的源代码，并创建修复 PR，全部在 traceroot 里完成。
+
+## 设置
+
+1. 在 traceroot 仪表盘里进入 **Workspace Settings -> Integrations**，点击 **Connect GitHub App**。
+2. 授予对你想连接的仓库的访问权限
+
+<Frame caption="工作空间 Integrations 页面：Connected Services 下的 GitHub 和 Slack">
+  <img src="/images/integrations_v1.png" alt="Workspace Settings 的 Integrations 页面，GitHub 和 Slack 已连接" />
+</Frame>
+
+## 权限
+
+| 权限 | 访问级别 | 用途 |
+|-----------|--------|-----|
+| Metadata | 只读 | 列出仓库和协作者，访问仓库元数据（必需） |
+| Contents | 读写 | 克隆并读取源代码用于调试；创建修复 PR |
+| Pull requests | 读写 | 根据根因分析创建修复 PR；读取 PR 上下文 |
+| Issues | 读写 | 创建和管理 issue；读取 issue 上下文用于调试 |
+| Commit statuses | 只读 | 读取 commit 状态，用于与 trace 关联 |
+| Discussions | 只读 | 读取 discussion 及相关上下文 |
+
+## 前提条件
+
+要让源代码关联生效：
+- traceroot GitHub App 必须有权访问这个仓库
+- trace 必须包含 git 上下文，通常由 SDK 自动检测
+
+<Note>
+  使用 `@observe` 装饰器时，每个 span 都会自动记录 git 上下文。详见 [Git 上下文](/zh/tracing/git-context)。
+</Note>

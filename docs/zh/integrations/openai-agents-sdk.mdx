@@ -1,0 +1,167 @@
+---
+title: OpenAI Agents SDK
+description: 自动插桩 OpenAI Agents SDK 的 agent、工具和多轮对话
+---
+
+自动采集 OpenAI Agents SDK（[Python](https://github.com/openai/openai-agents-python)、[TypeScript](https://github.com/openai/openai-agents-js)）里的 agent 运行、工具执行和 handoff 切换。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot openai-agents
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @openai/agents zod
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as agents from '@openai/agents';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openaiAgents: agents },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，所有 agent 运行和工具调用都会被自动采集：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import asyncio
+    import traceroot
+    from traceroot import Integration
+    from agents import Agent, Runner, function_tool
+
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
+
+
+    @function_tool
+    def get_weather(city: str) -> str:
+        """Get current weather for a city."""
+        return f"The weather in {city} is 72°F and sunny."
+
+
+    agent = Agent(
+        name="Weather Assistant",
+        instructions="You are a helpful weather assistant.",
+        model="gpt-4o-mini",
+        tools=[get_weather],
+    )
+
+
+    async def main():
+        # 整个 agent 运行会被自动追踪
+        result = await Runner.run(agent, "What's the weather in Tokyo?")
+        print(result.final_output)
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+        traceroot.flush()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as agents from '@openai/agents';
+    import { Agent, run, tool } from '@openai/agents';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { z } from 'zod';
+
+    TraceRoot.initialize({
+      instrumentModules: { openaiAgents: agents },
+    });
+
+    const getWeather = tool({
+      name: 'get_weather',
+      description: 'Get current weather for a city.',
+      parameters: z.object({ city: z.string() }),
+      execute: async ({ city }) => `The weather in ${city} is 72°F and sunny.`,
+    });
+
+    const agent = new Agent({
+      name: 'Weather Assistant',
+      instructions: 'You are a helpful weather assistant.',
+      model: 'gpt-4o-mini',
+      tools: [getWeather],
+    });
+
+    async function main() {
+      // 整个 agent 运行会被自动追踪
+      const result = await run(agent, "What's the weather in Tokyo?");
+      console.log(result.finalOutput);
+      await TraceRoot.shutdown();
+    }
+
+    main().catch(console.error);
+    ```
+  </Tab>
+</Tabs>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条 trace，它的根 span 是这次 agent 运行的工作流名称：没有自己设置时是 `Agent workflow`；仓库自带的示例用 `observe` 包住了运行，所以是 `demo_session`。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| Agent 运行 | 每次 `Runner.run()` / `run()` 调用 |
+| Agent 步骤 | agent 循环里的每一轮 |
+| 工具调用 | 每次工具调用，包含名称、输入和输出 |
+| Handoff | 多 agent 之间的切换和 handoff 决策 |
+| LLM 调用 | 发给 OpenAI 的原始 completion 请求 |
+| Token 与成本 | 汇总的 token 用量；model ID 匹配 traceroot 价格表时计算成本 |
+| 延迟 | 每次 agent 运行和每个 span 的耗时 |
+
+## 限制
+
+暂无已知限制。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/openai-agents-sdk">
+    运行 Python 示例
+  </Card>
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/openai-agents">
+    运行 TypeScript 示例
+  </Card>
+</CardGroup>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="TypeScript SDK 参考" icon="code" href="/zh/tracing/typescript-sdk">
+    查看完整的 TypeScript SDK 参考和配置选项。
+  </Card>
+</CardGroup>

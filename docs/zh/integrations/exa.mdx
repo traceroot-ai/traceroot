@@ -1,0 +1,126 @@
+---
+title: Exa
+description: 把 Exa 搜索的成本记录到对应的工具 span 上
+---
+
+把每次 [Exa](https://exa.ai) 搜索的成本和 LLM 开销记录在一起。每次搜索都会成为一个工具 span，带有查询、结果、延迟和美元成本，这笔成本会计入 trace 的总成本。
+
+<Note>
+  traceroot 不会自动插桩 Exa。你需要用 `observe` 追踪这次搜索并自己上报成本，traceroot 保存的就是你上报的成本。上报的成本如何累加，请看[工具和 API 调用](/zh/tracing/cost-tracking#工具和-api-调用)。
+</Note>
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot exa-py
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot exa-js
+    ```
+  </Tab>
+</Tabs>
+
+上报成本需要 `traceroot` 0.5.0 或更高版本，或 `@traceroot-ai/traceroot` 0.7.0 或更高版本。
+
+## 设置
+
+在启动时初始化一次 traceroot。不需要任何集成参数：下一步里的 `observe` 包装会追踪这次搜索。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+
+    traceroot.initialize()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+Exa 会在 `costDollars` 里返回每次请求的美元成本。记录它的步骤：
+
+1. 把搜索包在一个函数里，并把这个函数追踪为工具 span（`type="tool"`）。
+2. 从响应里读取 `costDollars.total`。
+3. 趁这个 span 还没结束，用 `update_current_span(cost=...)`（TypeScript 里是 `updateCurrentSpan`）上报。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from exa_py import Exa
+    from traceroot import observe, update_current_span
+
+    exa = Exa()  # 读取 EXA_API_KEY
+
+    @observe(name="exa_search", type="tool")
+    def web_search(query: str):
+        response = exa.search(query, num_results=3)
+        if response.cost_dollars:
+            update_current_span(cost=response.cost_dollars.total)
+        return response
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import Exa from 'exa-js';
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const exa = new Exa(process.env.EXA_API_KEY);
+
+    async function webSearch(query: string) {
+      return observe({ name: 'exa_search', type: 'tool' }, async (q: string) => {
+        const response = await exa.search(q, { numResults: 3 });
+        if (response.costDollars) updateCurrentSpan({ cost: response.costDollars.total });
+        return response;
+      }, query);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+像调用其他函数一样，在 agent 里调用 `web_search`。它的 span 会嵌套在调用它的 span 下面，它的成本会计入这条 trace 的总成本。
+
+<Frame caption="工具 span 上带有搜索 API 返回的价格">
+  <img src="/images/tool_cost_price_in_response_v1.png" alt="一个 exa_search 工具 span 的详情，成本为 0.007000，输入是搜索查询，输出是搜索结果" />
+</Frame>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一个 `exa_search` span，位于根部或你的 agent 的 span 下面。打开它可以看到成本，trace 的总成本里包含这笔成本。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| 输入 | 传给 `web_search` 的查询 |
+| 输出 | 搜索响应 |
+| 成本 | 你上报的 `costDollars.total`，单位是美元 |
+| 延迟 | 请求耗时 |
+
+## 限制
+
+- 响应里没有 `costDollars` 时，span 上不会记录成本。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="响应中带价格" icon="chart-line" href="/zh/tracing/cost-tracking#响应中带价格">
+    上报提供商随每次请求返回的价格
+  </Card>
+</CardGroup>

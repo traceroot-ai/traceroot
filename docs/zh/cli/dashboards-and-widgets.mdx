@@ -1,0 +1,60 @@
+---
+title: 在终端里使用仪表盘和组件
+sidebarTitle: 仪表盘与组件
+description: 用 traceroot CLI 读取和修改仪表盘与组件
+---
+
+任何凭证都可以读取你的[仪表盘](/zh/dashboards/get-started)和其中的数据，修改它们则需要[浏览器登录](/zh/cli/authentication#浏览器登录与-api-key)。
+
+## 读取仪表盘和组件
+
+```bash
+traceroot dashboards list
+traceroot dashboards get <dashboard-id>
+traceroot widgets get <widget-id>
+```
+
+没有 `widgets list` 这条命令。`dashboards get` 会显示仪表盘里的组件和它们的 ID。`widgets get` 按存储的样子显示一个组件：标题、类型、spec、显示配置和所属的仪表盘。
+
+## 读取组件的数据
+
+```bash
+traceroot widgets data <widget-id> --range 7d
+traceroot widgets data <widget-id> --start-time <start> --end-time <end>
+```
+
+`--range` 接受 `30m`、`1h`、`3h`、`6h`、`1d`、`7d`、`14d`、`30d`、`60d` 或 `90d`。你可以传 `--range`，或者同时传 `--start-time` 和 `--end-time`（ISO 8601 时间，例如 `2026-11-01T00:00:00Z`），或者都不传，这时取最近 24 小时。
+
+响应里的 `status` 有三种：`ok` 表示带有数据行；`skipped` 表示这是 trace feed 组件或旧版 detector 组件；`error` 会附带原因。响应里的 `window` 说明这些数据行覆盖的时间范围，因为保留期可能会把它缩短。如果时间窗口的结束时间早于套餐保留期的截止点，命令以退出码 2 退出。
+
+## 创建和修改仪表盘
+
+```bash
+traceroot dashboards create --name "Agent latency" --description "LLM latency by model"
+traceroot dashboards update <dashboard-id> --name "Model latency"
+```
+
+如果项目里已经有同名的仪表盘，创建命令会返回那个仪表盘。`dashboards update` 可以修改名称和描述，布局不能在这里修改。要清空描述，用 `--from-file` 发送 `{ "description": null }`。
+
+## 创建和修改组件
+
+组件的 `--type` 可以是 `query`（图表）或 `trace_feed`（最近 trace 的列表）。它的 `--spec` 是对应格式的 JSON：`query` 使用 `view`、`filters`、`metric`、`breakdown` 和 `display`，`trace_feed` 使用 `filters` 和 `limit`。
+
+最好的参照是一个同类型的现有组件。读取它保存的 spec，修改之后再传回去：
+
+```bash
+traceroot widgets get <widget-id> --json | jq '{spec}' > widget.json
+traceroot widgets create --dashboard-id <dashboard-id> --title "Latency by model" --type query --from-file widget.json
+traceroot widgets update <widget-id> --from-file widget.json
+```
+
+每次 `widgets create` 都会新增一个组件。使用 `widgets update` 时，传入的 spec 会替换整个 spec，并且必须符合该组件类型的格式，因为类型不能修改。要在更新时修改 `display_config`，请用 `--from-file` 发送它，传 `null` 会重置它。
+
+## 删除组件和仪表盘
+
+```bash
+traceroot widgets delete <widget-id> --reason "Duplicate of the latency chart"
+traceroot dashboards delete <dashboard-id> --reason "Replaced by the latency dashboard"
+```
+
+每次删除都需要提供 [`--reason`](/zh/cli/scripting#共用的-flag)。删除仪表盘会同时删除其中的组件。项目里的最后一个仪表盘不能删除，尝试删除会以退出码 1 退出。

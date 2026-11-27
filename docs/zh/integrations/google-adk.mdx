@@ -1,0 +1,235 @@
+---
+title: Google ADK
+description: 自动插桩 Google Agent Development Kit 的 agent、工作流、工具和 runner
+---
+
+自动采集 [Google Agent Development Kit (ADK)](https://github.com/google/adk-python) 里的 agent 运行、工作流图、工具执行和底层的 Gemini 调用。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot google-adk
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，ADK 的 agent 运行、工具调用和 Gemini 调用都会被自动采集：
+
+```python
+import asyncio
+import traceroot
+from traceroot import Integration
+from google.adk import Agent
+from google.adk.runners import InMemoryRunner
+from google.genai import types
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+
+
+def get_weather(city: str) -> dict:
+    """Get current weather for a city."""
+    return {"status": "success", "city": city, "temp": 72, "condition": "sunny"}
+
+
+# ADK 从环境变量 GOOGLE_API_KEY 读取 Gemini API key。
+agent = Agent(
+    name="assistant",
+    model="gemini-3.8-flash",
+    description="Helpful assistant with access to tools.",
+    instruction="You are a helpful AI assistant. Use tools when needed.",
+    tools=[get_weather],
+)
+
+
+async def main():
+    runner = InMemoryRunner(agent=agent, app_name="traceroot-adk-demo")
+    await runner.session_service.create_session(
+        app_name="traceroot-adk-demo",
+        user_id="demo-user",
+        session_id="demo-session",
+    )
+
+    # 整个运行都会被追踪，包括工具调用和 Gemini 调用
+    async for event in runner.run_async(
+        user_id="demo-user",
+        session_id="demo-session",
+        new_message=types.Content(
+            role="user",
+            parts=[types.Part(text="What's the weather in Tokyo?")],
+        ),
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            print(event.content.parts[0].text)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
+```
+
+### 配合 ADK CLI 使用
+
+如果你用 `adk run` 或 `adk web` 运行 agent，请在 `agent.py` 的顶部初始化 traceroot：
+
+```python
+# my_agent/agent.py
+import traceroot
+from traceroot import Integration
+from google.adk import Agent
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+
+
+def get_current_time(city: str) -> dict:
+    """Returns the current time in a specified city."""
+    return {"status": "success", "city": city, "time": "10:30 AM"}
+
+
+root_agent = Agent(
+    model="gemini-3.8-flash",
+    name="root_agent",
+    description="Tells the current time in a specified city.",
+    instruction="Use the 'get_current_time' tool to answer.",
+    tools=[get_current_time],
+)
+```
+
+<Note>
+  `adk web` 和 `adk api_server` 会在 `agent.py` 加载之前安装它们自己的 OpenTelemetry tracer provider。从 `traceroot` 0.3.0 开始，这两种模式下 `@observe` 的 span 会和 ADK 的 span 一起被追踪。在 0.2.0 上，ADK 的 span 仍然会到达，但 `@observe` 的 span 会被丢弃，请改用 `adk run` 或你自己的 runner。
+</Note>
+
+### 配合工作流使用
+
+ADK 2.x 把 agent、工具和普通的 Python 函数作为图 `Workflow` 的节点来运行。每一次工作流运行、每个节点、每次扇出和汇合都会被追踪：
+
+```python
+import asyncio
+import traceroot
+from traceroot import Integration
+from google.adk import Agent, Event, Workflow
+from google.adk.runners import InMemoryRunner
+from google.adk.workflow import JoinNode
+from google.genai import types
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+
+
+def record_city(node_input: str):
+    """Store the city in session state and pass it on to both branches."""
+    city = node_input.strip()
+    return Event(output=city, state={"city": city})
+
+
+def get_weather(city: str) -> dict:
+    """Get current weather for the city in session state."""
+    return {"city": city, "temp": 72, "condition": "sunny"}
+
+
+suggest_food = Agent(
+    name="suggest_food",
+    model="gemini-3.8-flash",
+    instruction="In one sentence, name a signature local dish to try in {city}.",
+)
+
+# START -> record_city -> (get_weather 和 suggest_food 并行) -> gather
+workflow = Workflow(
+    name="city_brief",
+    edges=[("START", record_city, (get_weather, suggest_food), JoinNode(name="gather"))],
+)
+
+
+async def main():
+    runner = InMemoryRunner(agent=workflow, app_name="traceroot-adk-workflow")
+    await runner.session_service.create_session(
+        app_name="traceroot-adk-workflow",
+        user_id="demo-user",
+        session_id="demo-session",
+    )
+
+    # 工作流运行和其中的每个节点都会被追踪
+    output = None
+    async for event in runner.run_async(
+        user_id="demo-user",
+        session_id="demo-session",
+        new_message=types.Content(role="user", parts=[types.Part(text="Tokyo")]),
+    ):
+        if event.output is not None:
+            output = event.output
+    # 最后一个输出是汇合后的结果，以分支名为键
+    print(output)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
+```
+
+<Note>
+  工作流和节点的 span 需要 0.2.0 之后的第一个 `traceroot` 版本。在 0.2.0 上，只会出现工作流里的 `Agent` 节点。
+</Note>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `invocation [<app>]` 的 trace；如果是工作流运行，根 span 是 `invoke_workflow <name>`（需要比 0.2.0 更新的 `traceroot` 版本）。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| runner 调用 | 每次 runner 调用对应一个 `invocation [<app>]` span |
+| 工作流运行 | 每次工作流运行对应一个 `invoke_workflow <name>` span |
+| 工作流节点 | 每个函数节点或汇合节点对应一个 `invoke_node <name>` span；`Agent` 节点显示为 agent 运行 |
+| agent 运行 | 每次 agent 和子 agent 运行对应一个 `agent_run [<agent>]` agent span |
+| LLM 调用 | 每次 Gemini 调用对应一个 `call_llm` span，包含模型、请求和响应 |
+| 工具调用 | 每次工具调用对应一个以工具名命名的 tool span，包含输入参数和结果 |
+| token 和成本 | 每次 LLM 调用的输入、输出和推理 token 数；价格表里的模型还有成本，包括 `gemini-3.8-flash` |
+| 会话和用户 | 每个 span 上都带有 ADK 的 session id（`session.id`）和 user id（`user.id`） |
+| 延迟 | 每次 agent 运行和每个 span 的耗时 |
+
+## 限制
+
+- `gemini-flash-latest` 这类模型别名没有价格；请固定使用具体的模型 ID（例如 `gemini-3.8-flash`），才能采集 token 成本。
+- `adk web` 和 `adk api_server` 会在 `agent.py` 加载之前安装它们自己的 OpenTelemetry tracer provider；使用这两种模式时，建议用 traceroot >= 0.3.0。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<CardGroup cols={2}>
+  <Card title="Agent" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/google-adk-agent">
+    运行 Python agent 示例
+  </Card>
+  <Card title="工作流" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/google-adk-workflow">
+    运行 Python 工作流示例
+  </Card>
+</CardGroup>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

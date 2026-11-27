@@ -1,0 +1,145 @@
+---
+title: Claude Agent SDK
+description: 自动插桩 Claude Agent SDK，追踪 agent 和工具
+---
+
+自动采集 Claude Agent SDK（以库的形式使用的 Claude Code）里的 agent 调用、子 agent 委派、工具调用和 token 用量。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot claude-agent-sdk
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @anthropic-ai/claude-agent-sdk
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as claudeAgentSDK from '@anthropic-ai/claude-agent-sdk';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { claudeAgentSDK },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from claude_agent_sdk import query, ClaudeAgentOptions, AgentDefinition
+
+    # 定义子 agent
+    researcher = AgentDefinition(
+        description="Research specialist for gathering information.",
+        prompt="You are a research specialist. Use WebSearch to find info.",
+        tools=["WebSearch"],
+        model="haiku",
+    )
+
+    # 带着子 agent 运行 agent
+    async for message in query(
+        prompt="Research the latest trends in AI observability",
+        options=ClaudeAgentOptions(
+            allowed_tools=["Agent", "Bash", "Read", "Glob", "Grep"],
+            agents={"researcher": researcher},
+        ),
+    ):
+        if hasattr(message, "result"):
+            print(message.result)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { query, AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+
+    const researcher: AgentDefinition = {
+      description: 'Research specialist for gathering information.',
+      prompt: 'You are a research specialist. Use WebSearch to find info.',
+      tools: ['WebSearch'],
+      model: 'haiku',
+    };
+
+    async function main() {
+      for await (const message of query({
+        prompt: 'Research the latest trends in AI observability',
+        options: {
+          allowedTools: ['Agent', 'Bash', 'Read', 'Glob', 'Grep'],
+          agents: { researcher },
+        },
+      })) {
+        if ('result' in message) {
+          console.log(message.result);
+        }
+      }
+    }
+    main().catch(console.error);
+    ```
+  </Tab>
+</Tabs>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `ClaudeAgent.query` 的 trace。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| agent 查询 | 每一次 `query()` 调用，作为顶层的 agent span |
+| 子 agent 调用 | 每一次通过 Agent 工具进行的子 agent 委派 |
+| 工具调用 | 内置工具（Read、Write、Bash、Glob、Grep、WebSearch） |
+| token 用量 | 每次查询汇总的输入和输出 token |
+| 成本 | 模型 ID 能匹配 traceroot 的价格表时汇总计算 |
+| 模型名称 | 使用的模型（例如 claude-sonnet-4-6、claude-haiku-4-5） |
+
+## 限制
+
+暂无已知限制。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/claude-agent-sdk">
+    运行 Python 示例
+  </Card>
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/claude-agent-sdk">
+    运行 TypeScript 示例
+  </Card>
+</CardGroup>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="TypeScript SDK 参考" icon="code" href="/zh/tracing/typescript-sdk">
+    查看完整的 TypeScript SDK 参考和配置选项。
+  </Card>
+</CardGroup>

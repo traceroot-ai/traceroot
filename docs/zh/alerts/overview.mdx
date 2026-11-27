@@ -1,0 +1,100 @@
+---
+title: 针对 agent 延迟、成本和错误的告警
+sidebarTitle: 简介
+description: 设置一个阈值，指标越过阈值或恢复正常时，你会收到一条 Slack 消息。
+---
+
+告警会持续监控 agent 的延迟、成本、token 用量和错误，其中任何一项越过你设置的阈值时，就会向 Slack 发送消息。问题一出现你就会收到通知，不用一直盯着仪表盘。
+
+告警和 [detector](/zh/detectors/introduction) 不同：detector 用提示词判断单条 trace，告警监控的是一个数值随时间的变化。
+
+所有套餐都可以使用告警和 Slack 通知，包括 Free 套餐和自托管部署。一个项目最多可以有 100 个告警。
+
+<Frame caption="Alerts 列表：每条规则的状态、窗口和最近一次评估">
+  <img src="/images/alerts_list_v2.png" alt="Alerts 列表，其中四条规则分别处于 Alert、OK 和 No Data 状态" />
+</Frame>
+
+## 告警的工作方式
+
+一条规则可以读成一句话：在最近一个*窗口*内，对符合*筛选条件*的 span 计算*度量*的*聚合值*，再与*阈值*比较。例如，最近 `10m` 内 LLM span 的 **Latency** 的 `p95` `>` `2000` 毫秒。
+
+每次评估的结果是 **OK**、**Alert** 或 **No Data**，只有状态变化时才会通知：
+
+- 进入 **Alert** 时发送一条消息，恢复到 **OK** 时再发送一条。
+- 规则一直处于 **Alert** 时不会重复通知，除非开启了 **Renotify**。
+- 想在流量停止时得到通知，可以对 **Count** `<` `1` 设置告警。Count 规则在空窗口上的值是 `0`，不会出现 **No Data**。
+- 其他规则在空窗口上默认显示 **No Data**，并且不发通知。选择 **Treat as zero** 后，会改用 `0` 与阈值比较。选择 **Notify when data stops** 后，数据中断时会发送一条消息。
+
+## 如何创建告警
+
+你需要有正在流入的 trace、**Member** 或更高的角色，并且工作空间已经连接 Slack（见 [Slack 通知](#slack-通知)）。
+
+在 [traceroot Cloud](https://app.traceroot.ai) 里打开你的项目，在左侧导航里选择 **Alerts**，然后点击 **New Alert**。
+
+1. **Scope**：点击 **Add filter** 限定要度量哪些 span，例如 `Span kind is LLM`。留空表示度量所有 span。
+2. **Condition**：选择聚合方式和度量、运算符和阈值，以及窗口。阈值使用度量的单位，所以“p95 延迟超过 2 秒”要填 `2000`。一条规则只有一个阈值。如果需要警告和严重两个级别，请创建两个告警。
+3. **Notify**：设置 **When a window has no data** 和 **Renotify**，并填写 **Name**。默认设置下，只在越过阈值和恢复时通知。**Integration** 显示这个告警会发到哪个 Slack 频道。
+4. 点击 **Create Alert**。规则立即生效，第一次结果会在一分钟内出现。
+
+你编辑规则时，**Live preview** 会实时画出这条规则的图表，并在图上标出阈值线。如果它显示 **No preview available for this metric yet**，说明当前的度量、聚合方式和筛选条件无法组合，**Create Alert** 会保持禁用。
+
+## 用 AI 创建告警
+
+在左侧导航里选择 **Agent** 打开 traceroot Agent，然后描述你想要的告警，或者让它根据你的 trace 推荐一个。例如：
+
+- "Alert me when p99 latency of LLM spans goes over 2 seconds"
+- "Suggest a useful alert for this project based on my recent traces"
+
+agent 会起草这条规则，并附上预览图表。在你点击对话下方的 **Create alert** 之前，不会保存任何内容。如果想修改草稿，直接回复即可。
+
+<Frame caption="traceroot Agent：根据最近的 trace 推荐一个错误告警，然后在对话里批准">
+  <img src="/images/alerts_agent_v2.png" alt="traceroot Agent 检查已有的告警和最近的流量，然后创建一个 span 错误告警" />
+</Frame>
+
+AI coding agent 也可以用 [traceroot CLI](/zh/cli/alerts)（`traceroot alerts create`）或 `/api/v1/public/alerts` 下的公开 API 创建告警。写操作需要已登录的用户，项目 API key 只能读取。
+
+## 告警状态
+
+Alerts 列表的每一行都显示一个徽标。如果徽标带有原因，比如通知为什么没有送达，点击它就能看到。
+
+- **OK**：最新的值在阈值以内。
+- **Alert**：最新的值越过了阈值。
+- **No Data**：最近一个窗口是空的，或者规则还没有运行过。
+- **Failing**：上一次运行失败。它会按正常的调度重试。
+- **Parked**：规则的设置无法评估，所以 traceroot 停止了它。修改徽标里指出的设置并保存，或者恢复这条规则。
+- **Paused**：你停止了这条规则。它不会被评估，也不会发送任何消息。
+
+## 管理告警
+
+使用每一行上的 **Actions** 菜单：
+
+- **Pause** 停止评估和通知。**Resume** 让规则重新开始。
+- **Edit** 打开同一个表单。保存对规则的修改会让它重新开始，重命名或只修改 renotify 则不会。
+- **Delete** 永久删除这条规则。需要输入告警的名称来确认。
+
+重新开始会关闭一个未关闭的告警。如果 Slack 收到过它的告警通知（`[ALERT]` 或 `[NO_DATA]`），还会发送一条 `[OK]`，说明是谁编辑或恢复了这条规则，详见[重新开始](/zh/alerts/rule-reference#重新开始)。规则有未关闭的告警时，编辑表单会显示一条提醒。删除一条有未关闭告警的规则，也会以同样的方式关闭它。如果删除者的账户设置了显示名称，这条 `[OK]` 会写明是谁删除了规则。规则已经不存在，所以消息里没有链接。删除对话框里同样会显示提醒。
+
+## Slack 通知
+
+每个 traceroot 工作空间只需要连接一次 Slack，其中所有项目的告警都发到同一个频道。detector 通知也使用这个连接。
+
+1. 以工作空间管理员的身份打开 **Settings → Integrations**。
+2. 点击 **Connect**，并在 Slack 里完成授权。
+3. 选择 traceroot 要发送消息的频道。
+
+每条消息都会写明状态和规则，例如 `[ALERT] p95 latency`，然后用一句话说明数值、阈值、窗口和筛选条件。**View alert** 打开这条规则。越过阈值的消息还带有 **View traces** 链接，指向被评估的那个窗口。编辑或恢复规则后用来关闭告警的 `[OK]` 不代表指标已经恢复，所以它写的是谁做了这次修改，没有数值。
+
+<Frame caption="Slack 消息：一次越过阈值的告警，带有数值、阈值、窗口和链接">
+  <img src="/images/alerts_slack_v2.png" alt="p95 延迟越过阈值的 Slack 消息，带有 View alert 和 View traces 链接" />
+</Frame>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="规则参考" icon="list" href="/zh/alerts/rule-reference">
+    所有度量、单位、聚合方式、筛选条件和状态。
+  </Card>
+  <Card title="Detector 通知" icon="bell" href="/zh/detectors/introduction#通知">
+    新建和重新打开的 detector signal 的邮件和 Slack digest。
+  </Card>
+</CardGroup>

@@ -4,7 +4,7 @@ sidebarTitle: 简介
 description: 描述你想让模型查找的问题，然后查看被它标记出来的 trace。
 ---
 
-一个 detector 负责在 agent 的 trace 里检查一类具体的问题，比如幻觉或任务失败。你不用逐条阅读 trace，也能知道问题出现了。对于检查的每条 trace，都会有一个模型读取它并回答“是”或“否”。回答“是”就产生一个 **finding**。traceroot 会把同一类问题的 finding 归并成一个 [signal](/signals/introduction)，traceroot Agent 可以找出这个 signal 的根因。
+一个 detector 负责在 agent 的 trace 里检查一类具体的问题，比如幻觉或任务失败。你不用逐条阅读 trace，也能知道问题出现了。对于检查的每条 trace，都会有一个模型读取它并回答“是”或“否”。回答“是”就产生一个 **finding**。traceroot 会把同一类问题的 finding 归并成一个 [signal](/zh/signals/introduction)，traceroot Agent 可以找出这个 signal 的根因。
 
 所有套餐都可以使用 detector。Free 套餐每个计费周期包含 100 次 detector 运行。
 
@@ -16,11 +16,11 @@ description: 描述你想让模型查找的问题，然后查看被它标记出�
 
 检测分两步进行。第二步是根因分析，成本更高，所以只针对第一步发现的问题运行。
 
-**第 1 步：judge。** 一条 trace 的最后一个 span 到达约一分钟后，每个 detector 会检查这条 trace 是否符合它的筛选条件和采样率。如果符合，detector 的模型会读取这条 trace，判断问题是否存在，并写出一句话的总结。来自 [eval](/evals/introduction) 的 trace 会被 detector 跳过。
+**第 1 步：judge。** 一条 trace 的最后一个 span 到达约一分钟后，每个 detector 会检查这条 trace 是否符合它的筛选条件和采样率。如果符合，detector 的模型会读取这条 trace，判断问题是否存在，并写出一句话的总结。来自 [eval](/zh/evals/introduction) 的 trace 会被 detector 跳过。
 
-**第 2 步：agent。** traceroot Agent 读取 signal 里的一条 trace，写出根因分析，其中包含代码位置和修复建议。它在什么时候运行，请看 [Signals](/signals/introduction)。
+**第 2 步：agent。** traceroot Agent 读取 signal 里的一条 trace，写出根因分析，其中包含代码位置和修复建议。它在什么时候运行，请看 [Signals](/zh/signals/introduction)。
 
-两个步骤各用各的模型。judge 模型在每个 detector 上单独选择。agent 模型每个项目只选一次，位置在 **Settings → Detectors → Agent Model**。两者都可以用 traceroot 提供的模型，也可以用你自己的提供商 key 对应的模型（[自带 key](/ai-agent/byok)）。
+两个步骤各用各的模型。judge 模型在每个 detector 上单独选择。agent 模型每个项目只选一次，位置在 **Settings → Detectors → Agent Model**。两者都可以用 traceroot 提供的模型，也可以用你自己的提供商 key 对应的模型（[自带 key](/zh/ai-agent/byok)）。
 
 ## 如何创建 detector
 
@@ -53,7 +53,7 @@ agent 会起草这个 detector。在你点击对话下方的 **Create detector**
   <img src="/images/detector_agent_v1.png" alt="traceroot Agent 列出并读取项目里的 detector，然后总结它们的配置" />
 </Frame>
 
-AI coding agent 也可以用 [traceroot CLI](/cli/detectors-and-findings)（`traceroot detectors create`）或 `/api/v1/public/detectors` 下的公开 API 创建 detector。写操作需要已登录的用户，项目 API key 只能读取。
+AI coding agent 也可以用 [traceroot CLI](/zh/cli/detectors-and-findings)（`traceroot detectors create`）或 `/api/v1/public/detectors` 下的公开 API 创建 detector。写操作需要已登录的用户，项目 API key 只能读取。
 
 ## 根因分析
 
@@ -64,7 +64,7 @@ AI coding agent 也可以用 [traceroot CLI](/cli/detectors-and-findings)（`tra
 
 两种模式下，检测和通知的方式完全相同。
 
-agent 以 signal 为单位做分析，不会逐条分析 finding。它在什么时候运行，请看 [Signals](/signals/introduction)。
+agent 以 signal 为单位做分析，不会逐条分析 finding。它在什么时候运行，请看 [Signals](/zh/signals/introduction)。
 
 ## 查看 finding
 
@@ -118,10 +118,10 @@ signal 被创建或重新打开时，traceroot 会通知你。它会在每个告
 ## 下一步
 
 <CardGroup cols={2}>
-  <Card title="Signals" icon="lightbulb" href="/signals/introduction">
+  <Card title="Signals" icon="lightbulb" href="/zh/signals/introduction">
     了解 finding 如何被归并、审阅和解决。
   </Card>
-  <Card title="traceroot Agent" icon="brain" href="/ai-agent/overview">
+  <Card title="traceroot Agent" icon="brain" href="/zh/ai-agent/overview">
     了解根因分析背后的 agent 如何工作。
   </Card>
 </CardGroup>

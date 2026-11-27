@@ -1,0 +1,111 @@
+---
+title: 查看结果
+description: 查看一次 eval 运行返回的汇总和按用例的结果
+---
+
+`evaluate()` 返回一个 `EvalRunResult`，其中包含每个指标的汇总、每个用例的结果，以及这次运行上报到了哪里。
+
+## 汇总
+
+`summary()` 为每个指标打印一行：
+
+```
+matches_expected: mean=0.75 pass=3/4 count=4
+```
+
+布尔型分数凭自身的取值决定通过还是失败。数值型分数需要一个 `threshold` 才能判定；没有阈值时它只会被求平均，`pass=k/n` 也不会出现。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    result = evaluate(name="weather", dataset=ds, task=task, scorers=[reports_temp])
+    print(result.summary())
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const result = await evaluate({ name: "weather", dataset: ds, task, scorers: [reportsTemp] });
+    console.log(result.summary());
+    ```
+  </Tab>
+</Tabs>
+
+本地汇总里没有 token 数量和成本。平台会根据这次运行的 span 计算它们，并显示在 UI 里。
+
+## 按用例的结果
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    for item in result.results:
+        print(item.case_id, item.output, item.scores)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    for (const item of result.itemResults) {
+      console.log(item.caseId, item.output, item.scores);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+每一项都带有 `case_id`、`input`、`output`、`expected`、`scores`、`trace_id`、`duration_ms`，以及可能出现的 `error` 或 `scorer_errors`。遇到错误的用例状态是 `errored`，可以用 `case_status(item)` / `caseStatus(item)` 来检查。
+
+运行结果还提供几个计数（`case_count`、`errored`、`not_scored`）、这次运行标注的 `candidate_version`、带有 `dashboard_url` 的 `upload_state`，以及 `dataset`，也就是这次运行所测量的确切数据集版本。
+
+<Frame caption="评测运行：每个用例的输入、输出、期望答案和分数">
+  <img src="/images/eval_run_v1.png" alt="评测运行的结果表格，包含每个用例的输入、输出、期望值和各个 scorer 的列" />
+</Frame>
+
+## 稍后上传
+
+如果运行所在的环境没有凭证，可以先把运行保存下来，之后再上传。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import EvalRunResult
+
+    result.save("run.json")
+
+    later = EvalRunResult.load("run.json")
+    later.upload()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { EvalRunResult } from "@traceroot-ai/traceroot";
+
+    result.save("run.json");
+
+    const later = EvalRunResult.load("run.json");
+    await later.upload();
+    ```
+  </Tab>
+</Tabs>
+
+`upload()` 会根据保存的运行重建上报目的地，并保留 scorer 的阈值。所以之后上传时记录的通过和失败结果，和原始运行完全一致。
+
+## 之后再查看一次运行
+
+`EvalRunResult` 由运行 eval 的那个进程持有。运行上报之后，[CLI](/zh/evals/cli) 可以在任何地方把它读回来，包括别人发起的运行。
+
+```bash
+traceroot evals runs list --evaluation-id <evaluation-id>   # 找到运行 id
+traceroot evals runs get <run-id>   # 计数、每个 scorer 的平均值、成本和耗时
+```
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="在终端中使用" icon="terminal" href="/zh/evals/cli">
+    用 CLI 查看数据集、评测和过去的运行。
+  </Card>
+  <Card title="运行 eval" icon="play" href="/zh/evals/running-evals">
+    <code>evaluate()</code> 的全部选项，以及运行结果上报到哪里。
+  </Card>
+  <Card title="数据集" icon="table" href="/zh/evals/datasets">
+    拉取某个数据集版本，复现过去的运行。
+  </Card>
+</CardGroup>
