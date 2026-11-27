@@ -205,7 +205,7 @@ def test_matching_label_candidates_uses_the_trace_list_scope():
 
     command = reader._client.query.call_args
     sql = command.args[0]
-    assert "SELECT DISTINCT t.trace_id" in sql
+    assert "SELECT t.trace_id" in sql
     assert "t.source = 'user'" in sql
     assert "t.user_id = {user_id:String}" in sql
     assert "t.trace_start_time >= {start_after:DateTime64(3)}" in sql

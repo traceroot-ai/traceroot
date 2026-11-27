@@ -100,8 +100,8 @@
 --   * Deduplicating inside a window ranks only the rows already in it, so a row whose
 --     newest version has moved outside the window surfaces its older in-window version.
 --     That matches the rest of the product: both deduplicating read paths in
---     rest.services.trace_reader place the caller's filters in the inner WHERE, before
---     LIMIT 1 BY, so the same row behaves this way in the UI.
+--     rest.services.trace_reader place the caller's time window in the inner WHERE,
+--     before LIMIT 1 BY, so the same row behaves this way in the UI.
 --
 -- Curated projection excludes project_id, ch_create_time, ch_update_time, and the
 -- input/output blobs. `metadata` is the queryable one-level `metadata_map`, renamed; the
