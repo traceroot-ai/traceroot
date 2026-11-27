@@ -451,6 +451,12 @@ async def get_span_io(
     service = get_trace_reader_service()
     try:
         trace_start = service.get_trace_start_time(project_id, trace_id)
+        if trace_start is None:
+            # No root span yet: judge retention by the trace's earliest span, so a
+            # missing root never lets expired I/O through. Unscoped, like this read.
+            trace_start = await asyncio.to_thread(
+                service.get_trace_earliest_span_time, project_id, trace_id
+            )
         enforce_retention_by_time(_access.billing_plan, trace_start)
 
         result = service.get_span_io(
@@ -528,7 +534,7 @@ async def get_span_attachment(
             # No root span yet, or none at all: judge retention by the trace's earliest
             # span instead, so a missing root never lets an expired image through.
             trace_start = await asyncio.to_thread(
-                service.get_customer_trace_earliest_span_time, project_id, trace_id
+                service.get_trace_earliest_span_time, project_id, trace_id, customer_only=True
             )
             if trace_start is None:
                 # The trace has no span, so nothing can reference the image.

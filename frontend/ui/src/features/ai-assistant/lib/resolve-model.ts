@@ -13,8 +13,16 @@
  * - When the API response is defined, BYOK models come first, then system models.
  *   No deduplication — both consumers depend on this ordering.
  * - Default-pick walks PROVIDER_PRIORITY by adapter, then falls back to models[0].
+ * - Decision models (a TypeSafe provider, or a detector-only alias such as
+ *   gpt-6-luna-decisions on an OpenAI row) cannot run chat or RCA; anything
+ *   outside a detector picker filters the list with `chatModels` first.
  */
-import { SYSTEM_MODELS, PROVIDER_PRIORITY } from "@traceroot/core";
+import {
+  SYSTEM_MODELS,
+  PROVIDER_PRIORITY,
+  isDecisionAdapter,
+  isDecisionModelId,
+} from "@traceroot/core";
 import type { LLMModelsResponse } from "@/lib/api";
 
 export interface ResolvedModel {
@@ -64,6 +72,15 @@ export function flattenAvailableModels(
     })),
   );
   return [...byokList, ...systemList];
+}
+
+/** False for a decision model, which only a detector can run. */
+export function isChatModel(model: { id: string; adapter: string }): boolean {
+  return !isDecisionAdapter(model.adapter) && !isDecisionModelId(model.id);
+}
+
+export function chatModels<M extends { id: string; adapter: string }>(models: M[]): M[] {
+  return models.filter(isChatModel);
 }
 
 export function pickDefaultModel(models: ResolvedModel[]): ResolvedModel | undefined {

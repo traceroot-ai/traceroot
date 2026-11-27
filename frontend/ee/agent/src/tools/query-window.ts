@@ -72,6 +72,34 @@ export function parseQueryWindow(input: unknown): QueryWindow | undefined | Erro
   return undefined;
 }
 
+/** Bounds for the reads that take `start_after`/`end_before` (traces, sessions). */
+export interface LookbackWindow {
+  start_after: string;
+  end_before: string;
+}
+
+/**
+ * A run's fixed window: the `hours` before `now`, clamped to 1..maxHours.
+ * The Loop agent's trace reads default to it.
+ */
+export function lookbackWindow(hours: number, now: Date, maxHours: number): LookbackWindow {
+  const clamped = Math.min(Math.max(Math.floor(hours) || 1, 1), maxHours);
+  return {
+    start_after: new Date(now.getTime() - clamped * 3_600_000).toISOString(),
+    end_before: now.toISOString(),
+  };
+}
+
+/**
+ * The per-call defaults for a read bounded by `start_after`/`end_before`: the
+ * run's window, unless the model named either bound itself — then its own
+ * bounds stand, as with the page window below.
+ */
+export function lookbackDefaults(window: LookbackWindow) {
+  return (supplied: Readonly<Record<string, unknown>>): Record<string, unknown> =>
+    "start_after" in supplied || "end_before" in supplied ? {} : { ...window };
+}
+
 /**
  * The per-call defaults for a dashboard read tool: the page's window, unless
  * the model named one itself. Any window param from the model — a range or

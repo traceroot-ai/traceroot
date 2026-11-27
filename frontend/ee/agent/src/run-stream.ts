@@ -54,6 +54,11 @@ export interface RunStreamOptions {
   decisions?: PendingDecisions;
 }
 
+export interface RunStreamResult {
+  error: string | null;
+  usage?: TokenUsageData;
+}
+
 /** Sessions with a run in flight — one prompt per session at a time. */
 const activeRuns = new Set<string>();
 
@@ -131,11 +136,15 @@ export function waitForRunToSettle(
  * The parking release paths owned here: a run error, run completion, and a
  * client disconnect (stream abort) each resolve any still-parked decisions
  * as skip, so the turn can finish narrating instead of hanging forever.
+ *
+ * Resolves with how the run ended, for a caller with no stream reader (the
+ * Loop run route): the sanitised error (the run's own, else a model call that
+ * ended with stopReason "error"), and the turn's token usage as persisted.
  */
 export async function runAgentStream(
   stream: AgentRunStream,
   options: RunStreamOptions,
-): Promise<void> {
+): Promise<RunStreamResult> {
   const { agent, message, sessionId, decisions = pendingDecisions } = options;
 
   const append = (
@@ -148,6 +157,8 @@ export async function runAgentStream(
   // Accumulates token usage across all message_end events (tool-use loops)
   const usageAccumulator = new UsageAccumulator();
   let loggedFirstUpdate = false;
+  let modelError: string | null = null;
+  let usage: TokenUsageData | undefined;
 
   // The write-policy hook parks confirm-class calls against this channel:
   // pending cards ride the same SSE stream as the run's other events, and
@@ -207,6 +218,7 @@ export async function runAgentStream(
             );
             if (msg?.stopReason === "error") {
               console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
+              modelError = publicErrorMessage(new Error(msg.errorMessage || "model call failed"));
             }
           }
           // A declined proposal's blocked result leaves the loop with empty
@@ -305,6 +317,7 @@ export async function runAgentStream(
     // release in the finally below is owed even if the flush throws.
     try {
       const tokenUsage = await usageAccumulator.toTokenUsage(options.isByok);
+      usage = tokenUsage;
       // When tracing is off, pass no trace argument at all: finish()'s
       // `!trace` gate must see undefined, not a present-but-inert object, or a
       // tool-only turn with the flag off would gain an extra empty assistant
@@ -345,6 +358,7 @@ export async function runAgentStream(
         });
       });
     }
+    return { error: error ? publicErrorMessage(error) : modelError, usage };
   } finally {
     decisions.unregisterChannel(sessionId, channel);
     releaseRun(sessionId);

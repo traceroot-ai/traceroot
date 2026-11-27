@@ -227,3 +227,64 @@ describe("AppLayout navbar AI button", () => {
     expect(screen.queryByTitle("AI Assistant")).not.toBeNull();
   });
 });
+
+describe("AppLayout openAiSession", () => {
+  // The rail's state as a page reads it.
+  function Rail() {
+    const { aiPanelOpen, aiInitialSessionId } = useLayout();
+    return <output data-testid="rail">{aiPanelOpen ? aiInitialSessionId : "closed"}</output>;
+  }
+  // A page that opens a session from its first effects, as a deep link does.
+  function OpensOnMount({ sessionId }: { sessionId: string }) {
+    const { openAiSession } = useLayout();
+    useEffect(() => openAiSession(sessionId), [openAiSession, sessionId]);
+    return null;
+  }
+  // A page that opens a session on a click.
+  function OpensOnClick() {
+    const { openAiSession } = useLayout();
+    return <button onClick={() => openAiSession("sess-click")}>open</button>;
+  }
+
+  it("keeps a session a page opens on arrival, though the navigation reset runs after it", () => {
+    const { rerender } = renderAt("/projects/p1/loops");
+    mocks.pathname = "/projects/p1/loops/l1";
+    rerender(
+      <AppLayout>
+        <Rail />
+        <OpensOnMount sessionId="sess-7" />
+      </AppLayout>,
+    );
+    expect(screen.getByTestId("rail").textContent).toBe("sess-7");
+  });
+
+  it("keeps a session opened on the first load too", () => {
+    mocks.pathname = "/projects/p1/loops/l1";
+    render(
+      <AppLayout>
+        <Rail />
+        <OpensOnMount sessionId="sess-7" />
+      </AppLayout>,
+    );
+    expect(screen.getByTestId("rail").textContent).toBe("sess-7");
+  });
+
+  it("still closes the rail on the next navigation", () => {
+    mocks.pathname = "/projects/p1/loops/l1";
+    const { rerender } = render(
+      <AppLayout>
+        <Rail />
+        <OpensOnClick />
+      </AppLayout>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "open" }));
+    expect(screen.getByTestId("rail").textContent).toBe("sess-click");
+    mocks.pathname = "/projects/p1/signals";
+    rerender(
+      <AppLayout>
+        <Rail />
+      </AppLayout>,
+    );
+    expect(screen.getByTestId("rail").textContent).toBe("closed");
+  });
+});

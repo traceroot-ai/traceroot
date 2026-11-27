@@ -145,6 +145,30 @@ describe("updateDetector", () => {
     });
   });
 
+  it('rejects a rename to a "loop:" name with 400 and writes nothing', async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(storedDetector);
+    expect(await runUpdate({ name: "loop:Checkout" })).toEqual({
+      ok: false,
+      status: 400,
+      error: 'name must not start with "loop:", which is reserved for loops',
+    });
+    expect(tx.detector.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts an unchanged "loop:" name on a detector named so before the reservation', async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue({ ...storedDetector, name: "loop:Legacy" });
+    tx.detector.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...storedDetector,
+      name: "loop:Legacy",
+      ...data,
+    }));
+    const result = await runUpdate({ name: "loop:Legacy", sampleRate: 50 });
+    expect(result).toMatchObject({ ok: true, changed: ["sample_rate"] });
+    expect(tx.detector.update).toHaveBeenCalledTimes(1);
+  });
+
   it("returns 404 for a detector outside the project", async () => {
     mockAccess();
     tx.detector.findFirst.mockResolvedValue(null);
@@ -154,7 +178,7 @@ describe("updateDetector", () => {
       error: "Detector not found",
     });
     expect(tx.detector.findFirst).toHaveBeenCalledWith({
-      where: { id: "d1", projectId: "p1" },
+      where: { id: "d1", projectId: "p1", template: { not: "loop" } },
       include: { trigger: true },
     });
   });

@@ -17,7 +17,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-export const NAV_HOME: NavItem = { key: "home", label: "Home", segment: "home", icon: House };
+export const NAV_HOME: NavItem = { key: "home", label: "Agent", segment: "home", icon: House };
 
 /** The product loop: see what the agent did, find what went wrong, verify the fix. */
 export const NAV_GROUPS: NavGroup[] = [
@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Detect",
     items: [
       { key: "detectors", label: "Detectors", segment: "detectors", icon: DOMAIN_ICONS.detector },
+      { key: "loops", label: "Loops", segment: "loops", icon: DOMAIN_ICONS.loop },
       { key: "signals", label: "Signals", segment: "signals", icon: DOMAIN_ICONS.signal },
       { key: "alerts", label: "Alerts", segment: "alerts", icon: DOMAIN_ICONS.alert },
     ],
@@ -50,6 +51,15 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+/** NAV_GROUPS less the sections this deployment has switched off (LOOPS_ENABLED). */
+export function visibleNavGroups(loopsEnabled: boolean): NavGroup[] {
+  if (loopsEnabled) return NAV_GROUPS;
+  return NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => item.key !== "loops"),
+  }));
+}
 
 export function navHref(projectId: string, item: NavItem): string {
   return `/projects/${projectId}/${item.segment}`;

@@ -1,5 +1,5 @@
 import { prisma, type PrismaClient } from "@traceroot/core";
-import { lockSignalPartition } from "@traceroot/core/signals";
+import { lockSignalPartition, signalSources, sourceOf } from "@traceroot/core/signals";
 import { resolveRecipients } from "../../notifications/digest-recipients.js";
 import { alertWindowMs, getDigestQueue } from "../../notifications/digest-schedule.js";
 import { sendEmail } from "../../notifications/email.js";
@@ -140,6 +140,7 @@ type DigestDb = Pick<
   | "$executeRaw"
   | "$transaction"
   | "detector"
+  | "loop"
   | "signal"
   | "signalHit"
   | "detectorAlertConfig"
@@ -159,13 +160,25 @@ export async function loadDigestInput(db: DigestDb, projectId: string) {
       AND (notified_reopen_seq IS DISTINCT FROM reopen_seq OR hit_count <> notified_hit_count)
     ORDER BY create_time
     LIMIT 1000`;
-  const detectors = await db.detector.findMany({
-    where: { id: { in: [...new Set(signals.map((s) => s.detectorId))] } },
-    select: { id: true, name: true, enableSignals: true },
-  });
+  const detectorIds = [...new Set(signals.map((s) => s.detectorId))];
+  const [detectors, sources] = await Promise.all([
+    db.detector.findMany({
+      where: { id: { in: detectorIds } },
+      select: { id: true, name: true, enableSignals: true },
+    }),
+    signalSources(db, detectorIds),
+  ]);
+  // Named as the signal page names the source: a Loop's signals by their Loop.
+  const sourceName = (detectorId: string, name: string) => {
+    const source = sourceOf(sources, detectorId);
+    if (source.kind === "loop") return `Found by loop ${source.name}`;
+    return source.kind === "deletedLoop" ? "Found by a deleted loop" : name;
+  };
   const grouping = signalsAvailable();
   const groupingDetectors = new Map(
-    detectors.filter((d) => d.enableSignals && grouping).map((d) => [d.id, d.name]),
+    detectors
+      .filter((d) => d.enableSignals && grouping)
+      .map((d) => [d.id, sourceName(d.id, d.name)]),
   );
   return { signals, groupingDetectors };
 }

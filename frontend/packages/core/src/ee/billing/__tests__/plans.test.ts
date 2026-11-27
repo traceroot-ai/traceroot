@@ -3,13 +3,17 @@ import {
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
+  LOOP_RUN_QUOTAS,
   USAGE_CONFIG,
   PlanType,
   isAiRunBlocked,
   isRcaRunBlocked,
   isDetectorRunBlocked,
+  isLoopRunBlocked,
   isIngestionBlocked,
   hasEntitlement,
+  PLANS,
+  planFeatures,
 } from "../plans.ts";
 
 describe("slack-integration entitlement", () => {
@@ -134,5 +138,66 @@ describe("isDetectorRunBlocked", () => {
   it("respects ENABLE_BILLING=false (unblocks all)", () => {
     vi.stubEnv("ENABLE_BILLING", "false");
     expect(isDetectorRunBlocked(PlanType.FREE, 9999)).toBe(false);
+  });
+});
+
+describe("LOOP_RUN_QUOTAS", () => {
+  it("caps Free at 30 runs and leaves paid plans unlimited", () => {
+    expect(LOOP_RUN_QUOTAS[PlanType.FREE].included).toBe(30);
+    expect(LOOP_RUN_QUOTAS[PlanType.STARTER].included).toBe(Infinity);
+    expect(LOOP_RUN_QUOTAS[PlanType.PRO].included).toBe(Infinity);
+    expect(LOOP_RUN_QUOTAS[PlanType.ENTERPRISE].included).toBe(Infinity);
+  });
+});
+
+describe("isLoopRunBlocked", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENABLE_BILLING", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("Free: blocked at exactly 30 runs (hard cap)", () => {
+    expect(isLoopRunBlocked(PlanType.FREE, 0)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.FREE, 29)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.FREE, 30)).toBe(true);
+    expect(isLoopRunBlocked(PlanType.FREE, 5000)).toBe(true);
+  });
+
+  it("Paid plans: never blocked", () => {
+    expect(isLoopRunBlocked(PlanType.STARTER, 100_000)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.PRO, 100_000)).toBe(false);
+    expect(isLoopRunBlocked(PlanType.ENTERPRISE, 100_000)).toBe(false);
+  });
+
+  it("respects ENABLE_BILLING=false (unblocks all)", () => {
+    vi.stubEnv("ENABLE_BILLING", "false");
+    expect(isLoopRunBlocked(PlanType.FREE, 5000)).toBe(false);
+  });
+});
+
+describe("planFeatures", () => {
+  it("shows the Loop lines only while Loops are on", () => {
+    expect(planFeatures(PLANS[PlanType.FREE], true)).toContain("30 Loop runs / month");
+    expect(planFeatures(PLANS[PlanType.STARTER], true)).toContain(
+      "Unlimited detector and Loop runs",
+    );
+    expect(planFeatures(PLANS[PlanType.FREE], false)).toEqual([
+      "2 seats",
+      "50k events / month included",
+      "15-day retention",
+      "100 detector runs / month",
+      "30 chat + 30 RCA runs / month",
+      "Slack alerts · BYOK or hosted LLM",
+    ]);
+    expect(planFeatures(PLANS[PlanType.STARTER], false)).toContain("Unlimited detector runs");
+    for (const plan of Object.values(PLANS)) {
+      expect(
+        planFeatures(plan, false).filter((f) => /loop/i.test(f)),
+        plan.name,
+      ).toEqual([]);
+    }
   });
 });

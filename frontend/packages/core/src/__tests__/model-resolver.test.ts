@@ -15,6 +15,7 @@ vi.mock("../lib/encryption", () => ({
 }));
 
 import {
+  byokProviderMissingMessage,
   resolvePiModel,
   isSystemModelId,
   fetchProviderConfig,
@@ -146,6 +147,18 @@ describe("resolvePiModel", () => {
 
   it("throws (instead of substituting a system model) for a decision model id with no BYOK row", () => {
     expect(() => resolvePiModel("jev-1.13.0", null)).toThrow(/decision model/i);
+  });
+
+  it("throws for the OpenAI decision alias on an OpenAI row, but still resolves gpt-6-luna", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "openai",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    expect(() => resolvePiModel("gpt-6-luna-decisions", cfg)).toThrow(/decision model/i);
+    expect(() => resolvePiModel("gpt-6-luna-decisions", null)).toThrow(/decision model/i);
+    expect(resolvePiModel("gpt-6-luna", cfg).id).toBe("gpt-6-luna");
   });
 
   it("respects per-model modelProtocols override over adapter default", () => {
@@ -351,5 +364,13 @@ describe("isSystemModelId", () => {
   it("rejects a retired or invented id", () => {
     expect(isSystemModelId("claude-retired-1")).toBe(false);
     expect(isSystemModelId("")).toBe(false);
+  });
+});
+
+describe("byokProviderMissingMessage", () => {
+  it("names the provider the workspace no longer has", () => {
+    expect(byokProviderMissingMessage("my-openai")).toBe(
+      'BYOK provider "my-openai" not found or disabled in workspace settings',
+    );
   });
 });

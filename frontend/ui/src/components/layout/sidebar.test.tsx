@@ -35,6 +35,9 @@ vi.mock("@/components/layout/SidebarUpgradeButton", () => ({
   SidebarUpgradeButton: () => <button data-testid="upgrade-button" />,
 }));
 
+const layout = { loopsEnabled: false };
+vi.mock("@/components/layout/app-layout", () => ({ useLayout: () => layout }));
+
 import { Sidebar } from "@/components/layout/sidebar";
 
 describe("Sidebar", () => {
@@ -55,7 +58,11 @@ describe("Sidebar", () => {
     container.remove();
   });
 
-  function render(props: { collapsed?: boolean } = {}) {
+  function render({
+    loopsEnabled = false,
+    ...props
+  }: { collapsed?: boolean; loopsEnabled?: boolean } = {}) {
+    layout.loopsEnabled = loopsEnabled;
     act(() => {
       root.render(<Sidebar {...props} />);
     });
@@ -85,13 +92,13 @@ describe("Sidebar", () => {
     expect(container.querySelector('[data-testid="star-widget"]')).toBeNull();
   });
 
-  it("puts Home first among the project links, above Tracing", () => {
+  it("puts Agent first among the project links, above Tracing", () => {
     navigation.pathname = "/projects/p1/home";
     navigation.params = { projectId: "p1" };
     render();
 
     const links = Array.from(container.querySelectorAll("nav a"));
-    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(["Home", "Tracing"]);
+    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(["Agent", "Tracing"]);
 
     const home = links[0];
     expect(home.getAttribute("href")).toBe("/projects/p1/home");
@@ -104,7 +111,7 @@ describe("Sidebar", () => {
   it("groups the project links under Observe, Detect and Verify", () => {
     navigation.pathname = "/projects/p1/signals";
     navigation.params = { projectId: "p1" };
-    render();
+    render({ loopsEnabled: true });
 
     const groups = Array.from(container.querySelectorAll('nav [role="group"]'));
     expect(
@@ -114,10 +121,23 @@ describe("Sidebar", () => {
       ]),
     ).toEqual([
       ["Observe", ["Tracing", "Dashboard"]],
-      ["Detect", ["Detectors", "Signals", "Alerts"]],
+      ["Detect", ["Detectors", "Loops", "Signals", "Alerts"]],
       ["Verify", ["Datasets", "Evaluations"]],
     ]);
     expect(container.querySelector('nav a[aria-current="page"]')?.textContent).toBe("Signals");
+  });
+
+  it("leaves Loops out while LOOPS_ENABLED is off", () => {
+    navigation.pathname = "/projects/p1/signals";
+    navigation.params = { projectId: "p1" };
+    render();
+
+    const detect = container.querySelector('nav [role="group"][aria-label="Detect"]');
+    expect(Array.from(detect?.querySelectorAll("a") ?? []).map((a) => a.textContent)).toEqual([
+      "Detectors",
+      "Signals",
+      "Alerts",
+    ]);
   });
 
   it("drops the group labels when collapsed but keeps the groups", () => {

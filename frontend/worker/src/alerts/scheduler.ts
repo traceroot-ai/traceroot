@@ -1,4 +1,3 @@
-import cron from "node-cron";
 import type { AlertPendingClose, AlertWindow } from "@traceroot/core";
 import { enqueueAlertClose, enqueueAlertNotification } from "../notifications/alert-slack.js";
 import {
@@ -26,6 +25,8 @@ import {
 import { logError, logInfo } from "./log.js";
 import { applyAlertStateMachine, deriveAlertSeverity } from "./severity-state-machine.js";
 import { alertWindowStart, computeAlertTick, ALERT_TICK_CRON, type AlertTick } from "./tick.js";
+import { startCronTick, type CronTickHandle } from "../scheduling/cron-tick.js";
+import { TRUTHY_ENV_VALUES } from "../scheduling/env-flag.js";
 
 /** One request carries one window pair, so the window token joins the key. */
 interface AlertGroup {
@@ -35,7 +36,6 @@ interface AlertGroup {
 }
 
 const ALERTS_ENABLED_BY_DEFAULT = true;
-const ALERTS_ENABLED_TRUTHY = ["true", "1", "yes", "on"];
 const ALERTS_ENABLED_FALSY = ["false", "0", "no", "off"];
 
 /**
@@ -60,7 +60,7 @@ export function isAlertsSchedulerEnabled(
 ): boolean {
   const normalized = (value ?? "").trim().toLowerCase();
   if (normalized === "") return ALERTS_ENABLED_BY_DEFAULT;
-  if (ALERTS_ENABLED_TRUTHY.includes(normalized)) return true;
+  if (TRUTHY_ENV_VALUES.includes(normalized)) return true;
   if (ALERTS_ENABLED_FALSY.includes(normalized)) return false;
 
   logError(
@@ -471,74 +471,18 @@ export async function runAlertTick(now: Date): Promise<void> {
   await mapWithConcurrency(owed, ALERT_CLOSE_CONCURRENCY, sendCloseAlone);
 }
 
-export interface AlertSchedulerHandle {
-  readonly stop: () => void;
-  /** Resolves true once no tick is in flight, false if the bound expired first. */
-  readonly waitForIdle: (timeoutMs: number) => Promise<boolean>;
-}
-
-export function startAlertScheduler(): AlertSchedulerHandle | undefined {
+export function startAlertScheduler(): CronTickHandle | undefined {
   if (!isAlertsSchedulerEnabled()) {
     logInfo('scheduler disabled (set ALERTS_SCHEDULER_ENABLED="true" to run it)');
     return undefined;
   }
-
-  let isTicking = false;
-  let isStopped = false;
-  let inFlightTick = Promise.resolve();
-  let wasEnabled = true;
-  const task = cron.schedule(ALERT_TICK_CRON, async () => {
-    // node-cron's stop() only clears the timer; a callback already dispatched still runs.
-    if (isStopped) return;
-
-    // Read per tick, not held from boot: an operator reaches for this to stop
-    // the paging during an incident, and restarting the worker to apply it
-    // takes the three detector consumers down with it.
-    const isEnabled = isAlertsSchedulerEnabled();
-    if (isEnabled !== wasEnabled) {
-      logInfo(
-        isEnabled ? "scheduler switched back on" : "scheduler switched off, ticks are paused",
-      );
-      wasEnabled = isEnabled;
-    }
-    if (!isEnabled) return;
-
-    if (isTicking) {
-      logInfo("previous tick still running, skipping this minute");
-      return;
-    }
-    isTicking = true;
-    inFlightTick = (async () => {
-      try {
-        await runAlertTick(new Date());
-      } catch (error) {
-        logError("tick failed", error);
-      } finally {
-        isTicking = false;
-      }
-    })();
-    await inFlightTick;
+  // The switch is read per tick, not held from boot: an operator reaches for it
+  // to stop the paging during an incident, and restarting the worker to apply
+  // it takes the three detector consumers down with it.
+  return startCronTick({
+    label: "Alerts",
+    expression: ALERT_TICK_CRON,
+    tick: runAlertTick,
+    isEnabled: () => isAlertsSchedulerEnabled(),
   });
-
-  logInfo(`scheduler started (${ALERT_TICK_CRON})`);
-  return {
-    stop: () => {
-      isStopped = true;
-      task.stop();
-    },
-    waitForIdle: async (timeoutMs: number): Promise<boolean> => {
-      if (!isTicking) return true;
-      let timer: NodeJS.Timeout | undefined;
-      try {
-        return await Promise.race([
-          inFlightTick.then(() => true),
-          new Promise<boolean>((resolve) => {
-            timer = setTimeout(() => resolve(false), timeoutMs);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-  };
 }

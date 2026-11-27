@@ -8,7 +8,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { PlanType, prisma } from "@traceroot/core";
-import { SIGNAL_STATUSES, listSignals, recentSignalHits } from "@traceroot/core/signals";
+import {
+  SIGNAL_STATUSES,
+  listSignals,
+  recentSignalHits,
+  signalSources,
+  sourceOf,
+} from "@traceroot/core/signals";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { clampStartAfter } from "@/lib/server/retention";
 
@@ -36,7 +42,9 @@ function serializeListed(s: ListedSignal) {
   return {
     id: s.id,
     detectorId: s.detectorId,
+    // Null for a Loop's signal: its hidden detector's name is internal, `source` names the Loop.
     detectorName: s.detectorName,
+    source: s.source,
     title: s.title,
     status: s.status,
     hitCount: s.hitCount,
@@ -91,18 +99,17 @@ async function readOne(projectId: string, signalId: string) {
     },
   });
   if (!signal) return null;
-  const [detector, hits] = await Promise.all([
+  const [sources, hits] = await Promise.all([
     // Signals keep no relation to detectors (a detector can be deleted first).
-    prisma.detector.findFirst({
-      where: { id: signal.detectorId, projectId },
-      select: { name: true },
-    }),
+    signalSources(prisma, [signal.detectorId]),
     recentHits(projectId, signal.id),
   ]);
+  const source = sourceOf(sources, signal.detectorId);
   return {
     id: signal.id,
     detectorId: signal.detectorId,
-    detectorName: detector?.name ?? null,
+    detectorName: source.kind === "detector" ? source.name : null,
+    source,
     title: signal.title,
     status: signal.status,
     hitCount: signal.hitCount,

@@ -13,7 +13,6 @@ import {
   updateSessionTitle,
   executionBelongsToProject,
   projectWorkspaceId,
-  type TurnAttribution,
 } from "./session.js";
 import {
   getOrCreateAgent,
@@ -34,8 +33,9 @@ import {
   turnTraceId,
   ROOT_SPAN_NAME,
   type AgentTraceMeta,
-  type AgentTraceKind,
 } from "./self-trace.js";
+import { messageTurnAttribution, TRACE_KIND } from "./turn-attribution.js";
+import { loopRunRoute } from "./loop-run-route.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor, sandboxProvider } from "./executors/index.js";
 import { reclaimOrphanedSandboxes } from "./executors/docker.js";
@@ -82,13 +82,6 @@ const sessionExecutors = new SandboxRegistry({
     fenceExecutorToSession(createExecutor({ sessionId, ownerId: INSTANCE_ID }), sessionId),
   idleTtlMs: idleTtlMsFromEnv(),
 });
-
-/** The self-trace kind of a turn is its attribution's turn kind (the three this route produces). */
-const TRACE_KIND: Record<"rca_execution" | "rca_followup" | "chat", AgentTraceKind> = {
-  rca_execution: "rca",
-  rca_followup: "followup",
-  chat: "chat",
-};
 
 // When this module was (re-)executed. Reported by /health so a caller can tell
 // whether the running process predates the sources it is being graded against
@@ -233,6 +226,9 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
 // Confirmation decisions for parked confirm-class tool calls
 app.route("/", decisionsRoute);
 
+// One Loop run's agent turn, called by the worker that owns the run
+app.route("/", loopRunRoute);
+
 // Message route — SSE streaming via agent runner
 app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const projectId = c.req.param("projectId");
@@ -319,13 +315,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   // persister writes below) so a turn reads as one attributed unit.
   // A follow-up's author is recorded (the RCA session has no user of its
   // own); a chat turn's author is the session's user, so nothing is repeated.
-  const attribution = (
-    ownedSession.userId === null
-      ? userId
-        ? { turnKind: "rca_followup" as const, initiatorUserId: userId }
-        : { turnKind: "rca_execution" as const }
-      : { turnKind: "chat" as const }
-  ) satisfies TurnAttribution;
+  // A person's turn in a Loop's session is a follow-up, billed as an RCA one is.
+  const attribution = messageTurnAttribution(ownedSession, userId);
 
   let agent: Agent;
   let sessionManager: SessionManager;
@@ -400,13 +391,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     },
   };
 
-  return streamSSE(c, (stream) => {
+  return streamSSE(c, async (stream) => {
     // Held for the whole turn: a tool loop can outlast the idle TTL, and without
     // this the sweeper would tear the sandbox down mid-request.
     const releaseSandbox = sessionExecutors.retain(sessionId);
     // .finally, not a trailing call: an aborted or failed turn must give the
     // sandbox back too, or that session is never swept again.
-    return runAgentStream(stream, {
+    await runAgentStream(stream, {
       agent,
       message: body.message,
       sessionId,

@@ -231,6 +231,11 @@ export function resolvePiModel(
   return getModel("anthropic" as any, "claude-sonnet-4-5" as any) as Model<Api>;
 }
 
+/** The user-facing error for a BYOK provider that fetchProviderConfig cannot resolve. */
+export function byokProviderMissingMessage(providerName: string): string {
+  return `BYOK provider "${providerName}" not found or disabled in workspace settings`;
+}
+
 const configCache = new Map<string, { config: ProviderModelConfig; expiresAt: number }>();
 const CONFIG_CACHE_TTL_MS = 60_000;
 

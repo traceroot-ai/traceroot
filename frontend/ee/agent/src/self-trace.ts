@@ -13,8 +13,13 @@ import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 import { capText } from "@traceroot/core/capture-policy";
 import { agentInternalSecret } from "./internal-secret.js";
 
-export type AgentTraceKind = "rca" | "followup" | "chat";
-const AGENT_TRACE_KINDS: ReadonlySet<string> = new Set<AgentTraceKind>(["rca", "followup", "chat"]);
+export type AgentTraceKind = "rca" | "followup" | "chat" | "loop";
+const AGENT_TRACE_KINDS: ReadonlySet<string> = new Set<AgentTraceKind>([
+  "rca",
+  "followup",
+  "chat",
+  "loop",
+]);
 /**
  * `available` is optimistic: it means this turn's flush resolved, and flushes
  * are serialised per process so a rejection lands on the turn whose spans were

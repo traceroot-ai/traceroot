@@ -81,6 +81,12 @@ def _detector_summary_expr(finding_id_col: str) -> str:
     )
 
 
+# Who wrote a detector_runs / detector_findings row (migration 017): a detector,
+# or a Loop recording its findings as hits of its hidden detector. Readers of
+# detector findings, runs and usage keep only "detector" rows.
+RowSource = Literal["detector", "loop"]
+
+
 class DetectorRunPayload(BaseModel):
     model_config = {"populate_by_name": True}
 
@@ -99,6 +105,7 @@ class DetectorRunPayload(BaseModel):
     # True when the worker emitted a self-trace for this run (set optimistically
     # at emit time); gates the runs-tab link to the run's own trace.
     self_traced: bool = Field(default=False, alias="selfTraced")
+    source: RowSource = "detector"
     # Optional worker epoch-ms time for the row; see _maybe_stamp_timestamp.
     timestamp_ms: int | None = Field(default=None, alias="timestampMs")
 
@@ -111,6 +118,7 @@ class DetectorFindingPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     summary: str
     payload: str
+    source: RowSource = "detector"
     # See DetectorRunPayload.timestamp_ms.
     timestamp_ms: int | None = Field(default=None, alias="timestampMs")
 
@@ -158,6 +166,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "status",
         "used_inference",
         "self_traced",
+        "source",
     ]
     vals = [
         "{run_id:String}",
@@ -168,6 +177,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "{status:String}",
         "{used_inference:Bool}",
         "{self_traced:Bool}",
+        "{source:String}",
     ]
     params = {
         "run_id": body.run_id,
@@ -178,6 +188,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "status": body.status,
         "used_inference": body.used_inference,
         "self_traced": body.self_traced,
+        "source": body.source,
     }
     _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
     ch.query(
@@ -194,13 +205,14 @@ async def write_detector_finding(body: DetectorFindingPayload):
     ``timestamp_ms`` behaves as in :func:`write_detector_run`.
     """
     ch = get_clickhouse_client()
-    cols = ["finding_id", "project_id", "trace_id", "summary", "payload"]
+    cols = ["finding_id", "project_id", "trace_id", "summary", "payload", "source"]
     vals = [
         "{finding_id:String}",
         "{project_id:String}",
         "{trace_id:String}",
         "{summary:String}",
         "{payload:String}",
+        "{source:String}",
     ]
     params = {
         "finding_id": body.finding_id,
@@ -208,6 +220,7 @@ async def write_detector_finding(body: DetectorFindingPayload):
         "trace_id": body.trace_id,
         "summary": body.summary,
         "payload": body.payload,
+        "source": body.source,
     }
     _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
     ch.query(
@@ -437,6 +450,7 @@ async def get_trace_findings(trace_id: str, project_id: str):
     ReplacingMergeTree duplicates (a finding can be re-written under the same
     deterministic ``finding_id`` on a retry) collapse to one row per finding.
     Timestamps are normalised to ISO-8601 strings for JSON serialisation.
+    Only detectors' rows are read: a Loop's finding rows on the trace are left out.
 
     Args:
         trace_id (str): Trace whose findings to return.
@@ -453,6 +467,7 @@ async def get_trace_findings(trace_id: str, project_id: str):
         """SELECT finding_id, project_id, trace_id, summary, payload, timestamp
            FROM detector_findings FINAL
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
+             AND source = 'detector'
            ORDER BY timestamp DESC""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
@@ -477,7 +492,8 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     under the same deterministic id on a retry), so both are read with
     ``FINAL`` to collapse to one row apiece. Triggered runs LEFT JOIN their
     finding to surface this detector's per-detector summary string; clean runs
-    have a null ``finding_id`` and an empty summary.
+    have a null ``finding_id`` and an empty summary. Only detectors' runs are
+    read: the runs a Loop wrote for its findings are left out.
 
     Args:
         trace_id (str): Trace whose detector runs to return.
@@ -509,6 +525,7 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE r.trace_id = {{trace_id:String}}
           AND r.project_id = {{project_id:String}}
+          AND r.source = 'detector'
         ORDER BY r.detector_id
     """
     result = ch.query(query, parameters={"trace_id": trace_id, "project_id": project_id})
@@ -574,6 +591,7 @@ def _fetch_sample_summaries(
                             max(timestamp)                AS ts
                         FROM detector_runs
                         WHERE project_id = {{project_id:String}}
+                          AND source = 'detector'
                         GROUP BY detector_id, run_id
                     )
                     WHERE {window_clause} AND latest_finding_id IS NOT NULL
@@ -608,6 +626,7 @@ def _fetch_sample_summaries(
                     -- project's whole finding history.
                     SELECT finding_id, payload FROM detector_findings FINAL
                     WHERE project_id = {{project_id:String}}
+                      AND source = 'detector'
                       AND finding_id IN (
                         SELECT latest_finding_id FROM ({sampled_probe})
                       )
@@ -728,6 +747,7 @@ async def list_detector_window_summary(
                 max(timestamp)              AS ts
             FROM detector_runs
             WHERE project_id = {{project_id:String}}
+              AND source = 'detector'
             GROUP BY detector_id, run_id
         )
         WHERE {window_clause}

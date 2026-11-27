@@ -307,6 +307,17 @@ class TestListTraceDetectorRuns:
         assert "detector_runs FINAL" in sql
         assert "detector_findings FINAL" in sql
 
+    def test_reads_only_detectors_runs(self, client, mock_ch, secret):
+        """A Loop writes its findings as runs of its hidden detector (source 'loop')."""
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        where = mock_ch.query.call_args.args[0].split("WHERE r.trace_id", 1)[1]
+        assert "r.source = 'detector'" in where
+
     def test_missing_secret_returns_403(self, client, mock_ch):
         resp = client.get(
             "/api/v1/internal/traces/trace-1/detector-runs",
@@ -340,6 +351,27 @@ class TestWriteDetectorFinding:
         sql = mock_ch.query.call_args.args[0]
         assert "INSERT INTO detector_findings" in sql
         assert "retracted" not in sql
+        # A detector's row unless the writer says otherwise.
+        assert "{source:String}" in sql
+        assert mock_ch.query.call_args.kwargs["parameters"]["source"] == "detector"
+
+    def test_writes_a_loops_finding_row_as_such(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-findings",
+            json={**self._body(), "source": "loop"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.query.call_args.kwargs["parameters"]["source"] == "loop"
+
+    def test_rejects_an_unknown_source(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-findings",
+            json={**self._body(), "source": "user"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
 
     def test_stamps_timestamp_when_provided(self, client, mock_ch, secret):
         resp = client.post(
@@ -386,6 +418,17 @@ class TestWriteDetectorRun:
         assert resp.status_code == 200
         sql = mock_ch.query.call_args.args[0]
         assert "INSERT INTO detector_runs" in sql
+        assert "{source:String}" in sql
+        assert mock_ch.query.call_args.kwargs["parameters"]["source"] == "detector"
+
+    def test_writes_a_loops_run_row_as_such(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={**self._body(), "source": "loop"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.query.call_args.kwargs["parameters"]["source"] == "loop"
 
     def test_stamps_timestamp_when_provided(self, client, mock_ch, secret):
         resp = client.post(
@@ -462,6 +505,16 @@ class TestGetTraceFindings:
         assert resp.json()["findings"][0]["finding_id"] == "f1"
         sql = mock_ch.query.call_args.args[0]
         assert "FROM detector_findings FINAL" in sql
+
+    def test_reads_only_detectors_finding_rows(self, client, mock_ch, secret):
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        client.get(
+            "/api/v1/internal/traces/trace-aaa/findings",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        where = mock_ch.query.call_args.args[0].split("WHERE", 1)[1]
+        assert "source = 'detector'" in where
 
 
 # =============================================================================
@@ -682,6 +735,18 @@ class TestListDetectorWindowSummary:
             }
         }
 
+    def test_counts_read_only_detector_rows(self, client, mock_ch, secret):
+        """A Loop writes its findings as runs of its hidden detector (source 'loop')."""
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+        client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={"project_id": "p1", "start_after": "2026-04-20T00:00:00Z"},
+            headers={"X-Internal-Secret": secret},
+        )
+        sql = mock_ch.query.call_args.args[0]
+        inner = sql.split("FROM detector_runs", 1)[1].split("GROUP BY detector_id, run_id", 1)[0]
+        assert "source = 'detector'" in inner
+
     # ── include_summaries (digest LLM-summary sample) ────────────────────────
 
     def _fake_summaries(self, rows: list[tuple]):
@@ -742,6 +807,24 @@ class TestListDetectorWindowSummary:
         # Bounded read: a stalled query degrades to counts-only via the except
         # path rather than holding the caller open.
         assert second.kwargs.get("settings") == {"max_execution_time": 10}
+
+    def test_summaries_read_only_detector_rows(self, client, mock_ch, secret):
+        """Loop rows must not take sample slots from real detectors."""
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 10, 3, "t-a")]),
+            self._fake_summaries([]),
+        ]
+        self._get(client, secret, include_summaries="true")
+        sql = mock_ch.query.call_args_list[1].args[0]
+        # The runs probe appears twice (FROM + IN); each copy keeps to detector rows.
+        probes = [
+            part.split("GROUP BY detector_id, run_id", 1)[0]
+            for part in sql.split("FROM detector_runs")[1:]
+        ]
+        assert len(probes) == 2
+        assert all("source = 'detector'" in probe for probe in probes)
+        findings = sql.split("FROM detector_findings FINAL", 1)[1].split("finding_id IN (", 1)[0]
+        assert "source = 'detector'" in findings
 
     def test_include_summaries_defaults_off(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 100, 7, "t-a")])]
@@ -1297,7 +1380,7 @@ def _collapse_scopes(sql: str) -> tuple[str, str]:
     return inner, outer
 
 
-def _meter_fake_query(versions: list[tuple[str, str, str, str, bool, str]]):
+def _meter_fake_query(versions: list[tuple]):
     """A mock ``ch.query`` evaluating the meter over fixture versions.
 
     Mirrors the production query's semantics: collapse each
@@ -1311,9 +1394,11 @@ def _meter_fake_query(versions: list[tuple[str, str, str, str, bool, str]]):
 
     Args:
         versions (list[tuple]): ``(project_id, detector_id, run_id, status,
-            used_inference, timestamp)``; timestamps are the endpoint's
+            used_inference, timestamp[, source])``; timestamps are the endpoint's
             normalized ``"YYYY-MM-DD HH:MM:SS"`` strings, so string comparison
-            orders them exactly as ClickHouse would.
+            orders them exactly as ClickHouse would. ``source`` defaults to
+            ``"detector"``; only those rows are counted when the SQL keeps
+            ``source = 'detector'`` in its inner scope.
 
     Returns:
         Callable: A side_effect for ``mock_ch.query``.
@@ -1324,10 +1409,12 @@ def _meter_fake_query(versions: list[tuple[str, str, str, str, bool, str]]):
             return _make_query_result([], ["source", "traces", "spans"])
         assert parameters is not None
         wanted = set(parameters["project_ids"])
+        detectors_only = "source = 'detector'" in _collapse_scopes(sql)[0]
         start, end = parameters["start"], parameters["end"]
         latest: dict[tuple, tuple] = {}
-        for project_id, detector_id, run_id, status, used_inference, ts in versions:
-            if project_id not in wanted:
+        for project_id, detector_id, run_id, status, used_inference, ts, *rest in versions:
+            source = rest[0] if rest else "detector"
+            if project_id not in wanted or (detectors_only and source != "detector"):
                 continue
             key = (project_id, detector_id, run_id)
             candidate = (ts, status, used_inference)
@@ -1374,10 +1461,13 @@ class TestUsageBillsEveryStoredRow:
         # detector_runs is filtered by its collapsed latest status/usage, never
         # by writer: a completed scan counts, and so does a failed scan whose
         # latest version still reached the model and recorded inference usage —
-        # but BYOK and system scans both count, so no source predicate. The
-        # count predicate applies to the collapsed latest version, never to the
-        # raw rows (see test_usage_details_collapses_retries_before_counting).
-        assert "source" not in runs_sql
+        # but BYOK and system scans both count, so no predicate on who paid. The
+        # one source predicate is the row's provenance (a detector's run, not a
+        # Loop's; migration 017). The count predicate applies to the collapsed
+        # latest version, never to the raw rows (see
+        # test_usage_details_collapses_retries_before_counting).
+        assert runs_sql.count("source") == 1
+        assert "AND source = 'detector'" in runs_sql
         assert "latest_status = 'completed' OR latest_used_inference" in runs_sql
         assert "AND status = 'completed'" not in runs_sql
 
@@ -1498,8 +1588,10 @@ class TestUsageBillsEveryStoredRow:
         assert "status = 'completed'" not in inner
         assert "used_inference =" not in inner
         assert "and status = 'completed'" not in runs_sql.lower()
-        # BYOK and system scans both count: never filter by writer.
-        assert "source" not in runs_sql
+        # BYOK and system scans both count: the one source predicate is the
+        # row's provenance (a detector's run, not a Loop's), before the collapse.
+        assert runs_sql.count("source") == 1
+        assert "source = 'detector'" in inner
 
     def _meter_count(self, client, mock_ch, secret, versions) -> int:
         """Run /usage/details over ``versions`` and return the detector count."""
@@ -1511,6 +1603,19 @@ class TestUsageBillsEveryStoredRow:
         )
         assert resp.status_code == 200
         return resp.json()["detector_runs"]
+
+    def test_usage_details_leaves_out_a_loops_runs(self, client, mock_ch, secret):
+        """A Loop's findings are completed runs of its hidden detector, written
+        with source 'loop'; Loops are metered by their loop runs, not here."""
+        versions = [
+            ("p1", "d1", "run-detector", "completed", False, "2026-07-10 10:00:00"),
+            ("p1", "loop-d", "run-loop-a", "completed", False, "2026-07-10 10:00:00", "loop"),
+            ("p1", "loop-d", "run-loop-b", "completed", False, "2026-07-10 10:00:00", "loop"),
+        ]
+        assert self._meter_count(client, mock_ch, secret, versions) == 1
+        inner, _ = _collapse_scopes(mock_ch.query.call_args_list[1].args[0])
+        # Dropped before the collapse, by a literal on the row, never by a Postgres read.
+        assert "source = 'detector'" in inner
 
     def test_usage_details_counts_a_failed_run_that_used_inference(self, client, mock_ch, secret):
         """A failure after billed calls is still a scan (maintainer feedback)."""

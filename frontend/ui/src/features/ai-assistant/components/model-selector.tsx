@@ -6,9 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { isDecisionAdapter } from "@traceroot/core";
 import { getAvailableLLMModels } from "@/lib/api";
-import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
+import { flattenAvailableModels, isChatModel, pickDefaultModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
@@ -31,10 +30,19 @@ interface ModelSelectorProps {
   defaultModelId?: string;
   /** Whether to infer a provider for a saved selection that only has a model ID. */
   allowModelOnlyMatch?: boolean;
-  /** List decision models (TypeSafe); only detector pickers set it. */
+  /** List decision models (TypeSafe, OpenAI Decisions); only detector pickers set it. */
   allowDecisionModels?: boolean;
   /** Render the trigger as a full-width form field instead of the inline chip. */
   field?: boolean;
+}
+
+/** The workspace's model list; the pickers and the Loop model defaults share this cache. */
+export function useAvailableLLMModels(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["llm-models", workspaceId],
+    queryFn: () => getAvailableLLMModels(workspaceId!),
+    enabled: !!workspaceId,
+  });
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -52,17 +60,13 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
-  const { data, isPending } = useQuery({
-    queryKey: ["llm-models", workspaceId],
-    queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: !!workspaceId,
-  });
+  const { data, isPending } = useAvailableLLMModels(workspaceId);
 
   // BYOK models first, then system models. No deduplication. Only shows the
   // compiled-in fallback list while the query is still pending — once settled,
   // an empty response means the workspace genuinely has no models.
   const models = flattenAvailableModels(data, isPending).filter(
-    (m) => allowDecisionModels || !isDecisionAdapter(m.adapter),
+    (m) => allowDecisionModels || isChatModel(m),
   );
 
   // Reconcile the incoming selection against the catalog:

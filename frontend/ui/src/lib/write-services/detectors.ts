@@ -17,8 +17,9 @@ import {
   detectorModelProblem,
   listWorkspaceModels,
 } from "@traceroot/core";
+import { USER_DETECTOR_WHERE, reservedDetectorProblem } from "@traceroot/core/loops/pure";
 import { z } from "zod";
-import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
+import { isNameCollision, isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { captureDetectorCreated, type CreatedDetector } from "@/lib/detector-created-event";
 import {
   DEFAULT_DETECTOR_SAMPLE_RATE,
@@ -183,6 +184,12 @@ export async function createDetector(input: {
         };
       }
       const { name, template, detectionSource, enableRca, enableSignals, enabled } = parsed.data;
+      // Before the idempotent lookup, which would otherwise hand back a Loop's
+      // hidden detector by name.
+      const reserved = reservedDetectorProblem(parsed.data);
+      if (reserved !== null) {
+        return { result: { ok: false, status: 400, error: reserved } };
+      }
       let prompt = parsed.data.prompt;
       let outputSchema = parsed.data.outputSchema;
       if (prompt === undefined) {
@@ -355,16 +362,6 @@ const DETECTOR_NAME_TAKEN = {
 } as const;
 
 /**
- * Whether a P2002 is the per-project name index. The trigger upsert can raise
- * its own P2002 (racing a concurrent first insert on the trigger's
- * detector-id key) even when the patch carries a name, so discriminate by
- * the violated constraint: Prisma reports it as the index name or as the
- * (projectId, name) fields, and only the name index mentions "name".
- */
-const isNameCollision = (e: unknown) =>
-  isPrismaKnownError(e, "P2002") && prismaErrorTarget(e).includes("name");
-
-/**
  * Partially update a detector for a MEMBER of its project. Trigger conditions
  * replace the whole trigger through the nested relation; an empty array
  * removes it. Flipping `enabled` only writes the column: detection is
@@ -402,10 +399,20 @@ export async function updateDetector(input: {
       }
 
       const existing = await tx.detector.findFirst({
-        where: { id: input.detectorId, projectId: input.projectId },
+        where: {
+          id: input.detectorId,
+          projectId: input.projectId,
+          ...USER_DETECTOR_WHERE,
+        },
         include: { trigger: true },
       });
       if (!existing) return { result: DETECTOR_NOT_FOUND };
+      // Only a new name is checked, so an existing detector named "loop:…" can
+      // still be edited with its name sent back unchanged.
+      if (patch.name !== undefined && patch.name !== existing.name) {
+        const reserved = reservedDetectorProblem({ name: patch.name });
+        if (reserved !== null) return { result: { ok: false, status: 400, error: reserved } };
+      }
 
       const { changed, data } = diffPatch(patch, {
         ...existing,
@@ -454,6 +461,8 @@ export async function updateDetector(input: {
   } catch (e) {
     // Deleted concurrently between the scoped read and the write.
     if (isPrismaKnownError(e, "P2025")) return DETECTOR_NOT_FOUND;
+    // The trigger upsert can raise its own P2002 (racing a concurrent first
+    // insert on the trigger's detector-id key), so only the name index counts.
     if (isNameCollision(e)) return DETECTOR_NAME_TAKEN;
     throw e;
   }
@@ -482,7 +491,11 @@ export async function deleteDetector(input: {
       if (!access.ok) return { result: access };
 
       const existing = await tx.detector.findFirst({
-        where: { id: input.detectorId, projectId: input.projectId },
+        where: {
+          id: input.detectorId,
+          projectId: input.projectId,
+          ...USER_DETECTOR_WHERE,
+        },
       });
       if (!existing) return { result: DETECTOR_NOT_FOUND };
 
