@@ -1,23 +1,23 @@
 ---
 title: smol machines
-description: Run the traceroot Agent's sandbox in a smol machine, a microVM with its own kernel
+description: Give each traceroot Agent session a microVM sandbox from smol machines
 ---
 
-Run the traceroot Agent's sandbox in a [smol machine](https://smolmachines.com), a microVM with its own Linux kernel. The agent clones your repository into the sandbox, reads the code behind a failing span and runs commands there. With `SANDBOX_PROVIDER=smol`, each session's sandbox is one machine, on smol cloud or on your own computer.
+Put the traceroot Agent's sandbox inside a [smol machine](https://smolmachines.com). A smol machine is a microVM, so the code the agent checks out and every command it executes get a kernel separate from the host's. Setting `SANDBOX_PROVIDER=smol` assigns one machine to every agent session, hosted on smol cloud or booted on your own computer.
 
 <Note>
-  This page is for a self-hosted traceroot run from its repository. `docker` stays the default sandbox provider, and nothing changes until you set `SANDBOX_PROVIDER`. See [Self-Hosting](/developer/self-hosting) to get traceroot running first.
+  Only a self-hosted traceroot has this setting. The default provider is `docker`, and it stays in effect until you change `SANDBOX_PROVIDER`. [Self-Hosting](/developer/self-hosting) explains how to run traceroot yourself.
 </Note>
 
 ## Requirements
 
-- traceroot run from its repository with `make dev` or the Docker Compose stack (`make prod`), and a model provider key for the agent.
-- For smol cloud: a smol cloud API key. The [Cloud Quick Start](https://smolmachines.com/docs/cloud) in the smol machines docs covers creating one.
-- For a local machine: `make dev` on macOS on Apple Silicon, or on Linux with KVM. The local engine is installed with traceroot's dependencies, as part of the `smolmachines` package.
+- A self-hosted traceroot started through `make dev` or `make prod`, where the agent already has a model provider key.
+- smol cloud target: an API key from your smol cloud account. smol machines' [Cloud Quick Start](https://smolmachines.com/docs/cloud) shows where to create it.
+- Local target: a Mac with Apple Silicon or a KVM-capable Linux host, started through `make dev`. There is nothing extra to install, because the `smolmachines` package traceroot already depends on includes the local engine.
 
 ## Set up
 
-traceroot reads its settings from `.env` at the root of the repository. Choose where the machines run:
+Edit the `.env` file in the repository root and pick a target:
 
 <Tabs>
   <Tab title="smol cloud">
@@ -26,7 +26,7 @@ traceroot reads its settings from `.env` at the root of the repository. Choose w
     SMOL_CLOUD_TOKEN=your-api-key
     ```
 
-    smol cloud is the default target. It works under `make dev` and in the Docker Compose stack.
+    smol cloud is used whenever `SMOL_TARGET` is unset. Both `make dev` and `make prod` support it.
   </Tab>
   <Tab title="Local machine">
     ```bash
@@ -34,16 +34,16 @@ traceroot reads its settings from `.env` at the root of the repository. Choose w
     SMOL_TARGET=local
     ```
 
-    The machine boots on your computer, with no smol cloud account. Use this under `make dev`.
+    No smol cloud account is involved: the microVM boots on the host. Supported with `make dev`.
   </Tab>
 </Tabs>
 
-The agent reads these settings when it starts. Start traceroot, or restart it if it is already running.
+Restart traceroot so the agent picks up the change.
 
 ## Verify
 
-1. **In the traceroot UI**: open the agent and ask it to run `uname -a` in its sandbox. The answer comes from the machine's own kernel.
-2. **In the agent's log**: once the machine is set up, the log prints `[SmolExecutor] Machine ready:` followed by the machine's name. With Docker Compose, read it with:
+1. **In the traceroot UI**: start an agent session and have it print the kernel version with `uname -a`. The output describes the microVM's kernel, which is separate from the host's.
+2. **In the agent's log**: look for a line that begins with `[SmolExecutor] Machine ready:` and ends with the machine name. For the Docker Compose stack:
 
    ```bash
    docker compose -f docker-compose.prod.yml logs -f agent
@@ -51,7 +51,7 @@ The agent reads these settings when it starts. Start traceroot, or restart it if
 
 ## What the agent sets up
 
-The agent creates the machine the first time a session needs its sandbox.
+Machines are created lazily: a session gets one on its first sandbox call.
 
 | Setting | Value |
 |---------|-------|
@@ -62,15 +62,15 @@ The agent creates the machine the first time a session needs its sandbox.
 | Idle stop (smol cloud) | After 15 minutes without a command |
 | Deletion (smol cloud) | 24 hours after the machine is created |
 
-Repository credentials reach `git` through environment variables and never appear in a command line. The agent deletes the machine when the session's sandbox is torn down or the agent shuts down.
+Repository credentials reach `git` through environment variables and never appear in a command line. Tearing down a session's sandbox, or stopping the agent, removes that session's machine.
 
 ## Limitations
 
-- The Docker Compose stack runs machines on smol cloud. `SMOL_TARGET=local` is for `make dev`.
-- A cloud machine is deleted 24 hours after it is created, including while a session is still using it. Start a new session to get a new machine.
-- `SANDBOX_IDLE_TTL_MINUTES` and `SANDBOX_RECLAIM_ON_START` apply to the `docker` provider. A smol machine follows the idle stop and deletion times in the table above.
-- On smol cloud, a command the agent runs with no timeout of its own ends after 600 seconds.
-- If a setup step fails, the agent deletes the machine and reports the command and its output. The session's next sandbox call creates a new machine.
+- `SMOL_TARGET=local` works under `make dev`. Under `make prod`, the target is always smol cloud.
+- The 24-hour deletion counts from creation, so a long session can outlive its machine. Open another session to continue on a fresh one.
+- `SANDBOX_IDLE_TTL_MINUTES` and `SANDBOX_RECLAIM_ON_START` are settings for the `docker` provider and have no effect here. The table above gives the timings that apply instead.
+- On smol cloud, any command the agent launches without a timeout is stopped at 600 seconds.
+- Setup is all or nothing. When a step goes wrong, the half-built machine is removed and the error shows which command failed with what output. A later sandbox call begins again on an empty machine.
 
 ## Next steps
 
