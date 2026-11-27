@@ -13,9 +13,35 @@
     }
   },
   {
+    "id": "tr-claude-mythos-5-2",
+    "modelName": "claude-mythos-5-2",
+    "matchPattern": "(?i)^(anthropic\\/|global\\.anthropic\\.)?claude-mythos-5-2(\\[1m\\])?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000008,
+      "output": 0.00004,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.00001,
+      "cacheWrite1h": 0.000016
+    }
+  },
+  {
     "id": "tr-claude-fable-5-1",
     "modelName": "claude-fable-5-1",
-    "matchPattern": "(?i)^(anthropic[/.])?claude-fable-5-1(\\[1m\\])?$",
+    "matchPattern": "(?i)^(anthropic[/.]|global\\.anthropic\\.)?claude-fable-5[.-]1(\\[1m\\])?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.00000025,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
+    "id": "tr-claude-mythos-5-1",
+    "modelName": "claude-mythos-5-1",
+    "matchPattern": "(?i)^(anthropic\\/|global\\.anthropic\\.)?claude-mythos-5-1(\\[1m\\])?$",
     "provider": "anthropic",
     "prices": {
       "input": 0.00001,
@@ -29,6 +55,19 @@
     "id": "tr-claude-fable-5",
     "modelName": "claude-fable-5",
     "matchPattern": "(?i)^(anthropic\\/)?(claude-fable-5(\\[1m\\])?(-\\d{8})?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-fable-5(-\\d{8})?(-v\\d+:\\d+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
+    "id": "tr-claude-mythos-5",
+    "modelName": "claude-mythos-5",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-mythos-5(\\[1m\\])?$",
     "provider": "anthropic",
     "prices": {
       "input": 0.00001,
@@ -145,7 +184,7 @@
   {
     "id": "tr-claude-opus-4-6",
     "modelName": "claude-opus-4-6",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]6(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-opus-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]6(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-opus-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|global\\.anthropic\\.claude-opus-4-6-v1|claude-4-6-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -249,7 +288,19 @@
   {
     "id": "tr-gpt-6-1-sol",
     "modelName": "gpt-6.1-sol",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6\\.1-sol)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6\\.1-sol)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.00001,
+      "cacheRead": 0.0000001,
+      "cacheWrite": 0.0000025
+    }
+  },
+  {
+    "id": "tr-gpt-6-2-sol",
+    "modelName": "gpt-6.2-sol",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6[.-]2-sol)$",
     "provider": "openai",
     "prices": {
       "input": 0.000002,
@@ -261,7 +312,7 @@
   {
     "id": "tr-gpt-6-sol",
     "modelName": "gpt-6-sol",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-sol)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6-sol)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000002,
@@ -273,7 +324,7 @@
   {
     "id": "tr-gpt-6-luna",
     "modelName": "gpt-6-luna",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-luna)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6-luna)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.0000001,
@@ -285,7 +336,7 @@
   {
     "id": "tr-gpt-5-6-sol",
     "modelName": "gpt-5.6-sol",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-sol|gpt-5\\.6)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-5[.-]6-sol|gpt-5[.-]6)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000004,
@@ -297,7 +348,7 @@
   {
     "id": "tr-gpt-5-6-terra",
     "modelName": "gpt-5.6-terra",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-terra)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-5\\.6-terra)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000002,
@@ -307,9 +358,21 @@
     }
   },
   {
+    "id": "tr-gpt-6-1-terra",
+    "modelName": "gpt-6.1-terra",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6[.-]1-terra)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000001,
+      "output": 0.000005,
+      "cacheRead": 0.00000005,
+      "cacheWrite": 0.00000125
+    }
+  },
+  {
     "id": "tr-gpt-5-6-luna",
     "modelName": "gpt-5.6-luna",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-luna)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-5\\.6-luna)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.0000002,
@@ -333,7 +396,7 @@
   {
     "id": "tr-gpt-6-astra",
     "modelName": "gpt-6-astra",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-astra)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6-astra)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.00001,
@@ -343,9 +406,21 @@
     }
   },
   {
+    "id": "tr-gpt-6-2-astra",
+    "modelName": "gpt-6.2-astra",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6[.-]2-astra)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000008,
+      "output": 0.00004,
+      "cacheRead": 0.0000004,
+      "cacheWrite": 0.00001
+    }
+  },
+  {
     "id": "tr-gpt-5-5",
     "modelName": "gpt-5.5",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.5)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5[.-]5)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000005,
@@ -369,7 +444,7 @@
   {
     "id": "tr-gpt-5-4",
     "modelName": "gpt-5.4",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.4)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5[.-]4)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.0000025,
@@ -417,7 +492,7 @@
   {
     "id": "tr-gpt-5-2",
     "modelName": "gpt-5.2",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.2)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5[.-]2)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.00000175,
@@ -441,7 +516,7 @@
   {
     "id": "tr-gpt-5-1",
     "modelName": "gpt-5.1",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.1)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5[.-]1)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.00000125,
@@ -465,7 +540,7 @@
   {
     "id": "tr-gpt-5",
     "modelName": "gpt-5",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-5)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5)(-\\d{4}-\\d{2}-\\d{2})?$",
     "provider": "openai",
     "prices": {
       "input": 0.00000125,
@@ -597,7 +672,7 @@
   {
     "id": "tr-gpt-4.1",
     "modelName": "gpt-4.1",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-4\\.1)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4[.-]1)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000002,
@@ -681,7 +756,7 @@
   {
     "id": "tr-gpt-4",
     "modelName": "gpt-4",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-4)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4)(-\\d{4})?$",
     "provider": "openai",
     "prices": {
       "input": 0.00003,
@@ -1022,6 +1097,18 @@
     }
   },
   {
+    "id": "tr-gemini-3-8-live",
+    "modelName": "gemini-3.8-live",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.8-live(-extended-thinking)?(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000075,
+      "output": 0.000012,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-3-7-flash",
     "modelName": "gemini-3.7-flash",
     "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.7-flash(-[\\d-]+)?$",
@@ -1274,9 +1361,21 @@
     }
   },
   {
+    "id": "tr-glm-5-3",
+    "modelName": "glm-5.3",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]3$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000014,
+      "output": 0.0000044,
+      "cacheRead": 0.00000026,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-glm-5-2",
     "modelName": "glm-5.2",
-    "matchPattern": "(?i)^(zai\\/)?glm-5\\.2(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]2(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000014,
@@ -1288,7 +1387,7 @@
   {
     "id": "tr-glm-5-1",
     "modelName": "glm-5.1",
-    "matchPattern": "(?i)^(zai\\/)?glm-5\\.1(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]1(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000014,
@@ -1300,7 +1399,7 @@
   {
     "id": "tr-glm-5",
     "modelName": "glm-5",
-    "matchPattern": "(?i)^(zai\\/)?glm-5(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5(-\\d{4})?$",
     "provider": "zai",
     "prices": {
       "input": 0.000001,
@@ -1312,7 +1411,7 @@
   {
     "id": "tr-glm-5-turbo",
     "modelName": "glm-5-turbo",
-    "matchPattern": "(?i)^(zai\\/)?glm-5-turbo(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/|z-ai\\/)?glm-5-turbo(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000012,
@@ -1324,7 +1423,7 @@
   {
     "id": "tr-glm-4-7",
     "modelName": "glm-4.7",
-    "matchPattern": "(?i)^(zai\\/)?glm-4\\.7(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/|z-ai\\/|zai\\.)?glm-4\\.7(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000006,
@@ -1390,7 +1489,21 @@
       "input": 0.000003,
       "output": 0.000015,
       "cacheRead": 0.0000003,
-      "cacheWrite": null
+      "cacheWrite": 0.000003,
+      "cacheWrite1h": 0.000006
+    }
+  },
+  {
+    "id": "tr-kimi-k3-1-pro",
+    "modelName": "kimi-k3.1-pro",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k3[.-]1-pro$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.00001,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.000002,
+      "cacheWrite1h": 0.000004
     }
   },
   {
@@ -1427,6 +1540,19 @@
       "output": 0.000004,
       "cacheRead": 0.00000016,
       "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-kimi-k3-1-pro-highspeed",
+    "modelName": "kimi-k3.1-pro-highspeed",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k3[.-]1-pro-highspeed$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.000004,
+      "output": 0.00002,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.000004,
+      "cacheWrite1h": 0.000008
     }
   },
   {

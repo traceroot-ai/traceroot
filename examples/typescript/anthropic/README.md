@@ -1,6 +1,6 @@
 # Anthropic Tool Agent (TypeScript)
 
-ReAct-style agent with Anthropic tool use, instrumented with [TraceRoot](https://traceroot.ai).
+ReAct-style agent with Anthropic tool use, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

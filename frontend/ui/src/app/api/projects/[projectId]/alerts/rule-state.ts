@@ -29,9 +29,17 @@ export function alertStateReset() {
     severity: DEFAULT_ALERT_SEVERITY,
     severityChangedAt: null,
     alertedAt: null,
+    // The breach the channel saw ends with the state that held it.
+    pageDeliveredAt: null,
     lastEvaluatedAt: null,
     nextRunAt: new Date(),
     lastClaimedAt: null,
+    lastError: null,
+    lastErrorAt: null,
+    lastNotifyStatus: null,
+    lastNotifyError: null,
+    lastNotifyAt: null,
+    lastNotifySeverity: null,
   };
 }
 

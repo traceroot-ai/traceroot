@@ -39,9 +39,8 @@ describe("GitHubStarWidget", () => {
 
     render();
 
-    expect(container.textContent).toContain("Star traceroot");
-    expect(container.textContent).toContain("Open source and shipping fast.");
-    expect(container.textContent).toContain("Made with ❤️ by contributors.");
+    expect(container.textContent).toContain("traceroot");
+    expect(container.textContent).toContain("Star on GitHub");
     expect(container.textContent).toContain("614");
 
     const link = container.querySelector("a");
@@ -53,7 +52,7 @@ describe("GitHubStarWidget", () => {
 
     render();
 
-    expect(container.textContent).not.toContain("Star traceroot");
+    expect(container.textContent).not.toContain("Star on GitHub");
   });
 
   it("dismisses on close click and persists the choice", () => {
@@ -70,7 +69,7 @@ describe("GitHubStarWidget", () => {
       dismiss!.click();
     });
 
-    expect(container.textContent).not.toContain("Star traceroot");
+    expect(container.textContent).not.toContain("Star on GitHub");
     expect(localStorage.getItem("github-star-widget-dismissed")).toBe("true");
   });
 

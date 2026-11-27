@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
+import { after } from "next/server";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
+import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
@@ -11,10 +12,19 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { onUserCreated } from "@/lib/signup/on-user-created";
+import { sendPasswordResetEmail } from "@/lib/email/send-password-reset-email";
+import { refuseResetWithUnprovenIdentities } from "@/lib/auth-recovery";
 import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
+import { refuseUnverifiedGitHubSignUp } from "@/lib/signup/verified-social-email";
 import { isCloud } from "@/lib/server/cloud";
 import { ensureDemoMembership } from "@/lib/demo-workspace";
+import { agentIdProvider } from "@/lib/agentid";
+import {
+  AGENTID_PROVIDER_ID,
+  configuredSocialProviders,
+  socialProviderOptions,
+} from "@/lib/social-providers";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -22,6 +32,9 @@ import {
 } from "@/lib/session-config";
 
 const ac = createAccessControl(defaultStatements);
+
+const emailPolicy = signupEmailPolicyHook(isCloud());
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
@@ -30,22 +43,45 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
 
+  // Failed OAuth callbacks land on the app's error page, not better-auth's.
+  onAPIError: { errorURL: new URL("/auth/error", env.BETTER_AUTH_URL).toString() },
+
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    // better-auth gives known and unknown emails the same answer, but only known
+    // ones reach this callback. Rendering or sending the email here would make
+    // their responses slower and reveal which addresses have accounts, so all of
+    // that work waits until the response has been sent.
+    sendResetPassword: async ({ user, url }) => {
+      after(() =>
+        sendPasswordResetEmail({ to: user.email, resetUrl: url }).catch((error) =>
+          console.error("[auth] password reset email failed:", error),
+        ),
+      );
+    },
+    revokeSessionsOnPasswordReset: true,
   },
+
+  // A reset link does not recover an account with a sign-in identity that
+  // never proved the mailbox; see lib/auth-recovery.ts. Read-only.
+  hooks: { before: refuseResetWithUnprovenIdentities },
 
   databaseHooks: {
     user: {
       create: {
-        before: signupEmailPolicyHook(isCloud()),
+        before: async (user, context) => {
+          await refuseUnverifiedGitHubSignUp(user, context ?? null);
+          await emailPolicy?.(user, context ?? null);
+        },
         // better-auth awaits after-hooks and a throw propagates into the sign-up
         // response, so this calls without awaiting and the callee never rejects.
         after: async (user, context) => {
-          captureServerEvent(user.id, "user_signed_up", signupAttributionProperties(context));
+          const attribution = signupAttributionProperties(context);
+          captureServerEvent(user.id, "user_signed_up", attribution);
           onUserCreated(
-            { id: user.id, email: user.email, name: user.name ?? null },
-            context ? { path: context.path } : null,
+            { id: user.id, email: user.email, name: user.name ?? null, createdAt: user.createdAt },
+            context ? { path: context.path, provider: context.params?.id, attribution } : null,
           ).catch((error) => console.error("[signup] follow-up failed:", error));
         },
       },
@@ -63,17 +99,29 @@ export const auth = betterAuth({
     },
   },
 
-  socialProviders: {
-    google: {
-      clientId: env.AUTH_GOOGLE_CLIENT_ID,
-      clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
-    },
-  },
+  socialProviders: socialProviderOptions(env),
 
   account: {
     accountLinking: {
       enabled: true,
+      // A trusted provider is one whose *unverified* email addresses may still
+      // be used as proof of ownership when linking into an account that already
+      // exists: better-auth skips the `emailVerified` check on the incoming
+      // profile for these. GitHub is deliberately absent. It serves the
+      // account's primary address whether or not that address has been
+      // confirmed, so trusting it would let anyone who adds a victim's address
+      // to their own GitHub account sign in as that victim. Leaving it out
+      // costs nothing a real user notices: a GitHub identity whose address *is*
+      // verified still links (to an account whose own address is verified, see
+      // below), and a first-time GitHub sign-in still creates an account either
+      // way. account-linking.test.ts pins these.
+      // Never add "agentid" either: a trusted provider links on email alone.
       trustedProviders: ["google"],
+      // And no provider, trusted or not, links into an account whose own email
+      // was never verified: otherwise whoever registered someone's address
+      // with a password first would get that person's later social sign-in.
+      // This is better-auth's default; it is set so that cannot change quietly.
+      requireLocalEmailVerified: true,
     },
   },
 
@@ -151,6 +199,9 @@ export const auth = betterAuth({
       jwt: { expirationTime: "10m" },
       jwks: { keyPairConfig: { alg: "EdDSA" } },
     }),
+    ...(configuredSocialProviders(env).includes(AGENTID_PROVIDER_ID)
+      ? [genericOAuth({ config: [agentIdProvider(env)] })]
+      : []),
   ],
 });
 

@@ -119,6 +119,9 @@ importers:
       hono:
         specifier: ^4.13.16
         version: 4.13.18
+      smolmachines:
+        specifier: 1.36.1
+        version: 1.36.1
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -297,6 +300,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      jose:
+        specifier: 6.2.3
+        version: 6.2.3
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.0.0)
@@ -5165,6 +5171,30 @@ packages:
   smart-buffer@4.2.0:
     resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
     engines: {node: '>= 6.0.0', npm: '>= 3.0.0'}
+
+  smolmachines-darwin-arm64@1.36.1:
+    resolution: {integrity: sha512-IP97X1qnN4me4N5G4MYGqCILwN9jF5ui0TO2vtyj0Rd8HS/EnUD1io0B9nGc0NFlLW66GZIVhwglSI1wnpCvjg==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [darwin]
+
+  smolmachines-linux-arm64-gnu@1.36.1:
+    resolution: {integrity: sha512-IGOT89RCf2HQoP5vuvDU6qNsZeoiNJfvOBBwLHvgmJF7+YQVlhXTd3DKMqQtWV0vdtGWbtEGFpJ74bbj/n9M7w==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  smolmachines-linux-x64-gnu@1.36.1:
+    resolution: {integrity: sha512-8kec1TeGZgkc+dk2s4U3uJV6KSokBa/Yhvh3nr7o3NvLQTZg8xYq8w68J/3ndyI3jZPZ3yYJUevUbwjQdE4ATw==}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  smolmachines@1.36.1:
+    resolution: {integrity: sha512-kNXxPCbRvHj5sqLFSPCuRV/9x/jEwlE/rxMzPw+TG0u6KxN2UVwEEM/CzikngAVx0W121JaMtbE9N+phPbeLtg==}
+    engines: {node: '>=18'}
 
   socks-proxy-agent@8.0.5:
     resolution: {integrity: sha512-HehCEsotFqbPW9sJ8WVYB6UbmIMv7kUUORIF2Nncq4VQvBfNBLibW9YZR5dlYCSUhwcD628pRllm7n+E+YTzJw==}
@@ -11053,6 +11083,21 @@ snapshots:
       is-fullwidth-code-point: 5.1.0
 
   smart-buffer@4.2.0: {}
+
+  smolmachines-darwin-arm64@1.36.1:
+    optional: true
+
+  smolmachines-linux-arm64-gnu@1.36.1:
+    optional: true
+
+  smolmachines-linux-x64-gnu@1.36.1:
+    optional: true
+
+  smolmachines@1.36.1:
+    optionalDependencies:
+      smolmachines-darwin-arm64: 1.36.1
+      smolmachines-linux-arm64-gnu: 1.36.1
+      smolmachines-linux-x64-gnu: 1.36.1
 
   socks-proxy-agent@8.0.5:
     dependencies:
