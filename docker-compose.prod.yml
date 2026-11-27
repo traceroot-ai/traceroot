@@ -512,6 +512,10 @@ services:
       STRIPE_PRICE_ID_AI_USAGE: ${STRIPE_PRICE_ID_AI_USAGE:-}
       STRIPE_PRICE_ID_RCA_USAGE: ${STRIPE_PRICE_ID_RCA_USAGE:-}
       STRIPE_PRICE_ID_DETECTOR_USAGE: ${STRIPE_PRICE_ID_DETECTOR_USAGE:-}
+      # --- Email (free-plan usage notices) ---
+      TRACEROOT_SMTP_URL: ${TRACEROOT_SMTP_URL:-}
+      TRACEROOT_SMTP_MAIL_FROM: ${TRACEROOT_SMTP_MAIL_FROM:-noreply@traceroot.ai}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       # --- Worker config ---
       USAGE_METERING_CRON: ${USAGE_METERING_CRON:-"5 * * * *"}
     depends_on:
