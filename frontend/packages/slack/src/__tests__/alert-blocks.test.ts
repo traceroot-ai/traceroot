@@ -101,6 +101,60 @@ describe("buildAlertBlocks", () => {
     expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 0.5 }))[0]).toContain("was 0.5 ms");
   });
 
+  it("never prints a reading that differs from its threshold as the threshold", () => {
+    // Rounding landed these on their thresholds: "was 1000 ms, above the 1000 ms threshold".
+    expect(
+      sectionTexts(buildAlertBlocks({ ...alertBase, value: 1000.004, threshold: 1000 }))[0],
+    ).toContain("`p95(latency)` was 1000.004 ms, above the 1000 ms threshold");
+    const cost = { ...alertBase, measure: "cost", aggregation: "sum", threshold: 0.001 };
+    expect(sectionTexts(buildAlertBlocks({ ...cost, value: 0.0010004 }))[0]).toContain(
+      "`sum(cost)` was $0.0010004, above the $0.001 threshold",
+    );
+    // "not equal to" a threshold it prints identical to is the starkest form of it
+    const [unequal] = sectionTexts(
+      buildAlertBlocks({ ...alertBase, value: 1000.004, threshold: 1000, thresholdOperator: "!=" }),
+    );
+    expect(unequal).toContain("was 1000.004 ms, not equal to the 1000 ms threshold");
+    // a recovery just inside the threshold says so too
+    const [recovered] = sectionTexts(
+      buildAlertBlocks({
+        ...alertBase,
+        severity: "OK",
+        previousSeverity: "ALERT",
+        value: 999.996,
+        threshold: 1000,
+      }),
+    );
+    expect(recovered).toContain("recovered to 999.996 ms, back within the 1000 ms threshold");
+    // a rounded threshold gains the digits with the reading, so the two still part
+    const [both] = sectionTexts(
+      buildAlertBlocks({
+        ...alertBase,
+        value: 1000.001,
+        threshold: 1000.004,
+        thresholdOperator: "<",
+      }),
+    );
+    expect(both).toContain("was 1000.001 ms, below the 1000.004 ms threshold");
+    // a reading equal to its threshold keeps the short spelling
+    expect(
+      sectionTexts(
+        buildAlertBlocks({ ...alertBase, value: 1000, threshold: 1000, thresholdOperator: ">=" }),
+      )[0],
+    ).toContain("was 1000 ms, at or above the 1000 ms threshold");
+    // so does an equal non-integer: its spellings collide like the cases above, and only
+    // value !== threshold keeps it from gaining digits ("was 1000.004 ms")
+    const [equalFraction] = sectionTexts(
+      buildAlertBlocks({
+        ...alertBase,
+        value: 1000.004,
+        threshold: 1000.004,
+        thresholdOperator: ">=",
+      }),
+    );
+    expect(equalFraction).toContain("was 1000 ms, at or above the 1000 ms threshold");
+  });
+
   it("drops the measure's unit under an aggregation that discards it", () => {
     // uniq of a latency column counts distinct values; that number is not milliseconds.
     const [distinct] = sectionTexts(
