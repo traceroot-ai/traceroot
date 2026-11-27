@@ -7,6 +7,11 @@ vi.mock("@/lib/support/route-guard", () => ({
   withImpersonationPolicy: (handler: unknown) => handler,
 }));
 
+const auditMock = vi.fn();
+vi.mock("@/lib/write-services/audit", () => ({
+  writeAudit: (...args: unknown[]) => auditMock(...args),
+}));
+
 const modelProviderFindFirstMock = vi.fn();
 const modelProviderDuplicateMock = vi.fn();
 const modelProviderUpdateMock = vi.fn();
@@ -56,6 +61,7 @@ function makeParams() {
 }
 
 beforeEach(() => {
+  auditMock.mockReset();
   modelProviderFindFirstMock.mockReset();
   modelProviderDuplicateMock.mockReset();
   modelProviderUpdateMock.mockReset();
@@ -143,7 +149,7 @@ describe("PATCH model-providers/[providerId]", () => {
 });
 
 describe("PATCH model-providers/[providerId] - credential destination binding", () => {
-  it.each(["https://collector.example/v1", null])(
+  it.each(["https://api.openai.com/v1", null])(
     "requires a replacement key when changing the destination to %j",
     async (baseUrl) => {
       modelProviderFindFirstMock.mockResolvedValue({
@@ -176,14 +182,14 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
 
   it("replaces the destination and credential together", async () => {
     const res = await PATCH(
-      makeRequest({ baseUrl: "https://new.example/v1", apiKey: "new-key" }),
+      makeRequest({ baseUrl: "https://api.anthropic.com", apiKey: "new-key" }),
       makeParams(),
     );
     expect(res.status).toBe(200);
     expect(modelProviderUpdateMock).toHaveBeenCalledWith({
       where: { id: "mp-1", workspaceId: "ws-1", baseUrl: null, keyCipher: "old-cipher" },
       data: {
-        baseUrl: "https://new.example/v1",
+        baseUrl: "https://api.anthropic.com",
         keyCipher: "enc(new-key)",
         keyPreview: "mask(new-key)",
       },
@@ -224,7 +230,7 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
   });
 
   it.each([{}, { apiKey: "not-an-aws-replacement" }, { awsAccessKeyId: "AKIAEXAMPLE" }])(
-    "cannot redirect saved Bedrock credentials without replacing them (%j)",
+    "rejects unsupported Bedrock destinations (%j)",
     async (credentials) => {
       modelProviderFindFirstMock.mockResolvedValue({
         id: "mp-1",
@@ -240,17 +246,11 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
         makeParams(),
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({
-        error: "Re-enter credentials when changing the Base URL.",
-      });
       expect(modelProviderUpdateMock).not.toHaveBeenCalled();
     },
   );
 
-  it.each([
-    { awsAccessKeyId: "AKIAEXAMPLE", awsSecretAccessKey: "new-secret" },
-    { useDefaultCredentials: true },
-  ])("can replace Bedrock credentials together with a destination (%j)", async (credentials) => {
+  it("rejects a custom Bedrock destination even with replacement credentials", async () => {
     modelProviderFindFirstMock.mockResolvedValue({
       id: "mp-1",
       workspaceId: "ws-1",
@@ -261,17 +261,11 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
       config: null,
     });
     const res = await PATCH(
-      makeRequest({ baseUrl: "https://new.example", ...credentials }),
+      makeRequest({ baseUrl: "https://collector.test", useDefaultCredentials: true }),
       makeParams(),
     );
-    expect(res.status).toBe(200);
-    const { data } = modelProviderUpdateMock.mock.calls[0][0];
-    expect(data.baseUrl).toBe("https://new.example");
-    expect(data.keyCipher).toBe(
-      "useDefaultCredentials" in credentials
-        ? "enc(__BEDROCK_DEFAULT_CREDENTIALS__)"
-        : 'enc({"awsAccessKeyId":"AKIAEXAMPLE","awsSecretAccessKey":"new-secret"})',
-    );
+    expect(res.status).toBe(400);
+    expect(modelProviderUpdateMock).not.toHaveBeenCalled();
   });
 
   it("rejects a stale key rotation after a concurrent destination change", async () => {
@@ -280,12 +274,49 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
         if (where.keyCipher === "old-cipher" && where.baseUrl === null) {
           throw Object.assign(new Error("Record changed"), { code: "P2025" });
         }
-        return { baseUrl: "https://collector.example/v1", keyCipher: "enc(new-key)" };
+        return { baseUrl: "https://api.openai.com/v1", keyCipher: "enc(new-key)" };
       },
     );
     const res = await PATCH(makeRequest({ apiKey: "new-key" }), makeParams());
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "Model provider changed. Reload and try again." });
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH model-providers - destination policy and audit", () => {
+  it.each([
+    "http://127.0.0.1:3000/#",
+    "http://169.254.169.254/latest/meta-data",
+    "file:///etc/passwd",
+    "https://collector.test/v1",
+  ])("rejects %s even with a replacement key", async (baseUrl) => {
+    const res = await PATCH(makeRequest({ baseUrl, apiKey: "replacement" }), makeParams());
+    expect(res.status).toBe(400);
+    expect(modelProviderUpdateMock).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+  it("records the actor and provider and invalidates the existing agent cache", async () => {
+    const res = await PATCH(
+      makeRequest({ baseUrl: "https://api.anthropic.com", apiKey: "replacement" }),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+    expect(auditMock).toHaveBeenCalledWith(expect.anything(), {
+      actorUserId: "user-1",
+      operation: "update_model_provider",
+      resourceType: "model_provider",
+      resourceId: "mp-1",
+      workspaceId: "ws-1",
+      summary: { changed: ["baseUrl"] },
+      transport: "ui",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/cache/invalidate-provider"),
+      expect.objectContaining({
+        body: JSON.stringify({ workspaceId: "ws-1", providerName: "Claude" }),
+      }),
+    );
   });
 });

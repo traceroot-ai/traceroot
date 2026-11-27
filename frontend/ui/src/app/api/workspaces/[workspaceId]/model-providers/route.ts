@@ -1,3 +1,4 @@
+import { resolveProviderBaseUrl, InvalidProviderUrlError } from "@traceroot/core/provider-url";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -141,6 +142,13 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
     awsRegion,
     useDefaultCredentials,
   } = result.data;
+
+  try {
+    resolveProviderBaseUrl(adapter, baseUrl);
+  } catch (error) {
+    if (error instanceof InvalidProviderUrlError) return errorResponse(error.message, 400);
+    throw error;
+  }
 
   // Determine the credential to encrypt
   let credentialToEncrypt: string;

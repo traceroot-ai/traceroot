@@ -17,6 +17,11 @@ import { getModel } from "@earendil-works/pi-ai/compat";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { prisma } from "./lib/prisma.ts";
 import { decryptKey } from "./lib/encryption.ts";
+import {
+  InvalidProviderUrlError,
+  installProviderNetworkPolicy,
+  resolveProviderBaseUrl,
+} from "./provider-url.ts";
 import standardModels from "./standard-model-prices.json" with { type: "json" };
 import {
   SYSTEM_MODELS,
@@ -161,6 +166,8 @@ export function resolvePiModel(
 
   // 1. BYOK
   if (providerConfig) {
+    installProviderNetworkPolicy();
+    const baseUrl = resolveProviderBaseUrl(providerConfig.adapter, providerConfig.baseUrl);
     // A decision adapter has no chat model; falling through would silently run
     // a system model on the workspace's behalf.
     if (isDecisionAdapter(providerConfig.adapter)) {
@@ -200,7 +207,6 @@ export function resolvePiModel(
         defaultApiProtocol(providerConfig.adapter, fallbackModelId) ||
         "openai-completions";
       const model = buildFallbackModel(fallbackModelId, apiProtocol, piAIProvider);
-      const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
       if (baseUrl) {
         (model as { baseUrl: string }).baseUrl = baseUrl;
       }
@@ -236,12 +242,13 @@ const CONFIG_CACHE_TTL_MS = 60_000;
 
 /**
  * Resolve full BYOK provider config (decrypted key + adapter + baseUrl + config).
- * Cached for 60s. Returns null when row missing, disabled, its key is blank, or DB error.
+ * Cached for 60s. Unsafe endpoints throw; missing, disabled or blank-key rows and DB errors return null.
  */
 export async function fetchProviderConfig(
   workspaceId: string,
   providerName: string,
 ): Promise<ProviderModelConfig | null> {
+  installProviderNetworkPolicy();
   const cacheKey = `${workspaceId}:${providerName}`;
   const cached = configCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
@@ -261,6 +268,8 @@ export async function fetchProviderConfig(
     });
 
     if (row?.enabled && row.keyCipher) {
+      // Reject unsafe historical rows before decrypting or caching their key.
+      resolveProviderBaseUrl(row.adapter, row.baseUrl);
       const key = decryptKey(row.keyCipher);
       // A blank key must never reach pi-ai: it fills a blank key from this
       // process's environment, which holds the platform's own provider keys.
@@ -283,6 +292,7 @@ export async function fetchProviderConfig(
       return providerConfig;
     }
   } catch (err) {
+    if (err instanceof InvalidProviderUrlError) throw err;
     console.error(`[model-resolver] Failed to fetch BYOK config for ${providerName}:`, err);
   }
 
@@ -325,6 +335,7 @@ export async function findByokKeyForPiProvider(
       }
     }
   } catch (err) {
+    if (err instanceof InvalidProviderUrlError) throw err;
     console.warn(`[model-resolver] BYOK key scan failed for piProvider="${piProvider}":`, err);
   }
   return null;

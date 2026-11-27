@@ -170,3 +170,32 @@ describe("POST model-providers", () => {
     expect(modelProviderCreateMock).not.toHaveBeenCalled();
   });
 });
+
+describe("POST model-providers - destination policy", () => {
+  it.each([
+    "http://169.254.169.254/latest/meta-data",
+    "file:///etc/passwd",
+    "https://collector.test/v1",
+    "https://api.openai.com/v1#",
+  ])("rejects %s without persisting it", async (baseUrl) => {
+    const res = await POST(
+      makeRequest({ adapter: "openai", provider: "Probe", apiKey: "test-key", baseUrl }),
+      makeParams(),
+    );
+    expect(res.status).toBe(400);
+    expect(modelProviderCreateMock).not.toHaveBeenCalled();
+  });
+  it("stores an explicitly configured vendor endpoint", async () => {
+    const res = await POST(
+      makeRequest({
+        adapter: "openai",
+        provider: "Vendor",
+        apiKey: "test-key",
+        baseUrl: "https://api.openai.com/v1",
+      }),
+      makeParams(),
+    );
+    expect(res.status).toBe(201);
+    expect(modelProviderCreateMock.mock.calls[0][0].data.baseUrl).toBe("https://api.openai.com/v1");
+  });
+});

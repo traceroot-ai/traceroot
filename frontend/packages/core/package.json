@@ -49,6 +49,10 @@
     "./email": {
       "types": "./src/lib/email/index.ts",
       "default": "./src/lib/email/index.ts"
+    },
+    "./provider-url": {
+      "types": "./src/provider-url.ts",
+      "default": "./src/provider-url.ts"
     }
   },
   "scripts": {
@@ -64,6 +68,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.3",
     "@prisma/client": "^5.22.0",
+    "undici": "^7.30.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

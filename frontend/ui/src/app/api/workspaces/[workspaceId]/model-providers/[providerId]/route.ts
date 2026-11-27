@@ -1,3 +1,5 @@
+import { resolveProviderBaseUrl, InvalidProviderUrlError } from "@traceroot/core/provider-url";
+import { writeAudit } from "@/lib/write-services/audit";
 import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
@@ -97,6 +99,15 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     useDefaultCredentials,
   } = result.data;
 
+  if (baseUrl !== undefined) {
+    try {
+      resolveProviderBaseUrl(existing.adapter, baseUrl);
+    } catch (error) {
+      if (error instanceof InvalidProviderUrlError) return errorResponse(error.message, 400);
+      throw error;
+    }
+  }
+
   const data: Record<string, unknown> = {};
   if (provider !== undefined) {
     if (provider !== existing.provider) {
@@ -172,6 +183,18 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
         updateTime: true,
       },
     });
+
+    if (baseUrl !== undefined && baseUrl !== existing.baseUrl) {
+      await writeAudit(prisma, {
+        actorUserId: authResult.user.id,
+        operation: "update_model_provider",
+        resourceType: "model_provider",
+        resourceId: providerId,
+        workspaceId,
+        summary: { changed: ["baseUrl"] },
+        transport: "ui",
+      });
+    }
 
     // Invalidate agent cache so the new key takes effect immediately
     await invalidateAgentProviderCache(workspaceId, existing.provider);
