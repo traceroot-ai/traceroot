@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
 import { createReadTool } from "../sandbox.js";
@@ -8,19 +13,32 @@ function fileExecutor(contents: string) {
     if (command.startsWith("wc -l < ")) {
       return { stdout: String(contents.split("\n").length - 1), stderr: "", code: 0 };
     }
-    if (command.startsWith("cat ")) return { stdout: contents, stderr: "", code: 0 };
     const tail = /^tail -n \+(\d+) /.exec(command);
-    if (tail) {
-      return {
-        stdout: contents
+    if (!command.startsWith("cat ") && !tail) {
+      throw new Error(`Unexpected command: ${command}`);
+    }
+    let selected = tail
+      ? contents
           .split("\n")
           .slice(Number(tail[1]) - 1)
-          .join("\n"),
-        stderr: "",
-        code: 0,
-      };
+          .join("\n")
+      : contents;
+    const limit = / \| head -n (\d+)/.exec(command);
+    if (limit) {
+      const lines = selected.split("\n");
+      selected =
+        lines.slice(0, Number(limit[1])).join("\n") + (lines.length > Number(limit[1]) ? "\n" : "");
     }
-    throw new Error(`Unexpected command: ${command}`);
+    if (command.endsWith(" | wc -c")) {
+      return { stdout: String(Buffer.byteLength(selected)), stderr: "", code: 0 };
+    }
+    const range = / \| tail -c \+(\d+) \| head -c (\d+) \| base64$/.exec(command);
+    const stdout = range
+      ? Buffer.from(selected)
+          .subarray(Number(range[1]) - 1, Number(range[1]) - 1 + Number(range[2]))
+          .toString("base64")
+      : selected;
+    return { stdout, stderr: "", code: 0 };
   });
   const executor: Executor = {
     exec,
@@ -73,7 +91,7 @@ describe("read byte continuation", () => {
     expect(outputText(last).endsWith(":END")).toBe(true);
     expect(last.details?.nextByteOffset).toBeUndefined();
     expect(outputText(last)).not.toContain("[Use byteOffset=");
-    expect(executor.exec).toHaveBeenCalledTimes(4);
+    expect(executor.exec).toHaveBeenCalledTimes(7);
     expect(executor.exec).toHaveBeenNthCalledWith(1, "wc -l < '/workspace/trace.jsonl'", {
       signal: undefined,
     });
@@ -81,6 +99,65 @@ describe("read byte continuation", () => {
       signal: undefined,
     });
   });
+
+  it("reads past Docker's stdout cap with intact UTF-8 using bounded shell ranges", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-read-"));
+    const path = join(directory, "trace's spans.jsonl");
+    const cap = 10 * 1024 * 1024;
+    const source = `${"a".repeat(cap - 1)}🙂:tail`;
+    const executor = fileExecutor(source);
+    const exec = promisify(execFile);
+    executor.exec = vi.fn(async (command) => {
+      const result = await exec("sh", ["-c", command], { encoding: "buffer", maxBuffer: cap * 2 });
+      return {
+        stdout: result.stdout.subarray(0, cap).toString("utf-8"),
+        stderr: result.stderr.toString("utf-8"),
+        code: 0,
+      };
+    });
+    try {
+      await writeFile(path, source);
+      const tool = createReadTool(executor);
+      const first = await tool.execute("start", { ...input, path });
+      expect(fragment(first).startsWith("a")).toBe(true);
+      expect(first.details?.nextByteOffset).toBeGreaterThan(0);
+      const unicode = await tool.execute("unicode-at-cap", { ...input, path, byteOffset: cap - 1 });
+      expect(fragment(unicode)).toBe("🙂:tail");
+      expect(unicode.details?.nextByteOffset).toBeUndefined();
+      const tail = await tool.execute("past-cap", { ...input, path, byteOffset: cap + 3 });
+      expect(fragment(tail)).toBe(":tail");
+      expect(tail.details?.nextByteOffset).toBeUndefined();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an empty range if the file shrinks after measuring it", async () => {
+    const executor = fileExecutor("still measured as nonempty");
+    const exec = executor.exec;
+    executor.exec = vi.fn(async (command, options) =>
+      command.endsWith(" | base64") ? { stdout: "", stderr: "", code: 0 } : exec(command, options),
+    );
+    await expect(
+      createReadTool(executor).execute("changed", { ...input, byteOffset: 0 }),
+    ).rejects.toThrow("File changed or could not be read");
+  });
+
+  it.each([" | wc -c", " | base64"])(
+    "propagates a failed range operation ending %s",
+    async (suffix) => {
+      const executor = fileExecutor("data");
+      const exec = executor.exec;
+      executor.exec = vi.fn(async (command, options) =>
+        command.endsWith(suffix)
+          ? { stdout: "", stderr: "range failed", code: 1 }
+          : exec(command, options),
+      );
+      await expect(
+        createReadTool(executor).execute("failed", { ...input, byteOffset: 0 }),
+      ).rejects.toThrow("range failed");
+    },
+  );
 
   it.each([
     {

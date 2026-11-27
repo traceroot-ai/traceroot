@@ -182,12 +182,14 @@ export function createReadTool(executor: Executor): AgentTool<any> {
         cmd = `tail -n +${startLine} ${shellEscape(path)}`;
       }
 
-      const result = await executor.exec(cmd, { signal });
-      if (result.code !== 0) {
-        throw new Error(result.stderr || `Failed to read file: ${path}`);
+      let selectedContent = "";
+      if (byteOffset === undefined) {
+        const result = await executor.exec(cmd, { signal });
+        if (result.code !== 0) {
+          throw new Error(result.stderr || `Failed to read file: ${path}`);
+        }
+        selectedContent = result.stdout;
       }
-
-      let selectedContent = result.stdout;
       let userLimitedLines: number | undefined;
 
       // Apply user limit if specified
@@ -205,13 +207,37 @@ export function createReadTool(executor: Executor): AgentTool<any> {
       let details: ReadToolDetails | undefined;
 
       if (byteOffset !== undefined || truncation.firstLineExceedsLimit) {
-        const bytes = Buffer.from(selectedContent, "utf-8");
+        // Executor stdout can be capped (Docker: 10MB). Measure and read the
+        // original selection, not the possibly incomplete cat result above.
+        const selection = limit === undefined ? cmd : `${cmd} | head -n ${limit}`;
+        const sizeResult = await executor.exec(`${selection} | wc -c`, { signal });
+        if (sizeResult.code !== 0) {
+          throw new Error(sizeResult.stderr || `Failed to read file: ${path}`);
+        }
+        // split/slice/join excludes the delimiter after the last selected line.
+        const selectedBytes =
+          Number(sizeResult.stdout.trim()) -
+          (limit !== undefined && startLine - 1 + limit < totalFileLines ? 1 : 0);
         const start = byteOffset ?? 0;
-        if (start > bytes.length) throw new Error("byteOffset is beyond the selected content");
-        if (start < bytes.length && (bytes[start] & 0xc0) === 0x80) {
+        if (start > selectedBytes) throw new Error("byteOffset is beyond the selected content");
+        const readBytes = Math.min(DEFAULT_MAX_BYTES + 4, selectedBytes - start);
+        const chunkResult = await executor.exec(
+          `${selection} | tail -c +${start + 1} | head -c ${readBytes} | base64`,
+          { signal },
+        );
+        if (chunkResult.code !== 0) {
+          throw new Error(chunkResult.stderr || `Failed to read file: ${path}`);
+        }
+        // Base64 keeps executor UTF-8 decoding from corrupting a partial character.
+        // Four lookahead bytes keep any partial trailing character out of output.
+        const bytes = Buffer.from(chunkResult.stdout, "base64");
+        if (readBytes > 0 && bytes.length === 0) {
+          throw new Error(`File changed or could not be read: ${path}`);
+        }
+        if (bytes.length > 0 && (bytes[0] & 0xc0) === 0x80) {
           throw new Error("byteOffset must be at a UTF-8 boundary");
         }
-        const remaining = bytes.subarray(start).toString("utf-8");
+        const remaining = bytes.toString("utf-8");
         const head = truncateHead(remaining, {
           maxBytes: DEFAULT_MAX_BYTES - READ_CONTINUATION_BYTES,
         });
@@ -220,7 +246,7 @@ export function createReadTool(executor: Executor): AgentTool<any> {
           head.content ||
           truncateStringToBytesFromStart(remaining, DEFAULT_MAX_BYTES - READ_CONTINUATION_BYTES);
         const nextByteOffset = start + Buffer.byteLength(fragment, "utf-8");
-        const more = nextByteOffset < bytes.length;
+        const more = nextByteOffset < selectedBytes;
         return {
           content: [
             {

@@ -123,6 +123,7 @@ describe("runAgent input attribution", () => {
       const agent = { prompt, subscribe: () => unsubscribe } as unknown as Agent;
       const onDone = vi.fn();
       await runAgent(agent, "request", { onEvent: vi.fn(), onError: vi.fn(), onDone }, turnKind);
+      expect(prompt).toHaveBeenCalledTimes(1);
       expect(prompt).toHaveBeenCalledWith(
         turnKind === "rca_execution"
           ? { role: "automatedRca", content: "request", timestamp: expect.any(Number) }
