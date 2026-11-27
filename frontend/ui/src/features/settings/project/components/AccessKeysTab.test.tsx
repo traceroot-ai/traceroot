@@ -354,3 +354,26 @@ it.each(["account", "project"] as const)(
     expect(document.body.textContent).not.toContain(oneTimeResponse.data.key);
   },
 );
+
+it("preserves the current account's completed secret if an older account request resolves last", async () => {
+  state.role = "MEMBER";
+  const complete: ((response: typeof oneTimeResponse) => void)[] = [];
+  vi.mocked(createAccessKey).mockImplementation(
+    () => new Promise((resolve) => complete.push(resolve)),
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const { rerender } = render(keyView(client));
+  submitNewKey();
+  await waitFor(() => expect(createAccessKey).toHaveBeenCalledTimes(1));
+  state.userId = "another-user";
+  rerender(keyView(client));
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  submitNewKey();
+  await waitFor(() => expect(createAccessKey).toHaveBeenCalledTimes(2));
+  const currentSecret = { data: { ...oneTimeResponse.data, key: "tr-current-account-secret" } };
+  await act(async () => complete[1](currentSecret));
+  await screen.findByText(currentSecret.data.key);
+  await act(async () => complete[0](oneTimeResponse));
+  expect(document.body.textContent).toContain(currentSecret.data.key);
+});

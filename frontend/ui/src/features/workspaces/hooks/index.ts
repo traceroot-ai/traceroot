@@ -2,7 +2,7 @@
  * Workspace feature hooks
  */
 import { useCallback } from "react";
-import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import { useQuery, type UseQueryOptions, type RefetchOptions } from "@tanstack/react-query";
 import { getWorkspaces, getWorkspace } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
 import { ApiError } from "@/lib/api/errors";
@@ -57,7 +57,7 @@ export function useWorkspace(
   });
   const refetchQuery = query.refetch;
   const refetch = useCallback(
-    async (options?: Parameters<typeof query.refetch>[0]) => {
+    async (options?: RefetchOptions) => {
       if (!userId) await refetchSession();
       return refetchQuery(options);
     },

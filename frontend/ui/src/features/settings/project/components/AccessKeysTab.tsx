@@ -82,16 +82,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const createMutation = useMutation({
     mutationFn: ({ name, projectId }: { name: string; projectId: string; userId: string }) =>
       createAccessKey(projectId, name || undefined),
-    onSuccess: (response, owner) => {
+    onSuccess: (_response, owner) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", owner.projectId] });
-      setNewKeyData({
-        key: response.data.key,
-        keyHint: response.data.key_hint,
-        userId: owner.userId,
-        projectId: owner.projectId,
-      });
-      setNewKeyName("");
-      setShowCreateDialog(false);
     },
   });
 
@@ -114,7 +106,22 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   });
 
   const handleCreate = () => {
-    if (canCreateKeys && userId) createMutation.mutate({ name: newKeyName, projectId, userId });
+    if (!canCreateKeys || !userId) return;
+    createMutation.mutate(
+      { name: newKeyName, projectId, userId },
+      {
+        onSuccess: (response, owner) => {
+          setNewKeyData({
+            key: response.data.key,
+            keyHint: response.data.key_hint,
+            userId: owner.userId,
+            projectId: owner.projectId,
+          });
+          setNewKeyName("");
+          setShowCreateDialog(false);
+        },
+      },
+    );
   };
 
   const handleCloseNewKey = () => {

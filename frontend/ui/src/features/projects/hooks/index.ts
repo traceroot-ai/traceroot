@@ -2,7 +2,7 @@
  * Project feature hooks
  */
 import { useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type RefetchOptions } from "@tanstack/react-query";
 import { getProject, getProjects } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
 import { ApiError } from "@/lib/api/errors";
@@ -41,7 +41,7 @@ export function useProject(projectId: string, enabled: boolean = true) {
   });
   const refetchQuery = query.refetch;
   const refetch = useCallback(
-    async (options?: Parameters<typeof query.refetch>[0]) => {
+    async (options?: RefetchOptions) => {
       if (!userId) await refetchSession();
       return refetchQuery(options);
     },
