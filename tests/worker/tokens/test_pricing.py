@@ -1288,6 +1288,9 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
     ("claude-sonnet-4.5", "claude-sonnet-4-5"),
     ("claude-haiku-4.5", "claude-haiku-4-5"),
+    # Fable 5.2 — OpenRouter's dotted slug and Bedrock's global profile
+    ("anthropic/claude-fable-5.2", "claude-fable-5-2"),
+    ("global.anthropic.claude-fable-5-2", "claude-fable-5-2"),
     # Mythos 5.2 — bare, gateway slug and Bedrock global ids
     ("claude-mythos-5-2", "claude-mythos-5-2"),
     ("claude-mythos-5-2[1m]", "claude-mythos-5-2"),
