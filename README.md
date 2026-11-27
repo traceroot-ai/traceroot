@@ -37,7 +37,7 @@ traceroot: the open-source platform that continuously improves your ai agents.
 
 Open source Braintrust alternative. Find the patterns in your agent's production issues. Ship verified fixes with your coding agent.
 
-https://github.com/user-attachments/assets/5e7122df-848f-4138-85ce-cbd0b1432909
+https://github.com/user-attachments/assets/e6e4bcb9-8415-4dc8-a534-3ed257c98552
 
 ## Core Features
 
@@ -160,6 +160,8 @@ make prod-lite
 `make prod-lite` generates your own credentials in `.env`; keep a backup of that file. Upgrading an existing install is covered in the guide below.
 
 Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
+
+For production, deploy on Kubernetes with the [Helm chart](https://github.com/traceroot-ai/traceroot-k8s), or on AWS with the [Terraform module](https://github.com/traceroot-ai/traceroot-terraform-aws), which provisions the infrastructure and installs the chart.
 
 ## Integrations
 

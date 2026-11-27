@@ -27,7 +27,7 @@ export function GettingStarted({ projectId, wait }: GettingStartedProps) {
 
   return (
     <div className="w-full p-4">
-      <div className="w-full max-w-4xl">
+      <div className="mx-auto w-full max-w-4xl">
         <h2 className="text-[15px] font-medium">Get started with tracing</h2>
         <p className="mt-1 text-[13px] text-muted-foreground">
           No traces in this project yet. Get started in a few minutes with the command below.

@@ -3,16 +3,12 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
-import { LoadingState } from "@/components/ui/loading-state";
-import { useProject } from "@/features/projects/hooks";
 import { useWorkspaces } from "@/features/workspaces/hooks";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./CodeBlock";
-import { ExternalIntegrations } from "./ExternalIntegrations";
 import { setupCommand } from "./commands";
 import { SectionLink } from "./SectionLink";
 import { useSetupCommandCopied, type SetupCommandSurface } from "./use-setup-command-copied";
-import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 
 /**
  * The automatic route: one command, and what it will do.
@@ -91,21 +87,11 @@ interface AITabProps {
   surface: SetupCommandSurface;
   /** Each surface words the command block its own way. */
   copy: CommandCopy;
-  /** The GitHub and Slack connections. Sign-up hides them; they move to their own step. */
-  showExternalIntegrations?: boolean;
   /** More ways out, beside the demo project: sign-up's "Skip for now". */
   actions?: ReactNode;
 }
 
-export function AITab({
-  projectId,
-  surface,
-  copy,
-  showExternalIntegrations = true,
-  actions,
-}: AITabProps) {
-  const { data: project, isLoading: projectLoading } = useProject(projectId);
-  const workspaceId = project?.workspace_id;
+export function AITab({ projectId, surface, copy, actions }: AITabProps) {
   const setup = setupCommand({ projectId });
   const onCommandCopied = useSetupCommandCopied(projectId, surface);
   const demoWorkspace = useDemoWorkspace();
@@ -129,7 +115,7 @@ export function AITab({
           {/* What the person gets for running it. Copying shows nothing new: the
               page keeps waiting until the trace itself arrives. */}
           <p className="text-[12px] text-muted-foreground">
-            When your first trace arrives, you can open it and see every step your agent took.
+            Open a trace to see every step your agent took.
           </p>
         </div>
       ) : (
@@ -168,19 +154,6 @@ export function AITab({
             </Link>
           )}
           {actions}
-        </div>
-      )}
-
-      {showExternalIntegrations && (
-        <div className="space-y-2">
-          <p className="text-[13px] font-medium text-foreground">External integrations</p>
-          {projectLoading ? (
-            <LoadingState label="Loading integrations..." />
-          ) : workspaceId ? (
-            <ExternalIntegrations workspaceId={workspaceId} />
-          ) : (
-            <WorkspaceUnavailable />
-          )}
         </div>
       )}
     </div>

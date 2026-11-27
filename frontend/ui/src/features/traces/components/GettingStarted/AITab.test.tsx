@@ -243,46 +243,12 @@ describe("AITab", () => {
     expect(text).not.toContain("NEXT_PUBLIC_API_URL");
     expect(container.querySelector("pre")).not.toBeNull();
   });
-
-  it("groups GitHub and Slack into the external integrations card", () => {
-    render(<AITab {...PROJECT} />);
-    expect(screen.getByText("External integrations")).toBeDefined();
-    expect(screen.getByTestId("github-connect")).toBeDefined();
-    expect(screen.getByTestId("slack-connect")).toBeDefined();
-  });
-
-  it("says the workspace step is unavailable when the project fetch fails", () => {
-    // An errored useProject is not a loading state: isLoading drops with no
-    // data behind it. Rendering on `!isLoading` alone gave the card an empty
-    // workspace id — and this is the tab the panel opens on, so the first
-    // thing a customer who has just created a workspace and is its admin was
-    // told is to go and ask an admin, with no Connect button to use instead.
-    projectQuery.isLoading = false;
-    projectQuery.data = undefined;
-    const { container } = render(<AITab {...PROJECT} />);
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-    expect(screen.queryByTestId("slack-connect")).toBeNull();
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-    expect(container.textContent ?? "").not.toContain("Ask a workspace admin");
-  });
-
-  it("shows a placeholder instead of the integrations while the project loads", () => {
-    // The card reads the workspace id off the project, so rendering it before the
-    // fetch settles puts two rows on screen that cannot act on anything.
-    projectQuery.isLoading = true;
-    projectQuery.data = undefined;
-    render(<AITab {...PROJECT} />);
-    expect(screen.getByText("Loading integrations...")).toBeDefined();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-  });
 });
 
 describe("AITab, after the command", () => {
   it("says what the first trace will show, under the command", () => {
     const { container } = render(<AITab {...PROJECT} />);
-    const line = screen.getByText(
-      "When your first trace arrives, you can open it and see every step your agent took.",
-    );
+    const line = screen.getByText("Open a trace to see every step your agent took.");
     expect(
       container.querySelector("pre")!.compareDocumentPosition(line) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -321,11 +287,5 @@ describe("AITab, after the command", () => {
         surface: "onboarding",
       }),
     );
-  });
-
-  it("leaves GitHub and Slack out where the caller hides them", () => {
-    render(<AITab {...ONBOARDING} showExternalIntegrations={false} />);
-    expect(screen.queryByText("External integrations")).toBeNull();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
   });
 });

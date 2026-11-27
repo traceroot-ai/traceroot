@@ -68,10 +68,42 @@ An install that never set `ENCRYPTION_KEY` has nothing stored under it and simpl
 
 ### Production Deployment
 
-Best for: production workloads on AWS.
+Best for: production workloads.
 
-Deploy traceroot on Kubernetes using Helm charts and Terraform. Configuration lives in the [`deploy`](https://github.com/traceroot-ai/traceroot/tree/main/deploy) directory.
+traceroot runs on Kubernetes. The deployment lives in two dedicated, versioned repositories, so you can pin a release and upgrade deliberately.
 
-<Warning>
-  Terraform deployment is currently experimental. We recommend testing thoroughly before production use.
-</Warning>
+| Repository | What it gives you |
+|---|---|
+| [traceroot-terraform-aws](https://github.com/traceroot-ai/traceroot-terraform-aws) | A Terraform module that provisions the whole stack on AWS: VPC, EKS, RDS (PostgreSQL), ElastiCache (Redis), ECR, S3, EFS, ACM and an ALB ingress. It then installs the Helm chart for you. |
+| [traceroot-k8s](https://github.com/traceroot-ai/traceroot-k8s) | The Helm chart for any Kubernetes cluster. Use it directly to run traceroot on infrastructure you already manage. |
+
+**On AWS**, use the Terraform module. It is the fastest path to a production deployment:
+
+```hcl
+module "traceroot" {
+  source = "github.com/traceroot-ai/traceroot-terraform-aws?ref=<release-tag>"
+
+  environment = "production"
+  name        = "traceroot-production"
+  aws_region  = "us-east-1"
+  vpc_cidr    = "10.0.0.0/16"
+  domain      = "traceroot.example.com"
+  image_tag   = "<image-tag>"
+}
+```
+
+See the [module README](https://github.com/traceroot-ai/traceroot-terraform-aws#readme) for every input, and [`examples/quickstart`](https://github.com/traceroot-ai/traceroot-terraform-aws/tree/main/examples/quickstart) for a runnable example.
+
+**On any other Kubernetes cluster**, install the chart with Helm:
+
+```bash
+helm repo add traceroot https://traceroot-ai.github.io/traceroot-k8s
+helm repo update
+helm install traceroot traceroot/traceroot -f my-values.yaml
+```
+
+See the [chart README](https://github.com/traceroot-ai/traceroot-k8s#readme) and its [`values.yaml`](https://github.com/traceroot-ai/traceroot-k8s/blob/main/charts/traceroot/values.yaml) for configuration.
+
+<Tip>
+  Pin the module `ref` and the chart version to a release rather than tracking `main`.
+</Tip>

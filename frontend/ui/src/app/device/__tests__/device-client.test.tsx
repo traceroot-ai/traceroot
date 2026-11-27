@@ -203,7 +203,7 @@ describe("DeviceClient", () => {
         (_, el) =>
           el?.tagName === "P" &&
           el.textContent ===
-            "Approving signs traceroot CLI in to your traceroot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign traceroot CLI out, but you can revoke it from Active Sessions in your account settings.",
+            "Approving signs this application in to your traceroot account. It stays signed in while you use it and signs out within seven days of its last use. Signing out in this browser doesn't sign it out, but you can revoke its access from Active Sessions in your account settings.",
       ),
     ).toBeDefined();
     expect(screen.getByRole("link", { name: "Active Sessions" }).getAttribute("href")).toBe(

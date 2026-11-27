@@ -37,7 +37,7 @@ traceroot：持续改进你的 AI Agent 的开源平台。
 
 开源 Braintrust 替代方案。找出你的 Agent 在生产环境中各类问题的规律，再与你的编程 Agent 一起交付经过验证的修复。
 
-https://github.com/user-attachments/assets/5e7122df-848f-4138-85ce-cbd0b1432909
+https://github.com/user-attachments/assets/e6e4bcb9-8415-4dc8-a534-3ed257c98552
 
 ## 核心功能
 
@@ -158,6 +158,8 @@ make prod-lite
 ```
 
 打开 [localhost:3000](http://localhost:3000)。配置与部署详情请参阅[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
+
+生产环境请使用 [Helm chart](https://github.com/traceroot-ai/traceroot-k8s) 部署到 Kubernetes；在 AWS 上可使用 [Terraform 模块](https://github.com/traceroot-ai/traceroot-terraform-aws)，它会创建基础设施并自动安装该 chart。
 
 ## 集成
 
