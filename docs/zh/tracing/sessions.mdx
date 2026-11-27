@@ -1,0 +1,80 @@
+---
+title: 会话
+description: 把相关的 trace 归入会话，用于多轮对话和工作流
+---
+
+设置 **Session ID** 可以把 trace 归到一起，比如一段对话里的所有轮次，或者多 agent 工作流里的所有步骤。
+
+<Frame caption="会话面板：汇总统计、用户，以及每条 trace 的输入和输出">
+  <img src="/images/session_v2.png" alt="traceroot 会话面板，展示会话统计、用户，以及每条 trace 的输入和输出" />
+</Frame>
+
+## 使用 `using_attributes` / `usingAttributes`
+
+把会话 ID 传递给代码块内的所有 trace：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import using_attributes
+
+    with using_attributes(session_id="chat-abc-123"):
+        response_1 = agent.run("What's the weather in SF?")
+        response_2 = agent.run("What about tomorrow?")
+    ```
+
+    和 User ID 一起使用，每条 trace 都能带上完整的上下文：
+
+    ```python
+    with using_attributes(session_id="chat-abc-123", user_id="user-42"):
+        agent.run(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { usingAttributes } from '@traceroot-ai/traceroot';
+
+    await usingAttributes({ sessionId: 'chat-abc-123' }, async () => {
+      await agent.run("What's the weather in SF?");
+      await agent.run('What about tomorrow?');
+    });
+    ```
+
+    和 User ID 一起使用，每条 trace 都能带上完整的上下文：
+
+    ```typescript
+    await usingAttributes({ sessionId: 'chat-abc-123', userId: 'user-42' }, async () => {
+      await agent.run(query);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## 使用 `observe` / 在函数内部设置
+
+在任何被 observe 的函数内部调用 `update_current_trace` / `updateCurrentTrace`：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, update_current_trace
+
+    @observe(name="handle_request", type="agent")
+    def handle_request(query: str, session_id: str):
+        update_current_trace(session_id=session_id)
+        return process(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentTrace } from '@traceroot-ai/traceroot';
+
+    async function handleRequest(query: string, sessionId: string) {
+      return observe({ name: 'handle_request', type: 'agent' }, async () => {
+        updateCurrentTrace({ sessionId });
+        return handleQuery(query);
+      });
+    }
+    ```
+  </Tab>
+</Tabs>

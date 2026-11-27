@@ -1,0 +1,223 @@
+---
+title: 成本跟踪
+description: 自动统计 LLM 调用的 token 并计算成本
+---
+
+traceroot 会从已插桩的 LLM 调用里采集 token 用量。只要上报的 model ID 能匹配 traceroot 价格表里的条目，就会计算成本，与 span 来自哪个集成无关。你也可以[直接上报](#直接上报成本)成本。
+
+<Tabs>
+  <Tab title="Python">
+    {/* [start:snippet:tracing-cost-tracking-python] */}
+    ```python
+    from openai import OpenAI
+
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+    client = OpenAI()
+
+    # OpenAI calls are tracked automatically; cost requires a priced model ID
+    client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello"}],
+    )
+    ```
+    {/* [end:snippet:tracing-cost-tracking-python] */}
+  </Tab>
+  <Tab title="TypeScript">
+    {/* [start:snippet:tracing-cost-tracking-typescript] */}
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+    const client = new OpenAI();
+
+    // OpenAI calls are tracked automatically; cost requires a priced model ID
+    await client.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'Hello' }],
+    });
+    ```
+    {/* [end:snippet:tracing-cost-tracking-typescript] */}
+  </Tab>
+</Tabs>
+
+## 工作原理
+
+1. **自动插桩**：traceroot 的集成会自动从提供商的响应里采集 token 用量。
+2. **兜底估算**：响应里没有 token 数时，traceroot 用 tiktoken 估算。
+3. **模型匹配**：上报的 model ID 会和 traceroot 的价格表做匹配，支持带提供商前缀的别名和托管平台的别名。
+4. **成本计算**：匹配成功时，用 token 数乘以该条目的价格。没有匹配到的模型仍然会记录 token，但不会有计算出的成本，除非你[自己上报](#直接上报成本)。
+5. **上报的成本**：如果 span 带有你上报的成本，就保存这个值，替换第 4 步计算出的成本。token 不变。
+
+## 价格覆盖范围
+
+价格条目目前覆盖以下模型系列：
+
+- OpenAI
+- Anthropic，包括经 Amazon Bedrock 路由的受支持 model ID，以及 Google Vertex AI 上的 Claude 3.x model ID
+- Google Gemini
+- xAI
+- DeepSeek
+- Moonshot (Kimi)
+- Z.AI (GLM)
+- TypeSafe AI (JEV)
+
+是否覆盖取决于 model ID 的匹配规则，只看提供商或集成的名称无法判断。目前没有价格条目的主要模型系列包括 Mistral、Groq 托管的模型、Amazon Nova 和 Titan，以及 Meta Llama。经过路由的模型（例如通过 OpenRouter 或 Bedrock 调用的模型）只有在路由后的 model ID 匹配某个价格条目时才会计价。如果你是通过自己插桩的代码调用这些模型，可以[直接上报成本](#直接上报成本)。
+
+## 跟踪的指标
+
+每个 LLM span 会记录：
+
+| 指标 | 说明 |
+|--------|-------------|
+| 输入 token | 提示词/messages 里的 token |
+| 输出 token | completion/response 里的 token |
+| 总 token | 输入与输出之和 |
+| 成本（USD） | model ID 匹配价格表时计算得出，或者是你上报的成本 |
+
+## 查看成本
+
+在仪表盘里，span 级别和 trace 级别都能看到成本：
+- **每个 span**：查看每一次 LLM、工具或 API 调用的成本
+- **每条 trace**：查看这条 trace 里所有调用汇总后的总成本
+
+<Frame caption="Span 成本：成本标签及其输入、输出成本明细">
+  <img src="/images/cost_breakdown_v1.png" alt="Trace 详情，LLM span 的成本标签和它的 Cost breakdown 卡片被高亮" />
+</Frame>
+
+## 手动上报 token
+
+对于自定义或暂不支持的提供商，可以手动上报 token 用量：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, update_current_span
+
+    class MockLLM:
+        def generate(self, prompt):
+            class Response:
+                text = "mock response"
+                input_token_count = 10
+                output_token_count = 20
+            return Response()
+
+    my_llm = MockLLM()
+
+    @observe(name="custom_llm", type="llm")
+    def call_custom_llm(prompt: str):
+        response = my_llm.generate(prompt)
+
+        update_current_span(
+            model="claude-opus-5",
+            usage={
+                "input_tokens": response.input_token_count,
+                "output_tokens": response.output_token_count,
+            },
+        )
+
+        return response.text
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const myLlm = {
+      generate: async (prompt: string) => ({
+        text: 'mock response',
+        inputTokenCount: 10,
+        outputTokenCount: 20,
+      }),
+    };
+
+    const result = await observe({ name: 'custom_llm', type: 'llm' }, async () => {
+      const prompt = "hello";
+      const response = await myLlm.generate(prompt);
+
+      updateCurrentSpan({
+        model: 'claude-opus-5',
+        usage: {
+          input: response.inputTokenCount,
+          output: response.outputTokenCount,
+        },
+      });
+
+      return response.text;
+    });
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  **两种语言的 usage key 不同：**
+  在 Python 里，使用 `input_tokens` 和 `output_tokens`（以及 `reasoning_tokens`、`cache_read_tokens`、`cache_write_tokens`）。
+  在 TypeScript 里，使用 `input`、`output`、`cacheRead`、`cacheWrite` 和 `total`。
+</Note>
+
+## 直接上报成本
+
+如果你已经知道一次调用花了多少钱（比如协议价、网关的账单，或者没有价格条目的模型），可以和 usage 一起上报：
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import update_current_span
+
+    update_current_span(
+        model="claude-opus-5",
+        usage={"input_tokens": 10, "output_tokens": 20},
+        cost=0.0123,  # USD
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    updateCurrentSpan({
+      model: 'claude-opus-5',
+      usage: { input: 10, output: 20 },
+      cost: 0.0123, // USD
+    });
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  需要 Python SDK `traceroot` 0.5.0 或更高版本，或 TypeScript SDK `@traceroot-ai/traceroot` 0.7.0 或更高版本。
+</Note>
+
+上报的成本会替换 traceroot 为这个 span 计算出的价格。请在发起调用的那个 span 上以数字形式上报。成本为 `0` 也会被接受，span 的成本会被设为零。如果子 span 已经计价，又在父 span 上上报总额，成本会被重复计算。token 仍然会被记录。分类别的成本明细只在它和计算出的价格一致时才显示，所以上报了不同的成本后，这个 span 和它所在 trace 的明细会被隐藏。成本从 OpenInference 的 `llm.cost.total` 属性读取，所以设置了这个属性的 OpenInference instrumentor 会被自动识别。
+
+### 工具和 API 调用
+
+付费的工具或 API 调用用同样的方式上报成本，不需要模型和 token 用量。各个工具的计费方式不同，所以先算出这次调用的美元金额，再把它上报到工具自己的 span 上。这笔成本会计入 trace 的总成本。
+
+| 工具的计费方式 | 上报什么 | 示例 |
+| --- | --- | --- |
+| [响应中带价格](#响应中带价格) | 响应里的价格 | [Exa](/zh/integrations/exa) |
+| [按次固定价格](#按次固定价格) | 你的单次调用价格 | [PredictLeads](/zh/integrations/predictleads) |
+| [按 credit 或配额计费](#按-credit-或配额计费) | 消耗的 credit 数 × 你的每 credit 价格 | [Tavily](/zh/integrations/tavily) |
+| [按使用时长计费](#按使用时长计费) | 使用时长 × 你的每分钟或每小时价格 | [TinyFish](/zh/integrations/tinyfish)、[Notte](/zh/integrations/notte) |
+
+#### 响应中带价格
+
+有些提供商（例如 [Exa](/zh/integrations/exa)）会返回每次请求的美元成本。直接透传这个值即可，Exa 页面里有示例代码。
+
+有些提供商在调用返回之后才结算价格。例如 [Apify](https://docs.apify.com/api/v2/actor-run-get) 建议在一次运行结束约 10 秒后再读取一次它的成本。请上报结算后的值。
+
+#### 按次固定价格
+
+如果每次调用的价格相同，就在每次调用时上报你的价格。重试算作另一次调用，有它自己的成本。traceroot 记录的是你上报的成本，所以提供商计费的每一次响应都要上报。例如 [PredictLeads](/zh/integrations/predictleads) 对暂时没有返回数据的查询收费，对被拒绝的查询不收费。
+
+#### 按 credit 或配额计费
+
+有些提供商按 credit 计费，每个 credit 值多少美元取决于你的套餐。在你请求 usage 信息时，[Tavily](/zh/integrations/tavily) 会返回一次搜索消耗的 credit 数。
+
+#### 按使用时长计费
+
+有些工具按时间计费，例如按分钟或按小时计费的远程浏览器。给会话计时，乘以你的费率，并在 `finally` 代码块里上报，这样失败的会话也会被计入。这只是估算值：提供商按它自己的用量记录计费，时长可能略长一些。[TinyFish](/zh/integrations/tinyfish) 和 [Notte](/zh/integrations/notte) 的浏览器会话都使用这种计费方式。

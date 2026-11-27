@@ -1,0 +1,85 @@
+---
+title: 用 signal 跟踪反复出现的 agent 失败
+sidebarTitle: 简介
+description: 查看哪些 trace 存在同一个问题，以及修复之后它还出现得多频繁。
+---
+
+一个 signal 代表你的 agent 反复遇到的一个问题。当 detector 因为同一个问题标记了很多条 trace 时，traceroot 会把它们归并成一个 signal。你只需要审查并修复这个问题一次，之后就能看到它还出现得多频繁。
+
+Signals 是 [detector](/zh/detectors/introduction) 的延伸：detector 负责判断 trace，signal 则在很多条 trace 之间跟踪同一个问题。
+
+所有套餐都可以使用 signal，包括 Free 和自托管。根因分析的额度是：Free 包含 30 次分析，Starter 和 Pro 每个计费周期包含 100 次（超出的分析另行计费），Enterprise 和自托管不限次数。
+
+<Frame caption="Signals 页面：signal 列表，以及某个 signal 的状态、总结和分析">
+  <img src="/images/signals_page_v1.png" alt="Signals 列表，其中一个 signal 的面板已打开，展示它的状态、总结、根因分析和随时间变化的数量" />
+</Frame>
+
+## finding 如何变成 signal
+
+当 detector 标记一条 trace 时，traceroot 会记录一个 **finding**。大约一分钟之内，traceroot 会把这个 finding 加入该 detector 下匹配的 signal，或者新建一个带有名称和 **Summary** 的 signal。使用 [TypeSafe AI](/zh/ai-agent/byok) 模型的 detector 会按模型选出的类别来归并它的 finding。
+
+要停止某个 detector 的归并，请在它设置里的 **Signals** 部分关闭 **Generate signals**。这个 detector 仍然会记录 finding，但 traceroot 不会对它们做归并、分析或通知。
+
+## 审查 signal
+
+在 [traceroot Cloud](https://app.traceroot.ai) 里打开你的项目，在左侧导航里选择 **Signals**。列表把最新的 signal 排在前面，并默认筛选为 **Open**。你可以按状态、signal 的名称或 ID、detector 的名称或 ID 来筛选。在 **Detectors** 页面上，点击某个 detector 的 **Signals** 数量，会打开按这个 detector 筛选后的列表。这个数量和它打开的列表都包含所有状态的 signal。
+
+日期范围（默认是 **Last 7 days**）决定每个 signal 统计受影响 trace 数量的时间段。它只改变 trace 数量，以及 signal 面板里的图表和 trace 列表。它不会隐藏任何 signal。
+
+选择一个 signal 可以打开它的面板：
+
+- **Status**：signal 的状态，以及修改状态的控件。
+- **Summary**：这个 signal 涵盖的内容。
+- **Root Cause Analysis**：最近一次分析，或者一个 **Run root cause analysis** 按钮。显示分析时，点击 **Open in agent** 可以在 traceroot Agent 里打开它并继续追问。
+- **Count over time**：在日期范围内，detector 检查过的 trace 里有多少条受这个 signal 影响（**Affected**），有多少条没有受影响（**Unaffected**）。
+- **Affected traces**：日期范围内最多 10 条最近的 trace。**View all** 会在 Tracing 页面打开它们，并按这个 signal 筛选。
+
+在通知邮件和 Slack 消息里，signal 的名称直接链接到它的面板。
+
+## signal 的状态
+
+signal 的状态是 **Open**、**Resolved** 或 **Dismissed**。用面板上的 **Status** 控件来修改。
+
+- **Open**：问题需要关注。每个新 signal 都从这个状态开始。
+- **Resolved**：问题已经修复。需要选择一个原因，比如 **PR was merged**。
+- **Dismissed**：这个 signal 不需要处理。需要选择一个原因，比如 **Expected behavior**。
+
+signal 在任何状态下都会继续收集新的 finding。[通知](/zh/detectors/introduction#通知)只针对新建和重新打开的 signal。状态按以下规则变化：
+
+- 如果有一个 finding 来自你标记为已解决之后才开始的 trace，已解决的 signal 会自动重新打开。下一次通知会把它列在 **Reopened** 下。
+- 已忽略的 signal 保持忽略状态。
+- 手动把 signal 改回 **Open** 不会发送通知，也不会启动分析。
+
+## API 里的 signal
+
+脚本可以通过公开 API 读取 signal 并修改它们的状态：
+
+- `GET /api/v1/public/signals` 列出项目的 signal，最新的排在前面。可以按 `status` 或 `detector_id` 筛选。已合并的 signal 不在其中。
+- `GET /api/v1/public/signals/{signal_id}` 返回一个 signal，并在 `recent_hits` 里给出它最近命中的最多 20 条 trace，按 trace 开始时间从新到旧排列。每次命中都带有 `trace_id`、`finding_id` 和 `trace_start_time`，并且只列出套餐保留期之内的 trace。已合并的 signal 会在 `merged_into_id` 里给出它并入的那个 signal。
+- `PATCH /api/v1/public/signals/{signal_id}/status` 解决或重新打开一个 signal。解决时需要 `reason`（`fixed_elsewhere`、`fixed_by_pr`、`already_fixed_before` 或 `other`），选 `other` 时还需要 `note`。传入 `expected_status`，可以在你读取之后有人改过状态的情况下拒绝这次修改。
+
+[traceroot CLI](/zh/cli/get-started) 目前还没有这些 signal 命令。
+
+使用用户令牌认证时，GET 请求要把 `project_id` 放在查询参数里，PATCH 请求要把它放在 JSON body 里。列表默认返回 50 个 signal；递增 `page`（从 0 开始）可以读取后面的页。
+
+项目 API key 可以读取 signal，但不能修改它们。修改状态需要一个已登录的用户，角色为成员或更高。这次修改会连同该用户的名字、原因和备注一起记录下来，和在 Web 应用里一样。你不能通过 API 忽略一个 signal：被忽略的 signal 永远不会重新打开，所以这一步要由人在 Web 应用里完成。
+
+## 根因分析
+
+[traceroot Agent](/zh/ai-agent/root-cause-analysis) 读取 signal 的一条 trace 并解释原因。连接了 [GitHub](/zh/ai-agent/github-integration) 之后，它还会读取相关的代码和最近的 commit。detector 的 **Root cause analysis** 设置决定它什么时候运行：
+
+- **Automatic**：每个新 signal 都会运行；signal 重新打开时，如果上一次分析已经超过 24 小时，也会运行。
+- **Manual**：只在你点击 signal 面板上的 **Run root cause analysis** 时运行。
+
+一次运行会在大约两分钟之内开始。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Detectors" icon="shield-halved" href="/zh/detectors/introduction">
+    设置用来标记问题 trace 的检查。
+  </Card>
+  <Card title="Detector 通知" icon="bell" href="/zh/detectors/introduction#通知">
+    针对新建和重新打开的 signal 的邮件和 Slack digest。
+  </Card>
+</CardGroup>

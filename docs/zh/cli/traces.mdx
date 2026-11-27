@@ -1,0 +1,59 @@
+---
+title: 在终端里使用 trace
+sidebarTitle: Traces
+description: 用 traceroot CLI 列出、读取和导出 trace
+---
+
+查找 [trace](/zh/tracing/overview)，读取某一条 trace 和它的 span，并把它导出到磁盘。
+
+## 列出 trace
+
+```bash
+traceroot traces list --since 1h --limit 20
+```
+
+trace 按从新到旧排列。`--limit` 默认是 50，最大 200，没有翻页的 flag。评测运行产生的 trace 不会列出来。
+
+| Flag | 含义 |
+| :- | :- |
+| `--since <duration>` | 以当前时间为终点的时间窗口：一个整数加上 `s`、`m`、`h`、`d` 或 `w`，例如 `30m` 或 `7d` |
+| `--from <timestamp>` | 在这个时间点或之后开始的 trace |
+| `--to <timestamp>` | 在这个时间点之前开始的 trace |
+
+`--since` 不能和 `--from` 或 `--to` 一起用。不带任何时间 flag 时，你会得到套餐保留期内最新的 trace。
+
+`--from` 和 `--to` 接受 ISO 8601 格式，例如 `2026-06-23T14:31:02Z` 或 `2026-06-23T14:31:02-06:00`。只写日期表示 UTC 的零点，不带时区偏移的时间按 UTC 处理。它们也接受从 `STARTED` 列复制出来、加了引号的时间，例如 `"2026-06-23 14:31:02 MDT"`，按你的本地时区解析。
+
+要按名称、模型或环境筛选，请使用 [SQL](/zh/cli/sql)。
+
+## 读取一条 trace
+
+```bash
+traceroot traces get <trace-id>
+traceroot traces get <trace-id> --fields full --json
+```
+
+不加 `--json` 时，这条命令会打印 trace 的头部信息、detector finding（如果有）、span 树，以及指向 web 应用的链接。
+
+`--fields` 决定请求返回哪些内容。多个字段组之间用逗号分隔，例如 `--fields io,metadata`。遇到未知的字段组时，命令以退出码 2 退出。
+
+| 值 | 包含 |
+| :- | :- |
+| `core` | 树结构、耗时和状态。始终包含 |
+| `usage` | token 用量和成本。不管有没有它，API 都会返回这些内容 |
+| `io` | 每个 span 的输入和输出 |
+| `metadata` | 每个 span 的元数据 |
+| `skeleton` | `core,usage`，`traces get` 的默认值 |
+| `full` | 全部内容，`traces export` 的默认值 |
+
+所以默认情况下，`traces get --json` 里 span 的 `input`、`output` 和 `metadata` 都是 `null`。
+
+## 导出一条 trace
+
+```bash
+traceroot traces export <trace-id> --output ./my-trace
+```
+
+这条命令会写出 `trace.json`、`spans.json`、`git_context.json` 和 `manifest.json`；如果有 detector 标记了这条 trace，还会写出 `finding.json`。传 `--fields` 可以少导出一些内容。
+
+不加 `--output` 时，它会在当前目录下创建 `trace_<trace-id>_<timestamp>`。如果目录非空，命令以退出码 1 退出；传 `--force` 可以覆盖它。

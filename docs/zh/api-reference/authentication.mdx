@@ -1,0 +1,91 @@
+---
+title: 身份验证
+description: 每个 API 路由接受哪种凭证，以及如何获取凭证
+---
+
+发往 traceroot API 的每个请求都以 bearer token 的形式携带凭证：
+
+```bash
+curl "https://app.traceroot.ai/api/v1/public/traces?limit=10" \
+  --header "Authorization: Bearer $TRACEROOT_API_KEY"
+```
+
+API 接受三种凭证。一个路由接受哪几种，取决于这个路由做什么，所以选择凭证之前，请先查看[哪些路由接受哪种凭证](#哪些路由接受哪种凭证)下的表格。
+
+## 凭证
+
+| 凭证 | 形式 | 范围 | 有效期 |
+| --- | --- | --- | --- |
+| 项目 API key | `tr-` 后接一个 UUID | 一个项目 | 直到被删除，或到达可选的过期时间 |
+| 会话令牌 | 一个不透明的字符串 | 你本人，涵盖你能访问的所有项目 | 你的登录会话期间 |
+| CLI 访问令牌 | 一个 JWT（`header.payload.signature`） | 你本人，涵盖你能访问的所有项目 | 10 分钟 |
+
+### 项目 API key
+
+在 [traceroot Cloud](https://app.traceroot.ai) 或你的[自托管](/zh/developer/self-hosting)仪表盘里，进入项目的设置创建 key。完整的 key 只在创建时显示一次，请把它保存在安全的地方。
+
+一个 key 属于一个项目，所以用它发出的请求不需要 `project_id`。如果仍然传了 `project_id`，它必须与 key 所属的项目一致，否则请求会以 `400` 失败。
+
+### 会话令牌和 CLI 访问令牌
+
+这两种凭证代表的都是你本人，与具体项目无关。用 [CLI](/zh/cli/authentication) 登录：
+
+```bash
+traceroot login
+```
+
+除非有 API key 或已保存的会话[优先生效](/zh/cli/authentication#login-做了什么)，这条命令会打开浏览器登录，并把会话令牌保存到 `~/.config/traceroot/credentials.json`。你可以直接把这个会话令牌作为 bearer 发送。
+
+CLI 自己发送的是一个短期有效的访问令牌。要签发一个访问令牌，可以在 Web 应用上用会话令牌换取：
+
+```bash
+curl --request POST "https://app.traceroot.ai/api/cli/token" \
+  --header "Authorization: Bearer $TRACEROOT_TOKEN"
+```
+
+响应里包含 `accessToken`，有效期 10 分钟。过期后重新签发一个。
+
+## 哪些路由接受哪种凭证
+
+| 路由 | API key | 会话令牌或 CLI 访问令牌 |
+| --- | --- | --- |
+| 读取：trace、会话、detector 和 finding、仪表盘、组件（包括 `POST /widgets/query`）、告警、SQL（包括 `POST /sql`）、数据集、评测和评测运行 | 是 | 是，需要 `project_id` |
+| trace 接入（`POST /traces`）和评测运行的写入（`POST /evaluation-runs`、`.../results`、`.../complete`） | 是 | 否 |
+| 数据集编写（`POST /datasets`、`PATCH /datasets/{dataset_id}`、`POST /datasets/{dataset_id}/versions`），供 SDK 使用，未列在本参考中 | 是 | 否 |
+| `GET /whoami` | 是 | 否 |
+| 账户读取：`GET /projects`、`GET /workspaces` | 否（`403`） | 是 |
+| 创建、编辑和删除项目、工作空间、告警、仪表盘、detector 和组件，以及暂停或恢复告警 | 否（`403`） | 是 |
+
+### 用用户凭证读取时需要 `project_id`
+
+除了上面的账户读取，会话令牌和访问令牌都不绑定项目，所以用它们做项目范围内的读取时，必须通过查询参数指明项目：
+
+```bash
+curl "https://app.traceroot.ai/api/v1/public/traces?project_id=$PROJECT_ID&limit=10" \
+  --header "Authorization: Bearer $TRACEROOT_TOKEN"
+```
+
+缺少这个参数时，请求会以 `400` 失败，并返回 `project_id query parameter is required for user credentials`。调用 `GET /projects` 可以列出你能使用的项目 ID。
+
+### 写操作需要用户登录
+
+创建、编辑和删除资源是以你的账户身份进行的操作，所以这些路由会拒绝 API key，返回 `403` 和 `this operation requires a user login; API keys are project-scoped`。请改用会话令牌或访问令牌。
+
+对 detector、仪表盘、组件和告警的写操作，创建或编辑时把 `project_id` 放在请求体里，删除时放在查询参数里。项目的更新和删除从路径参数 `{project_id}` 里取得项目。你运行 `traceroot logout` 之后，用访问令牌发出的写操作也会被拒绝并返回 `401`，即使令牌还没有过期。
+
+### 数据接入只接受 API key
+
+SDK 用项目 API key 发送 trace 和评测结果。这些路由不接受用户凭证。
+
+## 错误
+
+| 状态码 | 含义 |
+| --- | --- |
+| `400` | 用用户凭证读取时缺少 `project_id`，或者它与 API key 所属的项目不一致。 |
+| `401` | `Authorization` 请求头缺失或格式错误；凭证无效、已过期或已被撤销；或者把用户凭证发给了只接受项目 API key 的路由。 |
+| `403` | 把 API key 发给了需要用户登录的路由，或者你没有这个项目的访问权限。 |
+| `503` | traceroot 无法验证凭证。请重试这个请求。 |
+
+## 自托管
+
+在自托管部署里，把 `https://app.traceroot.ai` 替换成你自己的 URL：`/api/v1/public/*` 路由使用后端地址（默认 `http://localhost:8000`），`/api/cli/token` 使用 Web 应用地址（默认 `http://localhost:3000`）。在每个端点页面的 playground 里，选择 **Self-hosted** 服务器并填入你的后端 URL。

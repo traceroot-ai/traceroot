@@ -1,0 +1,106 @@
+---
+title: Agno
+description: 自动插桩 Agno 的 agent、工具和多步推理
+---
+
+自动采集 [Agno](https://github.com/agno-agi/agno) 框架里的 agent 运行、工具调用和推理步骤。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot agno anthropic duckduckgo-search yfinance
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.AGNO])
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，所有 Agno agent 运行和工具调用都会被自动采集：
+
+```python
+import traceroot
+from traceroot import Integration
+from agno.agent import Agent
+from agno.models.anthropic import Claude
+from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.yfinance import YFinanceTools
+
+traceroot.initialize(integrations=[Integration.AGNO])
+
+agent = Agent(
+    model=Claude(id="claude-sonnet-4-20250514"),
+    tools=[
+        YFinanceTools(),
+        DuckDuckGoTools(),
+    ],
+    instructions=[
+        "Use YFinance for stock prices and fundamentals.",
+        "Use DuckDuckGo for general web searches.",
+        "Always cite your sources.",
+    ],
+    markdown=True,
+)
+
+# 整个 agent 运行都会被追踪，包括每一次工具调用
+agent.print_response(
+    "What is the current stock price of NVDA and what are its fundamentals?",
+    stream=False,
+)
+
+traceroot.flush()
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `Agent.run` 的 trace。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| agent 运行 | 每一次 `agent.run()` / `agent.print_response()` 调用 |
+| 推理步骤 | agent 循环里每一个 ReAct 风格的步骤 |
+| 工具调用 | 每一次工具调用，包含输入参数和结果 |
+| LLM 调用 | 发给底层提供商的原始 completion 请求 |
+| token 和成本 | 汇总的 token 用量；模型 ID 能匹配 traceroot 的价格表时还有成本 |
+| 延迟 | 每次 agent 运行和每个 span 的耗时 |
+
+## 限制
+
+暂无已知限制。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/agno-tool-agent">
+  运行 Python 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

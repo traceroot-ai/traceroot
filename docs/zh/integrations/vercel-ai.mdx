@@ -1,0 +1,172 @@
+---
+title: Vercel AI SDK
+description: 追踪 Vercel AI SDK 的 agent，不需要配置 instrumentModules
+---
+
+借助 [Vercel AI SDK](https://ai-sdk.dev) 内置的 OpenTelemetry 支持，自动采集 agent 运行、LLM 调用、工具执行和 token 用量，不需要配置 `instrumentModules`。
+
+## 安装
+
+<Tabs>
+  <Tab title="AI SDK 7">
+    ```bash
+    npm install @traceroot-ai/traceroot ai@^7 @ai-sdk/otel@^1 @ai-sdk/openai@^4 zod@^4
+    ```
+  </Tab>
+  <Tab title="AI SDK 6（旧版）">
+    ```bash
+    npm install @traceroot-ai/traceroot ai@^6 @ai-sdk/openai@^3 zod@^4
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="AI SDK 7">
+    在第一次模型调用之前，调用 `TraceRoot.initialize()` 并注册 AI SDK 的 OpenTelemetry 集成：
+
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { registerTelemetry } from 'ai';
+    import { OpenTelemetry } from '@ai-sdk/otel';
+
+    TraceRoot.initialize();
+
+    // AI SDK 7 必须加这一行，否则不会发出任何 span。
+    registerTelemetry(new OpenTelemetry({ usage: true }));
+    ```
+  </Tab>
+  <Tab title="AI SDK 6（旧版）">
+    在第一次模型调用之前调用 `TraceRoot.initialize()`：
+
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+
+    然后在每次调用上设置 `experimental_telemetry: { isEnabled: true }`（见[使用](#使用)）。
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，每次 `generateText` / `streamText` 调用、模型调用和工具执行都会被自动采集：
+
+<Tabs>
+  <Tab title="AI SDK 7">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { registerTelemetry, generateText, tool, isStepCount } from 'ai';
+    import { OpenTelemetry } from '@ai-sdk/otel';
+    import { openai } from '@ai-sdk/openai';
+    import { z } from 'zod';
+
+    TraceRoot.initialize();
+    registerTelemetry(new OpenTelemetry({ usage: true }));
+
+    // agent 运行、两次模型调用和 getWeather 工具调用都会被追踪。
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      instructions: 'You are a concise weather assistant.',
+      prompt: 'What is the weather in Tokyo?',
+      stopWhen: isStepCount(5),
+      telemetry: { functionId: 'weather_agent' },
+      tools: {
+        getWeather: tool({
+          description: 'Get current weather for a city',
+          inputSchema: z.object({ city: z.string() }),
+          execute: async ({ city }) => ({ city, temp: 72, condition: 'sunny' }),
+        }),
+      },
+    });
+
+    console.log(result.text);
+    await TraceRoot.flush();
+    ```
+  </Tab>
+  <Tab title="AI SDK 6（旧版）">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { generateText, tool, stepCountIs } from 'ai';
+    import { openai } from '@ai-sdk/openai';
+    import { z } from 'zod';
+
+    TraceRoot.initialize();
+
+    // agent 运行、两次模型调用和 getWeather 工具调用都会被追踪。
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      system: 'You are a concise weather assistant.',
+      prompt: 'What is the weather in Tokyo?',
+      stopWhen: stepCountIs(5),
+      // AI SDK 6 的每次调用都必须设置。
+      experimental_telemetry: { isEnabled: true, functionId: 'weather_agent' },
+      tools: {
+        getWeather: tool({
+          description: 'Get current weather for a city',
+          inputSchema: z.object({ city: z.string() }),
+          execute: async ({ city }) => ({ city, temp: 72, condition: 'sunny' }),
+        }),
+      },
+    });
+
+    console.log(result.text);
+    await TraceRoot.flush();
+    ```
+  </Tab>
+</Tabs>
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `ai.generateText` 的 trace。`functionId` 只给 span 设置一个 telemetry 属性，span 的名称不变。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| 模型 | 传给 `generateText` / `streamText` / `ToolLoopAgent` 的模型 |
+| 消息 | 输入的提示词和消息历史 |
+| 响应 | 生成的文本输出 |
+| 工具调用 | 每次工具调用，包含输入和输出 |
+| Token | 输入和输出 token 数 |
+| 成本 | model ID 匹配 traceroot 价格表时计算 |
+| 延迟 | 每个 span 的请求耗时 |
+| 多步迭代 | 工具循环的每一步记录为一个子 span |
+
+## 限制
+
+- AI SDK 7 需要 Node >= 22。
+- 在 AI SDK 6（旧版）上，每次模型调用都必须显式设置 `experimental_telemetry: { isEnabled: true }`。
+
+## Embedding 用量
+
+`embed` 和 `embedMany` 会把上报的输入 token 用量记录在各自的提供商调用 span 上。模型匹配 traceroot 价格表里的条目时会计算成本，否则成本保持未设置。目前的标准价格表里没有 embedding 模型。外层的操作包装 span 仍然留在 trace 里，但它汇总的旧版用量不会被重复计入。一个批次被拆成多次提供商调用时也是如此。
+
+没有上报用量的 embedding span，token 数保持未设置。traceroot 不会根据输入文本或输出向量估算 embedding token。这样，当编排 span 的提供商调用子 span 已经上报了实际用量时，编排 span 上就不会出现重复的估算值。
+
+使用 AI SDK 7 的 `OpenTelemetry` 集成时，请用 1.0.76 或更新版本的 `@ai-sdk/otel`。如果你用的是更早的版本，请升级 `@ai-sdk/otel`：旧的 semconv emitter 可能在 embedding 包装 span 和它的提供商调用上重复上报用量，修复后的 emitter 只在提供商调用上上报。
+
+AI SDK 6 内置的 telemetry 和 AI SDK 7 的 `LegacyOpenTelemetry` 集成用 `ai.usage.tokens` 上报原始的 embedding 用量。traceroot 只在提供商调用上读取这个字段，判断依据是 `ai.operationId` 或 `operation.name` 的值为 `ai.embed.doEmbed` 或 `ai.embedMany.doEmbed`。请在自定义的 span processor 里保留这些操作属性，这样才能把实际用量和包装 span 的汇总值区分开。如果你的 emitter 没有输出这些属性，请换用会输出它们的 emitter，或者切换到当前的 AI SDK 7 `OpenTelemetry` 集成。归一化之后的 OpenInference 或 GenAI 用量字段不受影响，仍然照常支持。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/vercel-ai">
+  运行 TypeScript 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="TypeScript SDK 参考" icon="code" href="/zh/tracing/typescript-sdk">
+    查看完整的 TypeScript SDK 参考和配置选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

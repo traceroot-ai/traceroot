@@ -38,6 +38,29 @@ body {
   color: var(--tr-text);
 }
 
+/* Language switcher (language.js): the website's globe and "EN/文" link stands in for Mintlify's
+   dropdown, which shows again if the link is missing. It has no hover state. */
+[data-component-part="localization-select-trigger"]:has(+ .tr-lang) {
+  display: none;
+}
+
+.tr-lang {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  /* Black at 62% on white, as a solid colour so the globe's crossing strokes do not darken. */
+  color: #616161;
+  font: 600 13px/18px var(--font-family-body-custom);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.tr-lang svg {
+  flex: none;
+}
+
 #search-bar-entry {
   background: color-mix(in srgb, var(--tr-surface) 65%, transparent);
 }
@@ -287,6 +310,16 @@ body {
 
 #pagination [rel="next"]::before {
   content: "Next  →";
+}
+
+/* The labels above are written in CSS, so each language needs its own. */
+html[lang^="zh"] #pagination:not(:has([rel="prev"]))::before,
+html[lang^="zh"] #pagination [rel="prev"]::before {
+  content: "←  上一页";
+}
+
+html[lang^="zh"] #pagination [rel="next"]::before {
+  content: "下一页  →";
 }
 
 #pagination [data-component-part="pagination-title"] {

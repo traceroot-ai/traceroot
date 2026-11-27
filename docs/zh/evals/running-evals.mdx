@@ -1,0 +1,97 @@
+---
+title: 运行 eval
+description: 用 evaluate() 在数据集上运行你的系统
+---
+
+`evaluate()` 在一个数据集上运行你的系统，为每个用例打分，并上报这次运行。每个用例都作为一条独立的 trace 运行，所以你可以打开任意一个用例，看到系统究竟做了什么。
+
+## 参数
+
+用关键字参数调用 `evaluate()`。TypeScript 使用同样的名字，写成 camelCase（`candidateVersion`、`evaluationKey`、`maxConcurrency`），并放在一个选项对象里传入。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|-----------|------|---------|-------------|
+| `name` | `str` | 必填 | 评测的名称 |
+| `dataset` | `Dataset` 或 `list` | 必填 | 要运行的[数据集](/zh/evals/datasets)，或者一个内联的用例列表 |
+| `task` | `callable` | 必填 | 你的系统，把输入映射成输出。可以是异步的 |
+| `scorers` | `list` | 必填 | 用来给每个用例打分的 [scorer](/zh/evals/scorers) |
+| `candidate_version` | `str` | `"sdk"` | 标注你正在测试的对象（模型 id、提示词版本、git sha）。在 UI 里显示在运行编号旁边 |
+| `evaluation_key` | `str` | `name` | 运行归组所依据的稳定标识。设置它可以在改名后保留同一段历史，也可以把同一个评测的 Python 和 TypeScript 运行归到一起 |
+| `local` | `bool` | `False` | 完整运行，但不向任何地方上报。不能和 `transport` 同时使用 |
+| `transport` | `EvalTransport` | `None` | 显式指定这次运行的上报目的地。传入 `FakeTransport()` 可以记录本来会发送的内容，不产生任何 HTTP 请求 |
+| `select` | `callable` | `None` | 一个判断函数，用来只运行一部分用例，不需要修改数据集 |
+| `timeout` | `float` | `None` | 每个用例允许的秒数。超时只会让这个用例失败，不影响整次运行 |
+| `progress` | `bool` | 自动 | 实时进度条。交互式终端里默认开启；在 CI 里传入 `False` 可以关掉它 |
+| `max_concurrency` | `int` | `10` | 并行运行的用例数量 |
+
+内联的用例列表可以正常运行，但只有 `Dataset` 能上报到平台。在列表上运行时请传入 `local=True`。
+
+不设置 `local` 和 `transport` 时，只要能解析到凭证，这次运行就会上报到 traceroot。
+
+Python 同时提供 `evaluate` 和 `evaluate_async`。在 TypeScript 里，`evaluate` 是异步的，一定要 `await` 它。
+
+## 示例
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset, evaluate
+
+    ds = Dataset("weather", key="weather")
+    ds.add({"city": "SF"}, expected="68°F")
+
+    def task(input):
+        return look_up_weather(input["city"])
+
+    def reports_temp(input, output, expected=None):
+        return expected is not None and expected in (output or "")
+
+    result = evaluate(
+        name="weather",
+        dataset=ds,
+        task=task,
+        scorers=[reports_temp],
+        candidate_version="weather-v1",
+        evaluation_key="weather-eval",
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset, evaluate, type ScorerContext } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("weather", null, { key: "weather" });
+    ds.add({ city: "SF" }, { expected: "68°F" });
+
+    async function task(input: unknown) {
+      return lookUpWeather((input as { city: string }).city);
+    }
+
+    function reportsTemp({ output, expected }: ScorerContext) {
+      return String(output ?? "").includes(String(expected));
+    }
+
+    const result = await evaluate({
+      name: "weather",
+      dataset: ds,
+      task,
+      scorers: [reportsTemp],
+      candidateVersion: "weather-v1",
+      evaluationKey: "weather-eval",
+    });
+    ```
+  </Tab>
+</Tabs>
+
+本地的 `Dataset` 会作为运行的一部分自动发布，不需要单独的发布步骤。在交互式终端里，汇总会自动打印出来；通过管道输出或在 CI 里运行时，输出保持干净。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="查看结果" icon="list-check" href="/zh/evals/reading-results">
+    查看 `evaluate()` 返回的汇总和按用例的结果。
+  </Card>
+  <Card title="数据集" icon="table" href="/zh/evals/datasets">
+    编写、管理版本、发布和拉取数据集。
+  </Card>
+</CardGroup>

@@ -1,0 +1,103 @@
+---
+title: 认证与配置
+description: traceroot CLI 如何选择凭证、项目和 host，以及它会读取哪些变量和文件
+---
+
+## 浏览器登录与 API key
+
+| 操作 | 浏览器登录 | 项目 API key |
+| :- | :- | :- |
+| 读取项目数据 | 可以，需要先[选择项目](#选择项目) | 可以 |
+| 列出工作空间和项目 | 可以 | 不可以 |
+| 创建、修改或删除工作空间、项目、detector、告警、仪表盘或组件 | 可以，前提是你的[角色](/zh/getting-started/concepts#角色)允许 | 不可以 |
+
+被拒绝的命令以退出码 3 退出。`TRACEROOT_TOKEN` 存放的是 session token，效果等同于浏览器登录。如果它的值以 `tr-` 或 `tr_` 开头，就会被当作 API key。session token 从哪里来，见 [API 认证](/zh/api-reference/authentication#会话令牌和-cli-访问令牌)。
+
+## login 做了什么
+
+只有在没有其他凭证[胜出](#使用哪个凭证)时，`traceroot login` 才会打开浏览器登录。在 `setup` 配置过的仓库里，`./.env` 或 `./.traceroot/config.json` 里的 key 通常会胜出，所以 `login` 可能不会打开浏览器。如果仍然想通过浏览器登录，请在一个没有这两个文件的目录里运行 `login`，并且不要设置 `TRACEROOT_API_KEY`。之后这个会话在任何目录下都对该 host 生效。
+
+| 胜出的凭证 | `login` 的行为 |
+| :- | :- |
+| 没有凭证，或者 `TRACEROOT_TOKEN` 里是 session token | 运行浏览器登录并保存会话 |
+| 来自 `--api-key`、`--env-file`、`TRACEROOT_API_KEY` 或 `./.env` 的 key，或者 `TRACEROOT_TOKEN` 里以 `tr-` 或 `tr_` 开头的值 | 检查这个 key，然后把它和 host 保存到 `./.traceroot/config.json`。不打开浏览器 |
+| 已保存的会话，或者 `./.traceroot/config.json` 里的 key | 提示你已经登录。在终端里，它会问你是否重新登录。其他情况下它以退出码 0 退出，不做任何修改；如果已保存的会话已经失效，则会开始一次新的登录 |
+
+用 `--host` 或 `TRACEROOT_HOST_URL`（在环境变量里或 `--env-file` 里）指定 host 时，最后一行不适用：已保存的 key 会拿到新 host 上检查，其他情况下运行浏览器登录。
+
+`traceroot status` 显示凭证属于谁，以及它来自哪里。
+
+`traceroot logout` 的行为同样取决于凭证：
+
+- **已保存的会话**：吊销并删除它。之后 `./.traceroot/config.json` 里的 key 会接替生效，所以要再运行一次 `logout` 把它也删掉。如果吊销失败，会话会保留，命令以退出码 5 退出。
+- **`TRACEROOT_TOKEN` 里的 session token**：吊销这个会话。变量需要你自己取消设置。
+- **`./.traceroot/config.json` 里的 key**：删除这个 key。
+- **其他任何 key**：不做任何修改。请自己删除它。
+
+## 使用哪个凭证
+
+优先级从高到低：
+
+1. `--api-key`
+2. `--env-file`：先 `TRACEROOT_TOKEN`，再 `TRACEROOT_API_KEY`
+3. `TRACEROOT_TOKEN`
+4. 为这个 host 保存的浏览器登录
+5. `TRACEROOT_API_KEY`
+6. `./.traceroot/config.json` 里的 `api_key`
+7. `./.env` 里的 `TRACEROOT_API_KEY`
+
+已保存的浏览器登录优先级高于 `TRACEROOT_API_KEY`，所以在两者都有的机器上，要用 key 就传 `--api-key`。在你这么做之前，这个 key 和它的项目都不会生效。`./.env` 永远不会提供 `TRACEROOT_TOKEN`。
+
+## 选择项目
+
+浏览器登录读取项目数据时需要指定项目，否则命令以退出码 2 退出。优先级从高到低：
+
+1. `--project`
+2. `--env-file` 里的 `TRACEROOT_PROJECT_ID`
+3. `TRACEROOT_PROJECT_ID`
+4. `./.traceroot/config.json` 里的 `project_id`，`setup` 在浏览器登录时会保存它
+5. `./.env` 里的 `TRACEROOT_PROJECT_ID`
+
+`traceroot projects list` 显示各个项目的 ID，`traceroot status` 显示当前使用的项目。
+
+CLI 只从当前目录读取 `./.traceroot/config.json` 和 `./.env`，除非 `TRACEROOT_CONFIG_PATH` 指定了另一个配置文件。所以用浏览器登录跑完 `setup` 之后，在运行它的那个目录里读取命令可以直接用。在其他地方，请传 `--project`。
+
+API key 自带它所属的项目，所以用 key 时读取命令会忽略上面所有这些设置，包括 `--project`。`setup` 有所不同：它的 `--project` 接受名称或 ID 并去查找项目，这需要浏览器登录，所以不要和 key 一起用。
+
+有些命令有自己的 `--project-id`。它的优先级高于上面的列表，并且必须和 API key 所属的项目一致。
+
+## 使用其他 host
+
+`--host` 设置 API 的地址。`--auth-host` 设置你登录的地址。优先级从高到低：
+
+- **Host**：`--host`，`--env-file` 里的 `TRACEROOT_HOST_URL`，然后是环境变量里的，`./.traceroot/config.json` 里的 `host_url`，`./.env` 里的 `TRACEROOT_HOST_URL`，最后是 `https://app.traceroot.ai`。
+- **Auth host**：`--auth-host`，`--env-file` 里的 `TRACEROOT_AUTH_URL`，然后是环境变量里的，随胜出的浏览器登录一起保存的那个，`./.env` 里的 `TRACEROOT_AUTH_URL`，最后是 host。
+
+详见[自托管的 traceroot](/zh/tracing/get-started#自托管的-traceroot)。
+
+## 环境变量
+
+| 变量 | 作用 |
+| :- | :- |
+| `TRACEROOT_API_KEY` | 项目 API key |
+| `TRACEROOT_TOKEN` | session token。以 `tr-` 或 `tr_` 开头的值会被当作 API key |
+| `TRACEROOT_HOST_URL` | API host |
+| `TRACEROOT_AUTH_URL` | Auth host |
+| `TRACEROOT_PROJECT_ID` | 浏览器登录使用的项目 |
+| `TRACEROOT_TIMEOUT_MS` | 请求超时时间。`--timeout` 的优先级更高 |
+| `TRACEROOT_CONFIG_PATH` | 用来替代 `./.traceroot/config.json` 的配置文件 |
+| `TRACEROOT_CREDENTIALS_PATH` | 用来替代 `~/.config/traceroot/credentials.json` 的凭证文件 |
+| `XDG_CONFIG_HOME` | 把凭证文件移到 `$XDG_CONFIG_HOME/traceroot/credentials.json`。`TRACEROOT_CREDENTIALS_PATH` 的优先级更高 |
+| `CODEX_HOME` | Codex skill 的存放位置。默认：`~/.codex` |
+| `CI` | 只要不为空也不是 `false`，`setup` 就不会提示 |
+| `NO_COLOR`、`FORCE_COLOR` | 关闭或开启颜色。`NO_COLOR` 优先 |
+
+## 文件
+
+| 默认路径 | 内容 | 由谁写入 |
+| :- | :- | :- |
+| `~/.config/traceroot/credentials.json` | 每个 host 一个会话 | `login`、`setup` |
+| `./.traceroot/config.json` | `api_key`、`host_url`、`project_id` | `login`、`setup` |
+| `./.env` | `TRACEROOT_API_KEY`、`TRACEROOT_HOST_URL`、`TRACEROOT_AUTH_URL`、`TRACEROOT_PROJECT_ID` | 你自己，或者 `setup`（它会写入 key 和 host） |
+
+[路径变量](#环境变量)可以移动前两个文件。CLI 把它们的权限保持在 `0600`，并让 git 忽略 `.traceroot/`。`--env-file` 读取的内容和 `./.env` 相同，另外还读取 `TRACEROOT_TOKEN`。存在 `.env.local` 时，`setup` 会改为写入这个文件，而 CLI 不会读取它。

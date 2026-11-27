@@ -1,0 +1,94 @@
+---
+title: pi CLI
+description: 用 traceroot 扩展追踪交互式的 pi 会话
+---
+
+用 [traceroot pi 扩展](https://github.com/traceroot-ai/traceroot-pi-extension)追踪交互式的 [pi](https://pi.dev) 会话，包括轮次、模型调用、工具调用和 token 用量。
+
+<Note>
+  如果你是用 `@earendil-works/pi-coding-agent` 把 pi 嵌入自己的 Node 进程，请改用 [pi SDK](/zh/integrations/pi) 集成。
+</Note>
+
+## 安装
+
+需要 Node.js 22.19 或更高版本，以及 pi 0.79 或更高版本。
+
+```bash
+pi install npm:@traceroot-ai/pi-extension
+```
+
+## 设置
+
+追踪默认关闭，需要你主动开启。启动 pi 之前先设置下面这些变量，然后重启 pi：
+
+```bash
+export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY="tr-..."
+# 可选：只有自托管部署才需要
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"
+```
+
+| 设置项 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| 启用 | `TRACEROOT_ENABLED` | `false` | 必填。开启追踪。 |
+| API key | `TRACEROOT_API_KEY` | — | 必填。 |
+| 主机地址 | `TRACEROOT_HOST_URL` | 托管服务 | 仅在自托管时设置。 |
+| 采集内容 | `TRACEROOT_CAPTURE_CONTENT` | `true` | 发送提示词和响应。设为 `false` 时只保留元数据。 |
+| 采集工具 I/O | `TRACEROOT_CAPTURE_TOOL_IO` | `true` | 发送工具的参数和结果。 |
+| 调试 | `TRACEROOT_PI_DEBUG` | `false` | 把日志输出到 stderr。`TRACEROOT_LOG_FILE` 会写入一份 JSON-lines 日志。 |
+
+在 pi 里，`/traceroot status` 会显示追踪是否开启，以及 trace 发往哪里。`/traceroot disable` 和 `/traceroot enable` 可以为当前会话关闭或开启追踪。
+
+## 使用
+
+照常使用 pi。每个会话都会成为一条 trace，每一轮对应一个 span。
+
+```
+pi.session                   # 每个会话一个
+├── pi.turn                  # 每个提示词一个
+│   ├── openai/gpt-…         # LLM span：token、缓存、成本
+│   │   ├── bash: …          # TOOL span：命令和结果
+│   │   └── edit: …
+└── pi.turn
+```
+
+## 验证
+
+在 pi 里运行一个提示词，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `pi.session` 的 trace。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|---|---|
+| 会话 | 每个会话一条 trace；恢复和分叉出来的会话会相互关联 |
+| 轮次 | 每个提示词一个 span，被中断时会有标记 |
+| 模型调用 | 提供商和模型、提示词和响应；出错和中止会有标记 |
+| Token | 输入、输出、缓存读取和写入的数量，以及成本 |
+| 工具调用 | 工具名称、参数和结果；失败的工具会有标记 |
+| 压缩 | 每次压缩是会话上的一个 span |
+
+开启内容采集时，提示词和工具 I/O 都会原样发送，不做任何脱敏。设置 `TRACEROOT_CAPTURE_CONTENT=false` 和 `TRACEROOT_CAPTURE_TOOL_IO=false` 可以只发送元数据。详见[数据采集与隐私](/zh/tracing/data-capture#默认采集的内容)。
+
+## 限制
+
+- exporter 会忽略 `HTTPS_PROXY`，所以在只能走代理的网络里，导出可能会失败。
+- 如果没有收到 trace，请运行 `/traceroot status`，并设置 `TRACEROOT_PI_DEBUG=true` 把日志输出到 stderr。
+
+## 运行示例
+
+<Card title="traceroot-pi-extension" icon="github" href="https://github.com/traceroot-ai/traceroot-pi-extension">
+  源码和完整设置
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="pi SDK" icon="code" href="/zh/integrations/pi">
+    追踪你在自己代码里运行的 pi 会话。
+  </Card>
+  <Card title="数据采集与隐私" icon="shield-halved" href="/zh/tracing/data-capture">
+    控制哪些内容会离开你的机器。
+  </Card>
+</CardGroup>

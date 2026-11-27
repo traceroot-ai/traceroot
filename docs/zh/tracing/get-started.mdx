@@ -1,0 +1,173 @@
+---
+title: 为你的 AI agent 设置追踪
+sidebarTitle: 快速上手
+description: 在仓库里运行 CLI，或者用 Python 或 TypeScript SDK 给应用插桩。
+---
+
+在你想要追踪的仓库根目录下运行：
+
+```bash
+npx -y traceroot-cli@latest setup
+```
+
+setup 需要 Node.js 20.12 或更高版本，以及一个 Python 或 TypeScript/JavaScript 应用。在用 coding agent？[Coding agents](/zh/getting-started/coding-agents#设置追踪) 页面有一段可以直接粘贴的提示词。想自己添加 SDK？直接跳到[手动设置](#手动设置)。
+
+## setup 做了什么
+
+setup 会检查是否有未提交的改动，通过浏览器让你登录，选择或创建一个项目，并为你的应用设置 `TRACEROOT_API_KEY`，通常写在 `.env.local` 或 `.env` 里。接着它会运行你的 coding agent 并等待 trace 到达，或者给你一个任务或手动步骤，由你自己完成。
+
+setup 不会回滚 coding agent 做的修改，请用 `git diff` 检查这些改动。它把进度和 CLI 用的项目 key 保存在 `.traceroot/` 里，并让 git 忽略这个目录。
+
+在 monorepo 里，请在服务所在的目录下运行 setup，或者传入 `--service <path>`。运行 `npx -y traceroot-cli@latest setup --help` 可以查看所有选项。你部署的应用也需要在环境变量里设置 `TRACEROOT_API_KEY`；如果是自托管，还需要 `TRACEROOT_HOST_URL`。
+
+## 自托管的 traceroot
+
+用 `--host` 传入 API 的 origin，用 `--auth-host` 传入 web 应用（你登录的地方）的 origin。对于使用默认端口的本地部署：
+
+```bash
+npx -y traceroot-cli@latest setup --host "http://localhost:8000" --auth-host "http://localhost:3000"
+```
+
+只填 origin，不要带 `/api/v1`。如果两者是同一个 origin，只传 `--host` 就够了。你的部署里的 **Traces** 页面会显示这条命令，并且已经填好 origin。如何运行一套部署，请看[自托管](/zh/developer/self-hosting)。
+
+## 手动设置
+
+下面是 setup 自动完成的各个步骤。
+
+### 1. 获取 API key
+
+在 [traceroot Cloud](https://app.traceroot.ai) 或[自托管](/zh/developer/self-hosting)部署中创建一个 API key。
+
+### 2. 安装 SDK
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot openai
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot openai
+    ```
+  </Tab>
+</Tabs>
+
+### 3. 设置环境变量
+
+<Frame caption="追踪设置：侧边栏、Manual 标签页、API key 输入框、Generate 按钮">
+  <img src="/images/tracing_api_key_v1.png" alt="traceroot 追踪页面，高亮显示 Create an API key 步骤" />
+</Frame>
+
+两个 SDK 都不会自动加载 `.env` 文件，它们读取的是进程的环境变量。在 shell 里导出这些变量：
+
+```bash
+export TRACEROOT_API_KEY="your-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # 自托管：填你的 API 的 origin，例如 http://localhost:8000
+```
+
+*（如果你更想用 `.env` 文件，请按下一步的示例在代码里显式加载它。）*
+
+### 4. 给代码插桩
+
+<Tabs>
+  <Tab title="Python">
+    在应用启动的位置初始化 traceroot，放在 `if __name__ == "__main__":` 代码块里，不要放在模块顶层。这样测试导入这个模块时就不会发送 trace。
+
+    {/* [start:snippet:tracing-get-started-python] */}
+    ```python
+    from openai import OpenAI
+
+    import traceroot
+    from traceroot import Integration
+
+
+    def main():
+        client = OpenAI()
+        # ...your application
+
+
+    if __name__ == "__main__":
+        # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
+        traceroot.initialize(integrations=[Integration.OPENAI])  # instruments all OpenAI calls
+        main()
+    ```
+    {/* [end:snippet:tracing-get-started-python] */}
+
+    在 uvicorn 或 gunicorn 这类服务器下，这个代码块不会执行，请在框架启动的位置初始化。
+  </Tab>
+  <Tab title="TypeScript">
+    在入口文件调用的启动函数里初始化 traceroot，不要放在模块顶层。这样测试导入这个模块时就不会发送 trace。
+
+    {/* [start:snippet:tracing-get-started-typescript] */}
+    ```typescript
+    // import { config } from 'dotenv';  // Uncomment if using a .env file (requires: npm install dotenv)
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    async function main() {
+      // config();
+      TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });  // instruments all OpenAI calls
+      const openai = new OpenAI();
+      // ...your application
+    }
+
+    // Call main() from your entry point.
+    ```
+    {/* [end:snippet:tracing-get-started-typescript] */}
+
+    如果你的模块由框架加载，并不直接运行，请在框架启动的位置初始化。
+  </Tab>
+</Tabs>
+
+运行你自己的测试时设置 `TRACEROOT_ENABLED=false`，这样测试也不会发送 trace。SDK 的完整说明请看 [Python SDK](/zh/tracing/python-sdk) 或 [TypeScript SDK](/zh/tracing/typescript-sdk)。
+
+### 5. 查看第一条 trace
+
+运行你的应用，并触发已经插桩的代码。打开 [traceroot Cloud](https://app.traceroot.ai)（或你自托管的仪表盘），进入你的项目，就能看到完整的 span 层级、token 用量、成本和耗时。
+
+更习惯用终端？[traceroot CLI](/zh/cli/get-started) 可以在 shell 里处理同样的 trace，还能查看 detector 的 finding 和 eval。
+
+## 排查问题
+
+### setup 中途停止
+
+先让 setup 告诉你哪里出了问题，再从停下的地方继续：
+
+```bash
+npx -y traceroot-cli@latest setup doctor
+npx -y traceroot-cli@latest setup --resume
+```
+
+如果你运行 setup 时用了 `--service <path>`，这两条命令也要带上同样的选项。如果 coding agent 没有跑完，setup 会把它的输出保存在 `.traceroot/setup-instrument-output.log`。这个文件可能引用了仓库里的文件内容，其中可能有密钥，分享之前请先检查。
+
+### 没有收到 trace
+
+运行一次应用并触发已插桩的代码，然后运行 `npx -y traceroot-cli@latest setup --resume`。两个 SDK 都不会自己加载 `.env`，请确认应用加载了 setup 写入的文件，或者在 shell 里导出这些变量。
+
+### 还是没解决？
+
+到 [Discord](https://discord.gg/TM2m3CtKuC) 提问，或者[提一个 issue](https://github.com/traceroot-ai/traceroot-cli/issues)。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK" icon="python" href="/zh/tracing/python-sdk">
+    Python SDK 的完整 API 参考。
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/zh/tracing/typescript-sdk">
+    TypeScript SDK 的完整 API 参考。
+  </Card>
+  <Card title="功能" icon="sparkles" href="/zh/tracing/overview">
+    为 trace 附加用户、会话、标签、元数据等信息。
+  </Card>
+  <Card title="Detectors" icon="shield-halved" href="/zh/detectors/introduction#如何创建-detector">
+    创建第一个 detector，开始发现 trace 里的失败。
+  </Card>
+  <Card title="traceroot Agent" icon="brain" href="/zh/ai-agent/overview">
+    用 traceroot Agent 自动排查失败的 trace。
+  </Card>
+  <Card title="CLI" icon="terminal" href="/zh/cli/get-started">
+    在终端里处理 trace、finding 和 eval。
+  </Card>
+</CardGroup>

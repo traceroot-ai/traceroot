@@ -77,218 +77,494 @@
     ]
   },
   "navigation": {
-    "tabs": [
+    "languages": [
       {
-        "tab": "Documentation",
-        "icon": "book-open",
-        "groups": [
+        "language": "en",
+        "tabs": [
           {
-            "group": "Overview",
-            "pages": [
-              "getting-started/introduction",
-              "getting-started/quickstart",
-              "getting-started/coding-agents",
-              "getting-started/concepts",
-              "developer/self-hosting"
+            "tab": "Documentation",
+            "icon": "book-open",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": [
+                  "getting-started/introduction",
+                  "getting-started/quickstart",
+                  "getting-started/coding-agents",
+                  "getting-started/concepts",
+                  "developer/self-hosting"
+                ]
+              },
+              {
+                "group": "Tracing",
+                "pages": [
+                  "tracing/introduction",
+                  "tracing/get-started",
+                  {
+                    "group": "SDKs",
+                    "pages": [
+                      "tracing/python-sdk",
+                      "tracing/typescript-sdk"
+                    ]
+                  },
+                  {
+                    "group": "Features",
+                    "pages": [
+                      "tracing/overview",
+                      "tracing/users",
+                      "tracing/sessions",
+                      "tracing/tags",
+                      "tracing/metadata",
+                      "tracing/data-capture",
+                      "tracing/cost-tracking",
+                      "tracing/git-context",
+                      "tracing/timeline",
+                      "tracing/live-streaming"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "CLI",
+                "pages": [
+                  "cli/get-started",
+                  "cli/authentication",
+                  "cli/scripting",
+                  {
+                    "group": "Commands",
+                    "expanded": true,
+                    "pages": [
+                      "cli/traces",
+                      "cli/detectors-and-findings",
+                      "cli/alerts",
+                      "cli/dashboards-and-widgets",
+                      "cli/workspaces-and-projects",
+                      "cli/sql"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "Detectors",
+                "pages": [
+                  "detectors/introduction"
+                ]
+              },
+              {
+                "group": "Signals",
+                "pages": [
+                  "signals/introduction"
+                ]
+              },
+              {
+                "group": "Alerts",
+                "pages": [
+                  "alerts/overview",
+                  "alerts/rule-reference"
+                ]
+              },
+              {
+                "group": "Evaluations",
+                "pages": [
+                  "evals/introduction",
+                  "evals/get-started",
+                  "evals/datasets",
+                  "evals/scorers",
+                  "evals/running-evals",
+                  "evals/reading-results",
+                  "evals/cli"
+                ]
+              },
+              {
+                "group": "Dashboards",
+                "pages": [
+                  "dashboards/get-started"
+                ]
+              },
+              {
+                "group": "traceroot Agent",
+                "pages": [
+                  "ai-agent/overview",
+                  {
+                    "group": "Get Started",
+                    "pages": [
+                      "ai-agent/github-integration",
+                      "ai-agent/byok"
+                    ]
+                  },
+                  {
+                    "group": "Features",
+                    "pages": [
+                      "ai-agent/trace-analysis",
+                      "ai-agent/root-cause-analysis",
+                      "ai-agent/pr-creation"
+                    ]
+                  }
+                ]
+              }
             ]
           },
           {
-            "group": "Tracing",
-            "pages": [
-              "tracing/introduction",
-              "tracing/get-started",
+            "tab": "Integrations",
+            "icon": "puzzle-piece",
+            "groups": [
               {
-                "group": "SDKs",
+                "group": "Overview",
+                "pages": [
+                  "integrations/overview"
+                ]
+              },
+              {
+                "group": "Native",
                 "pages": [
                   "tracing/python-sdk",
                   "tracing/typescript-sdk"
                 ]
               },
               {
-                "group": "Features",
+                "group": "Frameworks",
                 "pages": [
-                  "tracing/overview",
-                  "tracing/users",
-                  "tracing/sessions",
-                  "tracing/tags",
-                  "tracing/metadata",
-                  "tracing/data-capture",
-                  "tracing/cost-tracking",
-                  "tracing/git-context",
-                  "tracing/timeline",
-                  "tracing/live-streaming"
-                ]
-              }
-            ]
-          },
-          {
-            "group": "CLI",
-            "pages": [
-              "cli/get-started",
-              "cli/authentication",
-              "cli/scripting",
-              {
-                "group": "Commands",
-                "expanded": true,
-                "pages": [
-                  "cli/traces",
-                  "cli/detectors-and-findings",
-                  "cli/alerts",
-                  "cli/dashboards-and-widgets",
-                  "cli/workspaces-and-projects",
-                  "cli/sql"
-                ]
-              }
-            ]
-          },
-          {
-            "group": "Detectors",
-            "pages": [
-              "detectors/introduction"
-            ]
-          },
-          {
-            "group": "Signals",
-            "pages": [
-              "signals/introduction"
-            ]
-          },
-          {
-            "group": "Alerts",
-            "pages": [
-              "alerts/overview",
-              "alerts/rule-reference"
-            ]
-          },
-          {
-            "group": "Evaluations",
-            "pages": [
-              "evals/introduction",
-              "evals/get-started",
-              "evals/datasets",
-              "evals/scorers",
-              "evals/running-evals",
-              "evals/reading-results",
-              "evals/cli"
-            ]
-          },
-          {
-            "group": "Dashboards",
-            "pages": [
-              "dashboards/get-started"
-            ]
-          },
-          {
-            "group": "traceroot Agent",
-            "pages": [
-              "ai-agent/overview",
-              {
-                "group": "Get Started",
-                "pages": [
-                  "ai-agent/github-integration",
-                  "ai-agent/byok"
+                  "integrations/agno",
+                  "integrations/autogen",
+                  "integrations/claude-agent-sdk",
+                  "integrations/crewai",
+                  "integrations/dspy",
+                  "integrations/google-adk",
+                  "integrations/langchain",
+                  "integrations/langchain-deepagents",
+                  "integrations/llamaindex",
+                  "integrations/mastra",
+                  "integrations/microsoft-agent-framework",
+                  "integrations/openai-agents-sdk",
+                  "integrations/pi",
+                  "integrations/pydantic-ai",
+                  "integrations/vercel-ai"
                 ]
               },
               {
-                "group": "Features",
+                "group": "Model Providers",
                 "pages": [
-                  "ai-agent/trace-analysis",
-                  "ai-agent/root-cause-analysis",
-                  "ai-agent/pr-creation"
+                  "integrations/anthropic",
+                  "integrations/gemini",
+                  "integrations/mistral",
+                  "integrations/openai",
+                  "integrations/openai-compatible",
+                  "integrations/openrouter",
+                  "integrations/typesafe"
                 ]
+              },
+              {
+                "group": "Coding Agents",
+                "pages": [
+                  "integrations/claude-code",
+                  "integrations/codex",
+                  "integrations/pi-cli"
+                ]
+              },
+              {
+                "group": "Tools and APIs",
+                "pages": [
+                  "integrations/exa",
+                  "integrations/notte",
+                  "integrations/predictleads",
+                  "integrations/tavily",
+                  "integrations/tinyfish"
+                ]
+              },
+              {
+                "group": "Internal Model Providers",
+                "pages": [
+                  "integrations/internal-models"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "API Reference",
+            "icon": "square-code",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": [
+                  "api-reference/authentication"
+                ]
+              },
+              {
+                "group": "Endpoints",
+                "openapi": "api-reference/openapi.json"
               }
             ]
           }
         ]
       },
       {
-        "tab": "Integrations",
-        "icon": "puzzle-piece",
-        "groups": [
+        "language": "zh",
+        "navbar": {
+          "links": [
+            { "label": "示例", "href": "https://github.com/traceroot-ai/traceroot/tree/main/examples" },
+            { "label": "traceroot Cloud", "href": "https://app.traceroot.ai" }
+          ]
+        },
+        "footer": {
+          "socials": {
+            "x": "https://x.com/TraceRootAI",
+            "github": "https://github.com/traceroot-ai/traceroot",
+            "linkedin": "https://www.linkedin.com/company/traceroot-ai",
+            "discord": "https://discord.gg/TM2m3CtKuC"
+          },
+          "links": [
+            {
+              "header": "产品",
+              "items": [
+                { "label": "登录", "href": "https://app.traceroot.ai/" },
+                { "label": "文档", "href": "https://traceroot.ai/docs/zh/getting-started/introduction" },
+                { "label": "集成", "href": "https://traceroot.ai/docs/zh/integrations/overview" },
+                { "label": "价格", "href": "https://traceroot.ai/pricing" },
+                { "label": "更新日志", "href": "https://traceroot.ai/changelog" }
+              ]
+            },
+            {
+              "header": "公司",
+              "items": [
+                { "label": "博客", "href": "https://traceroot.ai/blog" },
+                { "label": "服务说明", "href": "https://traceroot.ai/service" },
+                { "label": "和创始人聊聊", "href": "https://cal.com/traceroot/30min" }
+              ]
+            },
+            {
+              "header": "信任与合规",
+              "items": [
+                { "label": "安全", "href": "https://traceroot.ai/security" },
+                { "label": "信任中心", "href": "https://trust.traceroot.ai" },
+                { "label": "隐私政策", "href": "https://traceroot.ai/privacy" },
+                { "label": "服务条款", "href": "https://traceroot.ai/terms" }
+              ]
+            },
+            {
+              "header": "社区",
+              "items": [
+                { "label": "GitHub", "href": "https://github.com/traceroot-ai/traceroot" },
+                { "label": "Discord", "href": "https://discord.gg/TM2m3CtKuC" },
+                { "label": "X", "href": "https://x.com/TraceRootAI" },
+                { "label": "LinkedIn", "href": "https://www.linkedin.com/company/traceroot-ai" }
+              ]
+            }
+          ]
+        },
+        "tabs": [
           {
-            "group": "Overview",
-            "pages": [
-              "integrations/overview"
+            "tab": "文档",
+            "icon": "book-open",
+            "groups": [
+              {
+                "group": "概览",
+                "pages": [
+                  "zh/getting-started/introduction",
+                  "zh/getting-started/quickstart",
+                  "zh/getting-started/coding-agents",
+                  "zh/getting-started/concepts",
+                  "zh/developer/self-hosting"
+                ]
+              },
+              {
+                "group": "追踪",
+                "pages": [
+                  "zh/tracing/introduction",
+                  "zh/tracing/get-started",
+                  {
+                    "group": "SDKs",
+                    "pages": [
+                      "zh/tracing/python-sdk",
+                      "zh/tracing/typescript-sdk"
+                    ]
+                  },
+                  {
+                    "group": "功能",
+                    "pages": [
+                      "zh/tracing/overview",
+                      "zh/tracing/users",
+                      "zh/tracing/sessions",
+                      "zh/tracing/tags",
+                      "zh/tracing/metadata",
+                      "zh/tracing/data-capture",
+                      "zh/tracing/cost-tracking",
+                      "zh/tracing/git-context",
+                      "zh/tracing/timeline",
+                      "zh/tracing/live-streaming"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "CLI",
+                "pages": [
+                  "zh/cli/get-started",
+                  "zh/cli/authentication",
+                  "zh/cli/scripting",
+                  {
+                    "group": "命令",
+                    "expanded": true,
+                    "pages": [
+                      "zh/cli/traces",
+                      "zh/cli/detectors-and-findings",
+                      "zh/cli/alerts",
+                      "zh/cli/dashboards-and-widgets",
+                      "zh/cli/workspaces-and-projects",
+                      "zh/cli/sql"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "Detectors",
+                "pages": [
+                  "zh/detectors/introduction"
+                ]
+              },
+              {
+                "group": "Signals",
+                "pages": [
+                  "zh/signals/introduction"
+                ]
+              },
+              {
+                "group": "告警",
+                "pages": [
+                  "zh/alerts/overview",
+                  "zh/alerts/rule-reference"
+                ]
+              },
+              {
+                "group": "评测",
+                "pages": [
+                  "zh/evals/introduction",
+                  "zh/evals/get-started",
+                  "zh/evals/datasets",
+                  "zh/evals/scorers",
+                  "zh/evals/running-evals",
+                  "zh/evals/reading-results",
+                  "zh/evals/cli"
+                ]
+              },
+              {
+                "group": "仪表盘",
+                "pages": [
+                  "zh/dashboards/get-started"
+                ]
+              },
+              {
+                "group": "traceroot Agent",
+                "pages": [
+                  "zh/ai-agent/overview",
+                  {
+                    "group": "快速上手",
+                    "pages": [
+                      "zh/ai-agent/github-integration",
+                      "zh/ai-agent/byok"
+                    ]
+                  },
+                  {
+                    "group": "功能",
+                    "pages": [
+                      "zh/ai-agent/trace-analysis",
+                      "zh/ai-agent/root-cause-analysis",
+                      "zh/ai-agent/pr-creation"
+                    ]
+                  }
+                ]
+              }
             ]
           },
           {
-            "group": "Native",
-            "pages": [
-              "tracing/python-sdk",
-              "tracing/typescript-sdk"
+            "tab": "集成",
+            "icon": "puzzle-piece",
+            "groups": [
+              {
+                "group": "概览",
+                "pages": [
+                  "zh/integrations/overview"
+                ]
+              },
+              {
+                "group": "原生 SDK",
+                "pages": [
+                  "zh/tracing/python-sdk",
+                  "zh/tracing/typescript-sdk"
+                ]
+              },
+              {
+                "group": "框架",
+                "pages": [
+                  "zh/integrations/agno",
+                  "zh/integrations/autogen",
+                  "zh/integrations/claude-agent-sdk",
+                  "zh/integrations/crewai",
+                  "zh/integrations/dspy",
+                  "zh/integrations/google-adk",
+                  "zh/integrations/langchain",
+                  "zh/integrations/langchain-deepagents",
+                  "zh/integrations/llamaindex",
+                  "zh/integrations/mastra",
+                  "zh/integrations/microsoft-agent-framework",
+                  "zh/integrations/openai-agents-sdk",
+                  "zh/integrations/pi",
+                  "zh/integrations/pydantic-ai",
+                  "zh/integrations/vercel-ai"
+                ]
+              },
+              {
+                "group": "模型提供商",
+                "pages": [
+                  "zh/integrations/anthropic",
+                  "zh/integrations/gemini",
+                  "zh/integrations/mistral",
+                  "zh/integrations/openai",
+                  "zh/integrations/openai-compatible",
+                  "zh/integrations/openrouter",
+                  "zh/integrations/typesafe"
+                ]
+              },
+              {
+                "group": "Coding Agents",
+                "pages": [
+                  "zh/integrations/claude-code",
+                  "zh/integrations/codex",
+                  "zh/integrations/pi-cli"
+                ]
+              },
+              {
+                "group": "工具与 API",
+                "pages": [
+                  "zh/integrations/exa",
+                  "zh/integrations/notte",
+                  "zh/integrations/predictleads",
+                  "zh/integrations/tavily",
+                  "zh/integrations/tinyfish"
+                ]
+              },
+              {
+                "group": "内部模型提供商",
+                "pages": [
+                  "zh/integrations/internal-models"
+                ]
+              }
             ]
           },
           {
-            "group": "Frameworks",
-            "pages": [
-              "integrations/agno",
-              "integrations/autogen",
-              "integrations/claude-agent-sdk",
-              "integrations/crewai",
-              "integrations/dspy",
-              "integrations/google-adk",
-              "integrations/langchain",
-              "integrations/langchain-deepagents",
-              "integrations/llamaindex",
-              "integrations/mastra",
-              "integrations/microsoft-agent-framework",
-              "integrations/openai-agents-sdk",
-              "integrations/pi",
-              "integrations/pydantic-ai",
-              "integrations/vercel-ai"
+            "tab": "API 参考",
+            "icon": "square-code",
+            "groups": [
+              {
+                "group": "概览",
+                "pages": [
+                  "zh/api-reference/authentication"
+                ]
+              },
+              {
+                "group": "接口",
+                "openapi": { "source": "api-reference/openapi.json", "directory": "zh/api-reference" }
+              }
             ]
-          },
-          {
-            "group": "Model Providers",
-            "pages": [
-              "integrations/anthropic",
-              "integrations/gemini",
-              "integrations/mistral",
-              "integrations/openai",
-              "integrations/openai-compatible",
-              "integrations/openrouter",
-              "integrations/typesafe"
-            ]
-          },
-          {
-            "group": "Coding Agents",
-            "pages": [
-              "integrations/claude-code",
-              "integrations/codex",
-              "integrations/pi-cli"
-            ]
-          },
-          {
-            "group": "Tools and APIs",
-            "pages": [
-              "integrations/exa",
-              "integrations/notte",
-              "integrations/predictleads",
-              "integrations/tavily",
-              "integrations/tinyfish"
-            ]
-          },
-          {
-            "group": "Internal Model Providers",
-            "pages": [
-              "integrations/internal-models"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "API Reference",
-        "icon": "square-code",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": [
-              "api-reference/authentication"
-            ]
-          },
-          {
-            "group": "Endpoints",
-            "openapi": "api-reference/openapi.json"
           }
         ]
       }

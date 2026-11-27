@@ -1,0 +1,90 @@
+---
+title: Claude Code
+description: 用 traceroot 插件追踪 Claude Code 会话
+---
+
+用 [traceroot Claude Code 插件](https://github.com/traceroot-ai/traceroot-claude-code-plugin)追踪每一个 Claude Code 请求，包括模型调用、工具调用、子 agent 和 token 用量。
+
+## 安装
+
+插件用 `uv`（推荐）运行它的 hook，也可以用安装了 `traceroot` 包的 Python 3.11+。
+
+```bash
+claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+claude plugin install traceroot-observability@traceroot-claude-code-plugin
+```
+
+## 设置
+
+安装插件时，Claude Code 会让你填写插件设置，并把 API key 存进操作系统的钥匙串。之后想查看或修改这些设置，可以在 Claude Code 里运行 `/plugin`，或者在终端里运行：
+
+```bash
+# 显示当前设置，以及哪些还没有设置
+claude plugin configure traceroot-observability@traceroot-claude-code-plugin
+
+# 仅自托管：让插件指向你的部署
+echo '{"TRACEROOT_HOST_URL": "https://your-traceroot.example.com"}' \
+  | claude plugin configure traceroot-observability@traceroot-claude-code-plugin --values-stdin
+```
+
+| 设置项 | 选项 | 默认值 | 说明 |
+|---|---|---|---|
+| API key | `TRACEROOT_API_KEY` | — | 必填。你的 traceroot API key。 |
+| Host | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | 仅在自托管时设置。 |
+| Max chars per field | `TRACEROOT_PLUGIN_MAX_CHARS` | `20000` | 更长的输入和输出会从中间截短。 |
+| Debug logging | `TRACEROOT_PLUGIN_DEBUG` | `false` | 把诊断信息写入 `~/.claude/state/traceroot/debug.log`。 |
+
+只有插件设置为空时，才会使用同名的环境变量。有默认值的设置始终有值，所以 `export` 改不了它们，请在插件设置里修改。修改之后要重启 Claude Code。
+
+## 使用
+
+照常使用 Claude Code。你发送的每个请求都会成为一条 trace，在 Claude Code 完成响应时发送（会等所有子 agent 汇报完）。同一个会话的 trace 共用一个会话 ID。
+
+```
+Claude Code Turn             # AGENT span：每个请求一个
+├── claude-opus-…            # LLM span：token、缓存读取和写入
+│   ├── Bash                 # TOOL span：输入和输出
+│   └── Edit
+└── Agent                    # TOOL span：子 agent 的模型调用和工具调用
+```
+
+## 验证
+
+在 Claude Code 里发送一个请求，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `Claude Code Turn` 的 trace。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|---|---|
+| 请求 | 每个请求一条 trace，按 Claude Code 会话分组 |
+| 模型调用 | model ID、提示词和响应、扩展思考内容 |
+| Token | 输入、输出、缓存读取和缓存写入的数量 |
+| 工具调用 | 工具名称、输入和输出；失败的工具会被标记为错误 |
+| 子 agent | 每个子 agent 的模型调用和工具调用，挂在它的 Agent span 下 |
+| Git | 工作目录所在的仓库和 ref |
+
+提示词、工具输入和工具输出都会原样发送，包括文件内容和命令输出，不做任何脱敏。详见[数据采集与隐私](/zh/tracing/data-capture#默认采集的内容)。
+
+## 限制
+
+- 不会记录 user ID，所以这些 trace 不会出现在 **Users** 页面。
+- 如果没有收到 trace，请在插件设置里打开 **Debug logging**，然后查看 `~/.claude/state/traceroot/debug.log`。没有 API key 时插件什么都不做。
+
+## 运行示例
+
+<Card title="traceroot-claude-code-plugin" icon="github" href="https://github.com/traceroot-ai/traceroot-claude-code-plugin">
+  源码和完整设置
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="会话" icon="route" href="/zh/tracing/sessions">
+    在一条时间线上查看整个 Claude Code 会话。
+  </Card>
+  <Card title="数据采集与隐私" icon="shield-halved" href="/zh/tracing/data-capture">
+    控制哪些内容会离开你的机器。
+  </Card>
+</CardGroup>

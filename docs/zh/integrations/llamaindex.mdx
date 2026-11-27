@@ -1,0 +1,101 @@
+---
+title: LlamaIndex
+description: 自动插桩 LlamaIndex 的 RAG 管道和查询引擎
+---
+
+自动采集 LlamaIndex 管道里的文档摄取、embedding、检索和 LLM 合成。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot llama-index-core llama-index-llms-openai llama-index-embeddings-openai
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+想同时看到管道结构和底层的 token 成本，强烈建议把 LlamaIndex 集成和你用的 LLM 提供商（例如 OpenAI、Anthropic、Google GenAI）一起初始化。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    # 把 LlamaIndex 和你的 LLM 提供商一起初始化，以采集 token 和成本
+    traceroot.initialize(integrations=[
+        Integration.LLAMA_INDEX,
+        Integration.OPENAI  # 或者 ANTHROPIC、GOOGLE_GENAI 等
+    ])
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，所有 LlamaIndex 操作都会被自动采集：
+
+```python
+from llama_index.core import Document, Settings, VectorStoreIndex
+from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.openai import OpenAIEmbedding
+
+Settings.llm = OpenAI(model="gpt-4o-mini")
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+
+documents = [
+    Document(text="traceroot is an open-source AI agent improvement platform."),
+    Document(text="traceroot supports OpenTelemetry-compatible tracing via a Python SDK."),
+]
+
+# 索引构建会被自动追踪（SentenceSplitter、Embedding）
+index = VectorStoreIndex.from_documents(documents)
+query_engine = index.as_query_engine()
+
+# 每次查询都会被自动追踪（检索 + LLM 合成）
+response = query_engine.query("What is traceroot?")
+print(response)
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `RetrieverQueryEngine.query` 的 trace，这是 `as_query_engine().query()` 实际解析到的类和方法。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| 文档切分 | 每次 `SentenceSplitter` 调用记录为一个 span |
+| Embedding 调用 | 每一批 embedding，包含文本输入和向量输出 |
+| 检索 | top-k 检索，包含查询和检索到的文档 |
+| LLM 合成 | 响应生成，包含上下文和最终答案 |
+| Token 与成本 | 输入和输出 token；model ID 匹配 traceroot 价格表时计算成本 |
+| 延迟 | 管道每个阶段的耗时 |
+
+## 限制
+
+- 建议同时初始化 `Integration.LLAMA_INDEX` 和底层 LLM 提供商的集成（例如 `Integration.OPENAI`），这样才能采集完整的 token 用量和价格。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/llamaindex-rag">
+  运行 Python 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

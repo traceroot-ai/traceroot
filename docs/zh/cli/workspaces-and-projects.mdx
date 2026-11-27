@@ -1,0 +1,47 @@
+---
+title: 在终端里使用工作空间和项目
+sidebarTitle: 工作空间与项目
+description: 用 traceroot CLI 列出、创建、修改和删除工作空间与项目
+---
+
+这些命令操作的是你的账户，所以需要浏览器登录或 `TRACEROOT_TOKEN`，项目 API key 在这里不适用。你能修改什么，由你的[角色](/zh/getting-started/concepts#角色)决定。
+
+## 列出工作空间和项目
+
+```bash
+traceroot workspaces list
+traceroot projects list --workspace-id <workspace-id>
+```
+
+`--workspace-id` 是可选的。不传时，`projects list` 会显示你能访问的所有项目。
+
+## 创建工作空间或项目
+
+```bash
+traceroot workspaces create --name "Research"
+traceroot projects create --workspace-id <workspace-id> --name "Support agent" --trace-ttl-days 30
+```
+
+你创建的工作空间由你管理。创建项目需要 MEMBER 或更高的角色。如果这个名称已经属于你，两条命令都会返回已有的那一个：对工作空间来说是你管理的工作空间，对项目来说是该工作空间里的项目。`--trace-ttl-days` 是可选的，取值 1 到 365。
+
+## 修改工作空间或项目
+
+```bash
+traceroot workspaces update <workspace-id> --name "Research team"
+traceroot projects update <project-id> --name "Support bot" --trace-ttl-days 90
+```
+
+两条命令都需要 ADMIN 角色。要把项目的保留期恢复成套餐默认值，用 `--from-file` 发送 `{ "trace_ttl_days": null }`。名称已被占用时，命令以退出码 1 退出。
+
+## 删除工作空间或项目
+
+```bash
+traceroot projects delete <project-id> --reason "Service retired"
+traceroot workspaces delete <workspace-id> --name "Research team" --reason "Team merged"
+```
+
+两条命令都需要 ADMIN 角色和 [`--reason`](/zh/cli/scripting#共用的-flag)。
+
+删除项目后，它会从所有列表和读取结果里消失，它的 API key 也会失效。它的数据会在保留期内继续保留。
+
+`workspaces delete` 还需要 `--name`，值是工作空间当前的名称，用作确认。它会永久删除这个工作空间，连同其中的项目、这些项目的 API key、成员关系和邀请。你唯一的工作空间不能删除。名称不对，或者要删的是你唯一的工作空间，命令都会以退出码 1 退出。

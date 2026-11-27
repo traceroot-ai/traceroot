@@ -1,0 +1,119 @@
+---
+title: pi SDK
+description: 用 traceroot 追踪内嵌的 pi coding agent 会话
+---
+
+`@earendil-works/pi-coding-agent` 是 [pi](https://pi.dev) 的库形态：你在自己的 Node 进程里运行 `AgentSession`，不经过交互式 CLI。traceroot 会自动采集这些 coding agent 会话里的 agent 运行、LLM 调用、工具执行和 token 用量。
+
+<Note>
+  你用的是交互式的 `pi` CLI？请使用 [pi CLI](/zh/integrations/pi-cli) 集成。
+</Note>
+
+## 安装
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+在创建任何会话之前调用 `TraceRoot.initialize()`：
+
+```typescript
+import * as pi from '@earendil-works/pi-coding-agent';
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({
+  instrumentModules: { piCodingAgent: pi },
+});
+```
+
+## 使用
+
+照常创建和运行会话就行，初始化之后创建的每个会话都会被自动追踪：
+
+```typescript
+import { createAgentSession, ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent';
+
+// pi 0.80 的模型和凭证接口。它是异步创建的（要读取磁盘上的模型目录），
+// 然后传给 createAgentSession。把 OPENAI_API_KEY 作为运行时凭证注入，
+// 只靠环境变量就能完成认证，不需要 `pi auth login`。
+const modelRuntime = await ModelRuntime.create();
+await modelRuntime.setRuntimeApiKey('openai', process.env.OPENAI_API_KEY);
+
+const modelRegistry = new ModelRegistry(modelRuntime);
+const model = modelRegistry.find('openai', 'gpt-4o-mini');
+
+const { session } = await createAgentSession({ model, modelRuntime });
+try {
+  await session.prompt('Write add.js exporting add(a, b), then write and run a test for it.');
+} finally {
+  session.dispose();
+}
+```
+
+每次 `session.prompt()` 都会生成一条嵌套的 trace，工具 span 挂在发起调用的 LLM span 下面：
+
+```
+AgentSession.prompt              # AGENT span，每次 prompt() 调用一个
+└── gpt-4o-mini                  # LLM span，包含提供商和 token
+    ├── write: add.js            # TOOL span，包含参数和结果
+    ├── write: test-add.js
+    └── bash: node test-add.js
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `AgentSession.prompt` 的 trace。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| Agent 运行 | 每次 `session.prompt()` 调用对应一个 span |
+| 模型 | 每次 LLM 调用的 model id |
+| 消息 | 提示词和助手的响应，开启内容采集时记录 |
+| 工具调用 | 每次工具执行，包含参数、结果和错误状态 |
+| Token | 输入、输出以及缓存读写的 token 数 |
+| 延迟 | 每个 span 的耗时 |
+
+`captureContent` 和 `captureToolIo`（默认都是 `true`）分别控制提示词和响应的文本、工具的参数和结果是否附加到 span 上。用 `{ module, config }` 的形式传入：
+
+```typescript
+TraceRoot.initialize({
+  instrumentModules: {
+    piCodingAgent: { module: pi, config: { captureContent: false, captureToolIo: false } },
+  },
+});
+```
+
+`captureContent` 也可以是一个函数，在每条提示词和响应被记录之前对它做脱敏、截断、替换或者丢弃。可以直接运行的脱敏示例请看[数据采集与隐私](/zh/tracing/data-capture)。
+
+## 限制
+
+- `@earendil-works/pi-coding-agent` 只提供 ESM，需要 Node >= 22.19。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的会话。
+
+<Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/pi-agent-sdk">
+  运行 TypeScript 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="TypeScript SDK 参考" icon="code" href="/zh/tracing/typescript-sdk">
+    查看完整的 TypeScript SDK 参考和配置选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

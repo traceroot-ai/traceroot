@@ -1,0 +1,96 @@
+---
+title: Mistral
+description: 自动插桩 Mistral AI API 调用
+---
+
+自动采集所有 Mistral AI chat completion 调用，包括工具调用、函数调用和流式响应。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot mistralai
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.MISTRAL])
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，所有 Mistral 调用都会被自动采集：
+
+```python
+import os
+from mistralai.client import Mistral
+
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.MISTRAL])
+
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
+
+# 这次调用会被自动追踪
+response = client.chat.complete(
+    model="mistral-large-latest",
+    messages=[
+        {"role": "user", "content": "What is the capital of France?"},
+    ],
+)
+
+print(response.choices[0].message.content)
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `Chat.complete` 的 trace（流式调用时是 `Chat.stream`）。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|---|---|
+| 模型 | `mistral-large-latest`、`mistral-small-latest` 等 |
+| 消息 | 输入的消息数组 |
+| 响应 | completion 内容 |
+| 工具调用 | 模型发出的函数调用 |
+| Token | 输入和输出 token |
+| 成本 | 目前不会为 Mistral 的 model ID 计算成本，token 用量仍然会被采集 |
+| 延迟 | 请求耗时 |
+
+## 限制
+
+暂无已知限制。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/mistral-tool-agent">
+  运行 Python 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>

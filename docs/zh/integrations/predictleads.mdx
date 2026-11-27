@@ -1,0 +1,132 @@
+---
+title: PredictLeads
+description: 把 PredictLeads 查询的成本记录到对应的工具 span 上
+---
+
+把每次 [PredictLeads](https://predictleads.com) 公司查询的成本和 LLM 开销记录在一起。每次查询都会成为一个工具 span，带有域名、公司数据、延迟和美元成本，这笔成本会计入 trace 的总成本。
+
+<Note>
+  traceroot 不会自动插桩 PredictLeads，也不知道你的套餐价格。你需要用 `observe` 追踪这次查询并自己上报成本，traceroot 保存的就是你上报的成本。上报的成本如何累加，请看[工具和 API 调用](/zh/tracing/cost-tracking#工具和-api-调用)。
+</Note>
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot httpx
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot
+    ```
+  </Tab>
+</Tabs>
+
+上报成本需要 `traceroot` 0.5.0 或更高版本，或 `@traceroot-ai/traceroot` 0.7.0 或更高版本。
+
+## 设置
+
+在启动时初始化一次 traceroot。不需要任何集成参数：下一步里的 `observe` 包装会追踪这次查询。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+
+    traceroot.initialize()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+PredictLeads 对每次请求收取固定价格，价格由你的套餐决定。记录它的步骤：
+
+1. 把查询包在一个函数里，并把这个函数追踪为工具 span（`type="tool"`）。
+2. 检查请求是否成功，PredictLeads 对被拒绝的请求不收费。
+3. 趁这个 span 还没结束，用 `update_current_span(cost=...)`（TypeScript 里是 `updateCurrentSpan`）上报你的单次调用价格。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+
+    import httpx
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_CALL = 0.04  # 你的套餐的单次请求价格
+    HEADERS = {
+        "X-Api-Key": os.environ["PREDICTLEADS_API_KEY"],
+        "X-Api-Token": os.environ["PREDICTLEADS_API_TOKEN"],
+    }
+
+    @observe(name="company_lookup", type="tool")
+    def company_lookup(domain: str):
+        response = httpx.get(f"https://predictleads.com/api/v3/companies/{domain}", headers=HEADERS)
+        if response.is_success:
+            update_current_span(cost=PRICE_PER_CALL)
+        return response.json()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_CALL = 0.04; // 你的套餐的单次请求价格
+    const headers = {
+      'X-Api-Key': process.env.PREDICTLEADS_API_KEY!,
+      'X-Api-Token': process.env.PREDICTLEADS_API_TOKEN!,
+    };
+
+    async function companyLookup(domain: string) {
+      return observe({ name: 'company_lookup', type: 'tool' }, async (d: string) => {
+        const response = await fetch(`https://predictleads.com/api/v3/companies/${d}`, { headers });
+        if (response.ok) updateCurrentSpan({ cost: PRICE_PER_CALL });
+        return response.json();
+      }, domain);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+像调用其他函数一样，在 agent 里调用 `company_lookup`。它的 span 会嵌套在调用它的 span 下面，它的成本会计入这条 trace 的总成本。
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一个 `company_lookup` span，位于根部或你的 agent 的 span 下面。打开它可以看到成本，trace 的总成本里包含这笔成本。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| 输入 | 传给 `company_lookup` 的域名 |
+| 输出 | 返回的公司数据 |
+| 成本 | 你的单次调用价格，单位是美元 |
+| 延迟 | 请求耗时 |
+
+## 限制
+
+- PredictLeads 对暂时没有返回数据的查询也收费，所以每次成功的响应都要上报成本。
+- 重试算作另一次调用，有它自己的成本。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="按次固定价格" icon="chart-line" href="/zh/tracing/cost-tracking#按次固定价格">
+    在每次计费的调用上上报你的价格
+  </Card>
+</CardGroup>

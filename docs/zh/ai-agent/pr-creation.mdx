@@ -1,0 +1,14 @@
+---
+title: 自动创建 PR
+description: traceroot Agent 编写修复并在 GitHub 上创建 pull request
+---
+
+找出根因后，traceroot Agent 会编写修复并在 GitHub 上创建 pull request，其中附有暴露这个问题的 trace 的链接。使用前需要先设置 [GitHub 集成](/zh/ai-agent/github-integration)。
+
+## 工作方式
+
+1. **根因分析**：agent 找出 bug（见[根因分析](/zh/ai-agent/root-cause-analysis)）
+2. **编写修复**：在沙箱里修改源代码
+3. **创建 PR**：推送一个新分支，并在 GitHub 上创建 PR 供你审阅
+
+agent 绝不会直接推送到 main。

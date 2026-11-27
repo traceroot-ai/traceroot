@@ -1,0 +1,112 @@
+---
+title: 用 traceroot Agent 排查 trace
+sidebarTitle: 简介
+description: 问它某次运行为什么失败，并让 agent 创建一个带修复的 pull request。
+---
+
+traceroot Agent 内置在 traceroot 里，既是**用于排查问题的 trace 调试器**，也是**可以对话的项目助手**。
+
+agent 可以分析执行 trace，把生产代码克隆到沙箱里定位根因，并在 GitHub 上创建修复 pull request。除了排查问题，agent 还能修改你的项目，包括创建、更新和删除监控资源。在有人值守的对话会话里，每一项变更都会先提交给你批准，然后才执行。删除操作没有批准就绝不会执行。
+
+<Frame caption="Agent：起始提示词和对话输入框">
+  <img src="/images/agent_home_v1.png" alt="traceroot Agent 页面，带有三个起始提示词和对话输入框" />
+</Frame>
+
+## Agent 页面与持久对话
+
+traceroot 项目侧边栏的第一项是 **Agent**，一个整页的 AI 助手，为常见任务准备了起始提示词：
+- *"Investigate the most recent errored trace"*
+- *"Summarize today's sessions"*
+- *"What did detector findings flag this week?"*
+
+### 对话持久化
+
+对话状态保存在整个应用共用的助手 provider 里，范围限定在你当前所在的项目：
+- **跟着你走**：在 Agent 页面开始的对话，在你切换到其他页面（例如 Traces、Dashboards 或 Detectors）后依然保留，并且可以在右侧的助手抽屉里继续使用。
+- **保存的会话**：对话会保存为项目会话，你可以随时回看过去的调试过程和 finding。
+- **每一轮的 trace 链接**：当助手回复对应的 trace 可用或仍在上传时，回复里会带有 **View trace** 按钮。导出失败的 trace 会标记为不可用。
+
+---
+
+## 排查能力
+
+调试 AI 应用里的问题时，agent 提供四项核心排查能力：
+
+- **Trace 分析**：用自然语言询问 trace、错误趋势、延迟和 token 成本，不用手写 ClickHouse 查询。
+- **根因分析**：agent 把你的生产仓库克隆到隔离的沙箱里，读取出错位置所在的源文件和代码行，并把 git 提交历史与 trace 里的失败关联起来。
+- **自动修复 PR**：诊断出失败原因后，agent 可以在新分支上实现代码修复，并创建 GitHub pull request 供人审阅。agent 绝不会直接推送到你的默认分支。
+- **并行运行**：同时启动多个调试会话，并行排查不同的 trace 和失败模式。
+
+---
+
+## 修改项目资源（写操作）
+
+除了查询遥测数据，agent 还绑定了 **13 个写工具**，可以直接通过对话修改项目资源：
+
+| 资源类型 | agent 可执行的操作 | 写工具 |
+| :--- | :--- | :--- |
+| **Detector** | 创建、配置或删除 LLM-as-a-judge detector | `create_detector`, `update_detector`, `delete_detector` |
+| **仪表盘** | 创建、重命名或删除项目仪表盘 | `create_dashboard`, `update_dashboard`, `delete_dashboard` |
+| **组件** | 添加、修改或移除查询图表和 trace 列表 | `create_widget`, `update_widget`, `delete_widget` |
+| **告警** | 创建、重新配置、删除阈值告警，或切换它的启停状态 | `create_alert`, `update_alert`, `delete_alert`, `set_alert_status` |
+
+### 范围边界：不能写工作空间或项目
+
+agent 严格在当前对话会话注入的项目租户范围内运行：
+- agent **不能创建、更新或删除工作空间**。
+- agent **不能创建、更新或删除项目**。
+
+对工作空间和项目的管理类变更被有意限制在 CLI、公开 REST API 和工作空间设置里。
+
+---
+
+## 安全：交互式批准与超时
+
+在有人值守的对话会话里，agent 提出的每一项写操作都会暂停，等你决定后才执行：
+
+### 确认卡片
+
+每当 agent 决定调用写工具时，执行会暂停，并在对话里显示一张可交互的**确认卡片**：
+- **创建和更新**：你可以选择 **Approve**（执行这项变更）、**Skip**（取消这项变更）或 **Revise**（用自然语言给出反馈或修改意见，agent 调整后重新提出这项操作）。
+- **删除**：为了防止误删，破坏性操作只提供 **Approve** 或 **Skip**。被跳过的删除绝不会因为修改意见而再次提出。
+
+如果你跳过或拒绝一项操作，agent 会确认已跳过并继续对话，不会重试这次工具调用。
+
+<Note>
+  对于创建和更新，确认卡片是一道审阅关卡，不属于安全控制：没有关联用户的会话，例如系统发起的运行，会直接执行它们，不显示卡片。删除则采用失败即关闭的策略：没有人可以批准时，调用会被拦截，不会执行。
+</Note>
+
+### 10 分钟超时
+
+批准卡片不会无限期等待。如果一项待批准的操作 **10 分钟**内没有得到答复，traceroot 会自动跳过它。这项未答复的操作不会带来任何变更，同一轮里之前已批准的操作仍然有效。
+
+---
+
+## 审计日志
+
+agent 执行的写操作会记录在工作空间的仅追加审计记录里：
+
+- **区分来源**：agent 创建的审计行带有 `transport: "agent"` 标记，用来与 `"public-api"` 或手动的 UI 写操作区分。
+- **关联会话**：每条记录都保存 `agentSessionId`，把被修改的资源和授权这项变更的 agent 对话关联起来。
+- **持久保留**：资源被删除后审计行依然保留，管理员可以查到谁在什么时候、通过哪次对话批准了哪项变更。
+
+审计行在资源变更提交之后才写入。审计写入失败时只记录日志，不会回滚变更。所以这份记录是仅追加的，但不能保证每一次写操作都有对应的一行。
+
+---
+
+## 从哪里开始
+
+<CardGroup cols={2}>
+  <Card title="GitHub 集成" icon="github" href="/zh/ai-agent/github-integration">
+    连接你的仓库，让 agent 可以访问源代码并创建 PR。
+  </Card>
+  <Card title="BYOK" icon="key" href="/zh/ai-agent/byok">
+    用你自己的 API key 选择驱动 agent 的模型。
+  </Card>
+  <Card title="Trace 分析" icon="chart-mixed" href="/zh/ai-agent/trace-analysis">
+    用自然语言向 agent 询问你的 trace。
+  </Card>
+  <Card title="根因分析" icon="magnifying-glass" href="/zh/ai-agent/root-cause-analysis">
+    了解 agent 如何找出失败的根因。
+  </Card>
+</CardGroup>

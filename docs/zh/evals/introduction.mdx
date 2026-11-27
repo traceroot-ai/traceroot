@@ -1,0 +1,42 @@
+---
+title: 用数据集和 scorer 评测 AI agent
+sidebarTitle: 简介
+description: 查看每个测试用例的 trace，并比较各次运行的分数。
+---
+
+一次**评测**会用一个由用例组成的数据集运行你的系统，并为每个结果打分。
+
+在 traceroot 里，每个用例都作为一条独立的 trace 运行，所以查看 eval 时，用的还是你在追踪里已经熟悉的 span 时间线、token 和成本视图。每个 scorer 产出一个指标，一次运行要按指标逐个来看，没有单一的总分。
+
+SDK 提供 **Python** 和 **TypeScript** 两个版本，两者的 API 相同。
+
+## 你需要写什么
+
+- 一个**数据集**：要运行的用例，每个用例有一个 `input` 和一个可选的 `expected` 答案。
+- 一个 **task**：被评测的系统，把 `input` 映射成 `output`。
+- 一个或多个 **scorer**：把用例的结果变成指标的函数。
+
+然后 `evaluate()` 会对每个用例运行 task，为每个结果打分，并上报这次运行。
+
+## 从哪里开始
+
+<CardGroup cols={2}>
+  <Card title="快速上手" icon="rocket" href="/zh/evals/get-started">
+    编写一个数据集，写一个 scorer，运行你的第一个 eval。
+  </Card>
+  <Card title="数据集" icon="table" href="/zh/evals/datasets">
+    编写、管理版本并发布要运行的用例。
+  </Card>
+  <Card title="Scorers" icon="ruler" href="/zh/evals/scorers">
+    代码 scorer 和 LLM-as-a-judge。
+  </Card>
+  <Card title="运行 eval" icon="play" href="/zh/evals/running-evals">
+    <code>evaluate()</code>：task、scorer，以及运行结果上报到哪里。
+  </Card>
+  <Card title="查看结果" icon="list-check" href="/zh/evals/reading-results">
+    按指标的汇总和按用例的结果。
+  </Card>
+  <Card title="在终端中使用" icon="terminal" href="/zh/evals/cli">
+    用 CLI 查看数据集、评测和过去的运行。
+  </Card>
+</CardGroup>

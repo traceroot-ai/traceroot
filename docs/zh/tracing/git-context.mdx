@@ -1,0 +1,66 @@
+---
+title: Git 上下文
+description: 把每个 span 关联到对应的源文件、代码行和 commit
+---
+
+traceroot 会自动记录 git 仓库和 commit，以及每个被插桩函数所在的源文件和行号。trace 查看器里的 **Show Code** 功能依赖这些信息，traceroot Agent 也靠它从失败的 trace 直接跳到相关代码。
+
+## 记录的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| `traceroot.git.repo` | 仓库，格式为 `owner/repo` |
+| `traceroot.git.ref` | commit SHA、标签或分支名 |
+| `traceroot.git.source_file` | 被装饰函数所在的文件路径 |
+| `traceroot.git.source_line` | 行号 |
+| `traceroot.git.source_function` | 函数名 |
+
+`traceroot.git.repo` 和 `traceroot.git.ref` 设置在 trace 级别。`traceroot.git.source_*` 属性由 `@observe` 自动设置在每个 span 上。
+
+## 配置
+
+traceroot 分别解析仓库和 ref，并按下面的顺序填充尚未设置的值：
+
+1. 显式传入的初始化参数。
+2. 环境变量 `TRACEROOT_GIT_REPO` / `TRACEROOT_GIT_REF`。
+3. GitHub Actions 变量（`GITHUB_REPOSITORY` / `GITHUB_SHA`）。
+4. `<当前工作目录>/.git` 里的文件（`config` 和 `HEAD`）。这一步不需要 `git` 可执行文件，也不会向上查找父目录。
+5. `git` 子进程（`git remote get-url origin` 和 `git rev-parse HEAD`）。这一步需要 `git` 可执行文件，但进程从仓库子目录启动时也能工作。
+
+自动解析仓库时只识别 `github.com` 的 remote。对于 GitLab、Bitbucket 或自托管的 remote，请显式设置 `TRACEROOT_GIT_REPO`。
+
+因为仓库和 ref 是分别解析的，可能出现一个有值、另一个缺失的情况。这时 SDK 会输出日志 `git context incomplete`。请显式设置缺失的值，让源代码关联同时拿到两个字段。
+
+本地 `.git` 自动检测**只是为了方便开发**。生产环境的容器里通常没有 `.git` 目录，也没有 `git` 可执行文件，自动检测会悄悄地一无所获，AI agent 也就无法把 trace 关联到源代码。在生产环境中，请始终显式注入 git 上下文（见下文）。
+
+通过环境变量显式设置：
+
+```bash
+TRACEROOT_GIT_REPO=your-org/your-repo
+TRACEROOT_GIT_REF=9c1e4f2
+```
+
+## 生产环境中的 git 上下文
+
+使用**构建时注入**：在构建时把仓库（固定值）和 commit SHA（每次构建不同）作为环境变量注入。SDK 会自动读取它们，不需要改代码。
+
+```dockerfile Dockerfile
+ARG GIT_SHA
+ENV TRACEROOT_GIT_REPO=your-org/your-repo   # 固定值
+ENV TRACEROOT_GIT_REF=$GIT_SHA              # 动态值，每次构建不同
+```
+
+```yaml .github/workflows/deploy.yml
+- name: Build image
+  run: docker build --build-arg GIT_SHA=${{ github.sha }} -t myapp:${{ github.sha }} .
+```
+
+如果你的应用直接运行在 **GitHub Actions** 的 runner 上，traceroot 会自动读取标准的 `GITHUB_REPOSITORY` 和 `GITHUB_SHA`。在那里构建、再部署到别处的镜像，运行时并没有这些变量，所以仍然需要上面的构建时注入。其他 CI 或平台也一样。
+
+请为**每一个被追踪的服务**做这项配置，包括后台 worker、定时任务和队列消费者，API 服务之外的进程同样需要。每个进程各自解析 git 上下文。
+
+如果你的部署在多个 commit 之间复用同一个镜像，请改为在部署时通过 Kubernetes pod spec 或 ECS task definition 设置 `TRACEROOT_GIT_REPO` / `TRACEROOT_GIT_REF`。
+
+## 为什么重要
+
+有了源代码关联，traceroot Agent 才能做出准确的根因分析：除了 trace 数据，它还能读到产生失败 span 的那个函数。详见[根因分析](/zh/ai-agent/root-cause-analysis)。

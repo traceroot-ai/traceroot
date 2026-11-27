@@ -1,0 +1,105 @@
+---
+title: 脚本与 CI
+description: 面向脚本和 CI 的 JSON 输出、退出码、JSON 请求体和共用 flag
+---
+
+## 在 CI 里运行
+
+在环境变量里设置一个项目 API key。它自带所属的项目，所以读取操作不需要其他设置。
+
+```bash
+export TRACEROOT_API_KEY="$CI_SECRET"
+traceroot traces list --since 1h --json
+```
+
+如果想在过去一小时内有 detector 发现问题时让某个步骤失败：
+
+```bash
+set -e
+findings=$(traceroot findings list --since 1h --json)
+echo "$findings" | jq -e '.count == 0'
+```
+
+CLI 调用失败时，脚本会带着 CLI 自己的[退出码](#退出码)停下，所以你可以区分认证失败（3）和网络失败（5）。有 finding 时 `jq -e` 以退出码 1 退出。
+
+API key 不能[列出工作空间或项目，也不能修改资源](/zh/cli/authentication#浏览器登录与-api-key)。要做这些操作，请把一个 [session token](/zh/api-reference/authentication#会话令牌和-cli-访问令牌) 存成 secret，并把 `TRACEROOT_TOKEN` 设置成它。它以你的账户身份操作，和浏览器登录一样需要指定[项目](/zh/cli/authentication#选择项目)，连续 7 天不使用就会失效。`setup` 的用法见[无提示运行](/zh/cli/get-started#无提示运行)。
+
+## JSON 输出
+
+加上 `--json` 后，命令会向 stdout 写入一个 JSON 文档。如果命令失败，stdout 为空，stderr 会收到 `{"error":{"code":"...","message":"..."}}`。
+
+有三条命令不一样。`doctor` 和 `setup doctor` 把报告写到 stdout，有检查项失败时以退出码 1 退出。`setup` 每行写一个 JSON 事件，最后是一个带有 `ok` 和 `data.trace_url` 的 `result` 事件。如果它失败了，`result` 会带一个 `error`，使用的是 setup 自己的错误码。除非这次运行根本没有开始，stderr 不会收到 JSON 错误，不过进度文本仍然会写到那里。不加 `--json` 时，它的所有消息都写到 stderr，包括第一条 trace 的链接。
+
+| 命令 | 文档内容 |
+| :- | :- |
+| `traces list`、`detectors list`、`findings list` | API 响应，外加 `count` 和 `range` |
+| `alerts list`、`projects list`、`workspaces list` | API 响应，外加 `count` |
+| `traces get` | API 响应，外加 `finding` |
+| `traces export` | `output_dir`、`files`、`finding_id` |
+| `doctor`、`setup doctor`、`instrument`、`skills list`、`skills install` | 结果放在 `data` 下 |
+| `login`、`logout`、`status` | 各自的字段 |
+| 其他所有命令 | API 响应，原样输出 |
+
+```bash
+traceroot traces list --since 1h --json | jq -r '.data[] | select(.error_count > 0) | .trace_id'
+traceroot traces get <trace-id> --json 2>&1 >/dev/null | jq -r '.error.code'
+```
+
+## 退出码
+
+| 退出码 | JSON `code` | 含义 |
+| :- | :- | :- |
+| 0 | | 成功 |
+| 1 | `internal` | 内部错误、`doctor` 检查项失败、有文件挡路且没有传 `--force`，或者其他 HTTP 错误，例如 409 或 5xx |
+| 2 | `usage` | 用法错误，包括浏览器登录后缺少 `--project`，或者 HTTP 400 或 422 |
+| 3 | `auth` | 未认证，或者没有权限（HTTP 401 或 403） |
+| 4 | `not_found` | 未找到（HTTP 404） |
+| 5 | `network` | 网络错误、超时或触发速率限制（HTTP 429），请重试 |
+| 130 | | 被中断 |
+
+`setup` 在被暂停、还没看到 trace，或者你拒绝了某个问题时，也可能以退出码 0 退出，所以请检查有没有拿到链接。它还会用到下面这些退出码：
+
+| 退出码 | 含义 |
+| :- | :- |
+| 10 | 它没法替你做选择，通常是因为有多个项目或一个项目都没有。按它打印的解决办法操作 |
+| 11 | 不支持的语言、服务路径或 coding agent |
+| 12 | coding agent 运行失败 |
+| 14 | 在限定时间内没有 trace 到达 |
+| 15 | 这个部署不支持某个步骤 |
+| 16 | 继续执行会不安全地覆盖某些内容，或者无法验证已有的 key |
+
+## 发送 JSON 请求体
+
+会修改内容的命令把各个字段放在一个 JSON 文档里接收，字段名和 flag 相同，只是改用下划线。`-` 表示从 stdin 读取。flag 会覆盖文件里的值。
+
+```bash
+traceroot alerts create --from-file rule.json --threshold 2000
+jq '.threshold = 2000' rule.json | traceroot alerts create --from-file -
+```
+
+请求体里有缺失、未知或无效的字段时，命令以退出码 2 退出。
+
+使用浏览器登录时，你[选择的项目](/zh/cli/authentication#选择项目)会自动填入 `project_id`，除非文件或 `--project-id` 已经设置了它。API key 不能执行这些写操作，加上 `--project-id` 也不行。
+
+## 共用的 flag
+
+每条命令都接受这些 flag：
+
+| Flag | 含义 |
+| :- | :- |
+| `--api-key <key>` | 要使用的 API key。它的优先级高于其他所有[凭证](/zh/cli/authentication#使用哪个凭证) |
+| `--env-file <path>` | 从中读取设置的 `.env` 文件。这些设置的优先级高于环境变量 |
+| `--host <url>`、`--auth-host <url>` | 为 API 和登录指定[其他 host](/zh/cli/authentication#使用其他-host) |
+| `--project <id>` | 浏览器登录使用的[项目](/zh/cli/authentication#选择项目) |
+| `--json` | [JSON 输出](#json-输出) |
+| `--timeout <ms>` | 单个请求的超时时间。默认：30000 |
+
+很多命令还接受这些 flag：
+
+| Flag | 适用命令 | 含义 |
+| :- | :- | :- |
+| `--from-file <path>` | 所有创建、更新、状态变更和删除命令 | 把各个字段作为一个 [JSON 请求体](#发送-json-请求体)传入 |
+| `--project-id <id>` | detector、告警、仪表盘和组件相关的命令，`detectors list` 和 `alerts list` 除外 | 要操作的项目。它的优先级高于你[选择的项目](/zh/cli/authentication#选择项目)，并且必须和 API key 所属的项目一致 |
+| `--limit <n>` | `datasets versions get`，以及除 `workspaces`、`projects`、`dashboards` 和 `skills list` 以外的所有 list 命令 | 返回多少条。默认值和最大值见各命令的页面 |
+| `--since`、`--from`、`--to` | `traces list`、`detectors list`、`findings list` | 时间窗口，用法同[列出 trace](/zh/cli/traces#列出-trace) |
+| `--reason <text>` | 所有删除命令 | 删除原因，3 到 500 个字符，会记录到审计日志里。必填 |

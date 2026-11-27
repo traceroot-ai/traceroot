@@ -1,0 +1,127 @@
+---
+title: Coding agents
+description: 让 coding agent 帮你设置 traceroot、检索这份文档并操作你的项目
+---
+
+你的 coding agent 可以设置 traceroot、查阅这份文档、通过 CLI 操作你的项目，还可以把它自己的会话发送到 traceroot。
+
+## 设置追踪
+
+你需要 Node.js 20.12 或更高版本，以及一个 Python 或 TypeScript/JavaScript 应用。还没有 traceroot 账户也没关系，登录时可以直接创建。在仓库根目录下，把下面这段内容粘贴到 Claude Code、Codex 或其他 coding agent 里：
+
+```text Setup prompt wrap
+Set up traceroot tracing in this repo with the traceroot setup wizard.
+
+1. From the repo root, run: npx -y traceroot-cli@latest setup --no-input
+   - If it says no credential is configured, run npx -y traceroot-cli@latest login
+     (allow up to 10 minutes), show me the URL and code it prints, and wait while
+     I sign in. Then run setup again.
+   - If it stops for any other reason, follow the remedy it prints. Ask me before
+     choosing a project.
+2. Setup writes a project API key to .env.local or .env and an instrumentation task to
+   .traceroot/prompts/setup-instrument.md. Carry out that task yourself, in this session.
+3. When the task is done, don't stop. Rerun the same setup command, keeping all flags,
+   and add --resume. You're done when it prints a link to the first trace.
+
+Don't print the API key or commit the file that holds it.
+Reference: https://traceroot.ai/docs/cli/get-started.md
+```
+
+agent 会运行 setup，需要登录时给你一个登录链接和验证码，然后添加 traceroot SDK，最后给出第一条 trace 的链接。setup 不会回滚 agent 做的修改，请用 `git status` 和 `git diff` 检查这些改动。
+
+如果想自己在终端里运行 setup，请看[追踪](/zh/tracing/get-started)。如果你是自托管部署，请从[自托管的 traceroot](/zh/tracing/get-started#自托管的-traceroot) 开始。
+
+## Skills
+
+Skill 让你的 agent 学会如何使用 traceroot。setup 会安装它自带的插桩 skill，所以设置追踪不需要额外安装 skill。
+
+| Skill | 用途 |
+| :- | :- |
+| `traceroot-cli` | 在终端里读取 trace、eval、数据集和 detector 的 finding |
+| `traceroot-eval` | 编写并运行离线 eval |
+| `traceroot-quickstart` | 没有现成的 LLM 应用时，也能发送第一条测试 trace |
+
+用下面的命令安装其中一个：
+
+```bash
+npx skills add traceroot-ai/traceroot-skills --skill traceroot-cli
+```
+
+`npx skills` 是第三方 CLI，需要 Node.js 22.20 或更高版本。`traceroot-cli` 这个 skill 需要用到 `traceroot` 命令，请用 `npm install -g traceroot-cli` 安装。
+
+## Docs MCP
+
+通过 `https://traceroot.ai/docs/mcp`，你的 agent 可以搜索和阅读这份文档，不需要 API key。要访问你的 trace，请使用 [CLI](#the-cli)。
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add --transport http traceroot-docs https://traceroot.ai/docs/mcp
+    ```
+  </Tab>
+  <Tab title="Codex">
+    ```bash
+    codex mcp add traceroot-docs --url https://traceroot.ai/docs/mcp
+    ```
+  </Tab>
+  <Tab title="Cursor">
+    把下面的内容添加到 `.cursor/mcp.json`：
+
+    ```json
+    {
+      "mcpServers": {
+        "traceroot-docs": {
+          "url": "https://traceroot.ai/docs/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Markdown 文档
+
+在任意页面的 URL 后面加上 `.md`，就能拿到该页面的 Markdown 版本。请求头带有 `Accept: text/markdown` 时，返回的也是 Markdown。
+
+- [llms.txt](https://traceroot.ai/docs/llms.txt) 列出了所有页面，建议从这里开始。
+- [llms-full.txt](https://traceroot.ai/docs/llms-full.txt) 把所有页面放在一个文件里，大约 300 KB。
+- [skill.md](https://traceroot.ai/docs/skill.md) 是写给 agent 的简短指南：包括设置步骤、常见错误和下一步该看哪里。
+
+## The CLI
+
+你的 agent 通过 traceroot CLI 操作你的项目：trace、detector 的 finding、告警、仪表盘、eval 和 SQL。请在运行过 setup 的目录里执行这些命令。在其他目录下，需要先用 `traceroot login` 登录，并[限定到某个项目](/zh/cli/get-started#限定到某个项目)。如果没有全局安装，把 `traceroot` 换成 `npx -y traceroot-cli@latest`。
+
+```bash
+# 最近的 trace
+traceroot traces list --since 1h --limit 10 --json
+
+# 单条 trace，包含 span 的输入和输出
+traceroot traces get <trace-id> --fields full --json
+
+# 最近的 detector finding
+traceroot findings list --since 24h --json
+
+# 最近的 eval 运行
+traceroot evals runs list --json
+```
+
+不加 `--fields full` 时，`traces get --json` 返回的 span 输入和输出为 `null`。
+
+运行 `traceroot <command> --help` 可以查看所有参数，运行 `traceroot doctor` 可以检查你的设置。[脚本与 CI](/zh/cli/scripting)说明了脚本和 agent 可以依赖哪些行为。
+
+## 追踪你的 coding agent
+
+[Claude Code](/zh/integrations/claude-code)、[Codex](/zh/integrations/codex) 和 [pi](/zh/integrations/pi-cli) 的插件会把 coding agent 自己的会话发送到 traceroot。这和追踪你的应用是两件独立的事。会话里可能包含你的提示词、工具的输入和输出、命令以及文件内容。
+
+如果你为某个插件导出了 `TRACEROOT_API_KEY`，它也会作用于你或 agent 在这个 shell 里启动的其他程序，并且优先级高于仓库 env 文件里的 key。
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="追踪" icon="route" href="/zh/tracing/get-started">
+    自己运行 setup、手动添加 SDK，以及排查问题。
+  </Card>
+  <Card title="CLI" icon="terminal" href="/zh/cli/get-started">
+    在终端里处理 trace、finding、告警和 eval。
+  </Card>
+</CardGroup>

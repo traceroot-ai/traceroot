@@ -1,0 +1,136 @@
+---
+title: AutoGen
+description: 自动插桩 AutoGen 的多 agent 对话和工具调用
+---
+
+自动采集 AutoGen 框架里的 agent 循环、消息历史和工具执行。
+
+## 安装
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot "ag2[gemini]>=0.14.0,<1.0"
+    ```
+  </Tab>
+</Tabs>
+
+## 设置
+
+这个集成插桩的是 [AG2](https://github.com/ag2ai/ag2)，它是社区维护的延续版本，提供 `autogen` 包。Microsoft 较新的 `autogen-agentchat` 包使用另一套 API，这个集成目前不支持。
+
+要看到完整的情况，包括 agent 编排和底层的 token 成本，我们强烈建议同时初始化 AG2 集成和你用的 LLM 提供商集成，例如 Google GenAI、OpenAI、Anthropic。
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    # 同时初始化 AutoGen 和你的 LLM 提供商，才能采集 token 和成本
+    traceroot.initialize(integrations=[
+        Integration.AUTOGEN,
+        Integration.GOOGLE_GENAI  # 或 OPENAI、ANTHROPIC 等
+    ])
+    ```
+  </Tab>
+</Tabs>
+
+## 使用
+
+初始化之后，agent 对话和工具调用都会被自动采集：
+
+```python
+import os
+import autogen
+from typing import Annotated
+from autogen import register_function
+
+llm_config = {
+    "config_list": [{
+        "model": "gemini-2.5-flash",
+        "api_key": os.environ["GEMINI_API_KEY"],
+        "api_type": "google"
+    }]
+}
+
+assistant = autogen.AssistantAgent(
+    name="assistant",
+    llm_config=llm_config
+)
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy",
+    human_input_mode="NEVER",
+    max_consecutive_auto_reply=5
+)
+
+def get_weather(city: Annotated[str, "City name"]) -> str:
+    """Get current weather for a city."""
+    return f"The weather in {city} is 72 degrees and sunny."
+
+def get_forecast(city: Annotated[str, "City name"], days: Annotated[int, "Number of days"]) -> str:
+    """Get a multi-day weather forecast for a city."""
+    return f"{days}-day forecast for {city}: mostly sunny with highs around 70-75°F."
+
+# 注册工具：caller 决定什么时候用，executor 负责执行函数
+register_function(
+    get_weather,
+    caller=assistant,
+    executor=user_proxy,
+    name="get_weather",
+    description="Get current weather for a city",
+)
+register_function(
+    get_forecast,
+    caller=assistant,
+    executor=user_proxy,
+    name="get_forecast",
+    description="Get a multi-day weather forecast for a city",
+)
+
+# 整个对话层级都会被自动追踪
+user_proxy.initiate_chat(
+    assistant,
+    message="What's the weather in Tokyo today, and what does the 3-day forecast look like?",
+)
+```
+
+## 验证
+
+运行你的代码，确认 trace 已经到达：
+1. **在 traceroot 界面中**：进入 [traceroot Cloud](https://app.traceroot.ai) 的 **Tracing > Traces**。你会看到一条根 span 为 `user_proxy.initiate_chat` 的 trace，这个名字来自发起对话的 agent。
+2. **通过 CLI**：运行 `traceroot traces list`，在终端里查看最近的 trace。
+
+## 采集的内容
+
+| 属性 | 说明 |
+|-----------|-------------|
+| 对话循环 | 最外层的 `initiate_chat` 会话 |
+| agent 步骤 | `AssistantAgent` 或 `UserProxyAgent` 的每一轮各有一个 span |
+| 消息 | 完整的对话历史、输入消息和 agent 回复 |
+| 工具调用 | 函数名、输入参数和执行输出 |
+| LLM 调用 | 发给提供商的原始 completion 请求 |
+| token 和成本 | 汇总的用量；模型 ID 能匹配 traceroot 的价格表时还有成本 |
+
+## 限制
+
+- AutoGen (AG2) 需要同时初始化 `Integration.AUTOGEN` 和底层 LLM 提供商的集成（例如 `Integration.GOOGLE_GENAI` 或 `Integration.OPENAI`），才能采集完整的 token 用量和价格。
+
+## 运行示例
+
+克隆仓库，端到端运行一个完整的 agent。
+
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/autogen-tool-agent">
+  运行 Python 示例
+</Card>
+
+## 下一步
+
+<CardGroup cols={2}>
+  <Card title="Python SDK 参考" icon="code" href="/zh/tracing/python-sdk">
+    查看完整的 Python SDK 参考和插桩选项。
+  </Card>
+  <Card title="成本跟踪" icon="chart-line" href="/zh/tracing/cost-tracking">
+    了解 traceroot 如何计算 token 成本并跟踪模型开销。
+  </Card>
+</CardGroup>
