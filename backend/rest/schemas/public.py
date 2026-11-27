@@ -519,7 +519,6 @@ class SqlResponse(BaseModel):
     row_count: int
     truncated: bool = Field(description="True when more rows matched than were returned")
     elapsed_ms: int
-    statistics: dict[str, Any] = Field(default_factory=dict)
 
 
 class SqlSchemaColumn(BaseModel):

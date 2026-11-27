@@ -323,7 +323,6 @@ async def run_sql(
         row_count=result.row_count,
         truncated=result.truncated,
         elapsed_ms=result.elapsed_ms,
-        statistics=result.statistics,
     )
 
 

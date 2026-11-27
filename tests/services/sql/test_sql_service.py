@@ -488,11 +488,6 @@ class TestResultShape:
         result = _service(client).run("SELECT span_id FROM spans", PID)
         assert [c.type for c in result.columns] == [type_name]
 
-    def test_statistics_are_read_when_the_driver_supplies_them(self) -> None:
-        client = FakeClient(rows=[["s1"]])
-        result = _service(client).run("SELECT span_id FROM spans", PID)
-        assert result.statistics == {"rows_read": 42, "bytes_read": 4096}
-
     def test_elapsed_is_recorded(self) -> None:
         client = FakeClient(rows=[["s1"]])
         result = _service(client).run("SELECT span_id FROM spans", PID)

@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -72,7 +72,6 @@ class SqlResult:
     row_count: int
     truncated: bool
     elapsed_ms: int
-    statistics: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -416,19 +415,4 @@ class SqlQueryService:
             row_count=len(rows),
             truncated=truncated,
             elapsed_ms=elapsed_ms,
-            statistics=_statistics(result),
         )
-
-
-def _statistics(result: Any) -> dict[str, Any]:
-    """Best-effort read counters, which the driver does not always populate."""
-    summary = getattr(result, "summary", None) or {}
-    stats: dict[str, Any] = {}
-    for key, out in (("read_rows", "rows_read"), ("read_bytes", "bytes_read")):
-        value = summary.get(key)
-        if value is not None:
-            try:
-                stats[out] = int(value)
-            except (TypeError, ValueError):
-                continue
-    return stats

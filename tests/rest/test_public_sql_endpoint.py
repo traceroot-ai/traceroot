@@ -9,6 +9,7 @@ anything the caller sent.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -64,7 +65,6 @@ def _ok_result(truncated: bool = False) -> SqlResult:
         row_count=1,
         truncated=truncated,
         elapsed_ms=7,
-        statistics={"rows_read": 42},
     )
 
 
@@ -97,7 +97,36 @@ class TestSuccess:
         assert body["rows"] == [["s1"]]
         assert body["row_count"] == 1
         assert body["truncated"] is False
-        assert body["statistics"] == {"rows_read": 42}
+        assert "statistics" not in body
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "SELECT count() FROM spans",
+            "SELECT count() FROM spans WHERE span_start_time >= now() - INTERVAL 1 DAY",
+            "SELECT count() FROM spans WHERE name = 'zzz-nonexistent-zzz'",
+        ],
+    )
+    def test_shared_scan_counters_never_reach_the_caller(
+        self, stub: StubService, client: TestClient, query: str
+    ) -> None:
+        stub.result = SimpleNamespace(
+            columns=[SqlColumn(name="count()", type="UInt64")],
+            rows=[[0]],
+            row_count=1,
+            truncated=False,
+            elapsed_ms=7,
+            statistics={"rows_read": 69355, "bytes_read": 1656895},
+        )
+        response = client.post("/api/v1/public/sql", json={"query": query}, headers=AUTH_HEADER)
+        assert response.status_code == 200
+        assert response.json() == {
+            "columns": [{"name": "count()", "type": "UInt64"}],
+            "rows": [[0]],
+            "row_count": 1,
+            "truncated": False,
+            "elapsed_ms": 7,
+        }
 
     def test_truncation_reaches_the_caller(self, stub: StubService, client: TestClient) -> None:
         stub.result = _ok_result(truncated=True)

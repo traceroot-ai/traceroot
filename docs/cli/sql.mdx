@@ -92,7 +92,7 @@ curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \
 
 A [session token or CLI access token](/api-reference/authentication#session-token-and-cli-access-token) works too, with the `project_id` query parameter.
 
-A successful response contains column names and types, row values in the same order, the returned row count, truncation state, elapsed time, and any read statistics supplied by ClickHouse:
+A successful response contains column names and types, row values in the same order, the returned row count, truncation state, and elapsed time:
 
 ```json
 {
@@ -103,12 +103,11 @@ A successful response contains column names and types, row values in the same or
   "rows": [["gpt-5", "0.013500000"]],
   "row_count": 1,
   "truncated": false,
-  "elapsed_ms": 12,
-  "statistics": {"rows_read": 842, "bytes_read": 91736}
+  "elapsed_ms": 12
 }
 ```
 
-`statistics` is best-effort and may be empty. When more rows match than the gateway returns, `truncated` is `true`. A request's `max_rows` can lower the server cap, but cannot raise it.
+When more rows match than the gateway returns, `truncated` is `true`. A request's `max_rows` can lower the server cap, but cannot raise it.
 
 Fetch the same schema used by the validator and query rewriter with `GET /api/v1/public/sql/schema`:
 
