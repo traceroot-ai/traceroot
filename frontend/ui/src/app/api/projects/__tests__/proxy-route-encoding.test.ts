@@ -22,6 +22,10 @@ vi.mock("@traceroot/core", () => ({
   ModelSource: { BYOK: "BYOK" },
   PlanType: { FREE: "FREE" },
   isBillingEnabled: () => false,
+  // Unlimited retention, so the trace proxies add no start_after and the only
+  // query parameter is the one built from the caller's ids. Each route's own
+  // test covers the plan cutoff.
+  getRetentionDays: () => null,
 }));
 
 import { GET as findings } from "../[projectId]/traces/[traceId]/findings/route";
