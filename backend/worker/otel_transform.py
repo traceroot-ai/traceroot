@@ -523,7 +523,9 @@ def extract_attribute_value(attr_value: dict) -> Any:
     OTEL attributes have typed values like:
     {"stringValue": "hello"} or {"intValue": 42} or {"boolValue": true}
 
-    Uses camelCase field names (standard OTLP JSON format).
+    Uses camelCase field names (standard OTLP JSON format). ``bytesValue`` is
+    kept as the base64 string ``MessageToDict`` produces, which is lossless and
+    JSON-safe.
 
     Args:
         attr_value: OTEL attribute value dict
@@ -539,6 +541,8 @@ def extract_attribute_value(attr_value: dict) -> Any:
         return attr_value["boolValue"]
     elif "doubleValue" in attr_value:
         return attr_value["doubleValue"]
+    elif "bytesValue" in attr_value:
+        return attr_value["bytesValue"]
     elif "arrayValue" in attr_value:
         return [extract_attribute_value(v) for v in attr_value["arrayValue"].get("values", [])]
     elif "kvlistValue" in attr_value:
