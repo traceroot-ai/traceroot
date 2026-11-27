@@ -140,7 +140,7 @@ describe("the Python install command each entry shows", () => {
       const slug = integration.href.split("/").pop();
       const page = readFileSync(path.join(docsDir, `${slug}.mdx`), "utf8");
       for (const [, extra] of page.matchAll(/traceroot\[([\w-]+)\]/g)) {
-        expect(python.installCommand, integration.id).toContain(`traceroot[${extra}]`);
+        expect(python.installCommand, integration.id).toContain(`"traceroot[${extra}]"`);
         checked.push(integration.id);
       }
     }
