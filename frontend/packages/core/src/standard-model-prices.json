@@ -52,6 +52,19 @@
     }
   },
   {
+    "id": "tr-claude-mythos-5",
+    "modelName": "claude-mythos-5",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-mythos-5(\\[1m\\])?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
     "id": "tr-claude-opus-5-fast",
     "modelName": "claude-opus-5-fast",
     "matchPattern": "(?i)^(anthropic\\/)?claude-opus-5-fast$",
