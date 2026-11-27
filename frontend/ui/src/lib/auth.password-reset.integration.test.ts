@@ -30,7 +30,33 @@ vi.mock("better-auth", async (importOriginal) => {
   };
 });
 vi.mock("better-auth/adapters/prisma", () => ({ prismaAdapter: () => ({}) }));
-vi.mock("@traceroot/core", () => ({ prisma: {} }));
+const countFailure = vi.hoisted(() => ({ enabled: false }));
+vi.mock("@traceroot/core", () => ({
+  prisma: {
+    session: {
+      count: async ({
+        where,
+      }: {
+        where: { userId: string; id: { not: string }; expiresAt: { gt: Date } };
+      }) => {
+        if (countFailure.enabled) throw new Error("count unavailable");
+        return database.session.filter(
+          (row) =>
+            row.userId === where.userId &&
+            row.id !== where.id.not &&
+            (row.expiresAt as Date) > where.expiresAt.gt,
+        ).length;
+      },
+      findUnique: async ({ where }: { where: { token: string } }) => {
+        const session = database.session.find((row) => row.token === where.token);
+        return session
+          ? { ...session, user: database.user.find((user) => user.id === session.userId) }
+          : null;
+      },
+      updateMany: async () => ({ count: 0 }),
+    },
+  },
+}));
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: vi.fn() }));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: vi.fn(async () => undefined) }));
 vi.mock("@/lib/demo-workspace", () => ({ ensureDemoMembership: vi.fn(async () => undefined) }));
@@ -58,11 +84,15 @@ vi.mock("@/lib/email/send-password-reset-email", () => ({ sendPasswordResetEmail
 const { auth } = await import("./auth");
 const { RESET_NOT_AVAILABLE } = await import("./auth-recovery");
 
-function post(path: string, body: Record<string, unknown>) {
+function post(path: string, body: Record<string, unknown>, cookie?: string) {
   return auth.handler(
     new Request(`${baseURL}/api/auth${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: baseURL },
+      headers: {
+        "content-type": "application/json",
+        origin: baseURL,
+        ...(cookie ? { cookie } : {}),
+      },
       body: JSON.stringify(body),
     }),
   );
@@ -103,6 +133,7 @@ it("hides the reset form for an expired token", async () => {
 });
 
 beforeEach(async () => {
+  countFailure.enabled = false;
   for (const rows of Object.values(database)) rows.length = 0;
   afterResponse.length = 0;
   sendPasswordResetEmail.mockClear();
@@ -286,5 +317,157 @@ describe("a reset link recovers only accounts whose identities proved the mailbo
     const social = await forgotPassword("pat@example.co");
     const unknown = await forgotPassword("nobody@example.co");
     expect(social).toEqual(unknown);
+  });
+});
+
+function sessionCookie(response: Response) {
+  return response.headers
+    .getSetCookie()
+    .find((entry) => entry.startsWith("__Secure-better-auth.session_token="))!
+    .split(";")[0]!;
+}
+
+async function readSession(cookie: string) {
+  const response = await auth.handler(
+    new Request(`${baseURL}/api/auth/get-session`, { headers: { cookie } }),
+  );
+  return response.json();
+}
+
+async function mintCliToken(token: string) {
+  const { NextRequest } = await import("next/server");
+  const { POST } = await import("@/app/api/cli/token/route");
+  return POST(
+    new NextRequest(`${baseURL}/api/cli/token`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    }),
+  );
+}
+
+describe("password changes revoke sessions through the app's auth options", () => {
+  it.each([undefined, false, true])(
+    "revokes old sessions even with revokeOtherSessions=%s",
+    async (revokeOtherSessions) => {
+      const a = await signIn("ada@example.co", "test-password-123");
+      const b = await signIn("ada@example.co", "test-password-123");
+      const cookieA = sessionCookie(a);
+      const cookieB = sessionCookie(b);
+      const sessionB = await readSession(cookieB);
+      expect(sessionB.user.email).toBe("ada@example.co");
+      const tokenB = sessionB.session.token;
+      expect((await mintCliToken(tokenB)).status).toBe(200);
+      seedAccount("other-user", "other@example.co", true, []);
+      const otherSessions = structuredClone(sessionsOf("other-user"));
+
+      const response = await post(
+        "/change-password",
+        {
+          currentPassword: "test-password-123",
+          newPassword: "changed-password-456",
+          ...(revokeOtherSessions === undefined ? {} : { revokeOtherSessions }),
+        },
+        cookieA,
+      );
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      // Sign-up also created one session before the A and B logins.
+      expect(result.otherSessionsBeforeChange).toBe(2);
+      expect(result.token).toEqual(expect.any(String));
+      expect(await readSession(cookieA)).toBeNull();
+      expect(await readSession(cookieB)).toBeNull();
+      expect((await mintCliToken(tokenB)).status).toBe(401);
+      expect((await readSession(sessionCookie(response))).user.email).toBe("ada@example.co");
+      expect(sessionsOf("other-user")).toEqual(otherSessions);
+      expect((await signIn("ada@example.co", "test-password-123")).status).toBe(401);
+      expect((await signIn("ada@example.co", "changed-password-456")).status).toBe(200);
+    },
+  );
+
+  it("counts all active sessions, excluding current and expired records", async () => {
+    const login = await signIn("ada@example.co", "test-password-123");
+    const user = database.user.find((row) => row.email === "ada@example.co")!;
+    for (let i = 0; i < 105; i++)
+      database.session.push({
+        id: `extra-${i}`,
+        token: `extra-token-${i}`,
+        userId: user.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+    database.session.push({
+      id: "expired",
+      token: "expired-token",
+      userId: user.id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      expiresAt: new Date(0),
+    });
+    const response = await post(
+      "/change-password",
+      { currentPassword: "test-password-123", newPassword: "changed-password-456" },
+      sessionCookie(login),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).otherSessionsBeforeChange).toBe(106);
+    expect(sessionsOf(user.id as string)).toHaveLength(1);
+  });
+
+  it.each([
+    { currentPassword: "incorrect", newPassword: "changed-password-456" },
+    { currentPassword: "test-password-123", newPassword: "short" },
+  ])("does not change credentials or revoke sessions for rejected passwords", async (body) => {
+    const login = await signIn("ada@example.co", "test-password-123");
+    const user = database.user.find((row) => row.email === "ada@example.co")!;
+    const sessions = structuredClone(sessionsOf(user.id as string));
+    const accounts = accountsOf(user.id as string);
+    expect((await post("/change-password", body, sessionCookie(login))).status).toBe(400);
+    expect(accountsOf(user.id as string)).toEqual(accounts);
+    expect(sessionsOf(user.id as string)).toEqual(sessions);
+  });
+
+  it("fails before any write when the snapshot cannot be read", async () => {
+    const login = await signIn("ada@example.co", "test-password-123");
+    const user = database.user.find((row) => row.email === "ada@example.co")!;
+    const accounts = accountsOf(user.id as string);
+    const sessions = structuredClone(sessionsOf(user.id as string));
+    countFailure.enabled = true;
+    expect(
+      (
+        await post(
+          "/change-password",
+          { currentPassword: "test-password-123", newPassword: "changed-password-456" },
+          sessionCookie(login),
+        )
+      ).status,
+    ).toBe(500);
+    expect(accountsOf(user.id as string)).toEqual(accounts);
+    expect(sessionsOf(user.id as string)).toEqual(sessions);
+  });
+
+  it("rejects an unauthenticated password change", async () => {
+    const response = await post("/change-password", {
+      currentPassword: "test-password-123",
+      newPassword: "changed-password-456",
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("a completed reset revokes every old session without affecting another account", async () => {
+    const login = await signIn("ada@example.co", "test-password-123");
+    const cookie = sessionCookie(login);
+    const session = await readSession(cookie);
+    seedAccount("reset-other", "reset-other@example.co", true, []);
+    const others = structuredClone(sessionsOf("reset-other"));
+    const token = await resetToken("ada@example.co");
+    expect(await readSession(cookie)).not.toBeNull();
+    expect((await resetPassword(token, "reset-password-456")).status).toBe(200);
+    expect(sessionsOf(session.user.id)).toHaveLength(0);
+    expect(await readSession(cookie)).toBeNull();
+    expect((await mintCliToken(session.session.token)).status).toBe(401);
+    expect(sessionsOf("reset-other")).toEqual(others);
+    expect((await resetPassword(token, "another-password-789")).status).toBe(400);
+    expect((await signIn("ada@example.co", "reset-password-456")).status).toBe(200);
   });
 });

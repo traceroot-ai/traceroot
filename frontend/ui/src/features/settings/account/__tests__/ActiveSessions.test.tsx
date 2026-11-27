@@ -191,6 +191,23 @@ describe("ActiveSessions", () => {
     expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
   });
 
+  it("withholds revoke controls while the current identity and rotated session list disagree", async () => {
+    mocks.useSession.mockReturnValue({ data: { session: currentSession }, isPending: false });
+    mocks.listSessions.mockResolvedValue({
+      data: [{ ...currentSession, id: "sess-rotated", token: "tok-rotated" }, cliSession],
+      error: null,
+    });
+
+    renderComponent();
+
+    await screen.findByText("traceroot CLI");
+    expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /revoke all other sessions/i }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(screen.queryByText("This device")).toBeNull();
+  });
+
   it("shows an empty state when there are no sessions", async () => {
     mocks.useSession.mockReturnValue({ data: { session: currentSession }, isPending: false });
     mocks.listSessions.mockResolvedValue({ data: [], error: null });

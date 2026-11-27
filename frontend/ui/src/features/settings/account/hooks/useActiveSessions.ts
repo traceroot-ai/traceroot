@@ -40,7 +40,7 @@ export function useActiveSessions() {
   // in device-client.tsx: until the current session resolves, we don't know
   // which row is "this device" yet, so no row can be safely offered a plain
   // revoke (a false negative would let the current session's row show one).
-  const { data: currentSessionData, isPending: currentSessionPending } = authClient.useSession();
+  const { data: currentSessionData, isPending: sessionPending } = authClient.useSession();
   const currentToken = currentSessionData?.session?.token ?? null;
   const currentUserId = currentSessionData?.session?.userId ?? null;
 
@@ -59,6 +59,12 @@ export function useActiveSessions() {
       return data ?? [];
     },
   });
+
+  // Password changes rotate the cookie before useSession's cache refreshes.
+  // Until both reads agree, no listed row can safely be treated as "other".
+  const currentSessionPending =
+    sessionPending ||
+    (query.data !== undefined && !query.data.some((session) => session.token === currentToken));
 
   const sessions: SessionRow[] = (query.data ?? []).map((session) => ({
     id: session.id,
@@ -105,10 +111,11 @@ export function useActiveSessions() {
 
   return {
     sessions,
+    refresh,
     // The query is disabled until the current user resolves, and a disabled
     // query reports isLoading=false — fold the session resolution in so the
     // table shows "loading" instead of flashing an empty state first.
-    isLoading: query.isLoading || currentSessionPending,
+    isLoading: query.isLoading || sessionPending,
     isError: query.isError,
     currentSessionPending,
     revoke: revokeMutation.mutate,

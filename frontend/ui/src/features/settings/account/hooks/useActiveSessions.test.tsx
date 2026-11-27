@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -97,5 +97,54 @@ describe("useActiveSessions cache scoping", () => {
     await waitFor(() =>
       expect(queryClient.getQueryData(["account-settings", "sessions", "user-a"])).toBeUndefined(),
     );
+  });
+});
+
+describe("useActiveSessions after a password change", () => {
+  it("gates revocation until the cached identity catches up with the rotated session list", async () => {
+    const oldSession = sessionFor("user-a", "old-token");
+    const newSession = sessionFor("user-a", "new-token");
+    const anotherSession = sessionFor("user-a", "another-token");
+    mocks.useSession.mockReturnValue({ data: { session: oldSession }, isPending: false });
+    mocks.listSessions.mockResolvedValue({ data: [oldSession, anotherSession], error: null });
+    const { wrapper } = makeWrapper();
+    const { result, rerender } = renderHook(() => useActiveSessions(), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(2));
+    expect(result.current.currentSessionPending).toBe(false);
+
+    mocks.listSessions.mockResolvedValue({ data: [newSession, anotherSession], error: null });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.sessions[0].token).toBe("new-token"));
+    expect(result.current.currentSessionPending).toBe(true);
+    expect(result.current.sessions.every((session) => !session.isCurrent)).toBe(true);
+
+    mocks.useSession.mockReturnValue({ data: { session: newSession }, isPending: false });
+    rerender();
+    expect(result.current.currentSessionPending).toBe(false);
+    expect(result.current.sessions[0].isCurrent).toBe(true);
+    expect(result.current.sessions[1].isCurrent).toBe(false);
+  });
+
+  it("keeps revocation gated when the session refresh retains a stale identity", async () => {
+    const oldSession = sessionFor("user-a", "old-token");
+    const newSession = sessionFor("user-a", "new-token");
+    mocks.useSession.mockReturnValue({ data: { session: oldSession }, isPending: false });
+    mocks.listSessions.mockResolvedValue({ data: [newSession], error: null });
+    const { wrapper } = makeWrapper();
+    const { result, rerender } = renderHook(() => useActiveSessions(), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    expect(result.current.currentSessionPending).toBe(true);
+    expect(result.current.isLoading).toBe(false);
+
+    mocks.useSession.mockReturnValue({
+      data: { session: oldSession },
+      isPending: false,
+      error: new Error("Session refresh failed"),
+    });
+    rerender();
+    expect(result.current.currentSessionPending).toBe(true);
+    expect(result.current.sessions[0].isCurrent).toBe(false);
   });
 });
