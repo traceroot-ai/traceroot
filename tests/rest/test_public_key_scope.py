@@ -239,9 +239,9 @@ def test_refusal_detail_matches_the_control_plane():
     message out of the control plane's source and compares it.
     """
     source = CONTROL_PLANE_AUTH.read_text(encoding="utf-8")
-    messages = re.findall(r'publicError\(\s*"([^"]+)",\s*403,?\s*\)', source)
-    # Other 403s may reject a gateway bypass; the scope refusal still has to match.
-    assert INSUFFICIENT_SCOPE_DETAIL in messages, messages
+    scope_case = source.split('case "insufficient_scope":', 1)[1].split("default:", 1)[0]
+    messages = re.findall(r'publicError\(\s*"([^"]+)",\s*403,?\s*\)', scope_case)
+    assert messages == [INSUFFICIENT_SCOPE_DETAIL], messages
 
 
 def test_refusal_body_is_the_detail_shape_the_public_api_speaks():
