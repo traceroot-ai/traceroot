@@ -70,10 +70,10 @@ afterEach(() => {
   cleanup();
 });
 
-function renderTimeline() {
+function renderTimeline(t: TraceDetail = trace) {
   return render(
     <SpanTimelineView
-      trace={trace}
+      trace={t}
       selection={selection}
       onSelect={vi.fn()}
       collapsedIds={new Set()}
@@ -136,5 +136,13 @@ describe("SpanTimelineView selection", () => {
     expect(spanRow.querySelector(".animate-pulse")?.className).toContain("brightness-95");
     fireEvent.mouseLeave(spanRow);
     expect(onHoverChange).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("SpanTimelineView ruler", () => {
+  it("scales the ruler for a trace shorter than half a second", () => {
+    const span = { ...trace.spans[0], span_end_time: "2026-01-01T00:00:00.200Z" };
+    renderTimeline({ ...trace, spans: [span] });
+    expect(screen.getByText("100ms")).toBeTruthy();
   });
 });
