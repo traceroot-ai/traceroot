@@ -7,11 +7,12 @@
 // Demo viewers (members below ADMIN: every visitor) keep the Settings entry
 // and every menu item. General pages are readable but every control is
 // disabled. The other pages show a demo settings explanation, never an empty
-// state. Admins of the demo workspace, and everyone in any other workspace,
-// see settings as before. The API routes behind the denied pages return 403
+// state. Detector settings are also read-only for non-admins in other workspaces.
+// The API routes behind the denied pages return 403
 // to demo viewers, so this is presentation, not the security boundary.
 import { type ReactNode } from "react";
 import { Info } from "lucide-react";
+import { Role } from "@traceroot/core";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
 import type { ProjectSettingsTab, WorkspaceSettingsTab } from "./settings-layout";
@@ -19,7 +20,7 @@ import type { ProjectSettingsTab, WorkspaceSettingsTab } from "./settings-layout
 export type SettingsAccess =
   | { mode: "loading" }
   | { mode: "full" }
-  | { mode: "read-only"; scope?: "workspace" | "project" }
+  | { mode: "read-only"; scope?: "workspace" | "project"; message?: string }
   | { mode: "denied"; title: string; message: string };
 
 const denied = (scope: "workspace" | "project", message: string): SettingsAccess => ({
@@ -81,7 +82,11 @@ export function projectSettingsAccess(
   tab: ProjectSettingsTab,
   workspace: Membership,
 ): SettingsAccess {
-  return accessFor(PROJECT_DEMO_VIEWER_ACCESS[tab], workspace);
+  const access = accessFor(PROJECT_DEMO_VIEWER_ACCESS[tab], workspace);
+  if (access.mode === "full" && tab === "detectors" && workspace?.role !== Role.ADMIN) {
+    return { mode: "read-only", message: "Only workspace admins can change these settings." };
+  }
+  return access;
 }
 
 function DemoSettingsCard({ title, message }: { title: string; message: string }) {
@@ -120,7 +125,8 @@ export function SettingsAccessGate({
             <CardContent className="flex items-start gap-2 p-3">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <CardDescription className="text-[13px]">
-                Settings in this demo {access.scope ?? "project"} are read-only.
+                {access.message ??
+                  `Settings in this demo ${access.scope ?? "project"} are read-only.`}
               </CardDescription>
             </CardContent>
           </Card>

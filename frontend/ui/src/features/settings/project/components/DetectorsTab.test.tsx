@@ -57,9 +57,6 @@ vi.mock("@/features/ai-assistant/components/model-selector", () => ({
     </select>
   ),
 }));
-vi.mock("@/features/settings/workspace/hooks", () => ({
-  useWorkspace: () => ({ data: mocks.workspace }),
-}));
 
 // Radix Select renders through a portal and is flaky in jsdom; mock it to a
 // native <select> so we can drive the onValueChange path directly.
@@ -95,13 +92,16 @@ vi.mock("@/components/ui/select", () => ({
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DetectorsTab } from "./DetectorsTab";
+import { SettingsAccessGate, projectSettingsAccess } from "../../demo-access";
 import { ApiError, ImpersonationError } from "@/lib/api/errors";
 
 function renderTab() {
   const qc = new QueryClient();
   const result = render(
     <QueryClientProvider client={qc}>
-      <DetectorsTab projectId="p1" />
+      <SettingsAccessGate access={projectSettingsAccess("detectors", mocks.workspace)}>
+        <DetectorsTab projectId="p1" />
+      </SettingsAccessGate>
     </QueryClientProvider>,
   );
   return { ...result, queryClient: qc };
@@ -367,7 +367,7 @@ describe("DetectorsTab email permissions", () => {
     const input = screen.getByRole("textbox") as HTMLInputElement;
     const add = screen.getByRole("button", { name: /add recipient/i });
     const remove = screen.getByRole("button", { name: /remove recipient/i });
-    const emailSection = add.closest("fieldset")!;
+    const emailSection = screen.getByText("Email").parentElement!.parentElement!;
     const save = within(emailSection).getByRole("button", { name: /^save$/i });
 
     expect(input.value).toBe("existing@example.com");
@@ -385,7 +385,7 @@ describe("DetectorsTab email permissions", () => {
     const input = screen.getByRole("textbox") as HTMLInputElement;
     const add = screen.getByRole("button", { name: /add recipient/i });
     const remove = screen.getByRole("button", { name: /remove recipient/i });
-    const emailSection = add.closest("fieldset")!;
+    const emailSection = screen.getByText("Email").parentElement!.parentElement!;
     const save = within(emailSection).getByRole("button", { name: /^save$/i });
 
     expect(input.matches(":disabled")).toBe(false);
@@ -414,7 +414,7 @@ describe("DetectorsTab email permissions", () => {
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
     const input = screen.getByRole("textbox");
-    const emailSection = input.closest("fieldset")!;
+    const emailSection = screen.getByText("Email").parentElement!.parentElement!;
     const save = within(emailSection).getByRole("button", { name: /^save$/i });
 
     expect(input.matches(":disabled")).toBe(false);
@@ -451,7 +451,10 @@ describe("DetectorsTab email permissions", () => {
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
     const input = screen.getByRole("textbox") as HTMLInputElement;
-    const save = within(input.closest("fieldset")!).getByRole("button", { name: /^save$/i });
+    const save = within(screen.getByText("Email").parentElement!.parentElement!).getByRole(
+      "button",
+      { name: /^save$/i },
+    );
     fireEvent.change(input, { target: { value: "updated@example.com" } });
     fireEvent.click(save);
 
@@ -471,7 +474,10 @@ describe("DetectorsTab email permissions", () => {
     renderTab();
 
     const input = screen.getByRole("textbox") as HTMLInputElement;
-    const save = within(input.closest("fieldset")!).getByRole("button", { name: /^save$/i });
+    const save = within(screen.getByText("Email").parentElement!.parentElement!).getByRole(
+      "button",
+      { name: /^save$/i },
+    );
     fireEvent.change(input, { target: { value: "updated@example.com" } });
     fireEvent.click(save);
 

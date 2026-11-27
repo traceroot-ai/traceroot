@@ -18,13 +18,11 @@ import {
   DEFAULT_ALERT_WINDOW,
   requiresExplicitHostedSource,
   type AlertWindow,
-  Role,
 } from "@traceroot/core";
 import { updateProject } from "@/lib/api";
 import { ApiError, ImpersonationError } from "@/lib/api/errors";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
-import { useWorkspace } from "@/features/settings/workspace/hooks";
 import {
   ModelSelector,
   type ModelSelection,
@@ -33,6 +31,12 @@ import { AlertChannelsEditor } from "@/features/detectors/components/alert-chann
 
 interface DetectorsTabProps {
   projectId: string;
+}
+
+function isRoleDenied(error: unknown): boolean {
+  return (
+    error instanceof ApiError && !(error instanceof ImpersonationError) && error.status === 403
+  );
 }
 
 export function DetectorsTab({ projectId }: DetectorsTabProps) {
@@ -48,8 +52,6 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   });
   const [emailAddresses, setEmailAddresses] = useState<string[]>([]);
   const [alertWindow, setAlertWindow] = useState<AlertWindow>(DEFAULT_ALERT_WINDOW);
-  const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
-  const isAdmin = workspace?.role === Role.ADMIN;
 
   useEffect(() => {
     if (project) {
@@ -74,11 +76,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       });
     },
     onError: (error) => {
-      if (
-        error instanceof ApiError &&
-        !(error instanceof ImpersonationError) &&
-        error.status === 403
-      ) {
+      if (isRoleDenied(error)) {
         setAgentModelSelection({
           model: project?.rca_model ?? "",
           provider: project?.rca_provider ?? "",
@@ -101,11 +99,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       });
     },
     onError: (error) => {
-      if (
-        error instanceof ApiError &&
-        !(error instanceof ImpersonationError) &&
-        error.status === 403
-      ) {
+      if (isRoleDenied(error)) {
         setEmailAddresses(project?.alert_emails ?? []);
         queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
       }
@@ -121,11 +115,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       return updateProject(project.workspace_id!, projectId, { alert_window: w });
     },
     onError: (error) => {
-      if (
-        error instanceof ApiError &&
-        !(error instanceof ImpersonationError) &&
-        error.status === 403
-      ) {
+      if (isRoleDenied(error)) {
         setAlertWindow((project?.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
         queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
       }
@@ -157,11 +147,6 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       <div className="-mx-4 -mt-4 flex h-11 items-center gap-3 border-b border-border px-4">
         <h2 className="text-[15px] font-medium">Detectors</h2>
         <p className="text-[13px] text-muted-foreground">Settings shared across all detectors.</p>
-        {workspace && !isAdmin && (
-          <p className="mt-2 text-[13px] text-muted-foreground">
-            Only workspace admins can change these settings.
-          </p>
-        )}
       </div>
 
       <div className="border">
@@ -179,7 +164,6 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
                 !requiresExplicitHostedSource(project?.rca_model)
               }
               field
-              disabled={!isAdmin}
             />
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
@@ -194,7 +178,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             size="sm"
             className="mt-3 min-w-[5.5rem]"
             onClick={() => modelMutation.mutate(agentModelSelection)}
-            disabled={!isAdmin || !canSave || modelMutation.isPending || !isModelDirty}
+            disabled={!canSave || modelMutation.isPending || !isModelDirty}
           >
             {modelMutation.isPending ? "Saving..." : "Save"}
           </Button>
@@ -207,7 +191,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         </div>
 
         {/* Email subsection */}
-        <fieldset disabled={!isAdmin} className="px-4 py-3">
+        <div className="px-4 py-3">
           <div className="flex items-center gap-1.5">
             <Mail className="h-3.5 w-3.5 text-muted-foreground" />
             <h4 className="text-[13px] font-medium">Email</h4>
@@ -231,7 +215,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           >
             {emailsMutation.isPending ? "Saving..." : "Save"}
           </Button>
-        </fieldset>
+        </div>
 
         {/* Slack subsection — read-only mirror, configured at workspace settings */}
         <div className="border-t border-border px-4 py-3">
@@ -266,11 +250,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             <h4 className="text-[13px] font-medium">Alert window</h4>
           </div>
           <div className="mt-2 max-w-xs">
-            <Select
-              value={alertWindow}
-              onValueChange={(v) => setAlertWindow(v as AlertWindow)}
-              disabled={!isAdmin}
-            >
+            <Select value={alertWindow} onValueChange={(v) => setAlertWindow(v as AlertWindow)}>
               <SelectTrigger aria-label="window">
                 <SelectValue />
               </SelectTrigger>
@@ -296,7 +276,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             className="mt-3 min-w-[5.5rem]"
             aria-label="Save alert window"
             onClick={() => windowMutation.mutate(alertWindow)}
-            disabled={!isAdmin || !canSave || windowMutation.isPending || !isWindowDirty}
+            disabled={!canSave || windowMutation.isPending || !isWindowDirty}
           >
             {windowMutation.isPending ? "Saving..." : "Save"}
           </Button>

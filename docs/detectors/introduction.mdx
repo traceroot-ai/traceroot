@@ -83,9 +83,9 @@ If the agent analyzed a trace, its analysis opens in the trace's chat panel, and
 
 traceroot tells you when a signal is created or reopened. It collects these signals over each alert window and sends them together in one message, a digest. New findings on a signal it already announced send nothing.
 
-In your project, open **Settings → Detectors** and go to **Notifications**:
+As a workspace admin, open your project's **Settings → Detectors** to change the Agent model, email recipients, and alert window. Other roles can view these settings but cannot change them. Under **Notifications**:
 
-- **Email**: as a workspace admin, click **Add recipient**, enter an address and click **Save**. Members can view recipients but cannot edit them. If a save fails, an error explains that the recipients were not saved.
+- **Email**: click **Add recipient**, enter an address and click **Save**.
 - **Alert window**: pick how long traceroot collects signals before it sends a digest (1, 5, 10 or 30 minutes, 1 hour or 2 hours), then click **Save**. The default is 10 minutes.
 - **Slack**: shows the connected workspace and channel. Click **Connect** or **Manage** to change them.
 
