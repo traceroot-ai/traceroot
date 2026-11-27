@@ -10,7 +10,7 @@ export function impersonationDenial(
   method: string,
   role: string | null | undefined,
 ): string | null {
-  if (/^\/api\/(support|auth|cli|internal|public)(\/|$)/.test(path)) {
+  if (/^\/api\/(support|auth|cli|internal|public|oauth)(\/|$)/.test(path)) {
     return "Exit impersonation before managing accounts or credentials";
   }
   if (

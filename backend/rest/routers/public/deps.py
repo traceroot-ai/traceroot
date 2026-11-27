@@ -53,6 +53,7 @@ from fastapi import Depends, Header, HTTPException, Query, Request, status
 
 from rest.rate_limit import clear_request_rate_limit_exempt, set_rate_limit_identity
 from rest.routers.public.jwks_cache import JwksUnavailableError, get_jwks_cache
+from rest.routers.public.oauth_access import is_oauth_token, verify_oauth_access_token
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -300,6 +301,9 @@ class AuthResult:
     # None for API keys and for session-token credentials, whose introspection
     # already proved the session live.
     session_id: str | None = None
+    # Set only for an OAuth access token: the client it was issued to. A result
+    # carrying it is read-only, enforced where the request is known.
+    oauth_client_id: str | None = None
 
 
 async def authenticate_api_key(
@@ -712,6 +716,108 @@ async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
     )
 
 
+# Endpoints an OAuth token may call besides GET: read-only queries that take
+# their input in a POST body. Anything else that is not a GET is refused, so a
+# token a user granted for reading can never write, whatever route accepts it.
+_OAUTH_READ_ONLY_POSTS = frozenset({"run_sql", "run_widget_query"})
+
+
+async def authenticate_oauth_token(token: str, project_id: str | None) -> AuthResult:
+    """Authenticate an OAuth access token for the project it was granted on.
+
+    The token names one project (chosen at consent). A caller-supplied
+    ``project_id`` may only repeat it. Membership and the live consent are
+    re-checked per request through the internal ``oauth-grant-access`` route, so
+    removing the user from the project or revoking the connection takes effect
+    at once rather than when the token expires.
+
+    Args:
+        token (str): The raw OAuth access JWT. Never logged.
+        project_id (str | None): The caller's ``project_id`` query parameter, if any.
+
+    Returns:
+        AuthResult: A ``kind="user"`` result for the token's project.
+
+    Raises:
+        HTTPException: 401 for an invalid token or revoked grant, 403 when the
+            requested project is not the granted one or the user lost access, and
+            503 (fail closed) for any JWKS or introspection ambiguity.
+    """
+    claims = await verify_oauth_access_token(token, get_jwks_cache())
+    if project_id and project_id != claims.project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No access to project '{project_id}'",
+        )
+
+    data = await _post_internal_auth(
+        "/api/internal/oauth-grant-access",
+        {
+            "userId": claims.user_id,
+            "projectId": claims.project_id,
+            "clientId": claims.client_id,
+        },
+        log_label="oauth access token",
+        invalid_detail="Invalid token",
+        forbidden_detail=f"No access to project '{claims.project_id}'",
+    )
+    if data.get("hasAccess") is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No access to project '{claims.project_id}'",
+        )
+
+    try:
+        resolved_project_id = data["projectId"]
+        workspace_id = data["workspaceId"]
+        billing_plan = data["billingPlan"]
+        role = data["role"]
+    except KeyError as e:
+        logger.error(f"Auth service response missing required field: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+    if not workspace_id or resolved_project_id != claims.project_id:
+        logger.error("Auth service response is empty or names another project")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    return AuthResult(
+        kind="user",
+        project_id=resolved_project_id,
+        workspace_id=workspace_id,
+        billing_plan=billing_plan,
+        ingestion_blocked=True,
+        role=role,
+        user_id=claims.user_id,
+        oauth_client_id=claims.client_id,
+    )
+
+
+def _require_oauth_read_only(request: Request) -> None:
+    """Refuse an OAuth token on anything that is not a read.
+
+    Args:
+        request (Request): The incoming request, routed by the time dependencies run.
+
+    Raises:
+        HTTPException: 403 unless the request is a GET/HEAD or one of the
+            read-only POST endpoints.
+    """
+    if request.method in ("GET", "HEAD"):
+        return
+    route = request.scope.get("route")
+    if getattr(route, "name", None) in _OAUTH_READ_ONLY_POSTS:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="OAuth tokens are read-only",
+    )
+
+
 def _account_result_for_user(user_id: str, session_id: str | None = None) -> AuthResult:
     """Build the account-scope AuthResult for a resolved user id.
 
@@ -738,6 +844,48 @@ def _account_result_for_user(user_id: str, session_id: str | None = None) -> Aut
         user_id=user_id,
         session_id=session_id,
     )
+
+
+async def _resolve_user_identity(token: str) -> tuple[str, str | None]:
+    """Resolve a user credential to its user, with no project in view.
+
+    A JWT-shaped credential is a CLI access token, verified offline against the
+    JWKS with no introspection call. Anything else is a session token,
+    introspected WITHOUT a ``projectId`` (no 403 access branch: a live session
+    alone is sufficient). The raw token is never logged.
+
+    Args:
+        token (str): The raw user credential (not API-key-shaped). Never logged.
+
+    Returns:
+        tuple[str, str | None]: The user id, and the JWT's ``sid`` claim on the
+            JWT path (``None`` on the session-token path, whose introspection
+            already proved the session live).
+
+    Raises:
+        HTTPException: 401 for an invalid/expired credential, and 503 (fail
+            closed) for any JWKS or introspection ambiguity.
+    """
+    if _is_jwt(token):
+        return await _verify_access_jwt(token)
+
+    data = await _post_internal_auth(
+        "/api/internal/validate-user-token",
+        {"token": token},
+        log_label="user token",
+        invalid_detail="Invalid token",
+    )
+
+    # A valid:true account response must carry the user identity; its absence is
+    # malformed → 503 (fail closed rather than authenticating an anonymous user).
+    user_id = data.get("userId")
+    if not user_id:
+        logger.error("Auth service response missing userId for account scope")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+    return user_id, None
 
 
 async def authenticate_public_caller(
@@ -775,8 +923,9 @@ async def authenticate_public_caller(
 
     Raises:
         HTTPException: 401 for a missing/malformed header (or failed auth), 400
-            when ``project_id`` is missing for a user token or contradicts the
-            API key's project, 403/503 per the delegated validators.
+            when ``project_id`` is missing for a valid user credential or
+            contradicts the API key's project, 403/503 per the delegated
+            validators.
     """
     if not authorization:
         raise HTTPException(
@@ -817,8 +966,17 @@ async def authenticate_public_caller(
             )
         return result
 
-    # User path: a user credential is only meaningful scoped to a project.
+    # An OAuth access token names its own project, so it is handled before the
+    # project_id requirement below.
+    if _is_jwt(token) and is_oauth_token(token):
+        return await authenticate_oauth_token(token, project_id)
+
+    # User path: a user credential is only meaningful scoped to a project. The
+    # credential is checked first, so one that is not valid (an unknown or
+    # revoked token) gets the 401 that sends a client to sign in again, not a 400
+    # telling it to pick a project it could never read.
     if not project_id:
+        await _resolve_user_identity(token)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -858,6 +1016,8 @@ async def authenticate_and_stamp_public_caller(request: Request, auth: _DualAuth
     Returns:
         AuthResult: The authenticated result, passed through to the route handler.
     """
+    if auth.oauth_client_id:
+        _require_oauth_read_only(request)
     clear_request_rate_limit_exempt()
     set_rate_limit_identity(
         request,
@@ -933,32 +1093,8 @@ async def authenticate_account_caller(
             detail="this operation requires a user login; API keys are project-scoped",
         )
 
-    # A JWT-shaped credential is a CLI access token: verified offline against the
-    # JWKS, no introspection call needed (identity is all account scope requires).
-    if _is_jwt(token):
-        user_id, sid = await _verify_access_jwt(token)
-        return _account_result_for_user(user_id, session_id=sid)
-
-    # Session-token path: introspect WITHOUT a projectId (no 403 access branch
-    # here — a live session alone is sufficient).
-    data = await _post_internal_auth(
-        "/api/internal/validate-user-token",
-        {"token": token},
-        log_label="user token",
-        invalid_detail="Invalid token",
-    )
-
-    # A valid:true account response must carry the user identity; its absence is
-    # malformed → 503 (fail closed rather than authenticating an anonymous user).
-    user_id = data.get("userId")
-    if not user_id:
-        logger.error("Auth service response missing userId for account scope")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Authentication service error",
-        )
-
-    return _account_result_for_user(user_id)
+    user_id, sid = await _resolve_user_identity(token)
+    return _account_result_for_user(user_id, session_id=sid)
 
 
 _AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]

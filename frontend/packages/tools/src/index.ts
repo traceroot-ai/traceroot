@@ -2,7 +2,14 @@
 // so consumers get exactly these names. REGISTRY is the generated tool data,
 // dispatch/client the engine, pi/internal the per-surface adapters —
 // everything not re-exported here is private implementation detail.
-export type { InputSchema, ParamSchema, RegistryEntry, ToolMethod, ToolPolicy } from "./types.js";
+export type {
+  InputSchema,
+  ParamSchema,
+  RegistryEntry,
+  ToolAnnotations,
+  ToolMethod,
+  ToolPolicy,
+} from "./types.js";
 export { generateRegistry, type OpenApiDocument } from "./generate.js";
 export { REGISTRY } from "./registry.generated.js";
 export { ApiClient, ApiError, bearerAuth, internalAuth, type ApiClientOptions } from "./client.js";
@@ -15,3 +22,14 @@ export {
   type ToPiAgentToolOptions,
 } from "./pi.js";
 export { INTERNAL_BINDINGS, INTERNAL_WRITE_BINDINGS } from "./internal.js";
+export {
+  DEFAULT_MAX_RESULT_CHARS,
+  toMcpTool,
+  type McpCallReport,
+  type McpErrorKind,
+  type McpTool,
+  type McpToolResult,
+  type ResultNotes,
+  type McpToolResultContent,
+  type ToMcpToolOptions,
+} from "./mcp.js";
