@@ -25,6 +25,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/support/route-guard", () => ({
   withImpersonationPolicy: (handler: unknown) => handler,
 }));
+// The workspace route reads a Free workspace's Loop plan state live; here it is the stored one.
+vi.mock("@/lib/loop-plan-state", () => ({
+  loopPlanState: async (w: { loopBlocked?: boolean; currentUsage?: unknown }) => ({
+    loopBlocked: w.loopBlocked,
+    currentUsage: w.currentUsage,
+  }),
+}));
 vi.mock("@traceroot/core", () => {
   const client = {
     workspace: {
