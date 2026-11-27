@@ -41,14 +41,20 @@ const OTHER_PROJECT = "proj_2";
 
 function req(body: unknown, key = API_KEY) {
   return {
-    headers: new Headers({ authorization: `Bearer ${key}` }),
+    headers: new Headers({
+      authorization: `Bearer ${key}`,
+      "X-Internal-Secret": process.env.INTERNAL_API_SECRET!,
+    }),
     url: "https://x/api/public/datasets",
     json: async () => body,
   } as unknown as Request;
 }
 function getReq(query = "", key = API_KEY) {
   return {
-    headers: new Headers({ authorization: `Bearer ${key}` }),
+    headers: new Headers({
+      authorization: `Bearer ${key}`,
+      "X-Internal-Secret": process.env.INTERNAL_API_SECRET!,
+    }),
     url: `https://x/api/public/datasets${query}`,
   } as unknown as Request;
 }

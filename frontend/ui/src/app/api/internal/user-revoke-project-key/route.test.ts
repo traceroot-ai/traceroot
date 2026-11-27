@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("next/server", () => ({
   NextRequest: class {},
@@ -10,7 +10,6 @@ vi.mock("next/server", () => ({
   },
 }));
 
-vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 vi.mock("@/lib/request-session", () => ({ getRequestSession: vi.fn() }));
 
 // The real auth helpers and the real shared revoke run against this fake, so
@@ -59,7 +58,10 @@ async function revoke(body: unknown, secret?: string | null) {
 
 const VALID = { userId: "u1", projectId: "proj-1", keyId: "key-1" };
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
+  vi.stubEnv("INTERNAL_API_SECRET", "test-secret");
   projectFindUniqueMock.mockReset();
   memberFindUniqueMock.mockReset();
   keyDeleteMock.mockReset();

@@ -50,6 +50,11 @@ vi.mock("@traceroot/core", () => ({
 const prismaFindFirstMock = vi.fn();
 const decryptKeyMock = vi.fn();
 
+const workspaceRateLimitMock = vi.fn();
+vi.mock("@/lib/workspace-rate-limit", () => ({
+  withWorkspaceRateLimit: (...args: unknown[]) => workspaceRateLimitMock(...args),
+}));
+
 const requireAuthMock = vi.fn();
 const requireWorkspaceMembershipMock = vi.fn();
 vi.mock("@/lib/auth-helpers", () => ({
@@ -101,6 +106,10 @@ function okResponse() {
 }
 
 beforeEach(() => {
+  workspaceRateLimitMock.mockReset();
+  workspaceRateLimitMock.mockImplementation((_workspaceId: string, operation: () => unknown) =>
+    operation(),
+  );
   fetchMock.mockReset();
   prismaFindFirstMock.mockReset();
   decryptKeyMock.mockReset();
@@ -645,4 +654,28 @@ describe("POST model-providers/test - timeout (acceptance criteria)", () => {
       expect(body).toEqual({ success: false, error: expected });
     },
   );
+});
+
+describe("provider check rate limiting", () => {
+  it("rejects a throttled operation before decrypting or opening a connection", async () => {
+    const denied = new Response(null, { status: 429, headers: { "retry-after": "30" } });
+    workspaceRateLimitMock.mockResolvedValue(denied);
+    const response = await POST(
+      makeRequest({ adapter: "openai", providerId: "provider-1" }),
+      makeParams(),
+    );
+    expect(response).toBe(denied);
+    expect(workspaceRateLimitMock).toHaveBeenCalledWith("ws-1", expect.any(Function));
+    expect(prismaFindFirstMock).not.toHaveBeenCalled();
+    expect(decryptKeyMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("checks workspace access before spending its budget", async () => {
+    requireWorkspaceMembershipMock.mockResolvedValue({ error: { status: 403 } });
+    const response = await POST(makeRequest({ adapter: "openai" }), makeParams());
+    expect(response.status).toBe(403);
+    expect(workspaceRateLimitMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

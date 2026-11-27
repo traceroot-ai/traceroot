@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from rest.main import app
 from rest.routers.public import deps
 from rest.routers.public.deps import AuthResult, authenticate_api_key
+from shared.config import settings
 
 UI_URL = "http://localhost:3000"
 
@@ -66,6 +67,21 @@ def test_list_forwards_and_passes_the_body_through(client):
     assert route.called
     # The control plane owns the key store and re-validates authoritatively, so
     # the caller's credential must arrive intact rather than being exchanged.
+    assert route.calls.last.request.headers["authorization"] == "Bearer tr-caller"
+
+
+@respx.mock
+def test_forward_authenticates_with_server_secret_not_client_header(client, monkeypatch):
+    monkeypatch.setattr(settings, "internal_api_secret", "gateway-test-secret")
+    route = respx.get(f"{UI_URL}/api/public/api-keys").mock(
+        return_value=httpx.Response(200, json={"keys": []})
+    )
+    response = client.get(
+        "/api/v1/public/api-keys",
+        headers={"Authorization": "Bearer tr-caller", "X-Internal-Secret": "guessed"},
+    )
+    assert response.status_code == 200
+    assert route.calls.last.request.headers["x-internal-secret"] == "gateway-test-secret"
     assert route.calls.last.request.headers["authorization"] == "Bearer tr-caller"
 
 

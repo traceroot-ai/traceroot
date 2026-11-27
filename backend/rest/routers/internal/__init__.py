@@ -13,6 +13,7 @@ from rest.routers.internal.detectors import router as detectors_router
 from rest.routers.internal.ingest import router as ingest_router
 from rest.routers.internal.labels import router as labels_router
 from rest.routers.internal.projects import router as projects_router
+from rest.routers.internal.rate_limit import router as rate_limit_router
 from rest.routers.internal.signals import router as signals_router
 from rest.routers.internal.usage import router as usage_router
 
@@ -25,5 +26,6 @@ router.include_router(alerts_router)
 router.include_router(signals_router)
 router.include_router(projects_router)
 router.include_router(labels_router)
+router.include_router(rate_limit_router)
 
 __all__ = ["router", "verify_internal_secret"]

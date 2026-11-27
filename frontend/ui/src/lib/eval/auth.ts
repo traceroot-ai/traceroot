@@ -5,7 +5,8 @@ import { resolveApiKeyProject, type ApiKeyScope } from "@/lib/public-auth";
  * Resolve the project for an API-key-authenticated request on the SDK reporting
  * surface (`/api/public/...`): `Authorization: Bearer tr-…`, hashed and looked
  * up against `AccessKey.secretHash`. Kept in the Next.js app so the reporting
- * path is locally testable without the Python hop.
+ * path remains locally testable without the Python hop on self-host. Cloud
+ * requests must arrive through the metered gateway.
  *
  * Deliberately *not* named `requireApiKeyProject`. That name belongs to the
  * Bearer public API helper in `lib/public-auth.ts`, and two exports with one
@@ -48,6 +49,13 @@ export async function requireEvalApiKeyProject(
     return { projectId: result.auth.projectId };
   }
   switch (result.reason) {
+    case "gateway_required":
+      return {
+        error: NextResponse.json(
+          { error: "Use the public API gateway at /api/v1/public." },
+          { status: 403 },
+        ),
+      };
     case "missing_token":
       return { error: NextResponse.json({ error: "Missing bearer API key" }, { status: 401 }) };
     case "expired":

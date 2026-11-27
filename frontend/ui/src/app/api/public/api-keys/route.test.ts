@@ -16,6 +16,7 @@ const findManyMock = vi.fn();
 const createMock = vi.fn();
 const updateMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
+  isBillingEnabled: () => true,
   prisma: {
     accessKey: {
       findUnique: (...a: unknown[]) => findUniqueMock(...a),
@@ -65,7 +66,10 @@ function keyRow(overrides: Record<string, unknown> = {}) {
 
 function request(body?: unknown, authorization: string | null = `Bearer ${CALLER_KEY}`) {
   return {
-    headers: { get: (n: string) => (n.toLowerCase() === "authorization" ? authorization : null) },
+    headers: new Headers({
+      ...(authorization === null ? {} : { authorization }),
+      "X-Internal-Secret": process.env.INTERNAL_API_SECRET!,
+    }),
     json: async () => {
       if (body === undefined) throw new Error("no body");
       return body;
@@ -274,6 +278,7 @@ describe("POST with an oversized body", () => {
         get: (n: string) => {
           const name = n.toLowerCase();
           if (name === "authorization") return `Bearer ${CALLER_KEY}`;
+          if (name === "x-internal-secret") return process.env.INTERNAL_API_SECRET!;
           if (name === "content-length") return String(128 * 1024);
           return null;
         },
@@ -284,9 +289,8 @@ describe("POST with an oversized body", () => {
   }
 
   it("is refused before the body is parsed or a key is minted", async () => {
-    // The gateway's ceiling only covers callers who come through it; a project
-    // key can POST here directly. The schema's 100-character `name` is checked
-    // after the parse, so it bounds nothing on the wire.
+    // Parsing stays bounded even for gateway-authenticated callers; the schema
+    // bounds field values only after the body has already been read.
     const { request, json } = oversized();
 
     const res = await POST(request);
