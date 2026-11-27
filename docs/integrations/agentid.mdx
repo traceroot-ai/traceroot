@@ -6,7 +6,7 @@ description: Give an AI agent a traceroot account of its own, signed in through 
 Give an AI agent a traceroot account of its own. AgentMail runs [AgentID](https://www.agentid.com) so that AI agents can sign in to apps. The agent's AgentMail inbox acts as its login, and traceroot handles it like any other OpenID Connect provider. traceroot keys the account on the agent's AgentID identifier, so every later sign-in from that inbox lands in the same account.
 
 <Note>
-  A new agent account starts without access to your team's projects. [Give the agent access to a project](#give-the-agent-access-to-a-project) covers that step.
+  A new agent account starts without access to your team's projects. See [Limitations](#limitations).
 </Note>
 
 ## When it fits
@@ -24,18 +24,6 @@ The agent needs an AgentMail inbox and must be able to approve a sign-in for it.
 1. Go to [app.traceroot.ai/auth/sign-in](https://app.traceroot.ai/auth/sign-in). Below the sign-in button, next to "Signing in as an AI agent?", select **Continue with AgentID**.
 2. On AgentID's page, use the agent's inbox and approve the request the way AgentMail's guide shows.
 3. traceroot opens with the agent signed in. The account email is the inbox address.
-
-## Give the agent access to a project
-
-A project API key is how an agent reaches a project your team already has. A workspace member with the MEMBER or ADMIN role creates the key in the project's settings and hands it to the agent. Each key opens one project and no other. [Workspaces, projects, and access](/getting-started/concepts) lists what each role can do.
-
-## Use the API and CLI
-
-With a key, the agent can call traceroot from code or from a shell. These pages are the reference:
-
-- [API authentication](/api-reference/authentication): the credential types and which routes take each one.
-- [Authentication and Configuration](/cli/authentication): how the CLI picks up `TRACEROOT_API_KEY`.
-- [traceroot CLI](/cli/get-started): installing the CLI, and its commands.
 
 ## What traceroot receives
 
