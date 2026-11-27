@@ -42,10 +42,13 @@ vi.mock("@/lib/auth-helpers", () => ({
   requireWorkspaceMembership: async (_userId: string, workspaceId: string) => ({
     membership: { workspaceId, role: auth.role },
   }),
-  requireProjectAccess: async () => ({
-    project: { id: "proj-1", workspaceId: auth.workspaceId, name: "Demo Project" },
-    membership: { workspaceId: auth.workspaceId, role: auth.role },
-  }),
+  requireProjectAccess: async (_userId: string, _projectId: string, minRole?: string) =>
+    minRole === "ADMIN" && auth.role !== "ADMIN"
+      ? { error: { status: 403, data: { error: "Requires ADMIN role or higher" } } }
+      : {
+          project: { id: "proj-1", workspaceId: auth.workspaceId, name: "Demo Project" },
+          membership: { workspaceId: auth.workspaceId, role: auth.role },
+        },
   errorResponse: (error: string, status: number) => ({ status, data: { error } }),
   successResponse: (data: unknown, status = 200) => ({ status, data }),
 }));
@@ -156,28 +159,51 @@ describe("a demo viewer", () => {
   it("reads the project without its alert email addresses", async () => {
     const res = await call(getProject, {}, projectParams);
     expect(res.status).toBe(200);
-    expect(res.data.alert_emails).toEqual([]);
+    expect(res.data).not.toHaveProperty("alert_emails");
   });
 });
 
-describe.each([
-  ["an admin of the demo workspace", "ADMIN", "ws-demo"],
-  ["a viewer of another workspace", "VIEWER", "ws-own"],
-])("%s", (_who, role, workspaceId) => {
+describe.each([["an admin of the demo workspace", "ADMIN", "ws-demo"]])(
+  "%s",
+  (_who, role, workspaceId) => {
+    beforeEach(() => {
+      auth.role = role;
+      auth.workspaceId = workspaceId;
+    });
+
+    it.each(DENIED_READS)("still reads %s", async (_name, read) => {
+      expect((await read()).status).toBe(200);
+    });
+
+    it("still gets the billing state and the alert emails", async () => {
+      const workspace = await call(getWorkspace, {}, workspaceParams());
+      expect(workspace.data.billingPlan).toBe("enterprise");
+      expect(workspace.data.currentUsage).toEqual({ traces: 10 });
+      const project = await call(getProject, {}, projectParams);
+      expect(project.data.alert_emails).toEqual(["oncall@traceroot.ai"]);
+    });
+  },
+);
+
+describe("an ordinary workspace viewer", () => {
   beforeEach(() => {
-    auth.role = role;
-    auth.workspaceId = workspaceId;
+    auth.role = "VIEWER";
+    auth.workspaceId = "ws-own";
   });
 
-  it.each(DENIED_READS)("still reads %s", async (_name, read) => {
-    expect((await read()).status).toBe(200);
+  it("cannot read the API key inventory or billing subscription", async () => {
+    expect((await call(getApiKeys, {}, projectParams)).status).toBe(403);
+    expect((await call(getSubscriptionInfo, query())).status).toBe(403);
+    expect(db.accessKeyFindMany).not.toHaveBeenCalled();
   });
 
-  it("still gets the billing state and the alert emails", async () => {
+  it("reads ordinary resources without billing or recipient data", async () => {
     const workspace = await call(getWorkspace, {}, workspaceParams());
-    expect(workspace.data.billingPlan).toBe("enterprise");
-    expect(workspace.data.currentUsage).toEqual({ traces: 10 });
+    expect(workspace.status).toBe(200);
+    expect(workspace.data).not.toHaveProperty("billingPlan");
+    expect(workspace.data).not.toHaveProperty("currentUsage");
     const project = await call(getProject, {}, projectParams);
-    expect(project.data.alert_emails).toEqual(["oncall@traceroot.ai"]);
+    expect(project.status).toBe(200);
+    expect(project.data).not.toHaveProperty("alert_emails");
   });
 });

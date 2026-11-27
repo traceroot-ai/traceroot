@@ -1,17 +1,10 @@
 "use client";
 
-// What a viewer of the public demo workspace may do in settings. This is the
-// one place for that rule; WorkspaceSettingsLayout and ProjectSettingsLayout
-// ask it for their tab and render the page through SettingsAccessGate.
-//
-// Demo viewers (members below ADMIN: every visitor) keep the Settings entry
-// and every menu item. General pages are readable but every control is
-// disabled. The other pages show a demo settings explanation, never an empty
-// state. Admins of the demo workspace, and everyone in any other workspace,
-// see settings as before. The API routes behind the denied pages return 403
-// to demo viewers, so this is presentation, not the security boundary.
+// Demo restrictions and administrator-only sensitive settings share one gate.
+// The API routes remain the security boundary.
 import { type ReactNode } from "react";
 import { Info } from "lucide-react";
+import { Role } from "@traceroot/core";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
 import type { ProjectSettingsTab, WorkspaceSettingsTab } from "./settings-layout";
@@ -74,7 +67,15 @@ export function workspaceSettingsAccess(
   tab: WorkspaceSettingsTab,
   workspace: Membership,
 ): SettingsAccess {
-  return accessFor(WORKSPACE_DEMO_VIEWER_ACCESS[tab], workspace);
+  const access = accessFor(WORKSPACE_DEMO_VIEWER_ACCESS[tab], workspace);
+  if (access.mode === "full" && tab === "billing" && workspace?.role !== Role.ADMIN) {
+    return {
+      mode: "denied",
+      title: "Workspace settings",
+      message: "Billing settings are only available to workspace administrators.",
+    };
+  }
+  return access;
 }
 
 /** The access to one project settings tab for a user with the owning workspace's membership. */
@@ -82,10 +83,28 @@ export function projectSettingsAccess(
   tab: ProjectSettingsTab,
   workspace: Membership,
 ): SettingsAccess {
-  return accessFor(PROJECT_DEMO_VIEWER_ACCESS[tab], workspace);
+  const access = accessFor(PROJECT_DEMO_VIEWER_ACCESS[tab], workspace);
+  if (access.mode === "full" && tab === "accessKeys" && workspace?.role === Role.MEMBER) {
+    return access;
+  }
+  if (
+    access.mode === "full" &&
+    (tab === "accessKeys" || tab === "detectors") &&
+    workspace?.role !== Role.ADMIN
+  ) {
+    return {
+      mode: "denied",
+      title: "Project settings",
+      message:
+        tab === "accessKeys"
+          ? "API key settings are only available to workspace members and administrators."
+          : "Detector settings are only available to workspace administrators.",
+    };
+  }
+  return access;
 }
 
-function DemoSettingsCard({ title, message }: { title: string; message: string }) {
+function SettingsDeniedCard({ title, message }: { title: string; message: string }) {
   return (
     <Card className="max-w-xl">
       <CardHeader>
@@ -113,7 +132,7 @@ export function SettingsAccessGate({
     case "loading":
       return null;
     case "denied":
-      return <DemoSettingsCard title={access.title} message={access.message} />;
+      return <SettingsDeniedCard title={access.title} message={access.message} />;
     case "read-only":
       return (
         <>

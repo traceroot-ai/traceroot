@@ -89,7 +89,10 @@ describe("Workspace project route", () => {
 
   it("GET response includes rca_provider and rca_source", async () => {
     mockRequireAuth.mockResolvedValue({ user: { id: "u1" }, error: null });
-    mockRequireWorkspaceMembership.mockResolvedValue({ error: null });
+    mockRequireWorkspaceMembership.mockResolvedValue({
+      membership: { role: "ADMIN" },
+      error: null,
+    });
     mockFindFirst.mockResolvedValue(project);
 
     const mod = await import(pathToFileURL(routePath).href);

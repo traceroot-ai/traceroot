@@ -3,6 +3,8 @@
  */
 import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { getWorkspaces, getWorkspace } from "@/lib/api";
+import { useSession } from "@/lib/auth-client";
+import { ApiError } from "@/lib/api/errors";
 import type { Workspace, WorkspaceWithProjects } from "@/types/api";
 
 // Refresh ingestion dates while a workspace or project table is visible.
@@ -34,10 +36,21 @@ export function useWorkspace(
     "refetchInterval" | "refetchOnMount"
   > = {},
 ) {
+  const {
+    data: session,
+    isPending: sessionPending,
+    isRefetching: sessionRefetching,
+    error: sessionError,
+  } = useSession();
+  const identityPending = sessionPending || sessionRefetching;
+  const userId = identityPending || sessionError ? undefined : session?.user.id;
   return useQuery({
-    queryKey: ["workspace", workspaceId],
-    queryFn: () => getWorkspace(workspaceId),
-    enabled: enabled && !!workspaceId,
+    queryKey: ["workspace", workspaceId, userId],
+    queryFn: () => {
+      if (!userId) throw new ApiError(401, "Unauthorized");
+      return getWorkspace(workspaceId);
+    },
+    enabled: enabled && !!workspaceId && !identityPending,
     ...queryOptions,
   });
 }

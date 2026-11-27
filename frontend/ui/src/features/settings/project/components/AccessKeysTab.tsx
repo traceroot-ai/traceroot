@@ -4,6 +4,10 @@ import { useId, useState } from "react";
 import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
+import { hasMinRole, Role } from "@traceroot/core";
+import { useProject } from "@/features/projects/hooks";
+import { useWorkspace } from "@/features/workspaces/hooks";
+import { useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
@@ -44,26 +48,42 @@ function formatKeyHint(keyHint: string): string {
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
   const formId = useId();
+  const {
+    data: session,
+    isPending: sessionPending,
+    isRefetching: sessionRefetching,
+    error: sessionError,
+  } = useSession();
+  const identityPending = sessionPending || sessionRefetching;
+  const userId = identityPending || sessionError ? undefined : session?.user.id;
+  const { data: project } = useProject(projectId);
+  const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
+  const canListKeys = !!userId && workspace?.role === Role.ADMIN;
+  const canCreateKeys = !!userId && !!workspace && hasMinRole(workspace.role, Role.MEMBER);
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyData, setNewKeyData] = useState<{ key: string; keyHint: string } | null>(null);
+  const [newKeyData, setNewKeyData] = useState<{
+    key: string;
+    keyHint: string;
+    userId: string;
+    projectId: string;
+  } | null>(null);
   const [editingKey, setEditingKey] = useState<{ id: string; name: string } | null>(null);
   const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["access-keys", projectId],
+    queryKey: ["access-keys", projectId, userId],
     queryFn: () => getAccessKeys(projectId),
+    enabled: canListKeys,
   });
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createAccessKey(projectId, name || undefined),
-    onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
-      setNewKeyData({ key: response.data.key, keyHint: response.data.key_hint });
-      setNewKeyName("");
-      setShowCreateDialog(false);
+    mutationFn: ({ name, projectId }: { name: string; projectId: string; userId: string }) =>
+      createAccessKey(projectId, name || undefined),
+    onSuccess: (_response, owner) => {
+      queryClient.invalidateQueries({ queryKey: ["access-keys", owner.projectId] });
     },
   });
 
@@ -86,7 +106,22 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   });
 
   const handleCreate = () => {
-    createMutation.mutate(newKeyName);
+    if (!canCreateKeys || !userId || createMutation.isPending) return;
+    createMutation.mutate(
+      { name: newKeyName, projectId, userId },
+      {
+        onSuccess: (response, owner) => {
+          setNewKeyData({
+            key: response.data.key,
+            keyHint: response.data.key_hint,
+            userId: owner.userId,
+            projectId: owner.projectId,
+          });
+          setNewKeyName("");
+          setShowCreateDialog(false);
+        },
+      },
+    );
   };
 
   const handleCloseNewKey = () => {
@@ -99,15 +134,20 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     }
   };
 
-  const accessKeys = data?.access_keys || [];
+  const accessKeys = canListKeys ? data?.access_keys || [] : [];
 
-  const envBlockContent = newKeyData
-    ? `TRACEROOT_API_KEY="${newKeyData.key}"`
+  const createdKey =
+    canCreateKeys && newKeyData?.userId === userId && newKeyData.projectId === projectId
+      ? newKeyData
+      : null;
+
+  const envBlockContent = createdKey
+    ? `TRACEROOT_API_KEY="${createdKey.key}"`
     : accessKeys.length > 0
       ? `TRACEROOT_API_KEY="${formatKeyHint(accessKeys[0].key_hint)}"`
       : `TRACEROOT_API_KEY="tr-..."`;
 
-  if (error instanceof ImpersonationError) {
+  if (canListKeys && error instanceof ImpersonationError) {
     return (
       <p role="alert" className="text-sm text-muted-foreground">
         {error.message}
@@ -122,14 +162,17 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <h2 className="text-[15px] font-medium">Project API Keys</h2>
           <Info className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
-        <AddButton
-          onClick={() => {
-            createMutation.reset();
-            setShowCreateDialog(true);
-          }}
-        >
-          Create new API key
-        </AddButton>
+        {canCreateKeys && (
+          <AddButton
+            disabled={createMutation.isPending}
+            onClick={() => {
+              createMutation.reset();
+              setShowCreateDialog(true);
+            }}
+          >
+            Create new API key
+          </AddButton>
+        )}
       </div>
 
       <div className="border">
@@ -146,7 +189,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         </div>
       </div>
 
-      {newKeyData && (
+      {createdKey && (
         <div className="border border-success-border bg-success-soft">
           <div className="px-4 py-3">
             <p className="mb-2 text-xs font-medium text-success">
@@ -154,9 +197,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             </p>
             <div className="mb-2 flex items-center gap-2">
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
-                {newKeyData.key}
+                {createdKey.key}
               </code>
-              <CopyButton aria-label="Copy API key" value={newKeyData.key} variant="outline" />
+              <CopyButton aria-label="Copy API key" value={createdKey.key} variant="outline" />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
               I&apos;ve copied the key
@@ -296,7 +339,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       </Dialog>
 
       <div className="border">
-        {isLoading ? (
+        {!canListKeys ? (
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">
+            Only workspace administrators can view existing API keys.
+          </div>
+        ) : isLoading ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">Loading API keys...</div>
         ) : accessKeys.length === 0 ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">

@@ -1,20 +1,16 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { PlanType } from "@traceroot/core";
 import { BillingTab } from "@/ee/features/billing/BillingTab";
-import { getWorkspace } from "@/lib/api";
+import { useWorkspace } from "@/features/workspaces/hooks";
 import { WorkspaceSettingsLayout } from "@/features/settings/scoped-settings-layout";
 
 export default function WorkspaceSettingsBillingPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
 
-  const { data: workspace, isLoading } = useQuery({
-    queryKey: ["workspace", workspaceId],
-    queryFn: () => getWorkspace(workspaceId),
-  });
+  const { data: workspace, isLoading } = useWorkspace(workspaceId);
 
   return (
     <WorkspaceSettingsLayout workspaceId={workspaceId} tab="billing">

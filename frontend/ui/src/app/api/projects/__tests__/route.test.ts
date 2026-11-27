@@ -15,7 +15,8 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (d: any) => new Response(JSON.stringify(d), { status: 200 }),
 }));
 
-vi.mock("@traceroot/core", () => ({
+vi.mock("@traceroot/core", async (original) => ({
+  ...(await original<typeof import("@traceroot/core")>()),
   prisma: { project: { findFirst: (...a: any[]) => mockFindFirst(...a) } },
   DEFAULT_ALERT_WINDOW: "10m",
 }));
