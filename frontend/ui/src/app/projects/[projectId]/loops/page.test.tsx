@@ -8,7 +8,7 @@ import type { LoopRunDto } from "@traceroot/core/loops/pure";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   list: { data: undefined as unknown, isLoading: false, error: null as Error | null },
-  // The project's unfiltered count, read only while a search narrows the list.
+  // The project's unfiltered count, which the loop limit is read from.
   unfiltered: { data: undefined as unknown, isLoading: false, error: null as Error | null },
   keyword: "",
   updateKeyword: vi.fn(),
@@ -86,6 +86,11 @@ const loop = (over: Partial<Loop> = {}): Loop =>
 const withLoops = (loops: Loop[], total = loops.length) => {
   mocks.list = {
     data: { data: loops, meta: { page: 0, limit: 50, total } },
+    isLoading: false,
+    error: null,
+  };
+  mocks.unfiltered = {
+    data: { data: loops.slice(0, 1), meta: { page: 0, limit: 1, total } },
     isLoading: false,
     error: null,
   };
@@ -276,6 +281,17 @@ describe("Loops list", () => {
       true,
     );
     expect(screen.getByText("5 of 5 loops used")).toBeTruthy();
+  });
+
+  it("keeps New loop disabled until the project's loop count has loaded", () => {
+    mocks.keyword = "inventory";
+    withLoops([loop({ id: "l1", name: "Inventory check" })]);
+    mocks.unfiltered = { data: undefined, isLoading: true, error: null };
+    render(<LoopsPage />);
+    expect((screen.getByRole("button", { name: "New loop" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.queryByText(/loops used/)).toBeNull();
   });
 
   it("disables New loop at five loops and says why", () => {
