@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PlanType, Role } from "@traceroot/core";
+import { ApiError } from "@/lib/api/errors";
 import { changePlan, createCheckoutSession } from "./api";
 import { PricingDialog } from "./PricingDialog";
 
@@ -9,6 +10,8 @@ const state = vi.hoisted(() => ({
   role: "ADMIN" as string | undefined,
   isPending: false,
   isError: false,
+  workspaceError: null as Error | null,
+  refetchSession: vi.fn(),
   refetch: vi.fn(),
 }));
 
@@ -17,8 +20,13 @@ vi.mock("@/features/workspaces/hooks", () => ({
     data: state.role ? { role: state.role } : undefined,
     isPending: state.isPending,
     isError: state.isError,
+    error: state.workspaceError,
     refetch: state.refetch,
   }),
+}));
+
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ refetch: state.refetchSession }),
 }));
 
 vi.mock("./api", () => ({
@@ -32,6 +40,7 @@ afterEach(() => {
   state.role = Role.ADMIN;
   state.isPending = false;
   state.isError = false;
+  state.workspaceError = null;
 });
 
 describe("PricingDialog", () => {
@@ -88,6 +97,16 @@ describe("PricingDialog", () => {
     state.isError = false;
     rerender(<PricingDialog open onOpenChange={vi.fn()} workspaceId="ws_1" />);
     expect(screen.getByRole("button", { name: "Current Plan" })).toBeTruthy();
+  });
+
+  it("revalidates identity before recovering from an unauthorized workspace read", () => {
+    state.isError = true;
+    state.workspaceError = new ApiError(401, "Unauthorized");
+    render(<PricingDialog open onOpenChange={vi.fn()} workspaceId="ws_1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(state.refetchSession).toHaveBeenCalledOnce();
+    expect(state.refetch).not.toHaveBeenCalled();
+    expect(screen.queryByText("Current Plan")).toBeNull();
   });
 
   it("keeps checkout available to administrators without a subscription", async () => {

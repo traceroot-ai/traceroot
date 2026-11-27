@@ -9,6 +9,10 @@ const state = vi.hoisted(() => ({
   workspaceError: null as Error | null,
   refetchProject: vi.fn(),
   refetchWorkspace: vi.fn(),
+  refetchSession: vi.fn(),
+}));
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ refetch: state.refetchSession }),
 }));
 vi.mock("@/features/workspaces/components", () => ({ WorkspaceBreadcrumb: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
@@ -54,6 +58,16 @@ describe.each(["projectError", "workspaceError"] as const)("project settings %s"
     state[failure] = null;
     rerender(view());
     expect(screen.getByText("Private notification recipients")).toBeTruthy();
+  });
+
+  it("revalidates identity for an unauthorized resource instead of retrying a stale query", () => {
+    state[failure] = new ApiError(401, "Unauthorized");
+    render(view());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(state.refetchSession).toHaveBeenCalledOnce();
+    expect(state.refetchProject).not.toHaveBeenCalled();
+    expect(state.refetchWorkspace).not.toHaveBeenCalled();
+    expect(screen.queryByText("Private notification recipients")).toBeNull();
   });
 
   it.each([403, 404])("links back to workspaces on HTTP %i", (status) => {

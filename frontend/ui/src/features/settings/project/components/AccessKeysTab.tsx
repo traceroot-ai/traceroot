@@ -106,7 +106,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   });
 
   const handleCreate = () => {
-    if (!canCreateKeys || !userId) return;
+    if (!canCreateKeys || !userId || createMutation.isPending) return;
     createMutation.mutate(
       { name: newKeyName, projectId, userId },
       {
@@ -164,6 +164,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         </div>
         {canCreateKeys && (
           <AddButton
+            disabled={createMutation.isPending}
             onClick={() => {
               createMutation.reset();
               setShowCreateDialog(true);

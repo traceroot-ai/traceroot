@@ -8,6 +8,8 @@ const state = vi.hoisted(() => ({
   project: { workspace_id: "ws-demo" } as { workspace_id?: string } | undefined,
 }));
 
+vi.mock("@/lib/auth-client", () => ({ useSession: () => ({ refetch: vi.fn() }) }));
+
 vi.mock("@/features/workspaces/hooks", () => ({
   useWorkspace: () => ({
     data: state.workspace,

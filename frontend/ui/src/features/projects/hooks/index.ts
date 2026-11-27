@@ -1,8 +1,7 @@
 /**
  * Project feature hooks
  */
-import { useCallback } from "react";
-import { useQuery, type RefetchOptions } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { getProject, getProjects } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
 import { ApiError } from "@/lib/api/errors";
@@ -27,11 +26,10 @@ export function useProject(projectId: string, enabled: boolean = true) {
     isPending: sessionPending,
     isRefetching: sessionRefetching,
     error: sessionError,
-    refetch: refetchSession,
   } = useSession();
   const identityPending = sessionPending || sessionRefetching;
   const userId = identityPending || sessionError ? undefined : session?.user.id;
-  const query = useQuery({
+  return useQuery({
     queryKey: ["project", projectId, userId],
     queryFn: () => {
       if (!userId) throw new ApiError(401, "Unauthorized");
@@ -39,13 +37,4 @@ export function useProject(projectId: string, enabled: boolean = true) {
     },
     enabled: enabled && !!projectId && !identityPending,
   });
-  const refetchQuery = query.refetch;
-  const refetch = useCallback(
-    async (options?: RefetchOptions) => {
-      if (!userId) await refetchSession();
-      return refetchQuery(options);
-    },
-    [userId, refetchSession, refetchQuery],
-  );
-  return { ...query, refetch };
 }

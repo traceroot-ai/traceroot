@@ -11,6 +11,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { ApiError } from "@/lib/api/errors";
+import { useSession } from "@/lib/auth-client";
 import { PLANS, PlanType, Role } from "@traceroot/core";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { createCheckoutSession, changePlan } from "./api";
@@ -31,7 +33,14 @@ export function PricingDialog({
   currentPlan = PlanType.FREE,
   hasSubscription = false,
 }: PricingDialogProps) {
-  const { data: workspace, isPending, isError, refetch } = useWorkspace(workspaceId, open);
+  const { refetch: refetchSession } = useSession();
+  const {
+    data: workspace,
+    isPending,
+    isError,
+    error: workspaceError,
+    refetch,
+  } = useWorkspace(workspaceId, open);
   const canManageBilling = !isError && workspace?.role === Role.ADMIN;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +94,14 @@ export function PricingDialog({
             </DialogDescription>
           </DialogHeader>
           {isError && (
-            <Button variant="outline" onClick={() => void refetch()}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (workspaceError instanceof ApiError && workspaceError.status === 401)
+                  void refetchSession();
+                else void refetch();
+              }}
+            >
               Try again
             </Button>
           )}

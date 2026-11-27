@@ -355,25 +355,45 @@ it.each(["account", "project"] as const)(
   },
 );
 
-it("preserves the current account's completed secret if an older account request resolves last", async () => {
+it("prevents resetting or replacing a pending creation, then permits the next account's creation", async () => {
   state.role = "MEMBER";
-  const complete: ((response: typeof oneTimeResponse) => void)[] = [];
-  vi.mocked(createAccessKey).mockImplementation(
-    () => new Promise((resolve) => complete.push(resolve)),
+  let complete!: (response: typeof oneTimeResponse) => void;
+  vi.mocked(createAccessKey).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
   );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const { rerender } = render(keyView(client));
   submitNewKey();
   await waitFor(() => expect(createAccessKey).toHaveBeenCalledTimes(1));
-  state.userId = "another-user";
-  rerender(keyView(client));
+  fireEvent.keyDown(within(screen.getByRole("dialog")).getByLabelText("Name (optional)"), {
+    key: "Enter",
+  });
+  expect(createAccessKey).toHaveBeenCalledTimes(1);
   fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  submitNewKey();
-  await waitFor(() => expect(createAccessKey).toHaveBeenCalledTimes(2));
+  const create = screen.getByRole("button", { name: "Create new API key" });
+  expect((create as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(create);
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  state.userId = "another-user";
+  rerender(keyView(client));
+  expect(
+    (screen.getByRole("button", { name: "Create new API key" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  await act(async () => complete(oneTimeResponse));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "Create new API key" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  expect(document.body.textContent).not.toContain(oneTimeResponse.data.key);
   const currentSecret = { data: { ...oneTimeResponse.data, key: "tr-current-account-secret" } };
-  await act(async () => complete[1](currentSecret));
-  await screen.findByText(currentSecret.data.key);
-  await act(async () => complete[0](oneTimeResponse));
-  expect(document.body.textContent).toContain(currentSecret.data.key);
+  vi.mocked(createAccessKey).mockResolvedValueOnce(currentSecret);
+  submitNewKey();
+  expect(await screen.findByText(currentSecret.data.key)).toBeTruthy();
+  expect(document.body.textContent).not.toContain(oneTimeResponse.data.key);
 });

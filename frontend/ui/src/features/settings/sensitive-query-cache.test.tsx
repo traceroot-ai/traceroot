@@ -13,7 +13,6 @@ const state = vi.hoisted(() => ({
   sessionPending: false,
   sessionRefetching: false,
   sessionError: null as Error | null,
-  refetchSession: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({
@@ -21,7 +20,6 @@ vi.mock("@/lib/auth-client", () => ({
     isPending: state.sessionPending,
     isRefetching: state.sessionRefetching,
     error: state.sessionError,
-    refetch: state.refetchSession,
   }),
 }));
 vi.mock("@/lib/api", () => ({ getProject: vi.fn(), getWorkspace: vi.fn() }));
@@ -131,26 +129,6 @@ describe.each(resources)(
       await waitFor(() => expect(result.current.isError).toBe(true));
       expect(result.current.data).toBeUndefined();
       expect(getResource).not.toHaveBeenCalled();
-    });
-
-    it("revalidates a failed session when the resource is retried", async () => {
-      state.sessionError = new Error("Session unavailable");
-      state.refetchSession.mockImplementation(async () => {
-        state.sessionError = null;
-      });
-      vi.mocked(getResource).mockResolvedValue(privateData as never);
-      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const wrapper = ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
-      );
-      const { result, rerender } = renderHook(() => useResource("same-id"), { wrapper });
-      await waitFor(() => expect(result.current.isError).toBe(true));
-      expect(getResource).not.toHaveBeenCalled();
-      await result.current.refetch();
-      expect(state.refetchSession).toHaveBeenCalledOnce();
-      rerender();
-      await waitFor(() => expect(result.current.data).toEqual(privateData));
-      expect(client.getQueryData([resource, "same-id", undefined])).toBeUndefined();
     });
 
     it("keeps existing resource-prefix invalidations effective", async () => {

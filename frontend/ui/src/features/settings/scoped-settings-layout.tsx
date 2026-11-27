@@ -6,6 +6,7 @@
 import { type ReactNode } from "react";
 import Link from "next/link";
 import { ApiError } from "@/lib/api/errors";
+import { useSession } from "@/lib/auth-client";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useProject } from "@/features/projects/hooks";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
@@ -28,6 +29,7 @@ function SettingsLoadError({
   error: unknown;
   onRetry: () => void;
 }) {
+  const { refetch: refetchSession } = useSession();
   const unavailable = error instanceof ApiError && (error.status === 403 || error.status === 404);
   return (
     <div className="flex flex-col items-center gap-3 p-8 text-center">
@@ -39,7 +41,13 @@ function SettingsLoadError({
           Go to your workspaces
         </Link>
       ) : (
-        <button onClick={onRetry} className="text-[13px] text-brand hover:underline">
+        <button
+          onClick={() => {
+            if (error instanceof ApiError && error.status === 401) void refetchSession();
+            else onRetry();
+          }}
+          className="text-[13px] text-brand hover:underline"
+        >
           Try again
         </button>
       )}
