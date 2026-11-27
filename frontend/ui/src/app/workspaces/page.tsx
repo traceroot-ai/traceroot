@@ -10,8 +10,9 @@ import { Building2, Settings } from "lucide-react";
 import { TR } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
+import { ResumeSetupLink } from "@/features/onboarding/components/resume-setup-link";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components";
-import { useWorkspaces } from "@/features/workspaces/hooks";
+import { ACTIVITY_REFRESH_INTERVAL_MS, useWorkspaces } from "@/features/workspaces/hooks";
 
 export default function WorkspacesPage() {
   const router = useRouter();
@@ -19,13 +20,16 @@ export default function WorkspacesPage() {
   const user = session?.user;
 
   useEffect(() => {
-    if (!user) {
+    if (!isPending && !user) {
       router.push("/");
     }
-  }, [user, router]);
+  }, [isPending, user, router]);
 
   // Get all workspaces
-  const { data: workspaces, isLoading } = useWorkspaces(!!session);
+  const { data: workspaces, isLoading } = useWorkspaces(!!session, {
+    refetchInterval: ACTIVITY_REFRESH_INTERVAL_MS,
+    refetchOnMount: "always",
+  });
 
   if (!user) {
     return null;
@@ -34,7 +38,15 @@ export default function WorkspacesPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Title row: same pattern as every list page */}
-      <PageHeader title="Workspaces" actions={<CreateWorkspaceDialog />} />
+      <PageHeader
+        title="Workspaces"
+        actions={
+          <>
+            <ResumeSetupLink userId={user.id} />
+            <CreateWorkspaceDialog />
+          </>
+        }
+      />
 
       <div className="min-w-0 flex-1 overflow-auto">
         {isLoading && (
@@ -85,8 +97,8 @@ export default function WorkspacesPage() {
                     {workspace.is_demo ? "—" : formatDate(workspace.create_time)}
                   </td>
                   <td className="whitespace-nowrap px-3 text-muted-foreground">
-                    {!workspace.is_demo && workspace.update_time
-                      ? formatDate(workspace.update_time)
+                    {!workspace.is_demo && workspace.last_ingested_at
+                      ? formatDate(workspace.last_ingested_at)
                       : "—"}
                   </td>
                   <td className="px-2 text-right">

@@ -35,3 +35,13 @@ it("explains why an impersonator cannot connect instead of navigating to a JSON 
   expect(screen.getByRole("status").textContent).toContain("cannot be managed while impersonating");
   expect(screen.queryByRole("link", { name: "Connect" })).toBeNull();
 });
+
+it("sends the installation back to the page it is given, query included", () => {
+  render(<GitHubConnectButton workspaceId="ws" returnTo="/onboarding/connect?projectId=proj_1" />);
+  const href = new URL(
+    screen.getByRole("link", { name: "Connect" }).getAttribute("href")!,
+    "http://x",
+  );
+  expect(href.searchParams.get("workspaceId")).toBe("ws");
+  expect(href.searchParams.get("returnTo")).toBe("/onboarding/connect?projectId=proj_1");
+});
