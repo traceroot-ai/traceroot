@@ -1,0 +1,96 @@
+{
+  "type": "fixture-backed visual evidence",
+  "before": "origin/main 2d11d7e28211e18277ca6d50032f9bd371a927b9",
+  "results": [
+    {
+      "label": "before",
+      "theme": "light",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "theme": "light",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "theme": "light",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "theme": "dark",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "theme": "dark",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "theme": "dark",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "theme": "light",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "theme": "light",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "theme": "light",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "theme": "dark",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "theme": "dark",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "theme": "dark",
+      "width": 390,
+      "overflow": 0
+    }
+  ],
+  "chapters": {
+    "before": [
+      {
+        "at": 0,
+        "label": "Active sessions before"
+      }
+    ],
+    "after": [
+      {
+        "at": 0,
+        "label": "Change password form"
+      },
+      {
+        "at": 1,
+        "label": "Submit and confirmation"
+      }
+    ]
+  }
+}

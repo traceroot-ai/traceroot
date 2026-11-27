@@ -1,0 +1,11 @@
+{
+  "environment": "http://localhost:3404",
+  "database": "isolated PostgreSQL 16",
+  "forcedFalseOverride": "passed",
+  "oldCookiesRevoked": "passed",
+  "oldSessionMint": 401,
+  "newSessionUsable": "passed",
+  "passwordWriteFailureRollback": "passed",
+  "localSmtpMessages": 1,
+  "resetRevokesAllSessions": "passed"
+}

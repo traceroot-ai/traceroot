@@ -1,0 +1,23 @@
+{
+  "environment": "http://localhost:3404",
+  "realServices": "Next.js + isolated PostgreSQL",
+  "browser": "Chrome",
+  "passwordChange": "passed",
+  "oldBrowserSession": "revoked",
+  "rotatedCurrentSession": "recognized; no Revoke button",
+  "errors": [],
+  "widths": [
+    {
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "width": 390,
+      "overflow": 0
+    }
+  ]
+}
