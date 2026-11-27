@@ -1,6 +1,6 @@
 # OpenAI Agents SDK
 
-Multi-tool agent using the OpenAI Agents SDK, instrumented with [TraceRoot](https://traceroot.ai).
+Multi-tool agent using the OpenAI Agents SDK, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 ```bash

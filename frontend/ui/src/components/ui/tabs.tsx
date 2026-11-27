@@ -146,7 +146,7 @@ export function TabsTrigger({
     >
       {children}
       {count !== undefined && (
-        <span className="rounded bg-muted px-1 text-[11px] tabular-nums text-muted-foreground">
+        <span className="rounded bg-muted px-1 text-[12px] tabular-nums text-muted-foreground">
           {count}
         </span>
       )}

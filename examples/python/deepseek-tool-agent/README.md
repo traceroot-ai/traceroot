@@ -1,8 +1,8 @@
 # DeepSeek Tool Agent
 
-ReAct-style agent that calls [DeepSeek](https://www.deepseek.com/) models using the official `openai` Python SDK, instrumented with [TraceRoot](https://traceroot.ai).
+ReAct-style agent that calls [DeepSeek](https://www.deepseek.com/) models using the official `openai` Python SDK, instrumented with [traceroot](https://traceroot.ai).
 
-DeepSeek's API is OpenAI-wire-compatible — point the SDK at `https://api.deepseek.com`, pick `deepseek-chat` (V3) or `deepseek-reasoner` (R1), and TraceRoot's existing OpenAI integration captures the calls automatically.
+DeepSeek's API is OpenAI-wire-compatible — point the SDK at `https://api.deepseek.com`, pick `deepseek-chat` (V3) or `deepseek-reasoner` (R1), and traceroot's existing OpenAI integration captures the calls automatically.
 
 ## Setup
 

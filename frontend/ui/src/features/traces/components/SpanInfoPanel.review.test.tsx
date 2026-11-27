@@ -205,18 +205,29 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(headerRefLabel.className).toContain("shrink-0");
   });
 
-  it("renders User and Session link badges when the trace has both ids", () => {
+  it("shows the labels below the repository, user, and session links", () => {
     const traceWithIds: TraceDetail = { ...mockTrace, user_id: "user-42", session_id: "session-7" };
     const mockTraceSelection: TraceSelection = { type: "trace" };
 
     render(
-      <SpanInfoPanel projectId="proj-123" trace={traceWithIds} selection={mockTraceSelection} />,
+      <SpanInfoPanel
+        projectId="proj-123"
+        trace={traceWithIds}
+        selection={mockTraceSelection}
+        labels={<div>Needs follow-up</div>}
+      />,
     );
 
     expect(screen.getByText("User:")).toBeTruthy();
     expect(screen.getByText("user-42")).toBeTruthy();
     expect(screen.getByText("Session:")).toBeTruthy();
     expect(screen.getByText("session-7")).toBeTruthy();
+    const label = screen.getByText("Needs follow-up");
+    for (const field of ["Repo:", "User:", "Session:"]) {
+      expect(screen.getByText(field).compareDocumentPosition(label)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }
   });
 });
 

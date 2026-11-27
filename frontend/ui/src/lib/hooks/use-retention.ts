@@ -19,7 +19,11 @@ export function useRetention(projectId: string) {
   // each pending flag only counts while its query is actually enabled.)
   const resolving = (!!projectId && projectPending) || (!!workspaceId && workspacePending);
   const billingPlan = (workspace?.billingPlan as string) || PlanType.FREE;
-  const retentionDays = resolving ? undefined : getRetentionDays(billingPlan);
+  const retentionDays = resolving
+    ? undefined
+    : workspace?.retention_days !== undefined
+      ? workspace.retention_days
+      : getRetentionDays(billingPlan);
 
   const [showPricing, setShowPricing] = useState(false);
   const onUpgradeClick = useCallback(() => setShowPricing(true), []);

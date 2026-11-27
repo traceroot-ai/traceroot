@@ -1,61 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkle, Code2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { AITab } from "./AITab";
-import { ManualTab } from "./ManualTab";
-
-type Tab = "ai" | "manual";
+import { FirstTraceLine } from "@/components/first-trace-line";
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { SetupTabs, type SetupTab } from "./SetupTabs";
 
 interface GettingStartedProps {
   projectId: string;
+  /**
+   * The watch for the project's first trace, kept by the traces page: waiting,
+   * then the trace that arrived for the moment before the page opens it.
+   */
+  wait: TraceWait;
 }
 
-export function GettingStarted({ projectId }: GettingStartedProps) {
-  const [tab, setTab] = useState<Tab>("ai");
+/**
+ * The traces page of a project with no traces yet: the setup tabs under the
+ * page's own heading, and the line that says the page is watching for the
+ * first trace — the same line the end of sign-up shows.
+ *
+ * Nothing sits above the switch. The stack is picked inside the manual tab, as
+ * one of its steps.
+ */
+export function GettingStarted({ projectId, wait }: GettingStartedProps) {
+  const [tab, setTab] = useState<SetupTab>("ai");
 
   return (
-    <div className="w-full py-10">
-      <div className="mx-auto w-full max-w-[600px] px-7 lg:max-w-3xl xl:max-w-4xl">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground">
-          Get started with Tracing
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          You don&apos;t have any traces yet. Choose how you&apos;d like to set up.
+    <div className="w-full p-4">
+      <div className="mx-auto w-full max-w-4xl">
+        <h2 className="text-[15px] font-medium">Get started with tracing</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">
+          No traces in this project yet. Get started in a few minutes with the command below.
         </p>
-
-        <div className="mt-6 inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
-          <button
-            type="button"
-            onClick={() => setTab("ai")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
-              tab === "ai"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Sparkle className="h-3.5 w-3.5" />
-            Using AI
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("manual")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
-              tab === "manual"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Code2 className="h-3.5 w-3.5" />
-            Manual
-          </button>
+        <div className="mt-2">
+          <FirstTraceLine wait={wait} align="start" />
         </div>
 
-        <div className="mt-6">
-          {tab === "ai" ? <AITab projectId={projectId} /> : <ManualTab projectId={projectId} />}
+        <div className="mt-4">
+          <SetupTabs
+            projectId={projectId}
+            surface="project"
+            tab={tab}
+            onTabChange={setTab}
+            commandCopy={{
+              title: "Run this in your project",
+              label: "bash",
+              note: "It asks before editing your code. Needs Node.js 20.12 or later.",
+            }}
+          />
         </div>
       </div>
     </div>

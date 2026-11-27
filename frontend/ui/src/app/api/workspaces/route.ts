@@ -4,6 +4,8 @@ import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { isDemoWorkspace, sortDemoLast, userMembershipWhere } from "@/lib/demo-workspace";
+import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
 
 const createWorkspaceSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -16,13 +18,13 @@ async function handleGET() {
   const { user } = authResult;
 
   const memberships = await prisma.workspaceMember.findMany({
-    where: { userId: user.id },
+    where: userMembershipWhere(user.id, "include-demo"),
     include: {
       workspace: {
         include: {
           projects: {
             where: { deleteTime: null },
-            select: { id: true, name: true },
+            select: { id: true, name: true, lastIngestedAt: true },
           },
           _count: {
             select: { members: true },
@@ -33,15 +35,26 @@ async function handleGET() {
     orderBy: { workspace: { name: "asc" } },
   });
 
-  const workspaces = memberships.map((m) => ({
-    id: m.workspace.id,
-    name: m.workspace.name,
-    role: m.role,
-    member_count: m.workspace._count.members,
-    project_count: m.workspace.projects.length,
-    projects: m.workspace.projects,
-    create_time: m.workspace.createTime,
-  }));
+  // The demo workspace comes last and is marked, so the UI never treats it as
+  // the user's own. Its member count is every user, so it is not shown.
+  const workspaces = sortDemoLast(memberships, (m) => m.workspace.id).map((m) => {
+    const isDemo = isDemoWorkspace(m.workspace.id);
+    const lastIngestedAt = m.workspace.projects.reduce<Date | null>((latest, project) => {
+      const received = project.lastIngestedAt;
+      return received && (!latest || received > latest) ? received : latest;
+    }, null);
+    return {
+      id: m.workspace.id,
+      name: m.workspace.name,
+      role: m.role,
+      is_demo: isDemo,
+      member_count: isDemo ? undefined : m.workspace._count.members,
+      project_count: m.workspace.projects.length,
+      projects: m.workspace.projects.map(({ id, name }) => ({ id, name })),
+      create_time: m.workspace.createTime,
+      last_ingested_at: lastIngestedAt,
+    };
+  });
 
   return successResponse({ workspaces });
 }
@@ -97,12 +110,19 @@ async function handlePOST(request: NextRequest) {
     if (!isPrismaKnownError(e, "P2002")) throw e;
     return errorResponse("A workspace with this name already exists", 409);
   }
+  void notifyWorkspaceMember({
+    userId: user.id,
+    workspaceId: workspace.id,
+    createdBy: user.id,
+    via: "created",
+  });
 
   return NextResponse.json(
     {
       id: workspace.id,
       name: workspace.name,
       role: Role.ADMIN,
+      is_demo: false,
       member_count: 1,
       project_count: 0,
       projects: [],

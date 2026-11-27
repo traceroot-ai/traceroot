@@ -1,6 +1,6 @@
 # Mistral AI Tool Agent
 
-ReAct-style agent with Mistral AI tool calling, instrumented with [TraceRoot](https://traceroot.ai).
+ReAct-style agent with Mistral AI tool calling, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

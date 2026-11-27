@@ -41,7 +41,7 @@ export function DeleteDatasetDialog({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
-          <DialogTitle className="text-[13px] font-semibold">Delete dataset</DialogTitle>
+          <DialogTitle>Delete dataset</DialogTitle>
         </DialogHeader>
 
         <div className="mt-1 space-y-4">
@@ -61,20 +61,12 @@ export function DeleteDatasetDialog({
           />
 
           <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-[12px]"
-              onClick={onClose}
-            >
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button
               type="button"
-              size="sm"
               variant="destructive"
-              className="h-7 text-[12px]"
               disabled={typed !== datasetName || isDeleting}
               onClick={onConfirm}
             >

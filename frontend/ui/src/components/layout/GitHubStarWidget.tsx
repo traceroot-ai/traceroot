@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Github } from "lucide-react";
+import { ArrowUpRight, Github, Star, X } from "lucide-react";
 import { clientEnv } from "@/env.client";
+import { PixelStrip } from "@/components/layout/PixelStrip";
 
 const DISMISSED_KEY = "github-star-widget-dismissed";
 const STAR_CACHE_KEY = "github-star-count-cache";
@@ -51,39 +52,45 @@ export function GitHubStarWidget() {
   if (dismissed) return null;
 
   return (
-    <div className="mx-1.5 mb-1 rounded-md border p-1.5">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-semibold">Star TraceRoot</span>
-        <button
-          className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={() => {
-            localStorage.setItem(DISMISSED_KEY, "true");
-            setDismissed(true);
-          }}
-          aria-label="Dismiss"
-        >
-          <X className="h-3 w-3" />
-        </button>
+    // Sits over the section's top rule: the pixel band is the card's upper edge,
+    // so no line is drawn above it.
+    <div className="relative -mt-px border-b bg-background p-3">
+      <PixelStrip className="rounded-t-[2px]" />
+      <div className="rounded-b-[2px] border border-t-0">
+        <div className="px-3 pb-3 pt-2.5">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-[13px] font-semibold">
+              <Github aria-hidden className="h-4 w-4 shrink-0" />
+              traceroot
+            </span>
+            <button
+              className="-mr-1 flex h-5 w-5 items-center justify-center rounded-[2px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={() => {
+                localStorage.setItem(DISMISSED_KEY, "true");
+                setDismissed(true);
+              }}
+              aria-label="Dismiss"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[13px]">
+            <a
+              href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 font-medium text-brand underline-offset-4 hover:underline"
+            >
+              Star on GitHub
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+            </a>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Star aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              {starCount !== null ? formatStarCount(starCount) : "—"}
+            </span>
+          </div>
+        </div>
       </div>
-      <p className="mb-2 text-balance text-[11px] leading-snug text-muted-foreground">
-        Open source and shipping fast.
-        <br />
-        Made with ❤️ by contributors.
-      </p>
-      <a
-        href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex w-full overflow-hidden rounded border border-border text-[11px] font-medium transition-colors hover:bg-muted/50"
-      >
-        <span className="flex flex-1 items-center justify-center gap-1 px-1.5 py-1">
-          <Github className="h-3 w-3 shrink-0" />
-          traceroot
-        </span>
-        <span className="flex shrink-0 items-center gap-1 border-l border-border px-2.5 py-1 text-muted-foreground">
-          ★ {starCount !== null ? formatStarCount(starCount) : "—"}
-        </span>
-      </a>
     </div>
   );
 }

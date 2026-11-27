@@ -1,4 +1,4 @@
-"""MCP-tool demo with TraceRoot observability.
+"""MCP-tool demo with traceroot observability.
 
 Shows how MCP tool calls appear in traces. Production agents are often
 MCP-heavy, with traces full of `mcp__<server>__<tool>` spans.
@@ -89,7 +89,7 @@ async def run_session() -> str:
 @observe(name="demo_session", type="agent")
 async def run_demo():
     print("=" * 60)
-    print("ClaudeSDKClient + MCP tools — Demo (TraceRoot)")
+    print("ClaudeSDKClient + MCP tools — Demo (traceroot)")
     print("=" * 60)
     result = await run_session()
     if result:

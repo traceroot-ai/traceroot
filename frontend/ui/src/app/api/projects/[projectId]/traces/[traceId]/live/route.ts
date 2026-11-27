@@ -17,8 +17,13 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (traceId === "." || traceId === "..") {
+    return Response.json({ error: "Invalid trace ID" }, { status: 400 });
+  }
+
   const backendRes = await fetch(
-    `${BACKEND_INTERNAL_URL}/api/v1/projects/${projectId}/traces/${traceId}/live`,
+    `${BACKEND_INTERNAL_URL}/api/v1/projects/${encodeURIComponent(projectId)}/traces/${encodeURIComponent(traceId)}/live`,
     {
       headers: { cookie: _request.headers.get("cookie") ?? "" },
       signal: _request.signal,

@@ -1,5 +1,5 @@
 /**
- * Shared API types for TraceRoot UI
+ * Shared API types for traceroot UI
  */
 
 import type { Role, SpanKind, SpanStatus } from "@traceroot/core";
@@ -25,10 +25,16 @@ export interface Workspace {
   id: string;
   name: string;
   role: Role;
+  // Public demo: new memberships are VIEWER; existing members retain their roles.
+  // It is not one of the user's own workspaces.
+  is_demo?: boolean;
   member_count?: number;
   project_count?: number;
   create_time: string;
   update_time?: string;
+  last_ingested_at?: string | null;
+  // Effective read window, including when billing details are hidden. Null means unlimited.
+  retention_days?: number | null;
   // Billing fields
   billingPlan?: string;
   billingCustomerId?: string | null;
@@ -56,6 +62,7 @@ export interface Project {
   delete_time?: string | null;
   create_time: string;
   update_time?: string;
+  last_ingested_at?: string | null;
 }
 
 // Member types

@@ -25,7 +25,7 @@ Pass static tags directly to `observe`:
 
     const result = await observe(
       { name: 'run_agent', type: 'agent', tags: ['production', 'v2'] },
-      async () => process(query),
+      async () => handleQuery(query),
     );
     ```
   </Tab>

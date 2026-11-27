@@ -81,35 +81,56 @@ CODEX_MODEL_CASES = [
 
 OPENAI_MODEL_CASES = [
     ("gpt-5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5-6", "gpt-5.6-sol"),
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
     ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
+    ("global.openai.gpt-5.6-sol", "gpt-5.6-sol"),
     ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
     # gpt-5.6 is the provider-documented alias for gpt-5.6-sol.
     ("gpt-5.6", "gpt-5.6-sol"),
     ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
     ("azure/gpt-5.6-terra", "gpt-5.6-terra"),
+    ("global.openai.gpt-5.6-terra", "gpt-5.6-terra"),
+    ("gpt-6.1-terra", "gpt-6.1-terra"),
+    ("openai/gpt-6.1-terra", "gpt-6.1-terra"),
+    ("azure/gpt-6.1-terra", "gpt-6.1-terra"),
+    ("global.openai.gpt-6.1-terra", "gpt-6.1-terra"),
+    ("gpt-6-1-terra", "gpt-6.1-terra"),
     ("gpt-5.6-luna", "gpt-5.6-luna"),
     ("openai/gpt-5.6-luna", "gpt-5.6-luna"),
     ("azure/gpt-5.6-luna", "gpt-5.6-luna"),
+    ("global.openai.gpt-5.6-luna", "gpt-5.6-luna"),
     ("gpt-5.6-cyber", "gpt-5.6-cyber"),
     ("openai/gpt-5.6-cyber", "gpt-5.6-cyber"),
     ("azure/gpt-5.6-cyber", "gpt-5.6-cyber"),
     ("gpt-6-astra", "gpt-6-astra"),
     ("openai/gpt-6-astra", "gpt-6-astra"),
     ("azure/gpt-6-astra", "gpt-6-astra"),
+    ("global.openai.gpt-6-astra", "gpt-6-astra"),
     ("gpt-6-astra-2026-07-09", "gpt-6-astra"),
+    ("gpt-6.2-astra", "gpt-6.2-astra"),
+    ("openai/gpt-6.2-astra", "gpt-6.2-astra"),
+    ("azure/gpt-6.2-astra", "gpt-6.2-astra"),
+    ("gpt-6-2-astra", "gpt-6.2-astra"),
     ("gpt-6.1-sol", "gpt-6.1-sol"),
     ("openai/gpt-6.1-sol", "gpt-6.1-sol"),
     ("azure/gpt-6.1-sol", "gpt-6.1-sol"),
+    ("global.openai.gpt-6.1-sol", "gpt-6.1-sol"),
     ("gpt-6.1-sol-2026-09-29", "gpt-6.1-sol"),
+    ("gpt-6.2-sol", "gpt-6.2-sol"),
+    ("openai/gpt-6.2-sol", "gpt-6.2-sol"),
+    ("azure/gpt-6.2-sol", "gpt-6.2-sol"),
+    ("gpt-6-2-sol", "gpt-6.2-sol"),
     ("gpt-6-sol", "gpt-6-sol"),
     ("openai/gpt-6-sol", "gpt-6-sol"),
     ("azure/gpt-6-sol", "gpt-6-sol"),
+    ("global.openai.gpt-6-sol", "gpt-6-sol"),
     ("gpt-6-sol-2026-09-22", "gpt-6-sol"),
     ("gpt-6-luna", "gpt-6-luna"),
     ("openai/gpt-6-luna", "gpt-6-luna"),
     ("azure/gpt-6-luna", "gpt-6-luna"),
+    ("global.openai.gpt-6-luna", "gpt-6-luna"),
     ("gpt-6-luna-2026-09-22", "gpt-6-luna"),
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),
@@ -118,18 +139,26 @@ OPENAI_MODEL_CASES = [
     ("gpt-5.5-pro", "gpt-5.5-pro"),
     ("azure/gpt-5.5-pro", "gpt-5.5-pro"),
     ("gpt-5.4", "gpt-5.4"),
+    ("gpt-5-4", "gpt-5.4"),
+    ("gpt-5-5", "gpt-5.5"),
     ("gpt-5.4-mini", "gpt-5.4-mini"),
     ("gpt-5.4-nano", "gpt-5.4-nano"),
     ("gpt-5.4-pro", "gpt-5.4-pro"),
     ("gpt-5.2", "gpt-5.2"),
+    ("gpt-5-2", "gpt-5.2"),
     ("gpt-5.2-pro", "gpt-5.2-pro"),
     ("gpt-5.1", "gpt-5.1"),
+    ("gpt-5-1", "gpt-5.1"),
     ("gpt-5", "gpt-5"),
+    ("gpt-5-2025-08-07", "gpt-5"),
     *CODEX_MODEL_CASES,
     ("gpt-5-mini", "gpt-5-mini"),
     ("gpt-5-nano", "gpt-5-nano"),
     ("gpt-5-pro", "gpt-5-pro"),
     ("gpt-4.1", "gpt-4.1"),
+    ("gpt-4-1", "gpt-4.1"),
+    ("openai/gpt-4-1", "gpt-4.1"),
+    ("gpt-4-1-2025-04-14", "gpt-4.1"),
     ("gpt-4.1-mini", "gpt-4.1-mini"),
     ("gpt-4.1-nano", "gpt-4.1-nano"),
     ("gpt-4o", "gpt-4o"),
@@ -161,17 +190,31 @@ OPENAI_MODEL_CASES = [
     ("babbage-002", "babbage-002"),
 ]
 
+# (pattern owner, id it must not absorb): gpt-4.1 spelled with a dash is its own model.
+GPT_4_NON_MATCHES = [
+    ("gpt-4", "gpt-4-1"),
+    ("gpt-4", "openai/gpt-4-1"),
+]
+
 GLM_MODEL_CASES = [
+    ("glm-5.3", "glm-5.3"),
+    ("glm-5-3", "glm-5.3"),
+    ("zai/glm-5.3", "glm-5.3"),
     ("glm-5.2", "glm-5.2"),
+    ("glm-5-2", "glm-5.2"),
     ("zai/glm-5.2", "glm-5.2"),
     ("glm-5.1", "glm-5.1"),
+    ("glm-5-1", "glm-5.1"),
     ("zai/glm-5.1", "glm-5.1"),
     ("glm-5", "glm-5"),
     ("zai/glm-5", "glm-5"),
     ("glm-5-turbo", "glm-5-turbo"),
     ("zai/glm-5-turbo", "glm-5-turbo"),
+    ("z-ai/glm-5-turbo", "glm-5-turbo"),
     ("glm-4.7", "glm-4.7"),
     ("zai/glm-4.7", "glm-4.7"),
+    ("z-ai/glm-4.7", "glm-4.7"),
+    ("zai.glm-4.7", "glm-4.7"),
     ("glm-4.6", "glm-4.6"),
     ("zai/glm-4.6", "glm-4.6"),
     ("glm-4.5", "glm-4.5"),
@@ -181,8 +224,16 @@ GLM_MODEL_CASES = [
     ("glm-4.5-flash", "glm-4.5-flash"),
 ]
 
+# (pattern owner, id it must not absorb): dash spellings of later glm-5 point releases.
+GLM_NON_MATCHES = [
+    ("glm-5", "glm-5-1"),
+    ("glm-5", "glm-5-2"),
+    ("glm-5", "glm-5-3"),
+]
+
 XAI_MODEL_CASES = [
     ("grok-4.20", "grok-4.20"),
+    ("grok-4-20", "grok-4.20"),
     ("xai/grok-4.20", "grok-4.20"),
     ("grok-4.20-20260601", "grok-4.20"),
     ("grok-4.20-0309-reasoning", "grok-4.20"),
@@ -195,16 +246,28 @@ XAI_MODEL_CASES = [
     ("grok-4", "grok-4"),
     ("xai/grok-4", "grok-4"),
     ("grok-4-0709", "grok-4"),
+    ("grok-4.3", "grok-4.3"),
+    ("grok-4-3", "grok-4.3"),
+    ("xai/grok-4.3", "grok-4.3"),
+    ("grok-4.5", "grok-4.5"),
+    ("grok-4-5", "grok-4.5"),
+    ("xai/grok-4.5", "grok-4.5"),
     ("grok-4.6", "grok-4.6"),
+    ("grok-4-6", "grok-4.6"),
     ("xai/grok-4.6", "grok-4.6"),
     ("grok-4.6-20260601", "grok-4.6"),
     ("grok-4.7", "grok-4.7"),
+    ("grok-4-7", "grok-4.7"),
     ("xai/grok-4.7", "grok-4.7"),
     ("grok-4.7-20260921", "grok-4.7"),
 ]
 
 # (pattern owner, id it must not absorb): adjacent versions, a longer version, -fast variants.
 XAI_NON_MATCHES = [
+    ("grok-4", "grok-4-5"),
+    ("grok-4", "grok-4-6"),
+    ("grok-4", "grok-4-7"),
+    ("grok-4", "grok-4-20"),
     ("grok-4.6", "grok-4"),
     ("grok-4.6", "grok-4.5"),
     ("grok-4.6", "grok-4.60"),
@@ -215,12 +278,54 @@ XAI_NON_MATCHES = [
     ("grok-4.7", "grok-4.7-fast"),
 ]
 
+GEMINI_4_CARBON_NON_MATCHES = [
+    ("gemini-4-carbon", "gemini-4-carbon-cyber-permissive"),
+]
+
+
+class TestGemini4CarbonPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+
+    The rates double on 2026-12-01 ($4 input, $20 output, $0.2 cache read); the
+    table has no effective dates, so update the row then.
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-carbon")
+        assert entry["prices"]["input"] == pytest.approx(2e-06)  # $2 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1e-05)  # $10 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(1e-07)  # $0.1 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_CARBON_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
 
 GEMINI_MODEL_CASES = [
+    ("gemini-4-hydrogen", "gemini-4-hydrogen"),
+    ("google/gemini-4-hydrogen", "gemini-4-hydrogen"),
+    ("models/gemini-4-hydrogen", "gemini-4-hydrogen"),
     ("gemini-3.8-flash", "gemini-3.8-flash"),
     ("google/gemini-3.8-flash", "gemini-3.8-flash"),
+    ("gemini-4-neon", "gemini-4-neon"),
+    ("google/gemini-4-neon", "gemini-4-neon"),
+    ("models/gemini-4-neon", "gemini-4-neon"),
+    ("gemini-3.8-live", "gemini-3.8-live"),
+    ("google/gemini-3.8-live", "gemini-3.8-live"),
+    ("models/gemini-3.8-live", "gemini-3.8-live"),
+    ("gemini-3.8-live-extended-thinking", "gemini-3.8-live"),
     ("gemini-3.7-flash", "gemini-3.7-flash"),
+    ("gemini-4-argon", "gemini-4-argon"),
+    ("google/gemini-4-argon", "gemini-4-argon"),
+    ("models/gemini-4-argon", "gemini-4-argon"),
     ("gemini-3.6-flash", "gemini-3.6-flash"),
+    ("gemini-4-carbon", "gemini-4-carbon"),
+    ("google/gemini-4-carbon", "gemini-4-carbon"),
+    ("models/gemini-4-carbon", "gemini-4-carbon"),
     ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
     ("gemini-3.5-flash", "gemini-3.5-flash"),
     ("google/gemini-3.5-flash", "gemini-3.5-flash"),
@@ -244,6 +349,8 @@ GEMINI_MODEL_CASES = [
 ]
 
 DEEPSEEK_MODEL_CASES = [
+    ("deepseek-flash", "deepseek-v4-flash"),
+    ("deepseek/deepseek-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek/deepseek-v4-flash", "deepseek-v4-flash"),
     ("deepseek-v4-flash-20260424", "deepseek-v4-flash"),
@@ -258,6 +365,22 @@ KIMI_MODEL_CASES = [
     ("kimi-k3", "kimi-k3"),
     ("moonshot/kimi-k3", "kimi-k3"),
     ("kimi-k3-20260716", "kimi-k3"),
+    ("kimi-k3.1-pro", "kimi-k3.1-pro"),
+    ("moonshot/kimi-k3.1-pro", "kimi-k3.1-pro"),
+    ("kimi-k3-1-pro", "kimi-k3.1-pro"),
+]
+
+# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+KIMI_K3_1_PRO_NON_MATCHES = [
+    ("kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"),
+    ("kimi-k3.1-pro", "kimi-k3"),
+    ("kimi-k3.1-pro", "moonshotai/kimi-k3.1-pro"),
+]
+
+# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+KIMI_K3_1_PRO_HIGHSPEED_NON_MATCHES = [
+    ("kimi-k3.1-pro-highspeed", "kimi-k3.1-pro"),
+    ("kimi-k3.1-pro-highspeed", "kimi-k3"),
 ]
 
 KIMI_K26_MODEL_CASES = [
@@ -305,6 +428,14 @@ class TestOpenAIModelIds:
             f"{model_id} matched a different entry than {expected_name}"
         )
 
+    @pytest.mark.parametrize("owner,model_id", GPT_4_NON_MATCHES)
+    def test_gpt_4_pattern_does_not_absorb_gpt_4_1(self, real_cache, owner, model_id):
+        # Checks the owner's regex, not get_model_price, so it holds once these ids are priced.
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
     @pytest.mark.parametrize(
         "model_id,input_price,output_price,cache_read_price", CODEX_MODEL_PRICES
     )
@@ -336,6 +467,27 @@ class TestOpenAIModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+# (pattern owner, id it must not absorb): dash spellings of later gpt-5 point releases.
+GPT_5_NON_MATCHES = [
+    ("gpt-5", "gpt-5-1"),
+    ("gpt-5", "gpt-5-2"),
+    ("gpt-5", "gpt-5-3"),
+    ("gpt-5", "gpt-5-4"),
+    ("gpt-5", "gpt-5-5"),
+    ("gpt-5", "gpt-5-6"),
+]
+
+
+class TestGpt5PointReleaseIds:
+    @pytest.mark.parametrize("owner,model_id", GPT_5_NON_MATCHES)
+    def test_gpt_5_pattern_does_not_absorb_point_releases(self, real_cache, owner, model_id):
+        # Checks the owner's regex, not get_model_price, so it holds once these ids are priced.
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestGpt56CyberPublishedPrices:
@@ -381,6 +533,22 @@ class TestGpt56TerraPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(1.2e-5)  # $12 / 1M tokens
 
 
+# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+GPT_6_1_TERRA_NON_MATCHES = [
+    ("gpt-6.1-terra", "gpt-6.1-sol"),
+    ("gpt-6.1-terra", "gpt-5.6-terra"),
+]
+
+
+class TestGpt61TerraModelIds:
+    @pytest.mark.parametrize("owner,model_id", GPT_6_1_TERRA_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+
 class TestGpt56SolPublishedPrices:
     """Ratio checks alone let a wrong base price stay internally consistent and
     pass — gpt-5.6-sol was billed at $5/$30 per 1M tokens against a
@@ -392,6 +560,23 @@ class TestGpt56SolPublishedPrices:
         entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-sol")
         assert entry["prices"]["input"] == pytest.approx(4e-6)  # $4 / 1M tokens
         assert entry["prices"]["output"] == pytest.approx(2e-5)  # $20 / 1M tokens
+
+
+# (pattern owner, id it must not absorb): sibling ids the pattern must leave unmatched.
+GPT_6_2_SOL_NON_MATCHES = [
+    ("gpt-6.2-sol", "gpt-6.2-astra"),
+    ("gpt-6.2-sol", "gpt-6.1-sol"),
+    ("gpt-6.2-sol", "gpt-6.2-sol-pro"),
+]
+
+
+class TestGpt62SolModelIds:
+    @pytest.mark.parametrize("owner,model_id", GPT_6_2_SOL_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestGpt56LunaPublishedPrices:
@@ -408,9 +593,12 @@ class TestGpt56LunaPublishedPrices:
 # $ per 1M tokens: input, cached input, cache write, output
 GPT6_PUBLISHED_RATES = {
     "gpt-6.1-sol": (2.00, 0.10, 2.50, 10.00),
+    "gpt-6.2-sol": (2.00, 0.10, 2.50, 10.00),
     "gpt-6-astra": (10.00, 1.00, 12.50, 50.00),
+    "gpt-6.2-astra": (8.00, 0.40, 10.00, 40.00),
     "gpt-6-sol": (2.00, 0.20, 2.50, 10.00),
     "gpt-6-luna": (0.10, 0.01, 0.125, 0.50),
+    "gpt-6.1-terra": (1.00, 0.05, 1.25, 5.00),
 }
 
 
@@ -426,7 +614,43 @@ class TestGpt6PublishedPrices:
             assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
 
 
-class TestGemini3xFlashPublishedPrices:
+# (pattern owner, id it must not absorb): sibling models that keep their own price rows.
+GPT_6_2_ASTRA_NON_MATCHES = [
+    ("gpt-6.2-astra", "gpt-6.2-astra-law"),
+    ("gpt-6.2-astra", "gpt-6.2-sol"),
+    ("gpt-6.2-astra", "gpt-6-astra"),
+]
+
+
+class TestGpt62AstraModelIds:
+    @pytest.mark.parametrize("owner,model_id", GPT_6_2_ASTRA_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+
+# $ per 1M tokens: input, cached input, output
+GROK_4X_PUBLISHED_RATES = {
+    "grok-4.3": (1.25, 0.20, 2.50),
+    "grok-4.5": (2.00, 0.30, 6.00),
+}
+
+
+class TestGrok4xPublishedPrices:
+    """Assert the absolute, provider-published rate directly
+    (https://docs.x.ai/developers/models)."""
+
+    @pytest.mark.parametrize("model_name,rates", GROK_4X_PUBLISHED_RATES.items())
+    def test_published_rates(self, real_cache, model_name, rates):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        expected = dict(zip(("input", "cacheRead", "output"), rates))
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+
+
+class TestGemini3xPublishedPrices:
     """Assert the absolute, provider-published rate directly
     (https://ai.google.dev/gemini-api/docs/pricing).
 
@@ -449,6 +673,37 @@ class TestGemini3xFlashPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(2.5e-06)  # $2.50 / 1M tokens
         assert entry["prices"]["cacheRead"] == pytest.approx(3e-08)  # $0.03 / 1M tokens
 
+    def test_live_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-3.8-live")
+        assert entry["prices"]["input"] == pytest.approx(7.5e-07)  # $0.75 / 1M tokens (text)
+        assert entry["prices"]["output"] == pytest.approx(1.2e-05)  # $12.00 / 1M tokens (audio)
+        assert entry["prices"]["cacheRead"] is None
+
+
+GEMINI_4_NEON_NON_MATCHES = [
+    ("gemini-4-neon", "gemini-4-neon-fast"),
+]
+
+
+class TestGemini4NeonPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-neon")
+        assert entry["prices"]["input"] == pytest.approx(3e-06)  # $3 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1.5e-05)  # $15 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(1.5e-07)  # $0.15 / 1M tokens
+        assert entry["prices"]["cacheWrite"] is None
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_NEON_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
 
 class TestGeminiModelIds:
     @pytest.mark.parametrize("model_id,expected_name", GEMINI_MODEL_CASES)
@@ -467,6 +722,7 @@ class TestGeminiModelIds:
         [
             # TTS has its own price sheet; must not fall through to a 3.x Flash text row.
             "gemini-3.8-flash-tts",
+            "gemini-3.8-live-preview",
             # Google repoints -latest aliases without notice, so they stay unpriced.
             "gemini-flash-latest",
         ],
@@ -474,6 +730,81 @@ class TestGeminiModelIds:
     def test_unpriced_gemini_ids_do_not_inherit_a_price(self, real_cache, model_id):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price(model_id) is None
+
+
+GEMINI_4_ARGON_NON_MATCHES = [
+    ("gemini-4-argon", "gemini-4-argon-cyber-permissive"),
+]
+
+
+class TestGemini4ArgonPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+
+    The rates double on 2026-12-01 ($4 input, $20 output, $0.2 cache read); the
+    table has no effective dates, so update the row then.
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-argon")
+        assert entry["prices"]["input"] == pytest.approx(2e-06)  # $2 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1e-05)  # $10 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(1e-07)  # $0.1 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_ARGON_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+
+# $ per 1M tokens, off-peak: input, cache hit, output
+DEEPSEEK_PUBLISHED_RATES = {
+    "deepseek-v4-flash": (0.15, 0.003, 0.60),
+    "deepseek-v4-pro": (0.66, 0.022, 1.98),
+}
+
+
+GEMINI_4_HYDROGEN_NON_MATCHES = [
+    ("gemini-4-hydrogen", "gemini-4-hydrogen-fast"),
+]
+
+
+class TestGemini4HydrogenPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-hydrogen")
+        assert entry["prices"]["input"] == pytest.approx(1.5e-06)  # $1.5 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(7.5e-06)  # $7.5 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(7.5e-08)  # $0.075 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_HYDROGEN_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+
+class TestDeepSeekPublishedPrices:
+    """Assert the absolute, provider-published rate directly
+    (https://api-docs.deepseek.com/quick_start/pricing).
+
+    Peak hours cost twice the off-peak rate; the table has no time-of-day
+    pricing, so peak-hour calls record half their cost.
+    """
+
+    @pytest.mark.parametrize("model_name,rates", DEEPSEEK_PUBLISHED_RATES.items())
+    def test_published_rates(self, real_cache, model_name, rates):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        expected = dict(zip(("input", "cacheRead", "output"), rates))
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+        assert entry["prices"]["cacheWrite"] is None
 
 
 class TestDeepSeekModelIds:
@@ -512,6 +843,18 @@ class TestKimiModelIds:
             f"{model_id} matched a different entry than {expected_name}"
         )
 
+    def test_kimi_k3_absolute_rates(self):
+        # Pin the published rates (USD per token, from Moonshot's direct-API price page on
+        # platform.kimi.ai): cache writes are billed by TTL, 5 minutes and 1 hour.
+        entry = next((e for e in _standard_price_entries() if e["modelName"] == "kimi-k3"), None)
+        assert entry is not None, "kimi-k3 missing from standard-model-prices.json"
+        prices = entry["prices"]
+        assert prices["input"] == pytest.approx(0.000003)
+        assert prices["output"] == pytest.approx(0.000015)
+        assert prices["cacheRead"] == pytest.approx(0.0000003)
+        assert prices["cacheWrite"] == pytest.approx(0.000003)
+        assert prices["cacheWrite1h"] == pytest.approx(0.000006)
+
     def test_kimi_k3_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             result = calculate_cost("kimi-k3", "Hello world", "Hi there")
@@ -522,6 +865,28 @@ class TestKimiModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+# $ per 1M tokens: input, cache read, cache write, 1h cache write, output
+KIMI_K3_1_PRO_RATES = (2.00, 0.20, 2.00, 4.00, 10.00)
+
+
+class TestKimiK31ProModelIds:
+    @pytest.mark.parametrize("owner,model_id", KIMI_K3_1_PRO_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+    def test_published_rates(self, real_cache):
+        """Provider-published rates (https://platform.kimi.ai/docs/pricing/chat)."""
+        entry = next(e for e in real_cache if e["model_name"] == "kimi-k3.1-pro")
+        expected = dict(
+            zip(("input", "cacheRead", "cacheWrite", "cacheWrite1h", "output"), KIMI_K3_1_PRO_RATES)
+        )
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
 
 
 class TestKimiK26ModelIds:
@@ -558,6 +923,47 @@ class TestKimiK26ModelIds:
         assert result["cost"] > 0
 
 
+KIMI_K3_1_PRO_HIGHSPEED_MODEL_CASES = [
+    ("kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+    ("moonshot/kimi-k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+    ("kimi-k3-1-pro-highspeed", "kimi-k3.1-pro-highspeed"),
+]
+
+# $ per 1M tokens: input, cache read, cache write, 1h cache write, output
+KIMI_K3_1_PRO_HIGHSPEED_RATES = (4.00, 0.20, 4.00, 8.00, 20.00)
+
+
+class TestKimiK31ProHighspeedModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", KIMI_K3_1_PRO_HIGHSPEED_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    @pytest.mark.parametrize("owner,model_id", KIMI_K3_1_PRO_HIGHSPEED_NON_MATCHES)
+    def test_pattern_does_not_absorb_sibling_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+    def test_published_rates(self, real_cache):
+        """Provider-published rates (https://platform.kimi.ai/docs/pricing/chat)."""
+        entry = next(e for e in real_cache if e["model_name"] == "kimi-k3.1-pro-highspeed")
+        expected = dict(
+            zip(
+                ("input", "cacheRead", "cacheWrite", "cacheWrite1h", "output"),
+                KIMI_K3_1_PRO_HIGHSPEED_RATES,
+            )
+        )
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
+
+
 class TestGLMModelIds:
     @pytest.mark.parametrize("model_id,expected_name", GLM_MODEL_CASES)
     def test_matches_expected_model(self, real_cache, model_id, expected_name):
@@ -569,6 +975,28 @@ class TestGLMModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+
+class TestGLMNonMatches:
+    @pytest.mark.parametrize("owner,model_id", GLM_NON_MATCHES)
+    def test_glm_5_pattern_does_not_absorb_point_releases(self, real_cache, owner, model_id):
+        # Checks the owner's regex, not get_model_price, so it holds once these ids are priced.
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+
+class TestGlm53PublishedPrices:
+    """Assert the provider-published rates directly
+    (https://docs.z.ai/guides/overview/pricing).
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "glm-5.3")
+        assert entry["prices"]["input"] == pytest.approx(1.4e-06)  # $1.40 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(4.4e-06)  # $4.40 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(2.6e-07)  # $0.26 / 1M tokens
 
 
 class TestXAIModelIds:
@@ -697,6 +1125,13 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-fable-5[1m]", "claude-fable-5"),
     ("anthropic/claude-fable-5", "claude-fable-5"),
     ("us.anthropic.claude-fable-5-20260701-v1:0", "claude-fable-5"),
+    # Fable 5.1 / 5.2 — priced on their own entries, not the Fable 5 one
+    ("claude-fable-5-1", "claude-fable-5-1"),
+    ("claude-fable-5-1[1m]", "claude-fable-5-1"),
+    ("anthropic/claude-fable-5-1", "claude-fable-5-1"),
+    ("claude-fable-5-2", "claude-fable-5-2"),
+    ("claude-fable-5-2[1m]", "claude-fable-5-2"),
+    ("anthropic/claude-fable-5-2", "claude-fable-5-2"),
     # Opus 5 — plain, [1m] variant, anthropic/ prefix, Bedrock, Vertex
     ("claude-opus-5", "claude-opus-5"),
     ("claude-opus-5[1m]", "claude-opus-5"),
@@ -730,6 +1165,15 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("apac.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("global.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    # Japan, Australia, and India profiles. Same price row as us/eu/apac/global.
+    # Issue #2938; the India prefix was added on the issue after the report.
+    ("jp.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("au.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("in.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("jp.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("au.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("jp.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+    ("in.anthropic.claude-opus-5", "claude-opus-5"),
     # Bedrock — no CRIS prefix
     ("anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
@@ -748,6 +1192,8 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
+    ("claude-sonnet-4-0", "claude-sonnet-4"),
+    ("anthropic/claude-sonnet-4-0", "claude-sonnet-4"),
     ("us.anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
     ("anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
     ("us.anthropic.claude-3-5-haiku-20241022-v1:0", "claude-3-5-haiku"),
@@ -764,6 +1210,9 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
+    ("claude-opus-4-1-20250805", "claude-opus-4-1"),
+    ("eu.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
+    ("claude-opus-4-1@20250805", "claude-opus-4-1"),
 ]
 
 
@@ -775,31 +1224,52 @@ class TestClaudeBedrockAndVertexIds:
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
 
-        expected = next(e for e in real_cache if e["model_name"] == expected_name)
-        assert price["input"] == expected["prices"]["input"], (
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different family than {expected_name}"
         )
 
-    @pytest.mark.parametrize("family", ["claude-opus-5-5", "claude-sonnet-5-5"])
-    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
-    def test_5_5_ids_match_only_their_entry(self, real_cache, family, prefix):
-        # First-match lookup hides overlaps; the 5 patterns once swallowed these ids.
-        model_id = prefix + family
-        matching = [
+    @pytest.mark.parametrize(
+        "model_id,own",
+        [
+            (prefix + e["modelName"], e["modelName"])
+            for e in _standard_price_entries()
+            for prefix in (
+                ["", "anthropic/", "anthropic.", "global.anthropic."]
+                if e["provider"] == "anthropic"
+                else [""]
+            )
+        ],
+    )
+    def test_no_other_pattern_matches_a_models_own_id(self, real_cache, model_id, own):
+        # Lookup is first-match, so a broad suffix silently prices the next point release.
+        others = [
             e["model_name"]
             for e in real_cache
-            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+            if e["model_name"] != own and re.search(e["match_pattern"], model_id, re.IGNORECASE)
         ]
-        assert matching == [family], f"{model_id} matched {matching}"
+        assert others == [], f"{model_id} also matched {others}"
+        if model_id == own:
+            pattern = next(e["match_pattern"] for e in real_cache if e["model_name"] == own)
+            assert re.search(pattern, own, re.IGNORECASE), f"{own} misses its own pattern"
 
     @pytest.mark.parametrize(
         "model_name,rates",
         [
-            # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            # input, output, cacheRead, cacheWrite, cacheWrite1h.
+            ("claude-fable-5", (1e-5, 5e-5, 1e-6, 1.25e-5, 2e-5)),
+            # Mythos 5: https://platform.claude.com/docs/en/about-claude/pricing
+            ("claude-mythos-5", (1e-5, 5e-5, 1e-6, 1.25e-5, 2e-5)),
+            # Fable 5.1 / 5.2 read cache at 0.025x input.
+            ("claude-fable-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
+            # Mythos 5.1: https://platform.claude.com/docs/en/about-claude/pricing
+            ("claude-mythos-5-1", (1e-5, 5e-5, 2.5e-7, 1.25e-5, 2e-5)),
+            ("claude-fable-5-2", (8e-6, 4e-5, 2e-7, 1e-5, 1.6e-5)),
+            # Opus 5.5 and Sonnet 5.5 read cache at 0.05x input.
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
-            ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-sonnet-5-5", (2e-6, 1e-5, 1e-7, 2.5e-6, 4e-6)),
             # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
             ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            ("claude-opus-4-1", (1.5e-5, 7.5e-5, 1.5e-6, 1.875e-5, 3e-5)),
         ],
     )
     def test_published_rates(self, model_name, rates):
@@ -812,6 +1282,32 @@ class TestClaudeBedrockAndVertexIds:
             assert get_model_price("totally-not-a-real-model-2099") is None
 
 
+# (pattern owner, id it must not absorb): neighbouring Mythos IDs and the Bedrock regional forms stay unmatched.
+CLAUDE_MYTHOS_5_NON_MATCHES = [
+    ("claude-mythos-5", "claude-mythos-5-1"),
+    ("claude-mythos-5", "claude-mythos-5-2"),
+    ("claude-mythos-5", "claude-mythos-preview"),
+    ("claude-mythos-5", "us.anthropic.claude-mythos-5"),
+    ("claude-mythos-5", "bedrock_mantle/anthropic.claude-mythos-5"),
+]
+
+
+class TestClaudeMythos5Ids:
+    @pytest.mark.parametrize("owner,model_id", CLAUDE_MYTHOS_5_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+    @pytest.mark.parametrize(
+        "model_id", ["us.anthropic.claude-mythos-5", "bedrock_mantle/anthropic.claude-mythos-5"]
+    )
+    def test_bedrock_regional_ids_stay_unpriced(self, real_cache, model_id):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price(model_id) is None
+
+
 # ---------------------------------------------------------------------------
 # Fast-mode variant + dot-notation model ids.
 # Some gateways spell versions with dots (claude-opus-4.8) and expose fast
@@ -820,11 +1316,20 @@ class TestClaudeBedrockAndVertexIds:
 
 
 CLAUDE_FAST_AND_DOT_CASES = [
+    # Mythos 5
+    ("claude-mythos-5", "claude-mythos-5"),
+    ("claude-mythos-5[1m]", "claude-mythos-5"),
+    ("anthropic/claude-mythos-5", "claude-mythos-5"),
     # Fast mode — gateway slug, bare dot form, dashed canonical form
     ("anthropic/claude-opus-5-fast", "claude-opus-5-fast"),
     ("claude-opus-5-fast", "claude-opus-5-fast"),
     ("anthropic/claude-opus-5-5-fast", "claude-opus-5-5-fast"),
     ("claude-opus-5-5-fast", "claude-opus-5-5-fast"),
+    # Mythos 5.1 — plain, [1m] variant, anthropic/ prefix, Bedrock global profile
+    ("claude-mythos-5-1", "claude-mythos-5-1"),
+    ("claude-mythos-5-1[1m]", "claude-mythos-5-1"),
+    ("anthropic/claude-mythos-5-1", "claude-mythos-5-1"),
+    ("global.anthropic.claude-mythos-5-1", "claude-mythos-5-1"),
     ("anthropic/claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4-8-fast", "claude-opus-4-8-fast"),
@@ -832,12 +1337,24 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-opus-4.8", "claude-opus-4-8"),
     ("claude-opus-4.8", "claude-opus-4-8"),
     ("claude-opus-4.8[1m]", "claude-opus-4-8"),
+    # Fable 5.1 — OpenRouter's dotted slug and Bedrock's global profile
+    ("anthropic/claude-fable-5.1", "claude-fable-5-1"),
+    ("global.anthropic.claude-fable-5-1", "claude-fable-5-1"),
     ("claude-opus-4.7", "claude-opus-4-7"),
     ("claude-opus-4.6", "claude-opus-4-6"),
+    ("global.anthropic.claude-opus-4-6-v1", "claude-opus-4-6"),
     ("claude-opus-4.5", "claude-opus-4-5"),
     ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
     ("claude-sonnet-4.5", "claude-sonnet-4-5"),
     ("claude-haiku-4.5", "claude-haiku-4-5"),
+    # Fable 5.2 — OpenRouter's dotted slug and Bedrock's global profile
+    ("anthropic/claude-fable-5.2", "claude-fable-5-2"),
+    ("global.anthropic.claude-fable-5-2", "claude-fable-5-2"),
+    # Mythos 5.2 — bare, gateway slug and Bedrock global ids
+    ("claude-mythos-5-2", "claude-mythos-5-2"),
+    ("claude-mythos-5-2[1m]", "claude-mythos-5-2"),
+    ("anthropic/claude-mythos-5-2", "claude-mythos-5-2"),
+    ("global.anthropic.claude-mythos-5-2", "claude-mythos-5-2"),
     # Fast mode on Opus 4.7 — separately priced at 6x standard (not 4.8's 2x)
     ("anthropic/claude-opus-4.7-fast", "claude-opus-4-7-fast"),
     ("claude-opus-4-7-fast", "claude-opus-4-7-fast"),
@@ -845,6 +1362,34 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-3.5-sonnet", "claude-3-5-sonnet"),
     ("claude-3.5-haiku", "claude-3-5-haiku"),
 ]
+
+
+CLAUDE_MYTHOS_5_2_NON_MATCHES = [
+    ("claude-mythos-5-2", "claude-mythos-5-1"),
+    ("claude-mythos-5-2", "claude-mythos-5-2-fast"),
+    # Bedrock bills the in-region id at 8.8 / 44, not the row's 8 / 40.
+    ("claude-mythos-5-2", "anthropic.claude-mythos-5-2"),
+]
+
+
+class TestClaudeMythos52PublishedPrices:
+    """Assert the provider-published rates directly
+    (https://platform.claude.com/docs/en/about-claude/pricing)."""
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "claude-mythos-5-2")
+        assert entry["prices"]["input"] == pytest.approx(8e-06)  # $8 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(4e-05)  # $40 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(2e-07)  # $0.20 / 1M tokens
+        assert entry["prices"]["cacheWrite"] == pytest.approx(1e-05)  # $10 / 1M tokens
+        assert entry["prices"]["cacheWrite1h"] == pytest.approx(1.6e-05)  # $16 / 1M tokens
+
+    @pytest.mark.parametrize("owner,model_id", CLAUDE_MYTHOS_5_2_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestClaudeFastAndDotNotationIds:
@@ -886,6 +1431,26 @@ class TestClaudeFastAndDotNotationIds:
     def test_opus_4_6_has_no_fast_card(self, real_cache):
         # Opus 4.6 fast bills standard upstream; a 4.6 fast entry would over-charge.
         assert all(e["model_name"] != "claude-opus-4-6-fast" for e in real_cache)
+
+
+# (pattern owner, id it must not absorb): the next Mythos version, and the Bedrock
+# regional profiles AWS bills 10% over the global rate.
+CLAUDE_MYTHOS_5_1_NON_MATCHES = [
+    ("claude-mythos-5-1", "claude-mythos-5"),
+    ("claude-mythos-5-1", "claude-mythos-5-2"),
+    ("claude-mythos-5-1", "claude-mythos-5-1-fast"),
+    ("claude-mythos-5-1", "us.anthropic.claude-mythos-5-1"),
+    ("claude-mythos-5-1", "anthropic.claude-mythos-5-1"),
+]
+
+
+class TestClaudeMythos51Ids:
+    @pytest.mark.parametrize("owner,model_id", CLAUDE_MYTHOS_5_1_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1193,3 +1758,45 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+def test_the_price_check_picks_the_row_the_worker_prices_with(real_cache):
+    # scripts/model_prices repeats get_model_price's row lookup to check the price file,
+    # so both must pick the same row for every kind of ID.
+    from scripts.model_prices.checks import lookup
+
+    ids = [
+        # Exact names, one an earlier row's pattern also matches, and one in another case.
+        "gpt-5.5",
+        "claude-sonnet-5-5",
+        "claude-sonnet-4-5",
+        "gemini-2.5-pro",
+        "GPT-5.5",
+        # Pattern matches: a provider prefix, a date, [1m].
+        "openai/gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-4o-2024-08-06",
+        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-6[1m]",
+        # Dash spellings of a dotted version, and the reverse.
+        "gpt-5-5",
+        "claude-sonnet-5.5",
+        # IDs other hosts serve a model under.
+        "anthropic/claude-sonnet-4.5",
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "deepseek/deepseek-v4-pro",
+        "eu.anthropic.claude-sonnet-5-5",
+        # An unknown ID.
+        "not-a-model",
+    ]
+    # The worker reads rows ordered by model name.
+    cache = sorted(real_cache, key=lambda entry: entry["model_name"])
+    with patch("worker.tokens.pricing._load_cache", lambda: cache):
+        worker = {
+            model_id: (get_model_price(model_id) or {}).get(MATCHED_MODEL_NAME) for model_id in ids
+        }
+    rows = _standard_price_entries()
+    script = {model_id: (lookup(rows, model_id) or {}).get("modelName") for model_id in ids}
+
+    assert script == worker
+    assert sum(name is not None for name in worker.values()) > len(ids) // 2

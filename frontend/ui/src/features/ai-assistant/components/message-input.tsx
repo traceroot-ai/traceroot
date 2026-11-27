@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { ModelSelector, type ModelSelection } from "./model-selector";
 
@@ -13,6 +14,8 @@ interface MessageInputProps {
   modelSelection: ModelSelection;
   onModelChange: (selection: ModelSelection) => void;
   disabled?: boolean;
+  /** Let users compose, but explain why sending is unavailable. */
+  blockedReason?: string;
   workspaceId?: string;
   actions?: ReactNode;
   /** Overrides the default hint — e.g. while a proposal awaits a decision. */
@@ -24,17 +27,23 @@ export function MessageInput({
   modelSelection,
   onModelChange,
   disabled,
+  blockedReason,
   workspaceId,
   actions,
   placeholder,
 }: MessageInputProps) {
+  const [sendBlocked, setSendBlocked] = useState(false);
   const [input, setInput] = useState("");
 
-  const noModelSelected = !modelSelection.model;
+  const noModelSelected = !modelSelection.model && !blockedReason;
 
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled || noModelSelected) return;
+    if (blockedReason) {
+      setSendBlocked(true);
+      return;
+    }
     setInput("");
     // Clear optimistically so the composer stays responsive, then put the text
     // back if the send was refused — a dropped message with no bubble and no
@@ -56,7 +65,7 @@ export function MessageInput({
   };
 
   return (
-    <div className="px-3 py-2">
+    <div className="px-4 py-3">
       <textarea
         value={input}
         onChange={(e) => setInput(e.target.value)}
@@ -64,11 +73,25 @@ export function MessageInput({
         placeholder={placeholder ?? "Ask me about your traces, errors, or performance."}
         disabled={disabled || noModelSelected}
         rows={3}
-        className="w-full resize-none rounded-none border border-input bg-transparent px-3 py-2 text-[13px] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full resize-none rounded-[2px] border border-input bg-transparent px-3 py-2 text-[13px] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
+      {sendBlocked && blockedReason && (
+        <p role="alert" className="mb-2 text-[12px] text-destructive">
+          {blockedReason}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <ModelSelector value={modelSelection} onChange={onModelChange} workspaceId={workspaceId} />
-        {actions}
+        <div className="flex items-center gap-2">
+          {actions}
+          <Button
+            type="button"
+            onClick={handleSend}
+            disabled={!input.trim() || disabled || noModelSelected}
+          >
+            Send
+          </Button>
+        </div>
       </div>
     </div>
   );

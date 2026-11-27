@@ -27,7 +27,7 @@ export function AlertsOnboarding({ projectId }: AlertsOnboardingProps) {
   return (
     <div className="mx-auto w-full max-w-lg px-4 pt-12">
       <div className="text-center">
-        <h1 className="text-lg font-semibold">Get started with Alerts</h1>
+        <h1 className="text-[15px] font-medium">Get started with Alerts</h1>
         <p className="mx-auto mt-2 max-w-md text-[13px] text-muted-foreground">
           You don&apos;t have any alerts yet. Set up where they go, then create your first one.
         </p>
@@ -50,12 +50,12 @@ export function AlertsOnboarding({ projectId }: AlertsOnboardingProps) {
             />
           ) : null}
           {isSlackConnected && !slack?.channel && (
-            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
               Alerts need a channel. Select one in workspace settings.
             </p>
           )}
           {isSlackConnected && slack?.channel && (
-            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
               <Check className="h-3 w-3" aria-hidden="true" />
               Ready to receive alerts.
             </p>
@@ -73,7 +73,7 @@ export function AlertsOnboarding({ projectId }: AlertsOnboardingProps) {
             className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            New Alert
+            New alert
           </Link>
         </Step>
       </div>

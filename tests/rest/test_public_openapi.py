@@ -49,6 +49,40 @@ def test_excludes_internal_session_and_project_routes():
     assert "/health" not in paths
 
 
+def test_whoami_publishes_the_key_scope_field():
+    """The CLI re-vendors this document rather than hand-rolling the type.
+
+    So the field has to be *in* the document, required, and a closed enum — a
+    client that generates its types from here gets an exhaustive union, and one
+    that validates responses against it rejects a missing scope instead of
+    quietly treating it as unknown.
+    """
+    schema = _schema()
+    whoami_ref = schema["paths"]["/api/v1/public/whoami"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]["$ref"]
+    assert whoami_ref.endswith("/WhoamiResponse")
+    model = schema["components"]["schemas"]["WhoamiResponse"]
+    scope = model["properties"]["key_scope"]
+    assert scope["type"] == "string"
+    assert scope["enum"] == ["ingest", "admin"]
+    assert "key_scope" in model["required"]
+    # Alongside the identity fields it belongs with, not in place of them.
+    for field in ("key_name", "key_hint"):
+        assert field in model["properties"]
+
+
+def test_whoami_needs_no_credential_beyond_the_key_it_already_takes():
+    """Reading a key's own scope introduces no new permission.
+
+    The document is the statement of that: whoami carries the same bearer
+    security as before and nothing else, so a client cannot read this field as a
+    hint that some other credential is now involved.
+    """
+    whoami = _schema()["paths"]["/api/v1/public/whoami"]["get"]
+    assert whoami["security"] == [{"BearerAuth": []}]
+
+
 def test_export_response_model_present_and_referenced():
     schema = _schema()
     export_op = schema["paths"]["/api/v1/public/traces/{trace_id}/export"]["get"]
@@ -460,6 +494,9 @@ EXPECTED_OPERATION_IDS = {
         "delete": "delete_alert",
     },
     "/api/v1/public/alerts/{alert_id}/status": {"patch": "set_alert_status"},
+    "/api/v1/public/signals": {"get": "list_signals"},
+    "/api/v1/public/signals/{signal_id}": {"get": "get_signal"},
+    "/api/v1/public/signals/{signal_id}/status": {"patch": "set_signal_status"},
     "/api/v1/public/widgets": {"post": "create_widget"},
     "/api/v1/public/widgets/query": {"post": "run_widget_query"},
     "/api/v1/public/widgets/{widget_id}": {
@@ -480,6 +517,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/sessions": {"get": "list_sessions"},
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
+    "/api/v1/public/labels": {"post": "write_label"},
     "/api/v1/public/traces/filter-values/{field}": {"get": "list_trace_filter_values"},
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
@@ -544,6 +582,7 @@ def test_x_tool_enabled_set_and_shape():
                 disabled.add(op["operationId"])
     assert disabled == {
         "ingest_traces",
+        "write_label",
         "register_run",
         "upsert_result",
         "complete_run",
@@ -565,6 +604,8 @@ def test_x_tool_enabled_set_and_shape():
         "get_dashboard",
         "list_alerts",
         "get_alert",
+        "list_signals",
+        "get_signal",
         "list_workspaces",
         "list_projects",
         "create_workspace",
@@ -586,6 +627,7 @@ def test_x_tool_enabled_set_and_shape():
         "update_widget",
         "update_alert",
         "set_alert_status",
+        "set_signal_status",
         "delete_workspace",
         "delete_project",
         "delete_detector",
@@ -625,6 +667,8 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/widgets/{widget_id}/data",
     "/api/v1/public/alerts",
     "/api/v1/public/alerts/{alert_id}",
+    "/api/v1/public/signals",
+    "/api/v1/public/signals/{signal_id}",
     "/api/v1/public/datasets",
     "/api/v1/public/datasets/{dataset_id}",
     "/api/v1/public/datasets/{dataset_id}/versions",
@@ -944,9 +988,9 @@ def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
     assert tool["policy"] == policy
 
 
-# The thirteen edit operations, pinned to their exact write-tool policy. Role
+# The edit operations, pinned to their exact write-tool policy. Role
 # floors follow the cookie routes (renaming a workspace or changing a project's
-# retention is administrative; the four project resources take MEMBER).
+# retention is administrative; the project resources take MEMBER).
 # Updates are "confirm" like the creates; deletes are "approval" — the class
 # that parks on a destructive card attended and is blocked unattended.
 _CONFIRM = "confirm"
@@ -985,6 +1029,11 @@ _EDIT_TOOL_POLICIES = {
     "set_alert_status": (
         "patch",
         "/api/v1/public/alerts/{alert_id}/status",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "set_signal_status": (
+        "patch",
+        "/api/v1/public/signals/{signal_id}/status",
         {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
     ),
     "delete_workspace": (
@@ -1265,8 +1314,8 @@ def test_create_widget_spec_keeps_widget_spec_component_for_parity():
 # --- API reference (docs copy + grouping) -----------------------------------
 
 
-def test_docs_copy_adds_servers_and_sdk_notes_only():
-    """The docs copy is the public document plus `servers` and the SDK notes;
+def test_docs_copy_only_adds_servers_and_page_metadata_or_content():
+    """The docs copy is the public document plus `servers` and Mintlify extensions;
     nothing else differs, and the public document itself gains neither."""
     public = _schema()
     docs = build_docs_schema(public)
@@ -1282,20 +1331,49 @@ def test_docs_copy_adds_servers_and_sdk_notes_only():
     assert stripped == public
 
 
+def test_reference_pages_have_short_summaries_and_keep_usage_notes():
+    docs = build_docs_schema(_schema())
+    operations = {op["operationId"]: op for op in _public_operations(docs)}
+    for op in operations.values():
+        page = op["x-mint"]
+        assert 120 <= len(page["metadata"]["description"]) <= 155, op["operationId"]
+        role = op["x-tool"].get("policy", {}).get("minRole")
+        if role in {"MEMBER", "ADMIN"}:
+            assert role in page["content"], op["operationId"]
+    for op_id, note in openapi_public._DOCS_USAGE_NOTES.items():
+        assert note in operations[op_id]["x-mint"]["content"], op_id
+
+    # Pin the distinctions that were lost when the summaries were first shortened.
+    summaries = {op_id: op["x-mint"]["metadata"]["description"] for op_id, op in operations.items()}
+    assert "started after resolution" in summaries["set_signal_status"]
+    assert "built-in instructions" in summaries["create_detector"]
+    assert "evaluated fields" in summaries["update_alert"]
+    assert "pass rates" in summaries["read_run"]
+    delete_note = operations["delete_workspace"]["x-mint"]["content"]
+    assert "current name" in delete_note
+    assert "only workspace" in delete_note
+
+
 def test_docs_copy_labels_the_sdk_driven_operations():
-    """Every operation hidden from the tool registry is one the SDKs call, and
-    its reference page says so; the ingest page also names its content type."""
+    """Only operations called by the SDKs receive the SDK note."""
     docs = build_docs_schema(_schema())
     labelled = {
         op["operationId"]: op["x-mint"]["content"]
         for item in docs["paths"].values()
         for op in item.values()
-        if "x-mint" in op
+        if "SDKs call this endpoint" in op["x-mint"].get("content", "")
     }
     assert set(labelled) == {"ingest_traces", "register_run", "upsert_result", "complete_run"}
-    for content in labelled.values():
-        assert "SDKs call this endpoint" in content
     assert "application/x-protobuf" in labelled["ingest_traces"]
+
+
+def test_label_write_documents_validation_and_rate_limit_errors():
+    responses = _schema()["paths"][f"{PUBLIC_PREFIX}labels"]["post"]["responses"]
+    for code in ("422", "429", "500"):
+        assert responses[code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorResponse"
+        }
+    assert responses["429"]["headers"]["Retry-After"]["schema"] == {"type": "integer"}
 
 
 def test_each_resource_has_one_tag():
@@ -1319,8 +1397,10 @@ def test_each_resource_has_one_tag():
         "Alerts",
         "Dashboards",
         "Detectors",
+        "Labels",
         "Offline Eval",
         "Sessions",
+        "Signals",
         "SQL",
         "Traces",
         "Whoami",

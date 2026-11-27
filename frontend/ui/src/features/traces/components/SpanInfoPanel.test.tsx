@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, within } from "@testing-library/react";
 import React from "react";
 import { SpanStatus } from "@traceroot/core";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -26,7 +26,9 @@ vi.mock("@/components/ui/expandable-section", () => ({
 }));
 
 vi.mock("./ContentRenderer", () => ({
-  ContentRenderer: () => <div data-testid="content-renderer" />,
+  ContentRenderer: ({ content }: { content: string | null }) => (
+    <div data-testid="content-renderer">{content}</div>
+  ),
 }));
 
 vi.mock("./SpanKindIcon", () => ({
@@ -248,5 +250,38 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(screen.getByText("user-42")).toBeTruthy();
     expect(screen.getByText("Session:")).toBeTruthy();
     expect(screen.getByText("session-7")).toBeTruthy();
+  });
+
+  const withMetadata = (metadata: Record<string, unknown>): TraceSelection => ({
+    type: "span",
+    span: { ...mockSelection.span, metadata: JSON.stringify(metadata) },
+  });
+
+  it("renders the redacted chip and hides the marker from the Metadata panel", () => {
+    render(
+      <SpanInfoPanel
+        projectId="proj-123"
+        trace={mockTrace}
+        selection={withMetadata({ "traceroot.redacted": true, feature: "chat" })}
+      />,
+    );
+
+    expect(screen.getByText("Redacted by your app")).toBeTruthy();
+    const metadataPanel = within(screen.getByTestId("expandable-metadata")).getByTestId(
+      "content-renderer",
+    );
+    expect(metadataPanel.textContent).toBe(JSON.stringify({ feature: "chat" }));
+  });
+
+  it.each([
+    ["missing", {}],
+    ["the string 'true'", { "traceroot.redacted": "true" }],
+    ["false", { "traceroot.redacted": false }],
+  ])("renders no redacted chip when the marker is %s", (_, metadata) => {
+    render(
+      <SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={withMetadata(metadata)} />,
+    );
+
+    expect(screen.queryByText("Redacted by your app")).toBeNull();
   });
 });
