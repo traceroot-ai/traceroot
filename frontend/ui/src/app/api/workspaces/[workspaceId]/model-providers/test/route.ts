@@ -54,6 +54,8 @@ async function checkEndpoint(
     const res = await providerFetch(url, { ...init, headers, signal });
     await res.body?.cancel();
     if (res.ok) return { ok: true as const };
+    if (res.status === 401) return { ok: false as const, error: "Invalid API key" };
+    if (res.status === 403) return { ok: false as const, error: "API lacks permission" };
 
     return { ok: false as const, error: "Connection failed" };
   });

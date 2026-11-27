@@ -143,8 +143,10 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
     useDefaultCredentials,
   } = result.data;
 
+  let normalizedBaseUrl: string | null;
   try {
-    resolveProviderBaseUrl(adapter, baseUrl);
+    const resolved = resolveProviderBaseUrl(adapter, baseUrl);
+    normalizedBaseUrl = baseUrl ? (resolved ?? null) : null;
   } catch (error) {
     if (error instanceof InvalidProviderUrlError) return errorResponse(error.message, 400);
     throw error;
@@ -198,7 +200,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
         provider,
         keyCipher,
         keyPreview: credentialPreview,
-        baseUrl: baseUrl || null,
+        baseUrl: normalizedBaseUrl,
         customModels,
         withDefaultModels,
         config: Object.keys(providerConfig).length > 0 ? (providerConfig as object) : undefined,

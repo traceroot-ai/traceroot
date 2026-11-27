@@ -364,7 +364,15 @@ describe("POST model-providers/test - normalized failures", () => {
         }),
         makeParams(),
       );
-      expect(await res.json()).toEqual({ success: false, error: "Connection failed" });
+      expect(await res.json()).toEqual({
+        success: false,
+        error:
+          status === 401
+            ? "Invalid API key"
+            : status === 403
+              ? "API lacks permission"
+              : "Connection failed",
+      });
     }
     expect(readBody).not.toHaveBeenCalled();
   });
@@ -514,6 +522,12 @@ describe("POST model-providers/test - bounded and normalized transport", () => {
   ])("rejects %s before any network request", async (baseUrl) => {
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "k", baseUrl }), makeParams());
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Provider URL must use the adapter's trusted HTTPS endpoint",
+    });
+    expect(await res.json()).toEqual({
+      error: "Provider URL must use the adapter's trusted HTTPS endpoint",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -526,4 +540,17 @@ describe("POST model-providers/test - response resources", () => {
     expect(await res.json()).toEqual({ success: true });
     expect(cancel).toHaveBeenCalledOnce();
   });
+});
+
+it("ignores a stale Base URL in the non-network Bedrock check", async () => {
+  const res = await POST(
+    makeRequest({
+      adapter: "amazon-bedrock",
+      useDefaultCredentials: true,
+      baseUrl: "https://api.openai.com/v1",
+    }),
+    makeParams(),
+  );
+  expect(await res.json()).toEqual({ success: true });
+  expect(fetchMock).not.toHaveBeenCalled();
 });

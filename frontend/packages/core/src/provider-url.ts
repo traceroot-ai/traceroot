@@ -43,10 +43,8 @@ export function resolveProviderBaseUrl(
   adapter: string,
   baseUrl?: string | null,
 ): string | undefined {
-  if (adapter === "amazon-bedrock") {
-    if (baseUrl) throw new InvalidProviderUrlError();
-    return undefined;
-  }
+  // Bedrock uses the AWS SDK endpoint, not this field (including stale UI values).
+  if (adapter === "amazon-bedrock") return undefined;
   const defaultUrl = defaultEndpoints.get(adapter);
   const value = baseUrl || defaultUrl?.href;
   if (!value) throw new InvalidProviderUrlError();

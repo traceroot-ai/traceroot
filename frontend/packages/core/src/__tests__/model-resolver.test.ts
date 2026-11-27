@@ -178,6 +178,17 @@ describe("resolvePiModel", () => {
     expect(m.api).toBe("openai-completions");
   });
 
+  it("does not apply a stale Bedrock row's base URL to the model", () => {
+    const model = resolvePiModel("custom-bedrock-model", {
+      adapter: "amazon-bedrock",
+      key: "aws-test-key",
+      baseUrl: "http://127.0.0.1:3000/#",
+      config: null,
+    });
+    expect(model.api).toBe("bedrock-converse-stream");
+    expect(model.baseUrl).toBe("");
+  });
+
   it("rejects a BYOK model using a caller-controlled endpoint", () => {
     const cfg: ProviderModelConfig = {
       adapter: "openai",

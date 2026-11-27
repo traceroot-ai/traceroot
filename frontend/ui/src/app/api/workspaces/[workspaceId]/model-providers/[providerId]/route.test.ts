@@ -229,28 +229,10 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
     expect(await res.json()).toEqual({ id: "mp-1", keyPreview: "mask(new-key)" });
   });
 
-  it.each([{}, { apiKey: "not-an-aws-replacement" }, { awsAccessKeyId: "AKIAEXAMPLE" }])(
-    "rejects unsupported Bedrock destinations (%j)",
-    async (credentials) => {
-      modelProviderFindFirstMock.mockResolvedValue({
-        id: "mp-1",
-        workspaceId: "ws-1",
-        adapter: "amazon-bedrock",
-        provider: "Bedrock",
-        baseUrl: null,
-        keyCipher: "old-aws-cipher",
-        config: null,
-      });
-      const res = await PATCH(
-        makeRequest({ baseUrl: "https://collector.example", ...credentials }),
-        makeParams(),
-      );
-      expect(res.status).toBe(400);
-      expect(modelProviderUpdateMock).not.toHaveBeenCalled();
-    },
-  );
-
-  it("rejects a custom Bedrock destination even with replacement credentials", async () => {
+  it.each([
+    { awsAccessKeyId: "AKIAEXAMPLE", awsSecretAccessKey: "new-secret" },
+    { useDefaultCredentials: true },
+  ])("replaces Bedrock credentials without a Base URL (%j)", async (credentials) => {
     modelProviderFindFirstMock.mockResolvedValue({
       id: "mp-1",
       workspaceId: "ws-1",
@@ -260,12 +242,13 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
       keyCipher: "old-aws-cipher",
       config: null,
     });
-    const res = await PATCH(
-      makeRequest({ baseUrl: "https://collector.test", useDefaultCredentials: true }),
-      makeParams(),
+    const res = await PATCH(makeRequest(credentials), makeParams());
+    expect(res.status).toBe(200);
+    expect(modelProviderUpdateMock.mock.calls[0][0].data.keyCipher).toBe(
+      "useDefaultCredentials" in credentials
+        ? "enc(__BEDROCK_DEFAULT_CREDENTIALS__)"
+        : 'enc({"awsAccessKeyId":"AKIAEXAMPLE","awsSecretAccessKey":"new-secret"})',
     );
-    expect(res.status).toBe(400);
-    expect(modelProviderUpdateMock).not.toHaveBeenCalled();
   });
 
   it("rejects a stale key rotation after a concurrent destination change", async () => {
@@ -293,13 +276,24 @@ describe("PATCH model-providers - destination policy and audit", () => {
   ])("rejects %s even with a replacement key", async (baseUrl) => {
     const res = await PATCH(makeRequest({ baseUrl, apiKey: "replacement" }), makeParams());
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Provider URL must use the adapter's trusted HTTPS endpoint",
+    });
     expect(modelProviderUpdateMock).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(auditMock).not.toHaveBeenCalled();
   });
   it("records the actor and provider and invalidates the existing agent cache", async () => {
+    modelProviderFindFirstMock.mockResolvedValue({
+      id: "mp-1",
+      adapter: "azure",
+      provider: "Claude",
+      baseUrl: "https://old.openai.azure.com",
+      keyCipher: "old-cipher",
+      config: null,
+    });
     const res = await PATCH(
-      makeRequest({ baseUrl: "https://api.anthropic.com", apiKey: "replacement" }),
+      makeRequest({ baseUrl: "https://new.openai.azure.com", apiKey: "replacement" }),
       makeParams(),
     );
     expect(res.status).toBe(200);
@@ -320,3 +314,46 @@ describe("PATCH model-providers - destination policy and audit", () => {
     );
   });
 });
+
+it.each(["https://api.anthropic.com", "https://api.anthropic.com/"])(
+  "normalizes equivalent destinations without requiring a replacement key (%s)",
+  async (existingUrl) => {
+    modelProviderFindFirstMock.mockResolvedValue({
+      id: "mp-1",
+      workspaceId: "ws-1",
+      adapter: "anthropic",
+      provider: "Claude",
+      baseUrl: existingUrl,
+      keyCipher: "old-cipher",
+      config: null,
+    });
+    const res = await PATCH(makeRequest({ baseUrl: "https://api.anthropic.com/" }), makeParams());
+    expect(res.status).toBe(200);
+    expect(modelProviderUpdateMock.mock.calls[0][0].data).toEqual({
+      baseUrl: "https://api.anthropic.com",
+    });
+    expect(auditMock).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  [null, "https://api.anthropic.com", "https://api.anthropic.com"],
+  ["https://api.anthropic.com/", null, null],
+])(
+  "does not require credentials when switching between the same default endpoint forms (%j -> %j)",
+  async (existingUrl, baseUrl, stored) => {
+    modelProviderFindFirstMock.mockResolvedValue({
+      id: "mp-1",
+      workspaceId: "ws-1",
+      adapter: "anthropic",
+      provider: "Claude",
+      baseUrl: existingUrl,
+      keyCipher: "old-cipher",
+      config: null,
+    });
+    const res = await PATCH(makeRequest({ baseUrl }), makeParams());
+    expect(res.status).toBe(200);
+    expect(modelProviderUpdateMock.mock.calls[0][0].data).toEqual({ baseUrl: stored });
+    expect(auditMock).not.toHaveBeenCalled();
+  },
+);

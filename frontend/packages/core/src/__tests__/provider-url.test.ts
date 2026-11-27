@@ -94,11 +94,10 @@ describe("resolveProviderBaseUrl", () => {
     expect(() => resolveProviderBaseUrl("azure", url)).toThrow(InvalidProviderUrlError);
   });
 
-  it("leaves Bedrock endpoint selection to the AWS SDK and rejects endpoint overrides", () => {
+  it("leaves Bedrock endpoint selection to the AWS SDK, ignoring stale URL fields", () => {
     expect(resolveProviderBaseUrl("amazon-bedrock")).toBeUndefined();
-    expect(() => resolveProviderBaseUrl("amazon-bedrock", "https://example.invalid")).toThrow(
-      InvalidProviderUrlError,
-    );
+    expect(resolveProviderBaseUrl("amazon-bedrock", "https://api.openai.com/v1")).toBeUndefined();
+    expect(resolveProviderBaseUrl("amazon-bedrock", "http://127.0.0.1:3000/#")).toBeUndefined();
     expect(() => resolveProviderBaseUrl("azure")).toThrow(InvalidProviderUrlError);
     expect(() => resolveProviderBaseUrl("unknown-adapter")).toThrow(InvalidProviderUrlError);
   });

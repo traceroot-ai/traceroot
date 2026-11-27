@@ -183,6 +183,9 @@ describe("POST model-providers - destination policy", () => {
       makeParams(),
     );
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Provider URL must use the adapter's trusted HTTPS endpoint",
+    });
     expect(modelProviderCreateMock).not.toHaveBeenCalled();
   });
   it("stores an explicitly configured vendor endpoint", async () => {
@@ -191,11 +194,25 @@ describe("POST model-providers - destination policy", () => {
         adapter: "openai",
         provider: "Vendor",
         apiKey: "test-key",
-        baseUrl: "https://api.openai.com/v1",
+        baseUrl: "https://api.openai.com/v1/",
       }),
       makeParams(),
     );
     expect(res.status).toBe(201);
     expect(modelProviderCreateMock.mock.calls[0][0].data.baseUrl).toBe("https://api.openai.com/v1");
   });
+});
+
+it("ignores a previous adapter's hidden Base URL when creating Bedrock", async () => {
+  const res = await POST(
+    makeRequest({
+      adapter: "amazon-bedrock",
+      provider: "Bedrock",
+      useDefaultCredentials: true,
+      baseUrl: "https://api.openai.com/v1",
+    }),
+    makeParams(),
+  );
+  expect(res.status).toBe(201);
+  expect(modelProviderCreateMock.mock.calls[0][0].data.baseUrl).toBeNull();
 });

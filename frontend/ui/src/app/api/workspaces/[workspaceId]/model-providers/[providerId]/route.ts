@@ -99,12 +99,22 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     useDefaultCredentials,
   } = result.data;
 
+  let normalizedBaseUrl: string | null | undefined;
+  let destinationChanged = false;
   if (baseUrl !== undefined) {
+    let resolved: string | undefined;
     try {
-      resolveProviderBaseUrl(existing.adapter, baseUrl);
+      resolved = resolveProviderBaseUrl(existing.adapter, baseUrl);
+      normalizedBaseUrl = baseUrl ? (resolved ?? null) : null;
     } catch (error) {
       if (error instanceof InvalidProviderUrlError) return errorResponse(error.message, 400);
       throw error;
+    }
+    try {
+      destinationChanged = resolved !== resolveProviderBaseUrl(existing.adapter, existing.baseUrl);
+    } catch (error) {
+      if (!(error instanceof InvalidProviderUrlError)) throw error;
+      destinationChanged = true;
     }
   }
 
@@ -124,7 +134,7 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     }
     data.provider = provider;
   }
-  if (baseUrl !== undefined) data.baseUrl = baseUrl;
+  if (normalizedBaseUrl !== undefined) data.baseUrl = normalizedBaseUrl;
   if (customModels !== undefined) data.customModels = customModels;
   if (withDefaultModels !== undefined) data.withDefaultModels = withDefaultModels;
   if (enabled !== undefined) data.enabled = enabled;
@@ -154,7 +164,7 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     data.keyPreview = maskKey(apiKey);
   }
 
-  if (baseUrl !== undefined && baseUrl !== existing.baseUrl && data.keyCipher === undefined) {
+  if (destinationChanged && data.keyCipher === undefined) {
     return errorResponse("Re-enter credentials when changing the Base URL.", 400);
   }
 
@@ -184,7 +194,7 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    if (baseUrl !== undefined && baseUrl !== existing.baseUrl) {
+    if (destinationChanged) {
       await writeAudit(prisma, {
         actorUserId: authResult.user.id,
         operation: "update_model_provider",
