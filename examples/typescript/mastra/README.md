@@ -45,7 +45,9 @@ making one call the parent of the other.
 create the SDK context, then configures the Mastra exporter. Its explicit
 `demo_session` span is the parent for the streamed agent spans because the
 current `traceId` and `parentSpanId` are passed in `tracingOptions`. Both
-exporters are flushed before their processes exit.
+export paths flush on success: `agent.ts` flushes after both `generate` calls
+return, while `streaming.ts` flushes its exporter and shuts down the SDK in a
+`finally` block. An error in `agent.ts` exits before its explicit flush.
 
 This makes Mastra's model and tool activity, including parentage and session
 context, visible in TraceRoot without manually wrapping each framework event.
@@ -96,13 +98,25 @@ graph TD
 
 ## Installation and execution
 
-From this directory, create `.env`, fill in the credentials, install the
-dependencies, then run either entry point:
+From this directory, create `.env`, fill in the credentials, and install the
+dependencies:
 
 ```bash
 cp .env.example .env
 pnpm install
+```
+
+Run either entry point:
+
+**Non-streaming (`agent.ts`):**
+
+```bash
 pnpm demo
+```
+
+**Streaming (`streaming.ts`):**
+
+```bash
 pnpm demo:streaming
 ```
 

@@ -61,8 +61,8 @@ graph TD
     Crew --> Research["Research task span"]
     Crew --> Report["Report task span"]
     Research --> Tool["CrewAI tool-call spans<br/>when a tool is invoked"]
-    Research --> Model["OpenAI call spans<br/>when the provider is called"]
-    Report --> Model
+    Research --> ResearchModel["OpenAI call span<br/>when the provider is called"]
+    Report --> ReportModel["OpenAI call span<br/>when the provider is called"]
 ```
 
 ## Observed telemetry and supported features

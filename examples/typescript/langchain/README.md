@@ -5,7 +5,8 @@
 This example uses a LangGraph `StateGraph` as a code-generation workflow. Its
 planner, coder, executor and summarizer are graph nodes sharing typed state;
 they are not four independently constructed agent objects. The workflow asks
-`gpt-4o-mini` to plan, generate Python, run it, and summarize the result.
+`gpt-4o-mini` to plan, generate Python, and summarize the result. The executor
+runs the generated code locally.
 
 ## Architecture and execution flow
 
