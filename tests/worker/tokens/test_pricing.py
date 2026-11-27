@@ -190,9 +190,14 @@ GPT_4_NON_MATCHES = [
 ]
 
 GLM_MODEL_CASES = [
+    ("glm-5.3", "glm-5.3"),
+    ("glm-5-3", "glm-5.3"),
+    ("zai/glm-5.3", "glm-5.3"),
     ("glm-5.2", "glm-5.2"),
+    ("glm-5-2", "glm-5.2"),
     ("zai/glm-5.2", "glm-5.2"),
     ("glm-5.1", "glm-5.1"),
+    ("glm-5-1", "glm-5.1"),
     ("zai/glm-5.1", "glm-5.1"),
     ("glm-5", "glm-5"),
     ("zai/glm-5", "glm-5"),
@@ -207,6 +212,13 @@ GLM_MODEL_CASES = [
     ("glm-4.5-air", "glm-4.5-air"),
     ("zai/glm-4.5-air", "glm-4.5-air"),
     ("glm-4.5-flash", "glm-4.5-flash"),
+]
+
+# (pattern owner, id it must not absorb): dash spellings of later glm-5 point releases.
+GLM_NON_MATCHES = [
+    ("glm-5", "glm-5-1"),
+    ("glm-5", "glm-5-2"),
+    ("glm-5", "glm-5-3"),
 ]
 
 XAI_MODEL_CASES = [
@@ -795,6 +807,28 @@ class TestGLMModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+
+class TestGLMNonMatches:
+    @pytest.mark.parametrize("owner,model_id", GLM_NON_MATCHES)
+    def test_glm_5_pattern_does_not_absorb_point_releases(self, real_cache, owner, model_id):
+        # Checks the owner's regex, not get_model_price, so it holds once these ids are priced.
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
+
+class TestGlm53PublishedPrices:
+    """Assert the provider-published rates directly
+    (https://docs.z.ai/guides/overview/pricing).
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "glm-5.3")
+        assert entry["prices"]["input"] == pytest.approx(1.4e-06)  # $1.40 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(4.4e-06)  # $4.40 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(2.6e-07)  # $0.26 / 1M tokens
 
 
 class TestXAIModelIds:

@@ -1310,9 +1310,21 @@
     }
   },
   {
+    "id": "tr-glm-5-3",
+    "modelName": "glm-5.3",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]3$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000014,
+      "output": 0.0000044,
+      "cacheRead": 0.00000026,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-glm-5-2",
     "modelName": "glm-5.2",
-    "matchPattern": "(?i)^(zai\\/)?glm-5\\.2(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]2(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000014,
@@ -1324,7 +1336,7 @@
   {
     "id": "tr-glm-5-1",
     "modelName": "glm-5.1",
-    "matchPattern": "(?i)^(zai\\/)?glm-5\\.1(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5[.-]1(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000014,
@@ -1336,7 +1348,7 @@
   {
     "id": "tr-glm-5",
     "modelName": "glm-5",
-    "matchPattern": "(?i)^(zai\\/)?glm-5(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/)?glm-5(-\\d{4})?$",
     "provider": "zai",
     "prices": {
       "input": 0.000001,
