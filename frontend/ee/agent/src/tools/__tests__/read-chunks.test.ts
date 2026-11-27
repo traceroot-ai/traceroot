@@ -13,8 +13,8 @@ function fileExecutor(contents: string) {
     if (command.startsWith("wc -l < ")) {
       return { stdout: String(contents.split("\n").length - 1), stderr: "", code: 0 };
     }
-    const tail = /^tail -n \+(\d+) /.exec(command);
-    if (!command.startsWith("cat ") && !tail) {
+    const tail = /tail -n \+(\d+) /.exec(command);
+    if (!command.includes("cat ") && !tail) {
       throw new Error(`Unexpected command: ${command}`);
     }
     let selected = tail
@@ -29,10 +29,10 @@ function fileExecutor(contents: string) {
       selected =
         lines.slice(0, Number(limit[1])).join("\n") + (lines.length > Number(limit[1]) ? "\n" : "");
     }
-    if (command.endsWith(" | wc -c")) {
+    if (command.includes(" | wc -c")) {
       return { stdout: String(Buffer.byteLength(selected)), stderr: "", code: 0 };
     }
-    const range = / \| tail -c \+(\d+) \| head -c (\d+) \| base64$/.exec(command);
+    const range = / \| tail -c \+(\d+) \| head -c (\d+) \| base64/.exec(command);
     const stdout = range
       ? Buffer.from(selected)
           .subarray(Number(range[1]) - 1, Number(range[1]) - 1 + Number(range[2]))
@@ -139,27 +139,54 @@ describe("read byte continuation", () => {
     }
   });
 
-  it.each([" | wc -c", " | base64"])(
-    "propagates producer errors hidden by a successful %s pipeline",
-    async (suffix) => {
+  it.each([
+    { suffix: " | wc -c", discardStderr: false, sigpipe: false },
+    { suffix: " | base64", discardStderr: false, sigpipe: false },
+    { suffix: " | wc -c", discardStderr: true, sigpipe: false },
+    { suffix: " | base64", discardStderr: true, sigpipe: false },
+    { suffix: " | wc -c", discardStderr: true, sigpipe: true },
+    { suffix: " | wc -c", discardStderr: true, sigpipe: false, terminalSigpipe: true },
+    { suffix: " | base64", discardStderr: true, sigpipe: false, terminalSigpipe: true },
+  ])(
+    "propagates producer failure in $suffix (discardStderr=$discardStderr, sigpipe=$sigpipe, terminalSigpipe=$terminalSigpipe)",
+    async ({ suffix, discardStderr, sigpipe, terminalSigpipe }) => {
       const directory = await mkdtemp(join(tmpdir(), "agent-read-"));
       const path = join(directory, "disappearing trace.jsonl");
       const executor = fileExecutor("data");
       const exec = promisify(execFile);
       let failedPipeline: { code: number; stderr: string } | undefined;
       executor.exec = vi.fn(async (command) => {
-        if (command.endsWith(suffix)) await rm(path);
-        const result = await exec("sh", ["-c", command]);
-        const output = { stdout: result.stdout, stderr: result.stderr, code: 0 };
-        if (command.endsWith(suffix)) failedPipeline = output;
+        const deleting = command.includes(suffix);
+        if (deleting) {
+          if (terminalSigpipe) command = command.replace(suffix, " | (exit 141)");
+          else await rm(path);
+          // A later 141 must not hide the source's earlier non-SIGPIPE failure.
+          if (sigpipe) command = command.replace(suffix, ` | (exit 141)${suffix}`);
+        }
+        const result = await exec("sh", ["-c", command]).then(
+          ({ stdout, stderr }) => ({ stdout, stderr, code: 0 }),
+          (error: { code: number; stdout: string; stderr: string }) => ({
+            stdout: error.stdout,
+            stderr: error.stderr,
+            code: error.code,
+          }),
+        );
+        // Daytona returns stdout only, then its executor clears stderr on success.
+        const output = {
+          ...result,
+          stderr: discardStderr ? (result.code === 0 ? "" : result.stdout) : result.stderr,
+        };
+        if (deleting) failedPipeline = output;
         return output;
       });
       try {
         await writeFile(path, "data");
         await expect(
           createReadTool(executor).execute("deleted", { ...input, path, byteOffset: 0 }),
-        ).rejects.toThrow("No such file");
-        expect(failedPipeline).toMatchObject({ code: 0, stderr: expect.stringContaining(path) });
+        ).rejects.toThrow(discardStderr ? undefined : "No such file");
+        expect(failedPipeline?.code).not.toBe(0);
+        if (terminalSigpipe) expect(failedPipeline?.code).toBe(141);
+        else expect(failedPipeline?.code).not.toBe(141);
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
@@ -170,7 +197,7 @@ describe("read byte continuation", () => {
     const executor = fileExecutor("still measured as nonempty");
     const exec = executor.exec;
     executor.exec = vi.fn(async (command, options) =>
-      command.endsWith(" | base64") ? { stdout: "", stderr: "", code: 0 } : exec(command, options),
+      command.includes(" | base64") ? { stdout: "", stderr: "", code: 0 } : exec(command, options),
     );
     await expect(
       createReadTool(executor).execute("changed", { ...input, byteOffset: 0 }),
@@ -183,7 +210,7 @@ describe("read byte continuation", () => {
       const executor = fileExecutor("data");
       const exec = executor.exec;
       executor.exec = vi.fn(async (command, options) =>
-        command.endsWith(suffix)
+        command.includes(suffix)
           ? { stdout: "", stderr: "range failed", code: 1 }
           : exec(command, options),
       );

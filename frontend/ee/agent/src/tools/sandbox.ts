@@ -127,6 +127,22 @@ interface ReadToolDetails {
 // Leave room for the continuation hint inside the read tool's output cap.
 const READ_CONTINUATION_BYTES = 128;
 
+// Every executor uses Ubuntu. Preserve producer failures even when stderr is
+// unavailable, while allowing head to close its input early (SIGPIPE / 141).
+function readPipeline(command: string): string {
+  const script = [
+    command,
+    'codes=("${PIPESTATUS[@]}")',
+    "last=$((${#codes[@]} - 1))",
+    'if [ "${codes[$last]}" -ne 0 ]; then exit "${codes[$last]}"; fi',
+    'for code in "${codes[@]}"; do',
+    '  if [ "$code" -ne 0 ] && [ "$code" -ne 141 ]; then exit "$code"; fi',
+    "done",
+    "exit 0",
+  ].join("\n");
+  return `bash -o pipefail -c ${shellEscape(script)}`;
+}
+
 export function createReadTool(executor: Executor): AgentTool<any> {
   return {
     name: "read",
@@ -210,7 +226,7 @@ export function createReadTool(executor: Executor): AgentTool<any> {
         // Executor stdout can be capped (Docker: 10MB). Measure and read the
         // original selection, not the possibly incomplete cat result above.
         const selection = limit === undefined ? cmd : `${cmd} | head -n ${limit}`;
-        const sizeResult = await executor.exec(`${selection} | wc -c`, { signal });
+        const sizeResult = await executor.exec(readPipeline(`${selection} | wc -c`), { signal });
         if (sizeResult.code !== 0 || sizeResult.stderr.trim()) {
           throw new Error(sizeResult.stderr || `Failed to read file: ${path}`);
         }
@@ -223,7 +239,7 @@ export function createReadTool(executor: Executor): AgentTool<any> {
         const readBytes = Math.min(DEFAULT_MAX_BYTES + 4, selectedBytes - start);
         if (readBytes === 0) return { content: [{ type: "text", text: "" }], details: undefined };
         const chunkResult = await executor.exec(
-          `${selection} | tail -c +${start + 1} | head -c ${readBytes} | base64`,
+          readPipeline(`${selection} | tail -c +${start + 1} | head -c ${readBytes} | base64`),
           { signal },
         );
         if (chunkResult.code !== 0 || chunkResult.stderr.trim()) {
