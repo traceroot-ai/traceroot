@@ -34,6 +34,10 @@ vi.mock("@/lib/email/welcome/welcome-schedule", () => ({
   },
 }));
 
+const syncPendingEmailPreferencesMock = vi.fn();
+vi.mock("@/lib/lifecycle/email-preference-sync", () => ({
+  syncPendingEmailPreferences: (...args: unknown[]) => syncPendingEmailPreferencesMock(...args),
+}));
 const runNewsletterJobMock = vi.fn();
 vi.mock("@/lib/newsletter-job", () => ({
   runNewsletterJob: (...args: unknown[]) => runNewsletterJobMock(...args),
@@ -44,6 +48,7 @@ import { POST } from "./route";
 const tick = () => POST({} as Parameters<typeof POST>[0]);
 
 beforeEach(() => {
+  syncPendingEmailPreferencesMock.mockReset().mockResolvedValue({ synced: 0, pending: 0 });
   verifyInternalSecretMock.mockReset().mockReturnValue(true);
   reportDailyTraceCountsMock.mockReset().mockResolvedValue({ kind: "sent", sent: 2, remaining: 0 });
   runFollowUpsMock.mockReset().mockImplementation(async () => {
@@ -72,6 +77,7 @@ describe("POST /api/internal/scheduled-tick", () => {
       traceCounts: { kind: "sent", sent: 2, remaining: 0 },
       welcomes: { due: 1, sent: 1 },
       followUps: { mode: "off" },
+      emailPreferences: { synced: 0, pending: 0 },
       newsletter: { mode: "off" },
     });
     expect(reportDailyTraceCountsMock).toHaveBeenCalledTimes(1);
@@ -96,6 +102,7 @@ describe("POST /api/internal/scheduled-tick", () => {
       traceCounts: { kind: "sent", sent: 2, remaining: 0 },
       welcomes: { due: 1, sent: 1 },
       followUps: { error: "failed" },
+      emailPreferences: { synced: 0, pending: 0 },
       newsletter: { mode: "off" },
     });
   });
@@ -112,6 +119,7 @@ describe("POST /api/internal/scheduled-tick", () => {
       traceCounts: { error: "failed" },
       welcomes: { due: 1, sent: 1 },
       followUps: { mode: "send", sent: 1 },
+      emailPreferences: { synced: 0, pending: 0 },
       newsletter: { mode: "off" },
     });
     expect(runWelcomeFallbackMock).toHaveBeenCalledTimes(1);
@@ -133,6 +141,7 @@ describe("POST /api/internal/scheduled-tick", () => {
       traceCounts: { error: "failed" },
       welcomes: { error: "failed" },
       followUps: { error: "failed" },
+      emailPreferences: { synced: 0, pending: 0 },
       newsletter: { error: "failed" },
     });
   });
@@ -147,5 +156,15 @@ describe("POST /api/internal/scheduled-tick", () => {
     expect(runFollowUpsMock).not.toHaveBeenCalled();
     expect(runWelcomeFallbackMock).not.toHaveBeenCalled();
     expect(runNewsletterJobMock).not.toHaveBeenCalled();
+  });
+
+  it("finishes the email-preference syncs, and still answers when that fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    syncPendingEmailPreferencesMock.mockResolvedValueOnce({ synced: 2, pending: 1 });
+    expect((await (await tick()).json()).emailPreferences).toEqual({ synced: 2, pending: 1 });
+    syncPendingEmailPreferencesMock.mockRejectedValueOnce(new Error("db down"));
+    const response = await tick();
+    expect(response.status).toBe(200);
+    expect((await response.json()).emailPreferences).toEqual({ error: "failed" });
   });
 });

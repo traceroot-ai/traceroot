@@ -181,7 +181,7 @@ function describeDetail(rawBody: string): string | null {
 }
 
 /** retry-after-ms, then retry-after (seconds or HTTP date), then exponential backoff. */
-function retryDelayMs(headers: Headers, attempt: number): number {
+export function retryDelayMs(headers: Headers, attempt: number): number {
   const ms = Number(headers.get("retry-after-ms"));
   if (headers.get("retry-after-ms") !== null && Number.isFinite(ms) && ms >= 0) return ms;
   const retryAfter = headers.get("retry-after");
@@ -194,7 +194,7 @@ function retryDelayMs(headers: Headers, attempt: number): number {
   return BASE_BACKOFF_MS * 2 ** attempt;
 }
 
-function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
     const t = setTimeout(done, ms);
