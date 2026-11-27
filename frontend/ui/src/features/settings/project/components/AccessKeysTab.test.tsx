@@ -10,9 +10,16 @@ const state = vi.hoisted(() => ({
   role: "ADMIN" as "ADMIN" | "MEMBER" | "VIEWER" | undefined,
   userId: "user",
   sessionPending: false,
+  sessionRefetching: false,
+  sessionError: null as Error | null,
 }));
 vi.mock("@/lib/auth-client", () => ({
-  useSession: () => ({ data: { user: { id: state.userId } }, isPending: state.sessionPending }),
+  useSession: () => ({
+    data: { user: { id: state.userId } },
+    isPending: state.sessionPending,
+    isRefetching: state.sessionRefetching,
+    error: state.sessionError,
+  }),
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
@@ -34,6 +41,8 @@ afterEach(() => {
   state.role = "ADMIN";
   state.userId = "user";
   state.sessionPending = false;
+  state.sessionRefetching = false;
+  state.sessionError = null;
 });
 
 it("shows the restriction instead of an empty key list", async () => {
@@ -240,18 +249,39 @@ it("does not render another account's cached key inventory", async () => {
   expect(getAccessKeys).toHaveBeenCalled();
 });
 
-it("waits for identity even when an administrator membership is cached", () => {
-  state.sessionPending = true;
+it.each(["sessionPending", "sessionRefetching"] as const)(
+  "waits for identity during %s even when an administrator membership is cached",
+  (flag) => {
+    state[flag] = true;
+    const client = new QueryClient();
+    client.setQueryData(["access-keys", "p", "user"], {
+      access_keys: [
+        { id: "private-key", name: "Pending session key", key_hint: "tr-private-hint" },
+      ],
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <AccessKeysTab projectId="p" />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("Pending session key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create new API key" })).toBeNull();
+    expect(getAccessKeys).not.toHaveBeenCalled();
+  },
+);
+
+it("does not trust administrator data after the session request fails", () => {
+  state.sessionError = new Error("Session unavailable");
   const client = new QueryClient();
   client.setQueryData(["access-keys", "p", "user"], {
-    access_keys: [{ id: "private-key", name: "Pending session key", key_hint: "tr-private-hint" }],
+    access_keys: [{ id: "private-key", name: "Previous session key", key_hint: "tr-private-hint" }],
   });
   render(
     <QueryClientProvider client={client}>
       <AccessKeysTab projectId="p" />
     </QueryClientProvider>,
   );
-  expect(screen.queryByText("Pending session key")).toBeNull();
+  expect(screen.queryByText("Previous session key")).toBeNull();
   expect(screen.queryByRole("button", { name: "Create new API key" })).toBeNull();
   expect(getAccessKeys).not.toHaveBeenCalled();
 });

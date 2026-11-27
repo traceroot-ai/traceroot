@@ -4,14 +4,22 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { getProject, getWorkspace } from "@/lib/api";
+import { useRetention } from "@/lib/hooks/use-retention";
 import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
 
-const state = vi.hoisted(() => ({ userId: "admin" as string | undefined, sessionPending: false }));
+const state = vi.hoisted(() => ({
+  userId: "admin" as string | undefined,
+  sessionPending: false,
+  sessionRefetching: false,
+  sessionError: null as Error | null,
+}));
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({
     data: state.userId ? { user: { id: state.userId } } : null,
     isPending: state.sessionPending,
+    isRefetching: state.sessionRefetching,
+    error: state.sessionError,
   }),
 }));
 vi.mock("@/lib/api", () => ({ getProject: vi.fn(), getWorkspace: vi.fn() }));
@@ -21,6 +29,8 @@ afterEach(() => {
   vi.resetAllMocks();
   state.userId = "admin";
   state.sessionPending = false;
+  state.sessionRefetching = false;
+  state.sessionError = null;
 });
 
 const resources = [
@@ -67,6 +77,7 @@ describe.each(resources)(
 
     it("does not expose an unscoped cache entry before the session resolves", () => {
       state.userId = undefined;
+      state.sessionPending = true;
       const client = new QueryClient();
       client.setQueryData([resource, "same-id"], privateData);
       const wrapper = ({ children }: { children: ReactNode }) => (
@@ -77,14 +88,45 @@ describe.each(resources)(
       expect(getResource).not.toHaveBeenCalled();
     });
 
-    it("does not trust cached session data while identity is pending", () => {
-      state.sessionPending = true;
-      const client = new QueryClient();
+    it("settles a missing identity as unauthorized without requesting private data", async () => {
+      state.userId = undefined;
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      );
+      const { result } = renderHook(() => useResource("same-id"), { wrapper });
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(result.current.isPending).toBe(false);
+      expect(result.current.error).toMatchObject({ status: 401 });
+      expect(result.current.data).toBeUndefined();
+      expect(getResource).not.toHaveBeenCalled();
+    });
+
+    it.each(["sessionPending", "sessionRefetching"] as const)(
+      "does not trust cached session data during %s",
+      (flag) => {
+        state[flag] = true;
+        const client = new QueryClient();
+        client.setQueryData([resource, "same-id", "admin"], privateData);
+        const wrapper = ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        );
+        const { result } = renderHook(() => useResource("same-id"), { wrapper });
+        expect(result.current.data).toBeUndefined();
+        expect(getResource).not.toHaveBeenCalled();
+      },
+    );
+
+    it("does not trust cached session data after a session request fails", async () => {
+      state.sessionError = new Error("Session unavailable");
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       client.setQueryData([resource, "same-id", "admin"], privateData);
       const wrapper = ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       );
       const { result } = renderHook(() => useResource("same-id"), { wrapper });
+      expect(result.current.data).toBeUndefined();
+      await waitFor(() => expect(result.current.isError).toBe(true));
       expect(result.current.data).toBeUndefined();
       expect(getResource).not.toHaveBeenCalled();
     });
@@ -104,3 +146,15 @@ describe.each(resources)(
     });
   },
 );
+
+it("fails retention closed after the session resolves without an identity", async () => {
+  state.userId = undefined;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result } = renderHook(() => useRetention("project"), { wrapper });
+  await waitFor(() => expect(result.current.retentionDays).toBe(15));
+  expect(getProject).not.toHaveBeenCalled();
+  expect(getWorkspace).not.toHaveBeenCalled();
+});

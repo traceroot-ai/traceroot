@@ -48,8 +48,14 @@ function formatKeyHint(keyHint: string): string {
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
   const formId = useId();
-  const { data: session, isPending: sessionPending } = useSession();
-  const userId = sessionPending ? undefined : session?.user.id;
+  const {
+    data: session,
+    isPending: sessionPending,
+    isRefetching: sessionRefetching,
+    error: sessionError,
+  } = useSession();
+  const identityPending = sessionPending || sessionRefetching;
+  const userId = identityPending || sessionError ? undefined : session?.user.id;
   const { data: project } = useProject(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
   const canListKeys = !!userId && workspace?.role === Role.ADMIN;
