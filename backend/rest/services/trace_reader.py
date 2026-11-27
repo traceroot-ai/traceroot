@@ -102,7 +102,9 @@ def _padded_window(time_column: str, start_param: str | None, end_param: str | N
     return bounds
 
 
-def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str:
+def _evaluation_trace_ids(
+    start_param: str | None, end_param: str | None, *, target_trace: bool = False
+) -> str:
     """Sub-select of every offline-evaluation ``trace_id`` in a project, around a window.
 
     The one definition of "which traces are evaluations", shared by every read-path
@@ -118,7 +120,7 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     trace row with ``is_evaluation = 0`` and a newer ``ch_update_time``. Membership hides
     the trace whatever order the writes arrived in.
 
-    Built from BOTH tables when there is a window start (see below), like the SQL
+    Built from BOTH tables when there is a window start or a specific trace ID, like the SQL
     gateway's ``VIEW_EVALUATION_EXCLUSION`` (see ``rest.services.sql.schema`` for the full
     argument). A ``traces``-only set loses a trace two ordinary ways: a background merge
     keeps only the newer, unflagged ``traces`` row of a same-day pair and physically
@@ -146,13 +148,11 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     the projection instead of reading every granule of the window's months from the
     trace_id-ordered base table.
 
-    The ``spans`` half needs a window start and is left out without one: with no lower
-    bound it would read the project's whole span history on every request (the scan
-    ``DEFAULT_SPAN_SCAN_LOOKBACK_HOURS`` keeps every other read path off), and an upper
-    bound alone prunes no partition below it. An open-ended caller gets the ``traces``
-    half alone, the set these reads used before the ``spans`` half existed. That is only
-    an all-history read on a plan with unlimited retention or over internal-secret
-    traffic: every list router clamps a missing ``start_after`` to the plan's retention
+    The ``spans`` half needs a window start or a bound trace ID. With neither it would
+    read the project's whole span history on every request, since an upper bound alone
+    prunes no partition below it. An open-ended project-wide caller gets just the
+    ``traces`` half. This reads all history only on plans with unlimited retention or over
+    internal-secret traffic. Every list router clamps a missing ``start_after`` to the plan's retention
     cutoff (``rest.retention``), the filter dropdowns default a lookback, and the widget
     and detector-chart windows are always bound. Accepted miss: such a read can show an
     evaluation trace whose flagged ``traces`` row was merged away or never written.
@@ -160,23 +160,28 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     Args:
         start_param (str | None): Name of the window-start parameter, or ``None``.
         end_param (str | None): Name of the window-end parameter, or ``None``.
+        target_trace (bool): Restrict both tables to the bound ``trace_id``.
+            This also makes the span check possible without a time window.
 
     Returns:
         str: A parenthesised ``SELECT trace_id ...`` sub-select, with the ``spans`` half
-        joined by ``UNION DISTINCT`` when ``start_param`` is given.
+        joined by ``UNION DISTINCT`` when ``start_param`` is given or ``target_trace`` is true.
     """
     kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
     # Table names spelled out, never templated: test_source_consumers finds a scan by its
     # literal table name and judges it under the innermost `def` above it, so a templated
     # or nested-helper scan would slip past that audit.
+    target = " AND trace_id = {trace_id:String}" if target_trace else ""
     sub_selects = [
         "SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1"
+        + target
         + _padded_window("trace_start_time", start_param, end_param)
     ]
-    if start_param is not None:
+    if start_param is not None or target_trace:
         sub_selects.append(
             "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
             f" AND span_kind IN ({kinds})"
+            + target
             + _padded_window("span_start_time", start_param, end_param)
         )
     return "(" + " UNION DISTINCT ".join(sub_selects) + ")"
@@ -517,6 +522,30 @@ class TraceReaderService:
         self._has_traces_cache[project_id] = (now + ttl, found)
         return found
 
+    def first_trace_receive_time(self, project_id: str) -> datetime | None:
+        """When the project's earliest stored customer span was received.
+
+        ``ch_create_time`` is when the ingest worker wrote a span, so its minimum is
+        when the project first received a trace, as far as stored spans go. Plan
+        retention narrows reads and deletes nothing, so this ignores it; once spans
+        are deleted, it is the oldest one left. Scoped like ``has_traces``.
+
+        Args:
+            project_id (str): Project whose customer spans to read.
+
+        Returns:
+            datetime | None: The receive time (naive UTC), or None when the project
+                has no customer spans.
+        """
+        result = self._client.query(
+            "SELECT minOrNull(ch_create_time) FROM spans "
+            "WHERE project_id = {project_id:String} "
+            f"AND {customer_traffic_only()}",
+            parameters={"project_id": project_id},
+        )
+        row = result.result_rows[0] if result.result_rows else None
+        return row[0] if row else None
+
     _TRACE_START_CACHE_MAX = 1024
 
     def get_trace_start_time(
@@ -569,19 +598,22 @@ class TraceReaderService:
             cache[cache_key] = (now + 3600.0, ts)
         return ts
 
-    def get_customer_trace_earliest_span_time(
-        self, project_id: str, trace_id: str
+    def get_trace_earliest_span_time(
+        self, project_id: str, trace_id: str, *, customer_only: bool = False
     ) -> datetime | None:
-        """The earliest start of any customer span in the trace, or ``None`` if it has none.
+        """The earliest start of any span in the trace, or ``None`` if it has none.
 
         Retention for a trace whose root span has not arrived: a root normally starts
         before its children, so this is the closest bound available, and it is the
         same for every span of the trace. Only each span's latest version counts, as
         in the other span readers, so an obsolete version that ClickHouse has not
-        merged away yet never moves the start earlier. A span stored under an
-        internal source never counts either. Never cached, because an earlier span
+        merged away yet never moves the start earlier. Scope it the way the caller
+        reads the trace: with ``customer_only``, a span stored under an internal
+        source never counts, and without it every span does, matching the unscoped
+        root lookup in ``get_trace_start_time``. Never cached, because an earlier span
         can still arrive.
         """
+        scope = f"AND {customer_traffic_only()}" if customer_only else ""
         result = self._client.query(
             f"""
             SELECT minOrNull(span_start_time)
@@ -589,7 +621,7 @@ class TraceReaderService:
                 SELECT span_start_time FROM spans
                 WHERE project_id = {{project_id:String}}
                   AND trace_id   = {{trace_id:String}}
-                  AND {customer_traffic_only()}
+                  {scope}
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY span_id
             )
@@ -599,41 +631,57 @@ class TraceReaderService:
         rows = result.result_rows
         return rows[0][0] if rows else None
 
-    def list_traces(
-        self,
+    def get_label_target_start_time(
+        self, project_id: str, trace_id: str, span_id: str | None = None
+    ) -> datetime | None:
+        """Get the start of a customer trace that can be labeled, without reading its I/O."""
+        params = {"project_id": project_id, "trace_id": trace_id}
+        span_match = ""
+        if span_id is not None:
+            params["span_id"] = span_id
+            span_match = f"""
+                AND trace_id IN (
+                    SELECT trace_id FROM spans
+                    WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+                      AND span_id = {{span_id:String}} AND {customer_traffic_only()}
+                )
+            """
+
+        rows = self._client.query(
+            f"""
+            SELECT trace_start_time FROM traces
+            WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+              AND {customer_traffic_only()}
+              AND trace_id NOT IN {_evaluation_trace_ids(None, None, target_trace=True)}
+              {span_match}
+            ORDER BY ch_update_time DESC
+            LIMIT 1
+            """,
+            parameters=params,
+            settings=READ_QUERY_SETTINGS,
+        ).result_rows
+        return rows[0][0] if rows else None
+
+    @staticmethod
+    def _trace_list_where(
         project_id: str,
-        page: int = 0,
-        limit: int = 50,
-        name: str | None = None,
-        user_id: str | None = None,
-        trace_ids: list[str] | None = None,
-        start_after: datetime | None = None,
-        end_before: datetime | None = None,
-        search_query: str | None = None,
-        filters: list[Predicate] | None = None,
-        include_evaluations: bool = False,
-    ) -> dict:
-        """List traces with aggregated metrics from spans.
-
-        Offline-evaluation traces are excluded by default so they do not pollute the
-        production/staging Traces list; pass ``include_evaluations=True`` to include
-        them. The exclusion goes into the SHARED ``conditions`` list, so it reaches the
-        page query and the count query identically and ``meta.total`` always matches the
-        rows the caller can page through. See :func:`_evaluation_exclusion`.
-
-        ``trace_ids`` looks up a known set of traces (e.g. a signal's member traces).
-        On its own it applies no time window, since those traces can be weeks old.
-        An explicit ``start_after``/``end_before`` still applies, and ``filters`` keep
-        their default lookback because their span scans need a lower bound.
-        """
-        offset = page * limit
-
+        name: str | None,
+        user_id: str | None,
+        trace_ids: list[str] | None,
+        start_after: datetime | None,
+        end_before: datetime | None,
+        search_query: str | None,
+        filters: list[Predicate] | None,
+        include_evaluations: bool,
+        source_predicate: str,
+    ) -> tuple[str, dict]:
+        """Build the shared scope for trace rows, totals, and labeled candidate IDs."""
         # Build WHERE conditions
         conditions = ["t.project_id = {project_id:String}"]
         # Detector self-traces are internal telemetry; the customer trace list
         # (data AND count, via the shared where_clause) never shows them.
-        conditions.append(customer_traffic_only("t"))
-        params = {"project_id": project_id, "limit": limit, "offset": offset}
+        conditions.append(source_predicate)
+        params: dict = {"project_id": project_id}
 
         if name:
             conditions.append("t.name ILIKE {name:String}")
@@ -688,7 +736,83 @@ class TraceReaderService:
         if not include_evaluations:
             conditions.append(_evaluation_exclusion(params))
 
-        where_clause = " AND ".join(conditions)
+        return " AND ".join(conditions), params
+
+    def matching_trace_ids(
+        self,
+        trace_ids: list[str],
+        *,
+        project_id: str,
+        name: str | None,
+        user_id: str | None,
+        start_after: datetime | None,
+        end_before: datetime | None,
+        search_query: str | None,
+        filters: list[Predicate],
+        include_evaluations: bool,
+    ) -> list[str]:
+        """Apply the list scope to a bounded candidate batch without loading trace contents."""
+        where_clause, params = self._trace_list_where(
+            project_id,
+            name,
+            user_id,
+            trace_ids,
+            start_after,
+            end_before,
+            search_query,
+            filters,
+            include_evaluations,
+            customer_traffic_only("t"),
+        )
+        rows = self._client.query(
+            f"SELECT DISTINCT t.trace_id FROM traces AS t WHERE {where_clause}",
+            parameters=params,
+            settings=READ_QUERY_SETTINGS,
+        ).result_rows
+        return [row[0] for row in rows]
+
+    def list_traces(
+        self,
+        project_id: str,
+        page: int = 0,
+        limit: int = 50,
+        name: str | None = None,
+        user_id: str | None = None,
+        trace_ids: list[str] | None = None,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+        search_query: str | None = None,
+        filters: list[Predicate] | None = None,
+        include_evaluations: bool = False,
+    ) -> dict:
+        """List traces with aggregated metrics from spans.
+
+        Offline-evaluation traces are excluded by default so they do not pollute the
+        production/staging Traces list; pass ``include_evaluations=True`` to include
+        them. The exclusion goes into the SHARED ``conditions`` list, so it reaches the
+        page query and the count query identically and ``meta.total`` always matches the
+        rows the caller can page through. See :func:`_evaluation_exclusion`.
+
+        ``trace_ids`` looks up a known set of traces (e.g. a signal's member traces).
+        On its own it applies no time window, since those traces can be weeks old.
+        An explicit ``start_after``/``end_before`` still applies, and ``filters`` keep
+        their default lookback because their span scans need a lower bound.
+        """
+        offset = page * limit
+
+        where_clause, params = self._trace_list_where(
+            project_id,
+            name,
+            user_id,
+            trace_ids,
+            start_after,
+            end_before,
+            search_query,
+            filters,
+            include_evaluations,
+            customer_traffic_only("t"),
+        )
+        params.update(limit=limit, offset=offset)
 
         # Page the traces FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
         # instead of FINAL), then aggregate spans for ONLY that page's trace_ids.

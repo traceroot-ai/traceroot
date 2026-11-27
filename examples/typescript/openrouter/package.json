@@ -2,7 +2,7 @@
   "name": "@traceroot/example-openrouter",
   "version": "0.0.1",
   "private": true,
-  "description": "OpenRouter ReAct agent example with TraceRoot observability",
+  "description": "OpenRouter ReAct agent example with traceroot observability",
   "scripts": {
     "start": "tsx agent.ts"
   },

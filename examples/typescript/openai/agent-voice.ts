@@ -1,5 +1,5 @@
 /**
- * OpenAI Voice Agent — TraceRoot Observability
+ * OpenAI Voice Agent — traceroot Observability
  *
  * A two-step flow that tests how the platform tracks audio as both output AND
  * input:
@@ -27,13 +27,13 @@ import { join } from 'node:path';
 import OpenAI from 'openai';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
   instrumentModules: { openAI: OpenAI },
 });
 
 const openai = new OpenAI();
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 const MODEL = 'gpt-audio-mini';
 const VOICE = 'alloy';
@@ -83,7 +83,7 @@ async function speechToText(audioDataUri: string): Promise<string> {
 }
 
 // ── Demo ──────────────────────────────────────────────────────────────────────
-const PROMPT = 'Hello from TraceRoot! This message was spoken by an AI voice, then transcribed back to text.';
+const PROMPT = 'Hello from traceroot! This message was spoken by an AI voice, then transcribed back to text.';
 
 async function main() {
   try {
@@ -96,7 +96,7 @@ async function main() {
       },
       () => observe({ name: 'voice_demo_session' }, async () => {
         console.log('='.repeat(60));
-        console.log('OpenAI Voice Agent — Demo (TraceRoot)');
+        console.log('OpenAI Voice Agent — Demo (traceroot)');
         console.log('='.repeat(60));
 
         // Step 1: text → speech

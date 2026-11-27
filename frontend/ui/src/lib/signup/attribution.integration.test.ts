@@ -197,7 +197,7 @@ describe("signup through real Better Auth handlers", () => {
   });
 
   it.each(["workspace.test", "workspace.local", "mailinator.com"])(
-    "creates an account outside TraceRoot Cloud on %s",
+    "creates an account outside traceroot Cloud on %s",
     async (domain) => {
       const { auth, database } = testAuth(false);
       const email = `qa@${domain}`;

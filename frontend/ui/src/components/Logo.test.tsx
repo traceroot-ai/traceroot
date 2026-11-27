@@ -35,7 +35,7 @@ describe("Logo", () => {
 
   it("is labelled for assistive tech once, with the images decorative", () => {
     const el = render(<Logo />);
-    expect(el.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe("TraceRoot");
+    expect(el.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe("traceroot");
     el.querySelectorAll("img").forEach((i) => expect(i.getAttribute("alt")).toBe(""));
   });
 

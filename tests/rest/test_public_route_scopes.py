@@ -95,6 +95,7 @@ EXPECTED_ROUTE_SCOPES = (
     ("POST", "/api/v1/public/evaluation-runs/{run_id}/results", "key", "ingest"),
     ("POST", "/api/v1/public/evaluation-runs/{subpath:path}", "key", "ingest"),
     ("GET", "/api/v1/public/evaluations", "key-or-user", "ingest"),
+    ("POST", "/api/v1/public/labels", "key", "ingest"),
     ("GET", "/api/v1/public/projects", "user", "n/a"),
     ("POST", "/api/v1/public/projects", "user", "n/a"),
     ("DELETE", "/api/v1/public/projects/{project_id}", "user", "n/a"),

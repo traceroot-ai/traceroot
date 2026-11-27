@@ -1,5 +1,5 @@
 """
-CrewAI Multi-Agent Crew, instrumented with TraceRoot observability.
+CrewAI Multi-Agent Crew, instrumented with traceroot observability.
 
 A simple 2-agent crew that:
 1. Uses a Researcher agent to gather weather data using tools

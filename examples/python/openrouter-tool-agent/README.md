@@ -1,8 +1,8 @@
 # OpenRouter Tool Agent
 
-ReAct-style agent with [OpenRouter](https://openrouter.ai/) streaming and tool use, instrumented with [TraceRoot](https://traceroot.ai).
+ReAct-style agent with [OpenRouter](https://openrouter.ai/) streaming and tool use, instrumented with [traceroot](https://traceroot.ai).
 
-OpenRouter provides a unified API to 200+ models (Claude, Llama, Gemini, Mistral, GPT-4o, etc.). Since it's OpenAI-compatible, TraceRoot's OpenAI integration captures all calls automatically — no extra configuration needed.
+OpenRouter provides a unified API to 200+ models (Claude, Llama, Gemini, Mistral, GPT-4o, etc.). Since it's OpenAI-compatible, traceroot's OpenAI integration captures all calls automatically — no extra configuration needed.
 
 ## Setup
 
@@ -41,6 +41,6 @@ agent = ReActAgent(model="meta-llama/llama-4-maverick")
 
 See [openrouter.ai/models](https://openrouter.ai/models) for the full list.
 
-## TraceRoot UI
+## traceroot UI
 
 After running the example, open [app.traceroot.ai](https://app.traceroot.ai) to view the captured trace. You'll see the full agent span, nested LLM calls, and individual tool invocations with their inputs and outputs.
