@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   // bug these tests would then be blind to.
   session: {
     state: {
-      data: { user: { id: "user-1", email: "kai@example.com" } },
+      data: { user: { id: "user-1", email: "kai@gmail.com" } },
       isPending: false,
     } as SessionState,
     listeners: new Set<() => void>(),
@@ -237,7 +237,7 @@ beforeEach(() => {
   // Reset explicitly: `signedInAs` mutates a store that outlives the test that
   // called it, so a later test would otherwise inherit whichever account the
   // previous one switched to.
-  signedInAs("user-1", "kai@example.com");
+  signedInAs("user-1", "kai@gmail.com");
   // The page refuses to onboard an account that already owns a workspace, so
   // every test that exercises the form is a first-run account unless it says
   // otherwise.
@@ -278,7 +278,7 @@ afterEach(() => {
   mocks.getWorkspace.mockReset();
   mocks.params = new URLSearchParams();
   demo.workspaces = [];
-  signedInAs("user-1", "kai@example.com");
+  signedInAs("user-1", "kai@gmail.com");
 });
 
 describe("OnboardingPage", () => {
@@ -303,7 +303,7 @@ describe("OnboardingPage", () => {
     renderPage();
     const to = await reachHandback();
 
-    expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("My Workspace");
     expect(mocks.createProject).toHaveBeenCalledWith("ws-1", "my-llm-project");
     // On to the questions, with the project in the address so a refresh there
     // creates nothing again. Replaced, so Back does not land here.
@@ -354,7 +354,7 @@ describe("OnboardingPage", () => {
     renderPage();
 
     // Workspace request in flight: the account still owns nothing.
-    await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalledWith("Example"));
+    await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalledWith("My Workspace"));
     expect(mocks.push).not.toHaveBeenCalled();
 
     workspace.resolve({ id: "ws-1" });
@@ -429,7 +429,7 @@ describe("OnboardingPage", () => {
     // The way out is a workspace of their own, not the read-only one they
     // cannot add to.
     expect(await reachHandback()).toBe(QUESTIONS_THEN_DEVICE);
-    expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("My Workspace");
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -482,7 +482,7 @@ describe("OnboardingPage", () => {
 
     // Account A is set up, so its visit hands back and leaves its list in the
     // cache.
-    signedInAs("user-a", "kai@example.com");
+    signedInAs("user-a", "kai@gmail.com");
     mocks.getWorkspaces.mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-a" }]);
     const first = renderPage(queryClient);
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
@@ -490,7 +490,7 @@ describe("OnboardingPage", () => {
 
     // Account B in the same tab owns nothing.
     mocks.push.mockReset();
-    signedInAs("user-b", "new@example.com");
+    signedInAs("user-b", "new@gmail.com");
     mocks.getWorkspaces.mockResolvedValue([]);
     mocks.createWorkspace.mockResolvedValue({ id: "ws-b" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
@@ -538,7 +538,7 @@ describe("OnboardingPage", () => {
     renderPage();
 
     await reachHandback();
-    expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("My Workspace");
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -578,7 +578,7 @@ describe("OnboardingPage", () => {
     renderPage();
 
     await reachHandback();
-    expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("My Workspace");
   });
 
   describe("a link that names an existing workspace", () => {
@@ -720,7 +720,9 @@ describe("OnboardingPage", () => {
     // name. That is the 409 the issue describes, and pressing Create is the only
     // recovery this page offers, so the collision has to resolve to the
     // workspace it collided with.
-    mocks.getWorkspaces.mockResolvedValueOnce([]).mockResolvedValue([EMPTY_WORKSPACE]);
+    mocks.getWorkspaces
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ ...EMPTY_WORKSPACE, name: "My Workspace" }]);
     mocks.createWorkspace.mockRejectedValue(NAME_TAKEN());
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
@@ -748,7 +750,7 @@ describe("OnboardingPage", () => {
     await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalled());
     expect(mocks.createProject).not.toHaveBeenCalled();
 
-    lookup.resolve([EMPTY_WORKSPACE]);
+    lookup.resolve([{ ...EMPTY_WORKSPACE, name: "My Workspace" }]);
 
     await waitFor(() =>
       expect(mocks.createProject).toHaveBeenCalledWith("ws-empty", "my-llm-project"),
@@ -760,7 +762,9 @@ describe("OnboardingPage", () => {
     // makes its caller an ADMIN member — and it is not somewhere a project can
     // go either. Adopting it would hand the user's first project to a workspace
     // that is not theirs, so the refusal stands and says what it refused.
-    mocks.getWorkspaces.mockResolvedValueOnce([]).mockResolvedValue([VIEWER_EMPTY_WORKSPACE]);
+    mocks.getWorkspaces
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ ...VIEWER_EMPTY_WORKSPACE, name: "My Workspace" }]);
     mocks.createWorkspace.mockRejectedValue(NAME_TAKEN());
     renderPage();
 
@@ -775,9 +779,10 @@ describe("OnboardingPage", () => {
     // Nothing in the list payload says which — `createdBy` is not in it — so
     // there is no answer to act on, and guessing would be the same mistake with
     // a 50% chance of looking fine.
-    mocks.getWorkspaces
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([EMPTY_WORKSPACE, { ...EMPTY_WORKSPACE, id: "ws-other" }]);
+    mocks.getWorkspaces.mockResolvedValueOnce([]).mockResolvedValue([
+      { ...EMPTY_WORKSPACE, name: "My Workspace" },
+      { ...EMPTY_WORKSPACE, id: "ws-other", name: "My Workspace" },
+    ]);
     mocks.createWorkspace.mockRejectedValue(NAME_TAKEN());
     renderPage();
 
@@ -871,11 +876,14 @@ describe("OnboardingPage", () => {
     expect(mocks.getProjects).not.toHaveBeenCalled();
   });
 
-  it("names the workspace from the address once a pending session resolves", async () => {
+  it("lets a new work account wait for an invitation or explicitly create its own workspace", async () => {
     // `authClient.useSession()` starts pending on mount. Creating then would
     // name the workspace "My Workspace" rather than the company the address
     // names, so nothing is created until the session is known.
     setSession({ data: undefined, isPending: true });
+    mocks.getWorkspaces
+      .mockResolvedValueOnce([DEMO_WORKSPACE])
+      .mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-1" }]);
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
@@ -884,17 +892,23 @@ describe("OnboardingPage", () => {
     expect(mocks.createWorkspace).not.toHaveBeenCalled();
 
     act(() => {
-      signedInAs("user-1", "kai@example.com");
+      signedInAs("user-1", "kai@acme.io");
     });
 
+    const create = await screen.findByRole("button", { name: "Create my own workspace" });
+    expect(screen.getByText(/open your workspace invitation email/)).toBeDefined();
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    fireEvent.click(create);
     await reachHandback();
-    expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
+    await waitFor(() => expect(mocks.getWorkspaces).toHaveBeenCalledTimes(2));
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("Acme");
+    expect(mocks.createProject).toHaveBeenCalledTimes(1);
   });
 
   it.each([
     ["kai@gmail.com", "My Workspace"],
     ["kai@proton.me", "My Workspace"],
-    ["kai@acme.io", "Acme"],
   ])("names %s's workspace %s", async (email, name) => {
     signedInAs("user-1", email);
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
@@ -965,7 +979,7 @@ describe("OnboardingPage", () => {
     // likeliest reason a user wants out of here.
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("as kai@example.com")).toBeDefined());
+    await waitFor(() => expect(screen.getByText("as kai@gmail.com")).toBeDefined());
   });
 
   it("signs out and returns here, keeping a waiting terminal's hand-back", async () => {

@@ -41,7 +41,7 @@ function SignInFooter({ label }: { label: string }) {
   );
 }
 
-function RequestNewLink() {
+export function RequestNewLink() {
   return (
     <AuthLayout>
       <AuthHeader

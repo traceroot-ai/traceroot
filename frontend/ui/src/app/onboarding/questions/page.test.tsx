@@ -93,6 +93,9 @@ describe("after the questions", () => {
   it("without a project there is nothing to continue", () => {
     nav.params = new URLSearchParams();
     render(<QuestionsStepPage />);
-    expect(screen.getByText("This step isn't available")).toBeDefined();
+    expect(screen.getByText(/The questionnaire opens during signup/)).toBeDefined();
+    expect(screen.getByRole("link", { name: "Go to your workspaces" }).getAttribute("href")).toBe(
+      "/workspaces",
+    );
   });
 });

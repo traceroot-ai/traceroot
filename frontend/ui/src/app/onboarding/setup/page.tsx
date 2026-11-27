@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Logo } from "@/components/Logo";
@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { FirstTraceLine } from "@/components/first-trace-line";
 import { StandaloneFrame } from "@/features/onboarding/components/standalone-frame";
 import { StepUnavailable } from "@/features/onboarding/components/step-unavailable";
+import { forgetSetup, rememberSetup } from "@/features/onboarding/setup-resume";
 import { createdInRun } from "@/features/onboarding/step-urls";
 import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
 import { SetupTabs, type SetupTab } from "@/features/traces/components/GettingStarted/SetupTabs";
@@ -44,7 +45,9 @@ function SetupStep() {
   const [tab, setTab] = useState<SetupTab>("ai");
 
   const { data: project, isError } = useQuery({
-    queryKey: ["project", projectId],
+    queryKey: ["project", projectId, "onboarding-setup", session?.user.id],
+    gcTime: 0,
+    refetchOnWindowFocus: false,
     queryFn: () => getProject(projectId),
     enabled: !!projectId,
   });
@@ -53,7 +56,16 @@ function SetupStep() {
     !!project,
     project?.id ?? null,
     session?.user?.id ? { id: session.user.id, email: session.user.email } : undefined,
+    project?.read_at,
   );
+  const userId = session?.user.id;
+  const visibleProjectId = !isError ? project?.id : undefined;
+  const hasTrace = traceWait.kind === "found" || traceWait.kind === "already-received";
+  useEffect(() => {
+    if (!userId || !visibleProjectId) return;
+    if (hasTrace) forgetSetup(userId, visibleProjectId);
+    else rememberSetup(userId, visibleProjectId, created);
+  }, [userId, visibleProjectId, created, hasTrace]);
   useOpenFoundTrace(traceWait);
   const recordSetupSkipped = useSetupSkipped(projectId, "onboarding");
 
@@ -111,6 +123,7 @@ function SetupStep() {
                     size="sm"
                     className="h-7 px-4 text-[12px]"
                     onClick={() => {
+                      if (userId) forgetSetup(userId, project.id);
                       recordSetupSkipped("command");
                       router.push("/workspaces");
                     }}
@@ -127,6 +140,7 @@ function SetupStep() {
                       size="sm"
                       className="h-7 px-4 text-[12px]"
                       onClick={() => {
+                        if (userId) forgetSetup(userId, project.id);
                         recordSetupSkipped("manual");
                         router.push(`/projects/${project.id}/traces`);
                       }}
