@@ -57,19 +57,6 @@ export const COUNTED_RUN_STATUSES: readonly LoopRunStatus[] = [
 ];
 
 /**
- * The loop_runs filter for runs that count against the project's daily cap:
- * runs that called the agent. (The plan's meter counts runs from their Loop
- * turns in ai_messages, which outlive a deleted Loop, and only those in which
- * the agent replied.) The worker gives a run its session just before
- * that call, so a run that failed before it (its BYOK provider is gone) has
- * none and does not count.
- */
-export const COUNTED_RUN_WHERE = {
-  status: { in: [...COUNTED_RUN_STATUSES] },
-  sessionId: { not: null },
-};
-
-/**
  * The rows of a Loop turn in which the agent replied: a tool call, or assistant
  * text. A model that fails before answering leaves only the kickoff and an
  * empty assistant row that carries the error. The plan counts a run from these.

@@ -219,6 +219,36 @@ export async function countFreeLoopRunsUsed(db: Db, workspaceId: string): Promis
   return repliedSessions.size + notYetReplied.length;
 }
 
+/**
+ * Loop runs a project started since `since`, for its daily cap, counted from
+ * records that outlive a deleted Loop (deleting a Loop deletes its runs, not
+ * their sessions). A run counts once the agent service started its turn: that
+ * turn's first row, the kickoff, is a Loop row in the run's own session, so
+ * each session with a Loop row since then is one run. A run that failed before
+ * that (its model could not be resolved, or the agent service refused it) has
+ * no Loop row and does not count. Each running run whose session has no Loop
+ * row yet counts too, so a run is counted from the start to its kickoff.
+ */
+export async function countProjectLoopRunsSince(
+  db: Db,
+  projectId: string,
+  since: Date,
+): Promise<number> {
+  const loopTurn = { kind: "loop", createTime: { gte: since } };
+  const sessions = await db.aISession.count({
+    where: { projectId, messages: { some: loopTurn } },
+  });
+  const runningBeforeTurn = await db.loopRun.count({
+    where: {
+      projectId,
+      status: "running",
+      createTime: { gte: since },
+      OR: [{ sessionId: null }, { session: { messages: { none: loopTurn } } }],
+    },
+  });
+  return sessions + runningBeforeTurn;
+}
+
 export function isExpired(memory: { expiresAt: Date | null }, now: Date): boolean {
   return memory.expiresAt !== null && memory.expiresAt.getTime() <= now.getTime();
 }

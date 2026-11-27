@@ -10,9 +10,9 @@
  */
 import { PlanType, isBillingEnabled, isLoopRunBlocked, prisma, type Prisma } from "@traceroot/core";
 import {
-  COUNTED_RUN_WHERE,
   LOOP_LIMITS,
   countFreeLoopRunsUsed,
+  countProjectLoopRunsSince,
   lockLoop,
   type LoopRunStatus,
 } from "@traceroot/core/loops";
@@ -70,14 +70,13 @@ export async function startLoopRun(run: {
     ) {
       skip = { status: "skipped_blocked", error: LOOP_PLAN_SKIP };
     } else {
-      const runsToday = await tx.loopRun.count({
-        where: {
-          projectId: run.projectId,
-          createTime: { gte: new Date(now.getTime() - DAY_MS) },
-          // A run that started counts before it has its session.
-          OR: [{ status: "running" }, COUNTED_RUN_WHERE],
-        },
-      });
+      // Counted from the agent's sessions, not from loop_runs: deleting a Loop
+      // deletes its runs, and must not hand the project a fresh allowance.
+      const runsToday = await countProjectLoopRunsSince(
+        tx,
+        run.projectId,
+        new Date(now.getTime() - DAY_MS),
+      );
       if (runsToday >= LOOP_LIMITS.runsPerProjectPerDay) {
         skip = { status: "skipped_blocked", error: LOOP_DAILY_CAP_SKIP };
       }
