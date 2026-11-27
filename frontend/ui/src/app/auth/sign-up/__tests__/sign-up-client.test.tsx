@@ -215,14 +215,41 @@ describe("SignUpPage", () => {
     );
   });
 
-  it("ignores a non-device callback and onboards a new account directly", async () => {
-    setParams({ callbackUrl: "/projects/p1/traces" });
-    mocks.signUpEmail.mockResolvedValue({ error: null });
+  const invitePath = "/invites/17bda1ba-0326-4227-8d21-f9d20368b55c";
 
+  it("returns an invited email signup to its workspace invitation", async () => {
+    setParams({ callbackUrl: invitePath });
+    mocks.signUpEmail.mockResolvedValue({ error: null });
     render(<SignUpPage />);
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(invitePath));
+  });
 
+  it("returns invited social signups to the same invitation", async () => {
+    env.AUTH_GOOGLE_CLIENT_ID = "test-client";
+    env.AUTH_GOOGLE_CLIENT_SECRET = "test-secret";
+    setParams({ callbackUrl: invitePath });
+    render(<SignUpPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
+    await waitFor(() =>
+      expect(mocks.signInSocial).toHaveBeenCalledWith(
+        expect.objectContaining({ callbackURL: invitePath }),
+      ),
+    );
+  });
+
+  it.each([
+    "/projects/p1/traces",
+    `${invitePath}/other`,
+    "/invites/not-an-id",
+    `https://elsewhere.test${invitePath}`,
+  ])("onboards directly for an unrelated callback %s", async (callbackUrl) => {
+    setParams({ callbackUrl });
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+    render(<SignUpPage />);
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
   });
 

@@ -4,6 +4,7 @@ import { founderWelcomeCopy, type FounderWelcomeInput } from "./founder-copy";
 
 const BASE: FounderWelcomeInput = {
   variant: "generic",
+  appUrl: "https://staging.example.test",
   demoUrl: "https://app.traceroot.ai/projects/demo/traces",
   bookingUrl: "https://cal.com/traceroot/30min",
   githubUrl: "https://github.com/traceroot-ai/traceroot",
@@ -16,7 +17,7 @@ const render = (overrides: Partial<FounderWelcomeInput> = {}, firstName: string 
     firstName,
     unsubscribeUrl: UNSUB,
   });
-const SIGNOFF = "Best,\nXinwei He\nTraceRoot.AI | CEO";
+const SIGNOFF = "Best,\nXinwei He\ntraceroot | CEO";
 
 const LINK = 'style="color:#0B1015;text-decoration:underline"';
 const CALENDAR = `If you’d like a hand with setup, pick a time on my calendar (${BASE.bookingUrl}).`;
@@ -35,7 +36,7 @@ describe("the cloud welcome email, as approved", () => {
       [
         "Hi Sam,",
         "",
-        "Welcome to traceroot. Open the project you want to trace and run `npx -y traceroot-cli@latest setup`. Once setup finishes, run your agent as you normally would.",
+        `Welcome to traceroot. Open traceroot (${BASE.appUrl}), choose your project, and copy its setup command. Run the command in your project directory, then run your agent as usual.`,
         "",
         "Open the trace from that run. You’ll see which tools your agent called and how long each step took.",
         "",
@@ -53,9 +54,7 @@ describe("the cloud welcome email, as approved", () => {
     );
     // Links only; the standard version has no button.
     expect(html).not.toContain("display:inline-block");
-    expect(html).toContain(
-      '<code style="padding:1px 4px;background:#F4F4F6;border-radius:4px;font-size:13px">npx -y traceroot-cli@latest setup</code>',
-    );
+    expect(html).toContain(`<a href="${BASE.appUrl}" ${LINK}>Open traceroot</a>`);
     expect(html).toContain(`<a href="${BASE.githubUrl}" ${LINK}>Star traceroot on GitHub</a>`);
   });
 
@@ -70,7 +69,7 @@ describe("the cloud welcome email, as approved", () => {
         "",
         `Open the demo project: ${BASE.demoUrl}`,
         "",
-        "When you’re ready to try it on your own agent, run `npx -y traceroot-cli@latest setup` in your project.",
+        `When you’re ready to trace your own agent, open traceroot (${BASE.appUrl}), choose your project, and copy its setup command.`,
         "",
         CALENDAR,
         "",
@@ -118,7 +117,7 @@ describe("the cloud welcome email, as approved", () => {
     (variant) => {
       const { text, html } = render({ variant });
       expect(text).toContain(SIGNOFF);
-      expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
+      expect(html).toContain("Best,<br>Xinwei He<br>traceroot | CEO");
       expect(`${text}${html}`).not.toContain("Founder");
       expect(`${text}${html}`).not.toMatch(/devs/i);
       expect(html).toContain(`<a href="${UNSUB}" ${LINK}>Unsubscribe from product emails</a>`);

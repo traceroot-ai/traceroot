@@ -168,20 +168,20 @@ export function SpanInfoPanel({
     <div className="h-full overflow-y-auto">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="min-w-0 flex-[1_1_14rem]">
             <div className="mb-1 flex items-center gap-2">
               <SpanKindIcon kind={kind} size="md" selected />
-              <h3 className="text-sm font-medium">{name}</h3>
+              <h3 className="min-w-0 text-sm font-medium [overflow-wrap:anywhere]">{name}</h3>
               <CopyButton
                 value={isTrace ? trace.trace_id : selection.span.span_id}
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
                 title="Copy ID"
               />
             </div>
             <div className="text-xs text-muted-foreground">{formatDate(timestamp)}</div>
           </div>
-          {headerAction && <div className="shrink-0">{headerAction}</div>}
+          {headerAction && <div className="max-w-full">{headerAction}</div>}
         </div>
         {/* Row 1: LLM related badges */}
         <div className="flex flex-wrap items-center gap-2">

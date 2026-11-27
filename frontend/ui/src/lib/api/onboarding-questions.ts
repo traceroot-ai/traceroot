@@ -19,6 +19,8 @@ export function saveOnboardingAnswers(
 ): Promise<{ saved: true }> {
   return fetchNextApi("/onboarding/questions", {
     method: "PATCH",
+    // Let this small answer finish sending if the user reloads immediately.
+    keepalive: true,
     headers: { [ANSWERS_USER_HEADER]: userId },
     body: JSON.stringify(patch),
   });
