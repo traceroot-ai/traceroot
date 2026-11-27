@@ -5,8 +5,8 @@
 import {
   EMAIL_COLORS,
   EMAIL_FONT_STACK,
-  EMAIL_LOGO_URL,
   EMAIL_PIXEL_WORDMARK_URL,
+  emailLogoImg,
   escapeHtml,
 } from "@traceroot/core";
 import { clientEnv } from "@/env.client";
@@ -73,7 +73,8 @@ export function renderWelcome(input: RenderWelcomeInput): {
     `<p>${escapeHtml(greeting(input.firstName))}</p>`,
     ...body.map(toHtml),
     `<p>${WELCOME_SIGNOFF.map(escapeHtml).join("<br>")}</p>`,
-    `<p style="margin:20px 0 0"><img src="${EMAIL_LOGO_URL}" alt="TraceRoot" width="106" height="20" style="display:block;border:0;width:106px;height:20px"></p>`,
+    // The wordmark inside the logo's plate comes out 106x20, as before the plate.
+    `<p style="margin:20px 0 0">${emailLogoImg(30)}</p>`,
     `<p style="margin-top:32px;font-size:12px;color:${EMAIL_COLORS.muted}">${optOutLineHtml(escapeHtml(input.unsubscribeUrl))}</p>`,
   ];
 

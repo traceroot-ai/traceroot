@@ -11,7 +11,7 @@ const WORDMARK_HEIGHT = { sm: "h-5", md: "h-6", lg: "h-8" } as const;
 const MARK_SIZE = { sm: "h-5 w-5", md: "h-6 w-6", lg: "h-8 w-8" } as const;
 
 /**
- * TraceRoot logo. Both theme images are in the DOM and CSS picks one, so the
+ * traceroot logo. Both theme images are in the DOM and CSS picks one, so the
  * right one shows from the first paint with no theme lookup on the client.
  */
 export function Logo({ className, variant = "wordmark", size = "sm" }: LogoProps) {
@@ -21,7 +21,7 @@ export function Logo({ className, variant = "wordmark", size = "sm" }: LogoProps
   return (
     <span
       role="img"
-      aria-label="TraceRoot"
+      aria-label="traceroot"
       className={cn(
         "inline-flex shrink-0 overflow-hidden",
         mark ? MARK_SIZE[size] : WORDMARK_HEIGHT[size],

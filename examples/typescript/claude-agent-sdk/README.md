@@ -1,6 +1,6 @@
 # Claude Agent SDK
 
-Multi-agent research pipeline using Claude Code as a library, instrumented with [TraceRoot](https://traceroot.ai).
+Multi-agent research pipeline using Claude Code as a library, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

@@ -15,6 +15,7 @@ import { userMembershipWhere } from "@/lib/demo-workspace";
 import { writeAudit } from "./audit";
 import type { DeleteResult, EditOutcome, Provenance, ServiceResult, UpdateResult } from "./types";
 import { NO_FIELDS_MESSAGE, diffPatch, validateDeleteReason } from "./update-support";
+import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
 
 export interface WorkspaceCreated {
   id: string;
@@ -77,6 +78,14 @@ export async function createWorkspace(input: {
         data: { id: ws.id, name: ws.name, role: "ADMIN" as const },
       };
     });
+    if (result.ok && result.created) {
+      void notifyWorkspaceMember({
+        userId: input.actorUserId,
+        workspaceId: result.data.id,
+        createdBy: input.actorUserId,
+        via: "created",
+      });
+    }
   } catch (e) {
     if (!isPrismaKnownError(e, "P2002")) throw e;
     // A concurrent identical create won the race on (created_by, name).

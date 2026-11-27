@@ -43,7 +43,15 @@ vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 import { INTEGRATIONS } from "./integrations";
 import { ManualTab } from "./ManualTab";
 
-const byId = (id: string) => INTEGRATIONS.find((integration) => integration.id === id)!;
+const nameOf = (id: string) => INTEGRATIONS.find((integration) => integration.id === id)!.name;
+
+/** Picks a stack as a person does, opening the folded ones first when it is one of them. */
+function chooseStack(name: string) {
+  if (!screen.queryByRole("radio", { name })) {
+    fireEvent.click(screen.getByRole("button", { name: /^Show \d+ more$/ }));
+  }
+  fireEvent.click(screen.getByRole("radio", { name }));
+}
 
 /** The cards under one of the picker's headings, found from the heading itself. */
 const pickerGroup = (label: string) => screen.getByText(label).parentElement!;
@@ -70,7 +78,9 @@ async function renderTabWith(env: { apiUrl: string; appUrl: string }, integratio
   vi.stubEnv("NEXT_PUBLIC_APP_URL", env.appUrl);
   vi.resetModules();
   const { ManualTab: Reloaded } = await import("./ManualTab");
-  return render(<Reloaded projectId="proj_1" integration={byId(integrationId)} />);
+  const rendered = render(<Reloaded projectId="proj_1" />);
+  chooseStack(nameOf(integrationId));
+  return rendered;
 }
 
 /** The environment step's code block. */
@@ -83,133 +93,8 @@ function envBlock(container: HTMLElement): string {
 }
 
 describe("ManualTab", () => {
-  it("records which snippet was copied, for which stack and surface", async () => {
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      configurable: true,
-    });
-    render(<ManualTab projectId="proj_1" integration={byId("openai")} surface="onboarding" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy python snippet" }));
-
-    await waitFor(() =>
-      expect(capture).toHaveBeenCalledWith("setup_snippet_copied", {
-        project_id: "proj_1",
-        surface: "onboarding",
-        snippet: "sdk_init",
-        integration: "openai",
-      }),
-    );
-  });
-
-  it("is five steps: the key, the install, the environment, the call, and the run", () => {
-    // The stack picker and the model key are above this section now, shared
-    // with the command. What is numbered here is what is actually done in order
-    // in a terminal and an editor, ending in the run that sends the first trace.
-    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    const steps = screen
-      .getAllByText(/^\d+\. /)
-      .map((node) => node.textContent?.replace(/^\d+\. /, ""));
-    expect(steps).toEqual([
-      "Create an API key",
-      "Install SDK",
-      "Set environment variables",
-      "Initialize traceroot for OpenAI",
-      "Run your application",
-    ]);
-  });
-
-  it("ends the numbered steps on the request that sends the first trace", () => {
-    // Without it the walkthrough stopped at the snippet, and a reader who never
-    // ran the code never saw a trace. GitHub and Slack follow it, unnumbered.
-    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    const run = screen.getByText("5. Run your application");
-    const request = screen.getByText(
-      "Make an LLM request through the code you instrumented to send your first trace.",
-    );
-    const integrations = screen.getByText("External integrations");
-    expect(run.compareDocumentPosition(request) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(
-      request.compareDocumentPosition(integrations) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it("does not pick the stack or the model key for itself", () => {
-    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    expect(screen.queryByText(/Select your stack/)).toBeNull();
-    expect(screen.queryByLabelText("Search integrations")).toBeNull();
-    expect(screen.queryByText(/Use your own model key/)).toBeNull();
-  });
-
-  it("takes its snippets from the stack it is given", () => {
-    const { container, rerender } = render(
-      <ManualTab projectId="proj_1" integration={byId("openai")} />,
-    );
-    expect(container.textContent).toContain("pip install traceroot");
-    expect(container.textContent).toContain("Integration.OPENAI");
-
-    rerender(<ManualTab projectId="proj_1" integration={byId("mastra")} />);
-    expect(screen.getByText(/4\. Initialize traceroot for Mastra/)).toBeDefined();
-    expect(container.textContent).toContain("@traceroot-ai/mastra");
-  });
-
-  it("points the docs link at the stack whose code is on screen", () => {
-    // The thing the user said worked: the link follows the selection.
-    const { rerender } = render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    expect(screen.getByRole("link", { name: "View OpenAI docs" }).getAttribute("href")).toBe(
-      "https://traceroot.ai/docs/integrations/openai",
-    );
-
-    rerender(<ManualTab projectId="proj_1" integration={byId("crewai")} />);
-    expect(screen.getByRole("link", { name: "View CrewAI docs" }).getAttribute("href")).toBe(
-      "https://traceroot.ai/docs/integrations/crewai",
-    );
-    expect(screen.queryByRole("link", { name: "View OpenAI docs" })).toBeNull();
-  });
-
-  it("offers only the languages the stack has, starting on one it has", () => {
-    // Mastra is TypeScript only; Python must not be the resolved tab.
-    const { container } = render(<ManualTab projectId="proj_1" integration={byId("mastra")} />);
-    const python = screen.getAllByRole("button", { name: "Python" });
-    expect(python.every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
-    expect(container.textContent).toContain("npm install @traceroot-ai/mastra");
-  });
-
-  it("groups GitHub and Slack into the external integrations card, unnumbered", () => {
-    // Unnumbered, as on the "Using AI" tab: a first trace does not need them.
-    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    expect(screen.getByText("External integrations")).toBeDefined();
-    expect(screen.getByTestId("github-connect")).toBeDefined();
-    expect(screen.getByTestId("slack-connect")).toBeDefined();
-  });
-
-  it("says the workspace step is unavailable when the project fetch fails", () => {
-    // An errored useProject is not a loading state: isLoading drops with no
-    // data behind it. Rendering on `!isLoading` alone gave the step an empty
-    // workspace id.
-    projectQuery.isLoading = false;
-    projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-    expect(screen.queryByTestId("slack-connect")).toBeNull();
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-  });
-
-  it("shows a placeholder instead of the integrations while the project loads", () => {
-    // The card reads the workspace id off the project, so rendering it before
-    // the fetch settles puts rows on screen that cannot act on anything.
-    projectQuery.isLoading = true;
-    projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
-    expect(screen.getByText("Loading integrations...")).toBeDefined();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-  });
-});
-
-describe("ManualTab with no stack chosen above it", () => {
-  // The traces page renders the walkthrough this way: the tab asks for the
-  // stack itself, as step 4, and asks for no model key. The model key is asked
-  // for during onboarding.
+  // The tab asks for the stack itself, as step 4, and asks for no model key, on
+  // the traces page and at the end of sign-up alike.
   const stepNames = () =>
     screen.getAllByText(/^\d+\. /).map((node) => node.textContent?.replace(/^\d+\. /, ""));
 
@@ -231,28 +116,115 @@ describe("ManualTab with no stack chosen above it", () => {
     render(<ManualTab projectId="proj_1" />);
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
     const picker = screen.getByRole("radiogroup", { name: "Integration" });
-    expect(within(picker).getAllByRole("radio")).toHaveLength(INTEGRATIONS.length);
     expect(within(picker).getByText("Model providers")).toBeDefined();
     expect(within(picker).getByText("Frameworks")).toBeDefined();
   });
 
-  it("groups its own picker as providers and frameworks, starting on OpenAI", () => {
+  it("shows the ten common stacks, in their groups, starting on OpenAI", () => {
     render(<ManualTab projectId="proj_1" />);
+    const radios = () =>
+      within(screen.getByRole("radiogroup", { name: "Integration" }))
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent);
+    expect(radios()).toEqual([
+      "Anthropic",
+      "Google Gemini",
+      "OpenAI",
+      "Claude Agent SDK",
+      "CrewAI",
+      "LangChain & LangGraph",
+      "OpenAI Agents SDK",
+      "Vercel AI SDK",
+      "Claude Code",
+      "Codex",
+    ]);
     const providers = pickerGroup("Model providers");
-    const frameworks = pickerGroup("Frameworks");
     expect(
       within(providers).getByRole("radio", { name: "OpenAI" }).getAttribute("aria-checked"),
     ).toBe("true");
     // The catalogue's "Frameworks & SDKs" entries land under "Frameworks" here.
-    expect(within(frameworks).getByRole("radio", { name: "CrewAI" })).toBeDefined();
-    expect(within(frameworks).getByRole("radio", { name: "DSPy" })).toBeDefined();
-    expect(within(providers).queryByRole("radio", { name: "CrewAI" })).toBeNull();
+    expect(within(pickerGroup("Frameworks")).getByRole("radio", { name: "CrewAI" })).toBeDefined();
     expect(screen.queryByLabelText("Search integrations")).toBeNull();
+  });
+
+  it("shows the other thirteen in their own groups, after the common ones, from one control", () => {
+    render(<ManualTab projectId="proj_1" />);
+    const more = screen.getByRole("button", { name: "Show 13 more" });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("radio", { name: "DSPy" })).toBeNull();
+
+    fireEvent.click(more);
+
+    const picker = screen.getByRole("radiogroup", { name: "Integration" });
+    expect(within(picker).getAllByRole("radio")).toHaveLength(INTEGRATIONS.length);
+    const providers = within(pickerGroup("Model providers"))
+      .getAllByRole("radio")
+      .map((radio) => radio.textContent);
+    expect(providers).toEqual(["Anthropic", "Google Gemini", "OpenAI", "Mistral", "OpenRouter"]);
+    expect(
+      within(pickerGroup("Coding agents")).getByRole("radio", { name: "pi CLI" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(screen.queryByRole("radio", { name: "DSPy" })).toBeNull();
+  });
+
+  it("keeps a folded stack on screen while it is the one chosen", () => {
+    render(<ManualTab projectId="proj_1" />);
+    chooseStack("DSPy");
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+
+    expect(screen.getByRole("radio", { name: "DSPy" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByRole("radio", { name: "AutoGen" })).toBeNull();
+  });
+
+  it("says which Python the SDK needs, under the Python install command only", () => {
+    render(<ManualTab projectId="proj_1" />);
+    const note = screen.getByText("Needs Python 3.11 or later.");
+    expect(
+      screen.getByText("2. Install SDK").compareDocumentPosition(note) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      note.compareDocumentPosition(screen.getByText("3. Set environment variables")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "TypeScript" })[0]);
+    expect(screen.queryByText("Needs Python 3.11 or later.")).toBeNull();
+  });
+
+  it("records which snippet was copied, for which stack and surface", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    render(<ManualTab projectId="proj_1" surface="onboarding" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy python snippet" }));
+
+    await waitFor(() =>
+      expect(capture).toHaveBeenCalledWith("setup_snippet_copied", {
+        project_id: "proj_1",
+        surface: "onboarding",
+        snippet: "sdk_init",
+        integration: "openai",
+      }),
+    );
+  });
+
+  it("offers only the languages the stack has, starting on one it has", () => {
+    // Mastra is TypeScript only; Python must not be the resolved tab.
+    const { container } = render(<ManualTab projectId="proj_1" />);
+    chooseStack("Mastra");
+    const python = screen.getAllByRole("button", { name: "Python" });
+    expect(python.every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    expect(container.textContent).toContain("npm install @traceroot-ai/mastra");
   });
 
   it("follows its own picker: the snippets and the docs link under it", () => {
     const { container } = render(<ManualTab projectId="proj_1" />);
-    fireEvent.click(screen.getByRole("radio", { name: "Mastra" }));
+    chooseStack("Mastra");
 
     expect(screen.getByText("5. Initialize traceroot for Mastra")).toBeDefined();
     expect(container.textContent).toContain("@traceroot-ai/mastra");
@@ -270,37 +242,17 @@ describe("ManualTab with no stack chosen above it", () => {
   it("asks for no model key, on any stack", () => {
     render(<ManualTab projectId="proj_1" />);
     for (const name of ["OpenAI", "Mistral", "CrewAI", "Claude Agent SDK"]) {
-      fireEvent.click(screen.getByRole("radio", { name }));
+      chooseStack(name);
       expect(screen.queryByText(/model key/i)).toBeNull();
       expect(screen.queryByTestId("model-provider-block")).toBeNull();
     }
-    expect(screen.getByText("External integrations")).toBeDefined();
-    expect(screen.getByTestId("github-connect")).toBeDefined();
-  });
-
-  it("says the workspace step is unavailable when the project fetch fails", () => {
-    projectQuery.isLoading = false;
-    projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.queryByTestId("model-provider-block")).toBeNull();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
-    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(1);
-    // The picker needs no workspace, so it is still usable.
-    expect(screen.getByRole("radiogroup", { name: "Integration" })).toBeDefined();
-  });
-
-  it("shows a placeholder for the integrations while the project loads", () => {
-    projectQuery.isLoading = true;
-    projectQuery.data = undefined;
-    render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("Loading integrations...")).toBeDefined();
-    expect(screen.queryByText("Loading model providers...")).toBeNull();
-    expect(screen.queryByTestId("github-connect")).toBeNull();
+    // GitHub and Slack are connected elsewhere: their own sign-up step, and settings.
+    expect(screen.queryByText("External integrations")).toBeNull();
   });
 });
 
 describe("the environment step", () => {
-  // Neither SDK loads a `.env` file, and both default to TraceRoot Cloud when
+  // Neither SDK loads a `.env` file, and both default to traceroot Cloud when
   // `TRACEROOT_HOST_URL` is unset, so a walkthrough that stops at the key sends
   // a self-hosted reader's key and first traces to Cloud.
   it("sets the host to the origin the setup command uses, on a self-hosted deployment", async () => {
@@ -384,7 +336,7 @@ describe("the environment step", () => {
   });
 
   it("says neither SDK loads .env, and shows the load for the language on screen", () => {
-    const { container } = render(<ManualTab projectId="proj_1" integration={byId("openai")} />);
+    const { container } = render(<ManualTab projectId="proj_1" />);
     expect(container.textContent).toContain("Neither SDK loads a .env file by itself");
     expect(container.textContent).toContain("from dotenv import load_dotenv; load_dotenv()");
 

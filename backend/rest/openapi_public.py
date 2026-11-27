@@ -21,7 +21,7 @@ from rest.services.filters.translate import (
 from rest.services.widget_registry import registry_schema
 
 PUBLIC_PREFIX = "/api/v1/public/"
-TITLE = "TraceRoot Public API"
+TITLE = "traceroot Public API"
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
@@ -404,6 +404,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     "ingest_traces": {"enabled": False},
+    "write_label": {"enabled": False},
     "run_sql": {
         "name": "run_sql",
         "description": (
@@ -1243,14 +1244,14 @@ def build_public_schema(app: Any) -> dict[str, Any]:
 #: under the same origin the SDKs default to; self-hosters point the variable at
 #: their own backend.
 DOCS_SERVERS: list[dict[str, Any]] = [
-    {"url": "https://app.traceroot.ai", "description": "TraceRoot Cloud"},
+    {"url": "https://app.traceroot.ai", "description": "traceroot Cloud"},
     {
         "url": "{baseUrl}",
         "description": "Self-hosted",
         "variables": {
             "baseUrl": {
                 "default": "http://localhost:8000",
-                "description": "Your TraceRoot backend URL",
+                "description": "Your traceroot backend URL",
             }
         },
     },
@@ -1258,6 +1259,10 @@ DOCS_SERVERS: list[dict[str, Any]] = [
 
 #: Page summaries used by Mintlify for search snippets, keyed by operation ID.
 _DOCS_DESCRIPTIONS: dict[str, str] = {
+    "write_label": (
+        "Apply an existing project label to a production trace or span with a project API key. "
+        "Use the same idempotency key when retrying the request."
+    ),
     "whoami": (
         "Check which traceroot project and workspace an API key belongs to. Useful "
         "for confirming that a credential is valid and correctly scoped."
@@ -1403,7 +1408,7 @@ _DOCS_DESCRIPTIONS: dict[str, str] = {
         "over a time window and compared against a threshold you set."
     ),
     "update_alert": (
-        "Update a threshold alert in a TraceRoot project. Changes to evaluated fields reset its "
+        "Update a threshold alert in a traceroot project. Changes to evaluated fields reset its "
         "state, while changing only the alert name preserves it."
     ),
     "set_alert_status": (
@@ -1490,6 +1495,7 @@ _DOCS_DESCRIPTIONS: dict[str, str] = {
 
 #: Caller-facing details that do not fit in the search snippet.
 _DOCS_USAGE_NOTES = {
+    "write_label": "Use a project API key. Create the label in Project Settings before applying it.",
     "list_alerts": "Alerts are ordered oldest first.",
     "create_alert": "Each call creates a new alert, even when its name matches an existing one.",
     "update_alert": (
@@ -1539,8 +1545,11 @@ _DOCS_USAGE_NOTES = {
     ),
 }
 
+_SDK_DRIVEN_OPERATIONS = frozenset(
+    {"ingest_traces", "register_run", "upsert_result", "complete_run"}
+)
 _SDK_NOTE = (
-    "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only "
+    "<Note>The traceroot SDKs call this endpoint for you; call it directly only "
     "where no SDK fits. It accepts a project API key only.</Note>"
 )
 _INGEST_NOTE = (
@@ -1554,9 +1563,9 @@ def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
     Mintlify only reads files inside ``docs/``, so the reference needs its own
     copy. It is the public document plus what only the docs need: ``servers``
-    for the playground, search descriptions, and a note on each operation hidden from the tool
-    registry (the SDKs' ingest and evaluation-run writes) saying the SDKs call
-    it. ``public.json`` itself stays unchanged, so the tool registry is unaffected.
+    for the playground, search descriptions, and notes on the SDKs' ingest and
+    evaluation-run writes. ``public.json`` itself stays unchanged, so the tool
+    registry is unaffected.
 
     Args:
         schema (dict[str, Any]): The public-only OpenAPI document; not mutated.
@@ -1573,7 +1582,7 @@ def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
             op_id = op["operationId"]
             tool = op["x-tool"]
             parts = []
-            if not tool["enabled"]:
+            if op_id in _SDK_DRIVEN_OPERATIONS:
                 parts.append(_SDK_NOTE + (_INGEST_NOTE if op_id == "ingest_traces" else ""))
             role = tool.get("policy", {}).get("minRole")
             if role == "MEMBER":
