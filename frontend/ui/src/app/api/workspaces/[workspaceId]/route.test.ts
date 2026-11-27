@@ -22,8 +22,7 @@ const workspaceFindUniqueMock = vi.fn();
 const workspaceDeleteMock = vi.fn();
 const memberCountMock = vi.fn();
 const auditCreateMock = vi.fn();
-const countFreeLoopRunsUsedMock = vi.fn();
-const plan = { billing: true, loops: true };
+const loopPlanStateMock = vi.fn();
 
 // The mutating handlers delegate to the write service, which runs its own
 // membership check, its reads and its audit inside a transaction on this
@@ -52,16 +51,12 @@ vi.mock("@traceroot/core", () => {
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
     prisma: client,
     getRetentionDays: () => 7,
-    PlanType: { FREE: "free", STARTER: "starter", PRO: "pro" },
-    isBillingEnabled: () => plan.billing,
-    isLoopRunBlocked: (p: string, runsUsed: number) =>
-      plan.billing && p === "free" && runsUsed >= 30,
   };
 });
-vi.mock("@traceroot/core/loops", () => ({
-  countFreeLoopRunsUsed: (...args: unknown[]) => countFreeLoopRunsUsedMock(...args),
+// The Loop plan state is read live (its own tests cover how); here only that the route returns it.
+vi.mock("@/lib/loop-plan-state", () => ({
+  loopPlanState: (...args: unknown[]) => loopPlanStateMock(...args),
 }));
-vi.mock("@/lib/loops-enabled", () => ({ isLoopsEnabled: () => plan.loops }));
 
 const requireAuthMock = vi.fn();
 const requireWorkspaceMembershipMock = vi.fn();
@@ -100,9 +95,13 @@ beforeEach(() => {
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireWorkspaceMembershipMock.mockReset();
   requireWorkspaceMembershipMock.mockResolvedValue({ membership: { role: "ADMIN" } });
-  countFreeLoopRunsUsedMock.mockReset();
-  plan.billing = true;
-  plan.loops = true;
+  loopPlanStateMock.mockReset();
+  loopPlanStateMock.mockImplementation(
+    async (w: { loopBlocked?: boolean; currentUsage?: unknown }) => ({
+      loopBlocked: w.loopBlocked,
+      currentUsage: w.currentUsage,
+    }),
+  );
 });
 
 describe("GET /api/workspaces/[workspaceId]", () => {
@@ -132,54 +131,28 @@ describe("GET /api/workspaces/[workspaceId]", () => {
 });
 
 describe("GET /api/workspaces/[workspaceId]: the Loop plan state", () => {
-  const workspace = (billingPlan: string, loopBlocked: boolean, runsUsed: number) => ({
-    id: "ws-1",
-    name: "Acme",
-    billingPlan,
-    loopBlocked,
-    currentUsage: { ai: { runsUsed: 3 }, loop: { runsUsed, systemTokenCost: 0.5 } },
-    createTime: new Date("2026-10-01T00:00:00Z"),
-    projects: [],
-    _count: { members: 1 },
-  });
-  const read = async () =>
-    (await ((await GET(makeRequest(undefined), makeParams())) as MockResponse).json()) as Record<
-      string,
-      unknown
-    >;
-
-  it("blocks a Free workspace once its live count reaches the cap, before the billing pass", async () => {
-    workspaceFindUniqueMock.mockResolvedValue(workspace("free", false, 29));
-    countFreeLoopRunsUsedMock.mockResolvedValue(30);
-    expect(await read()).toMatchObject({
+  it("returns the Loop plan state read live for the workspace", async () => {
+    const stored = {
+      id: "ws-1",
+      name: "Acme",
+      billingPlan: "free",
+      loopBlocked: false,
+      currentUsage: { loop: { runsUsed: 29 } },
+      createTime: new Date("2026-10-01T00:00:00Z"),
+      projects: [],
+      _count: { members: 1 },
+    };
+    workspaceFindUniqueMock.mockResolvedValue(stored);
+    loopPlanStateMock.mockResolvedValue({
       loopBlocked: true,
-      currentUsage: { ai: { runsUsed: 3 }, loop: { runsUsed: 30, systemTokenCost: 0.5 } },
+      currentUsage: { loop: { runsUsed: 30 } },
     });
-    expect(countFreeLoopRunsUsedMock).toHaveBeenCalledWith(expect.anything(), "ws-1");
-  });
-
-  it("keeps the metered count when it is ahead of the live one", async () => {
-    workspaceFindUniqueMock.mockResolvedValue(workspace("free", false, 12));
-    countFreeLoopRunsUsedMock.mockResolvedValue(10);
-    expect(await read()).toMatchObject({
-      loopBlocked: false,
-      currentUsage: { loop: { runsUsed: 12 } },
+    const res = (await GET(makeRequest(undefined), makeParams())) as MockResponse;
+    expect(await res.json()).toMatchObject({
+      loopBlocked: true,
+      currentUsage: { loop: { runsUsed: 30 } },
     });
-  });
-
-  it("returns the stored state for a paid plan, with billing off or with Loops off", async () => {
-    workspaceFindUniqueMock.mockResolvedValue(workspace("pro", false, 40));
-    expect(await read()).toMatchObject({
-      loopBlocked: false,
-      currentUsage: { loop: { runsUsed: 40 } },
-    });
-    plan.billing = false;
-    workspaceFindUniqueMock.mockResolvedValue(workspace("free", false, 40));
-    expect(await read()).toMatchObject({ loopBlocked: false });
-    plan.billing = true;
-    plan.loops = false;
-    expect(await read()).toMatchObject({ loopBlocked: false });
-    expect(countFreeLoopRunsUsedMock).not.toHaveBeenCalled();
+    expect(loopPlanStateMock).toHaveBeenCalledWith(stored);
   });
 });
 
