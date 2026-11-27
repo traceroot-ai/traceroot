@@ -396,7 +396,7 @@
   {
     "id": "tr-gpt-6-astra",
     "modelName": "gpt-6-astra",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-astra)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6-astra)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.00001,

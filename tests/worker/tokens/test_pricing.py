@@ -104,6 +104,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-6-astra", "gpt-6-astra"),
     ("openai/gpt-6-astra", "gpt-6-astra"),
     ("azure/gpt-6-astra", "gpt-6-astra"),
+    ("global.openai.gpt-6-astra", "gpt-6-astra"),
     ("gpt-6-astra-2026-07-09", "gpt-6-astra"),
     ("gpt-6.2-astra", "gpt-6.2-astra"),
     ("openai/gpt-6.2-astra", "gpt-6.2-astra"),
