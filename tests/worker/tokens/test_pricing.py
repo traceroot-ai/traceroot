@@ -235,6 +235,7 @@ XAI_MODEL_CASES = [
     ("grok-4.20", "grok-4.20"),
     ("grok-4-20", "grok-4.20"),
     ("xai/grok-4.20", "grok-4.20"),
+    ("x-ai/grok-4.20", "grok-4.20"),
     ("grok-4.20-20260601", "grok-4.20"),
     ("grok-4.20-0309-reasoning", "grok-4.20"),
     ("grok-4.20-0309-non-reasoning", "grok-4.20"),

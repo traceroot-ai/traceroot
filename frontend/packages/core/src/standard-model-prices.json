@@ -1618,7 +1618,7 @@
   {
     "id": "tr-grok-4-20",
     "modelName": "grok-4.20",
-    "matchPattern": "(?i)^(xai\\/)?grok-4[.-]20(-[a-z0-9-]+)?$",
+    "matchPattern": "(?i)^((xai\\/)?grok-4[.-]20(-[a-z0-9-]+)?|x-ai\\/grok-4\\.20)$",
     "provider": "xai",
     "prices": {
       "input": 0.00000125,
