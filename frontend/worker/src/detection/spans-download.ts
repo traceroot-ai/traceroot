@@ -7,6 +7,7 @@
  * serves the request. The GET is idempotent, so such a failure is retried once on a new
  * connection; HTTP status errors are not retried, and a second failure throws.
  */
+import { UnrecoverableError } from "bullmq";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
@@ -39,7 +40,11 @@ export async function downloadSpansJsonl(projectId: string, traceId: string): Pr
     if (retried.status >= 200 && retried.status < 300) return retried.body;
     status = retried.status;
   }
-  throw new Error(`Failed to download spans for trace ${traceId}: HTTP ${status}`);
+  const message = `Failed to download spans for trace ${traceId}: HTTP ${status}`;
+  if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    throw new UnrecoverableError(message);
+  }
+  throw new Error(message);
 }
 
 /** GET over a new connection that is closed afterwards (`agent: false`), so no pooled socket is reused. */
