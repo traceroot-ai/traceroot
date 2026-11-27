@@ -91,6 +91,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
     ("azure/gpt-5.6-terra", "gpt-5.6-terra"),
+    ("global.openai.gpt-5.6-terra", "gpt-5.6-terra"),
     ("gpt-6.1-terra", "gpt-6.1-terra"),
     ("openai/gpt-6.1-terra", "gpt-6.1-terra"),
     ("azure/gpt-6.1-terra", "gpt-6.1-terra"),
