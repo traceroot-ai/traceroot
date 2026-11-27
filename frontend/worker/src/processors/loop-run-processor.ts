@@ -1,8 +1,9 @@
 /**
- * Executes one Loop run: its start (every gate, under one lock), its model,
- * then the agent service's loop-run route on a fresh system session. The agent
- * reads traces and answers with a summary; this processor owns the run's
- * lifecycle (loop_runs.status) from pending to its end state. A run records its summary and memory notes; no finding or signal.
+ * Executes one Loop run: its start (every gate, under one lock), the check that
+ * its window has traces, its model, then the agent service's loop-run route on
+ * a fresh system session. The agent reads traces and answers with a summary;
+ * this processor owns the run's lifecycle (loop_runs.status) from pending to
+ * its end state. A run records its summary and memory notes; no finding or signal.
  */
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@traceroot/core";
@@ -124,36 +125,39 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
   let ranOn: LoopRunModel | null = null;
   let finish: LoopRunFinish;
   try {
-    // The Loop's own model, else the project's Agent model.
-    const choice = loop.model
-      ? { model: loop.model, provider: loop.provider, source: loop.source }
-      : { model: project.rcaModel, provider: project.rcaProvider, source: project.rcaSource };
-    const model = await resolveProjectModel(
-      choice.model,
-      choice.provider,
-      choice.source,
-      project.workspaceId,
-    );
-    if (model && "error" in model) {
-      // Failed where the user sees it, and on the failure streak, but the agent
-      // was never called: no session, so it counts against neither cap.
-      finish = { status: "failed", error: model.error };
-    } else if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
-      // Nothing for the agent to read: no session, so it counts against
-      // neither cap, and it leaves the failure streak alone.
+    if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
+      // Nothing for the agent to read, checked before the model so that an
+      // empty window always skips, whatever its model: no session, so it
+      // counts against neither cap, and it leaves the failure streak alone.
       finish = { status: "skipped_no_traces", error: noTracesSkip(loop.lookbackHours) };
     } else {
-      resolved = model;
-      const result = await callAgent({
-        runId: run.id,
-        projectId: project.id,
-        workspaceId: project.workspaceId,
-        title: `[Loop] ${loop.name} #${run.seq}`,
-        resolved,
-        timeoutMs,
-      });
-      ranOn = result.modelUsed;
-      finish = outcomeOf(result, timeoutMs);
+      // The Loop's own model, else the project's Agent model.
+      const choice = loop.model
+        ? { model: loop.model, provider: loop.provider, source: loop.source }
+        : { model: project.rcaModel, provider: project.rcaProvider, source: project.rcaSource };
+      const model = await resolveProjectModel(
+        choice.model,
+        choice.provider,
+        choice.source,
+        project.workspaceId,
+      );
+      if (model && "error" in model) {
+        // Failed where the user sees it, and on the failure streak, but the
+        // agent was never called: no session, so it counts against neither cap.
+        finish = { status: "failed", error: model.error };
+      } else {
+        resolved = model;
+        const result = await callAgent({
+          runId: run.id,
+          projectId: project.id,
+          workspaceId: project.workspaceId,
+          title: `[Loop] ${loop.name} #${run.seq}`,
+          resolved,
+          timeoutMs,
+        });
+        ranOn = result.modelUsed;
+        finish = outcomeOf(result, timeoutMs);
+      }
     }
   } catch (error) {
     if (isAbort(error)) {

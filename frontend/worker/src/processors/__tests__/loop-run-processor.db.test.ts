@@ -614,14 +614,32 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       expect((await runRow(run.id)).status).toBe("quiet");
     });
 
-    it("still fails a run whose model cannot be resolved", async () => {
-      const ids = await setup({ loop: { model: "gpt-5", provider: "my-openai", source: "byok" } });
+    it("skips a run whose BYOK provider is missing, without resolving its model", async () => {
+      const ids = await setup({
+        loop: {
+          model: "gpt-5",
+          provider: "my-openai",
+          source: "byok",
+          failureStreak: LOOP_LIMITS.failureStreakToPause - 1,
+        },
+      });
       mocks.resolveProjectModel.mockResolvedValue({ error: "BYOK provider is gone" });
       mocks.windowHasTraces.mockResolvedValue(false);
       const run = await addRun(ids, { trigger: "schedule" });
       await runJob(run.id);
-      expect((await runRow(run.id)).status).toBe("failed");
-      expect(mocks.windowHasTraces).not.toHaveBeenCalled();
+      const after = await runRow(run.id);
+      expect(after).toMatchObject({
+        status: "skipped_no_traces",
+        error: noTracesSkip(24),
+        sessionId: null,
+      });
+      expect(after.metadata).toMatchObject({ model: null, provider: null, source: null });
+      expect(mocks.resolveProjectModel).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await loopRow(ids.loopId)).toMatchObject({
+        failureStreak: LOOP_LIMITS.failureStreakToPause - 1,
+        status: "active",
+      });
     });
 
     it("calls the agent when the check itself fails", async () => {
