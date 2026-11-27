@@ -408,16 +408,18 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "run_sql": {
         "name": "run_sql",
         "description": (
-            "Run one read-only SQL query over the project's own spans and traces "
-            "and return the rows. Use get_sql_schema first to see the columns "
-            "available; the query may only read the curated spans and traces "
-            "tables, and results are capped and may be truncated."
+            "Run one read-only query on TraceRoot's SQL API: a single SELECT, "
+            "UNION or WITH query over the project's documented spans and traces "
+            "tables, nothing else. Call "
+            "get_sql_schema first to see their columns. Rows are capped and may be "
+            "truncated. SQL reference: https://traceroot.ai/docs/cli/sql"
         ),
         "enabled": True,
         # A read that happens to arrive by POST, because the query travels in the
         # body. VIEWER and no approval match the other read operations; the
         # method is what forces a policy entry here at all.
         "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+        "readOnly": True,
     },
     "get_sql_schema": {
         "name": "get_sql_schema",
@@ -545,6 +547,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+        "readOnly": True,
     },
     "get_dashboard_data": {
         "name": "get_dashboard_data",
@@ -1053,8 +1056,21 @@ def _validate_curation_policy(
         ValueError: If a GET entry carries a ``policy`` key (the vocabulary is
             write-only), or if an enabled non-GET entry's ``policy`` is not a
             dict with exactly the keys ``{approvalClass, minRole, tenancy}``
-            and legal values.
+            and legal values, or if ``readOnly`` appears anywhere but as true
+            on a POST whose policy ``approvalClass`` is ``none``.
     """
+    if "readOnly" in entry:
+        policy = entry.get("policy")
+        if (
+            method != "post"
+            or entry["readOnly"] is not True
+            or not isinstance(policy, dict)
+            or policy.get("approvalClass") != "none"
+        ):
+            raise ValueError(
+                f"tool {method.upper()} {path} ({op_id}): readOnly is only legal as "
+                "true on a POST whose policy approvalClass is none"
+            )
     if method == "get":
         if "policy" in entry:
             raise ValueError(

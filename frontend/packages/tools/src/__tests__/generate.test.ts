@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateRegistry, type OpenApiDocument } from "../generate.js";
+import { REGISTRY } from "../registry.generated.js";
 import type { ParamSchema } from "../types.js";
 
 /** Minimal fake of the public OpenAPI document, in the shapes FastAPI emits. */
@@ -1057,5 +1058,98 @@ describe("generateRegistry edit operations", () => {
       "Enabled write tool on DELETE /api/v1/public/dashboards/{dashboard_id}: " +
         'agentHiddenParams field "reason" is not a request-body property',
     );
+  });
+});
+
+describe("generateRegistry annotations", () => {
+  const writePost = (doc: OpenApiDocument) => doc.paths["/api/v1/public/workspaces"].post!;
+  const none = { approvalClass: "none", minRole: "VIEWER", tenancy: "project" };
+
+  it("marks a GET read-only and non-destructive, titled from the tool name", () => {
+    const get = generateRegistry(fakeDoc()).find((e) => e.name === "list_traces")!;
+    expect(get.annotations).toEqual({
+      title: "List traces",
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+  });
+
+  it("marks a DELETE destructive and a confirm-class write neither read-only nor destructive", () => {
+    const entries = generateRegistry(fakeEditDoc());
+    const del = entries.find((e) => e.method === "delete")!;
+    const patch = entries.find((e) => e.method === "patch")!;
+    expect(del.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(patch.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+  });
+
+  it("marks an approval-class POST destructive", () => {
+    const doc = fakeWriteDoc();
+    writePost(doc)["x-tool"]!.policy = { ...none, approvalClass: "approval" };
+    expect(generateRegistry(doc)[0]!.annotations).toMatchObject({ destructiveHint: true });
+  });
+
+  it("marks a readOnly POST read-only", () => {
+    const doc = fakeWriteDoc();
+    Object.assign(writePost(doc)["x-tool"]!, { policy: none, readOnly: true });
+    expect(generateRegistry(doc)[0]!.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+  });
+
+  it("throws on readOnly on a GET", () => {
+    const doc = fakeDoc();
+    const get = Object.values(doc.paths).find((ops) => ops.get?.["x-tool"]?.enabled)!.get!;
+    get["x-tool"]!.readOnly = true;
+    expect(() => generateRegistry(doc)).toThrow("x-tool readOnly is only legal");
+  });
+
+  it("throws on readOnly on a non-POST write", () => {
+    const doc = fakeEditDoc();
+    const patch = doc.paths["/api/v1/public/dashboards/{dashboard_id}"].patch!;
+    patch["x-tool"]!.readOnly = true;
+    expect(() => generateRegistry(doc)).toThrow("x-tool readOnly is only legal");
+  });
+
+  it("throws on readOnly without approvalClass none, or with a non-true value", () => {
+    for (const patch of [
+      { policy: { ...none, approvalClass: "confirm" }, readOnly: true },
+      { policy: none, readOnly: false },
+    ]) {
+      const doc = fakeWriteDoc();
+      Object.assign(writePost(doc)["x-tool"]!, patch);
+      expect(() => generateRegistry(doc)).toThrow("x-tool readOnly is only legal");
+    }
+  });
+});
+
+describe("REGISTRY annotations", () => {
+  it("gives every generated entry all four hints", () => {
+    for (const entry of REGISTRY) {
+      expect(entry.annotations, entry.name).toBeDefined();
+      const { title, readOnlyHint, destructiveHint, openWorldHint } = entry.annotations!;
+      expect(title.length).toBeGreaterThan(0);
+      expect(
+        [readOnlyHint, destructiveHint, openWorldHint].every((v) => typeof v === "boolean"),
+      ).toBe(true);
+      expect(openWorldHint).toBe(false);
+    }
+  });
+
+  it("keeps GETs read-only, DELETEs destructive, and never both hints at once", () => {
+    for (const entry of REGISTRY) {
+      const { readOnlyHint, destructiveHint } = entry.annotations!;
+      if (entry.method === "get") expect(readOnlyHint, entry.name).toBe(true);
+      if (entry.method === "delete") expect(destructiveHint, entry.name).toBe(true);
+      expect(readOnlyHint && destructiveHint, entry.name).toBe(false);
+    }
+  });
+
+  it("marks exactly run_sql and run_widget_query as read-only POSTs", () => {
+    const readOnlyPosts = REGISTRY.filter(
+      (e) => e.method === "post" && e.annotations!.readOnlyHint,
+    ).map((e) => e.name);
+    expect(readOnlyPosts.sort()).toEqual(["run_sql", "run_widget_query"]);
   });
 });

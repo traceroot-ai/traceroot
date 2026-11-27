@@ -1,5 +1,6 @@
 import { ApiError, type ApiClient } from "./client.js";
 import { dispatch } from "./dispatch.js";
+import { humanizeName } from "./generate.js";
 import { stripOversizedNumericBounds } from "./sanitize.js";
 import type { ParamSchema, RegistryEntry } from "./types.js";
 
@@ -72,12 +73,6 @@ export interface ToPiAgentToolOptions {
   defaults?: (supplied: Readonly<Record<string, unknown>>) => Record<string, unknown>;
   /** Custom handler for API errors; return a string to override error rendering as a plain result. */
   formatError?: (error: ApiError) => string | undefined;
-}
-
-/** "list_traces" -> "List traces" for the tool's human-readable label. */
-function humanizeName(name: string): string {
-  const words = name.replace(/_/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /**
