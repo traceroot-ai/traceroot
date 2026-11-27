@@ -84,6 +84,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-5-6", "gpt-5.6-sol"),
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
     ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
+    ("global.openai.gpt-5.6-sol", "gpt-5.6-sol"),
     ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
     # gpt-5.6 is the provider-documented alias for gpt-5.6-sol.
     ("gpt-5.6", "gpt-5.6-sol"),
