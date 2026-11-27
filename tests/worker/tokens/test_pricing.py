@@ -125,6 +125,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-6-luna", "gpt-6-luna"),
     ("openai/gpt-6-luna", "gpt-6-luna"),
     ("azure/gpt-6-luna", "gpt-6-luna"),
+    ("global.openai.gpt-6-luna", "gpt-6-luna"),
     ("gpt-6-luna-2026-09-22", "gpt-6-luna"),
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),

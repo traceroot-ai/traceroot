@@ -324,7 +324,7 @@
   {
     "id": "tr-gpt-6-luna",
     "modelName": "gpt-6-luna",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-luna)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6-luna)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.0000001,
