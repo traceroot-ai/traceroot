@@ -7,7 +7,12 @@ import { LOOP_LIMITS, LOOP_MEMORY, listMemory, upsertMemory } from "@traceroot/c
 import { formatSessionDetail, formatSessionList, formatTraceList } from "../formatters.js";
 import { lookbackDefaults, lookbackWindow, type LookbackWindow } from "../query-window.js";
 import { createRegistryBinder } from "../registry-tools.js";
-import { SUBMIT_SUMMARY_TOOL, withBudget, type LoopRunState } from "./budget.js";
+import {
+  BLOCKED_CALLS_BEFORE_STOP,
+  SUBMIT_SUMMARY_TOOL,
+  withBudget,
+  type LoopRunState,
+} from "./budget.js";
 import { clip, formatTraceDetail } from "./format.js";
 import { createSignalReadTools } from "./signals.js";
 
@@ -244,7 +249,13 @@ export function createLoopTools(params: LoopToolsParams): AgentTool<any>[] {
     parameters: summarySchema,
     execute: async (_id, args: Static<typeof summarySchema>) => {
       const summary = String(args.summary ?? "").trim();
-      if (!summary) return text("Not recorded: the summary is empty. Call again with the summary.");
+      if (!summary) {
+        // Exempt from the tool budget, so an empty summary is refused like a call over a cap:
+        // a run that keeps submitting nothing is stopped instead of spinning to its deadline.
+        params.state.blockedCalls += 1;
+        if (params.state.blockedCalls === BLOCKED_CALLS_BEFORE_STOP) params.onRunaway();
+        return text("Not recorded: the summary is empty. Call again with the summary.");
+      }
       params.state.summary = clip(summary, SUMMARY_MAX_CHARS);
       return {
         ...text("Summary recorded. The run is complete: stop now and make no further calls."),
