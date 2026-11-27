@@ -16,6 +16,7 @@ const auditCreateMock = vi.fn();
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   const client = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
     project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
     workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
     detector: {
@@ -101,7 +102,12 @@ describe("PATCH .../detectors/[detectorId] — role gating", () => {
   });
 
   it("answers a patch that changes nothing with 200 and no write", async () => {
-    detectorFindFirstMock.mockResolvedValue({ id: "det-1", projectId: "proj-1", name: "Same" });
+    detectorFindFirstMock.mockResolvedValue({
+      id: "det-1",
+      projectId: "proj-1",
+      authorUserId: "user-1",
+      name: "Same",
+    });
     const res = await PATCH(makeRequest({ name: "Same" }), makeParams());
     expect(res.status).toBe(200);
     expect(detectorUpdateMock).not.toHaveBeenCalled();

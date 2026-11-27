@@ -62,10 +62,11 @@ export function createTools(params: {
   tools.push(createCheckGitHubAccessTool(params.workspaceId, internalUiUrl()));
   tools.push(createGitCloneTool(params.workspaceId, internalUiUrl(), params.executor));
 
-  // Sandbox-side tools (run inside Docker container via executor)
-  tools.push(createBashTool(params.executor));
+  // Automatic analysis can download and read evidence, but only a human
+  // turn may run arbitrary commands or write files in the sandbox.
+  if (params.userId) tools.push(createBashTool(params.executor));
   tools.push(createReadTool(params.executor));
-  tools.push(createWriteTool(params.executor));
+  if (params.userId) tools.push(createWriteTool(params.executor));
 
   return tools;
 }

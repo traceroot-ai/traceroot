@@ -105,6 +105,15 @@ beforeEach(() => {
 const p2002 = () => Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
 
 describe("createDetector", () => {
+  it("records the authenticated actor as configuration author, ignoring a supplied author", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+
+    expect(await run({ authorUserId: "forged-user" })).toMatchObject({ ok: true });
+    expect(tx.detector.create.mock.calls[0][0].data.authorUserId).toBe("u1");
+  });
+
   it("returns 404 when the project does not exist", async () => {
     tx.project.findUnique.mockResolvedValue(null);
     const r = await run();

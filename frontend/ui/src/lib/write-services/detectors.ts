@@ -230,6 +230,7 @@ export async function createDetector(input: {
       const detector = await tx.detector.create({
         data: {
           projectId: input.projectId,
+          authorUserId: input.actorUserId,
           name,
           template,
           prompt,
@@ -401,6 +402,8 @@ export async function updateDetector(input: {
         return { result: { ok: false, status: 400, error: NO_FIELDS_MESSAGE } };
       }
 
+      // Bind authorship to the configuration read under this lock, not a concurrent edit.
+      await tx.$queryRaw`SELECT id FROM detectors WHERE id = ${input.detectorId} AND project_id = ${input.projectId} FOR UPDATE`;
       const existing = await tx.detector.findFirst({
         where: { id: input.detectorId, projectId: input.projectId },
         include: { trigger: true },
@@ -411,6 +414,21 @@ export async function updateDetector(input: {
         ...existing,
         triggerConditions: existing.trigger?.conditions ?? [],
       });
+      const approvesConfiguration = patchSchema.required().safeParse(input.patch).success;
+      if (changed.length === 0 && !approvesConfiguration) {
+        return { result: { ok: true, data: existing, changed } };
+      }
+      // Partial edits cannot approve the configuration fields they did not send.
+      const authorship = diffPatch(
+        {
+          authorUserId:
+            approvesConfiguration || existing.authorUserId === input.actorUserId
+              ? input.actorUserId
+              : null,
+        },
+        existing,
+      );
+      changed.push(...authorship.changed);
       if (changed.length === 0) return { result: { ok: true, data: existing, changed } };
 
       const { triggerConditions: conditions, ...columns } = data;
@@ -418,6 +436,7 @@ export async function updateDetector(input: {
         where: { id: existing.id },
         data: {
           ...(columns as Omit<typeof columns, "outputSchema"> & { outputSchema?: object }),
+          ...authorship.data,
           // Turning signals on groups hits from now on, never the ones detected
           // while it was off.
           ...(columns.enableSignals === true ? { signalsEnabledAt: new Date() } : {}),

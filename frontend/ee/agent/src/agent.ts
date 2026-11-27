@@ -1,12 +1,6 @@
-import {
-  Agent,
-  type AgentEvent,
-  type AgentTool,
-  type AgentMessage,
-} from "@earendil-works/pi-agent-core";
+import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent-core";
 import * as piAgentCore from "@earendil-works/pi-agent-core";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
-import type { Message } from "@earendil-works/pi-ai";
 import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
 import { applyCapturePolicy } from "@traceroot/core/capture-policy";
 import { withheldOutputText } from "@traceroot/core/capture-note";
@@ -19,7 +13,8 @@ import {
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { REGISTRY } from "@traceroot-ai/tools";
-import { SessionManager } from "./session.js";
+import { SessionManager, type TurnAttribution } from "./session.js";
+import { automatedRcaMessage, messagesToLlm } from "./automated-rca.js";
 import { createWritePolicyHook } from "./tools/write-policy.js";
 import { captureLlmContent, TRUNCATED_ATTRIBUTE } from "./llm-content.js";
 import { agentCaptureInput } from "./capture-input.js";
@@ -181,8 +176,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
       thinkingLevel: "off",
       tools: config.tools,
     },
-    // TODO: implement proper convertToLlm instead of identity cast
-    convertToLlm: (messages: AgentMessage[]) => messages as Message[],
+    convertToLlm: messagesToLlm,
     // Session-bound so confirm-class writes can park against this session's
     // live run channel and wait for the user's decision.
     beforeToolCall: createWritePolicyHook(REGISTRY, { sessionId: config.sessionId }),
@@ -228,6 +222,7 @@ export async function runAgent(
   agent: Agent,
   userMessage: string,
   handler: AgentEventHandler,
+  turnKind: TurnAttribution["turnKind"] = "chat",
 ): Promise<void> {
   const unsubscribe = agent.subscribe((event: AgentEvent) => {
     try {
@@ -238,7 +233,11 @@ export async function runAgent(
   });
 
   try {
-    await agent.prompt(userMessage);
+    if (turnKind === "rca_execution") {
+      await agent.prompt(automatedRcaMessage(userMessage, Date.now()));
+    } else {
+      await agent.prompt(userMessage);
+    }
     handler.onDone();
   } catch (error) {
     handler.onError(error instanceof Error ? error : new Error(String(error)));

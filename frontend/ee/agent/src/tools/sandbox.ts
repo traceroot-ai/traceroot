@@ -7,6 +7,7 @@ import {
   formatSize,
   truncateHead,
   truncateTail,
+  truncateStringToBytesFromStart,
   type TruncationResult,
 } from "./truncate.js";
 
@@ -104,13 +105,42 @@ const readSchema = Type.Object({
   }),
   path: Type.String({ description: "Path to the file to read" }),
   offset: Type.Optional(
-    Type.Number({ description: "Line number to start reading from (1-indexed)" }),
+    Type.Integer({ minimum: 1, description: "Line number to start reading from (1-indexed)" }),
   ),
-  limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+  limit: Type.Optional(
+    Type.Integer({ minimum: 1, description: "Maximum number of lines to read" }),
+  ),
+  byteOffset: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      description:
+        "UTF-8 byte offset within the selected lines; use the returned nextByteOffset to continue a long line",
+    }),
+  ),
 });
 
 interface ReadToolDetails {
   truncation?: TruncationResult;
+  nextByteOffset?: number;
+}
+
+// Leave room for the continuation hint inside the read tool's output cap.
+const READ_CONTINUATION_BYTES = 128;
+
+// Every executor uses Ubuntu. Preserve producer failures even when stderr is
+// unavailable, while allowing head to close its input early (SIGPIPE / 141).
+function readPipeline(command: string): string {
+  const script = [
+    command,
+    'codes=("${PIPESTATUS[@]}")',
+    "last=$((${#codes[@]} - 1))",
+    'if [ "${codes[$last]}" -ne 0 ]; then exit "${codes[$last]}"; fi',
+    'for code in "${codes[@]}"; do',
+    '  if [ "$code" -ne 0 ] && [ "$code" -ne 141 ]; then exit "$code"; fi',
+    "done",
+    "exit 0",
+  ].join("\n");
+  return `bash -o pipefail -c ${shellEscape(script)}`;
 }
 
 export function createReadTool(executor: Executor): AgentTool<any> {
@@ -119,19 +149,30 @@ export function createReadTool(executor: Executor): AgentTool<any> {
     label: "read",
     description:
       `Read the contents of a file. Output is truncated to ${DEFAULT_MAX_LINES} lines or ` +
-      `${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files.`,
+      `${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use line offset/limit for large files, ` +
+      `or the returned byteOffset to continue within a long line.`,
     parameters: readSchema,
     execute: async (
       _toolCallId: string,
       params: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<ReadToolDetails | undefined>> => {
-      const { path, offset, limit } = params as {
+      const { path, offset, limit, byteOffset } = params as {
         label: string;
         path: string;
         offset?: number;
         limit?: number;
+        byteOffset?: number;
       };
+      for (const [name, value, minimum] of [
+        ["offset", offset, 1],
+        ["limit", limit, 1],
+        ["byteOffset", byteOffset, 0],
+      ] as const) {
+        if (value !== undefined && (!Number.isSafeInteger(value) || value < minimum)) {
+          throw new Error(`${name} must be a safe integer >= ${minimum}`);
+        }
+      }
       if (!executor.isReady()) {
         await executor.init();
       }
@@ -157,12 +198,14 @@ export function createReadTool(executor: Executor): AgentTool<any> {
         cmd = `tail -n +${startLine} ${shellEscape(path)}`;
       }
 
-      const result = await executor.exec(cmd, { signal });
-      if (result.code !== 0) {
-        throw new Error(result.stderr || `Failed to read file: ${path}`);
+      let selectedContent = "";
+      if (byteOffset === undefined) {
+        const result = await executor.exec(cmd, { signal });
+        if (result.code !== 0) {
+          throw new Error(result.stderr || `Failed to read file: ${path}`);
+        }
+        selectedContent = result.stdout;
       }
-
-      let selectedContent = result.stdout;
       let userLimitedLines: number | undefined;
 
       // Apply user limit if specified
@@ -179,12 +222,61 @@ export function createReadTool(executor: Executor): AgentTool<any> {
       let outputText: string;
       let details: ReadToolDetails | undefined;
 
-      if (truncation.firstLineExceedsLimit) {
-        const firstLineSize = formatSize(
-          Buffer.byteLength(selectedContent.split("\n")[0], "utf-8"),
+      if (byteOffset !== undefined || truncation.firstLineExceedsLimit) {
+        // Executor stdout can be capped (Docker: 10MB). Measure and read the
+        // original selection, not the possibly incomplete cat result above.
+        const selection = limit === undefined ? cmd : `${cmd} | head -n ${limit}`;
+        const sizeResult = await executor.exec(readPipeline(`${selection} | wc -c`), { signal });
+        if (sizeResult.code !== 0 || sizeResult.stderr.trim()) {
+          throw new Error(sizeResult.stderr || `Failed to read file: ${path}`);
+        }
+        // split/slice/join excludes the delimiter after the last selected line.
+        const selectedBytes =
+          Number(sizeResult.stdout.trim()) -
+          (limit !== undefined && startLine - 1 + limit < totalFileLines ? 1 : 0);
+        const start = byteOffset ?? 0;
+        if (start > selectedBytes) throw new Error("byteOffset is beyond the selected content");
+        const readBytes = Math.min(DEFAULT_MAX_BYTES + 4, selectedBytes - start);
+        if (readBytes === 0) return { content: [{ type: "text", text: "" }], details: undefined };
+        const chunkResult = await executor.exec(
+          readPipeline(`${selection} | tail -c +${start + 1} | head -c ${readBytes} | base64`),
+          { signal },
         );
-        outputText = `[Line ${startLine} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-        details = { truncation };
+        if (chunkResult.code !== 0 || chunkResult.stderr.trim()) {
+          throw new Error(chunkResult.stderr || `Failed to read file: ${path}`);
+        }
+        // Base64 keeps executor UTF-8 decoding from corrupting a partial character.
+        // Four lookahead bytes keep any partial trailing character out of output.
+        const bytes = Buffer.from(chunkResult.stdout, "base64");
+        if (readBytes > 0 && bytes.length === 0) {
+          throw new Error(`File changed or could not be read: ${path}`);
+        }
+        if (bytes.length > 0 && (bytes[0] & 0xc0) === 0x80) {
+          throw new Error("byteOffset must be at a UTF-8 boundary");
+        }
+        const remaining = bytes.toString("utf-8");
+        const head = truncateHead(remaining, {
+          maxBytes: DEFAULT_MAX_BYTES - READ_CONTINUATION_BYTES,
+        });
+        // A leading empty line before an oversized line also has no whole-line prefix.
+        const fragment =
+          head.content ||
+          truncateStringToBytesFromStart(remaining, DEFAULT_MAX_BYTES - READ_CONTINUATION_BYTES);
+        const nextByteOffset = start + Buffer.byteLength(fragment, "utf-8");
+        const more = nextByteOffset < selectedBytes;
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                fragment +
+                (more
+                  ? `\n\n[Use byteOffset=${nextByteOffset} with the same offset/limit to continue]`
+                  : ""),
+            },
+          ],
+          details: more ? { nextByteOffset } : undefined,
+        };
       } else if (truncation.truncated) {
         const endLineDisplay = startLine + truncation.outputLines - 1;
         const nextOffset = endLineDisplay + 1;

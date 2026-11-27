@@ -635,6 +635,8 @@ model StandardModelPrice {
 model Detector {
   id                  String    @id @default(cuid()) @db.VarChar
   projectId           String    @map("project_id") @db.VarChar
+  // Author of the saved configuration; legacy rows require an authorized complete save.
+  authorUserId        String?   @map("author_user_id") @db.VarChar
   name                String    @db.VarChar
   template            String    @db.VarChar // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
   prompt              String    @db.Text

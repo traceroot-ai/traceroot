@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { Agent, AgentTool } from "@earendil-works/pi-agent-core";
 import type { BeforeToolCallContext } from "@earendil-works/pi-agent-core";
-import { getOrCreateAgent, type AgentRunnerConfig } from "../agent.js";
+import { getOrCreateAgent, runAgent, type AgentRunnerConfig } from "../agent.js";
 import { pendingDecisions } from "../pending-decisions.js";
 
 // Keep the module graph off Prisma and the DB: the agent cache logic under
@@ -112,4 +112,25 @@ describe("getOrCreateAgent", () => {
     expect(second.agent).toBe(first.agent);
     expect(second.agent.state.systemPrompt).toBe("Currently viewing Trace ID: T2");
   });
+});
+
+describe("runAgent input attribution", () => {
+  it.each(["chat", "rca_followup", "rca_execution"] as const)(
+    "retains the trusted %s source when prompting",
+    async (turnKind) => {
+      const prompt = vi.fn(async () => {});
+      const unsubscribe = vi.fn();
+      const agent = { prompt, subscribe: () => unsubscribe } as unknown as Agent;
+      const onDone = vi.fn();
+      await runAgent(agent, "request", { onEvent: vi.fn(), onError: vi.fn(), onDone }, turnKind);
+      expect(prompt).toHaveBeenCalledTimes(1);
+      expect(prompt).toHaveBeenCalledWith(
+        turnKind === "rca_execution"
+          ? { role: "automatedRca", content: "request", timestamp: expect.any(Number) }
+          : "request",
+      );
+      expect(onDone).toHaveBeenCalledOnce();
+      expect(unsubscribe).toHaveBeenCalledOnce();
+    },
+  );
 });

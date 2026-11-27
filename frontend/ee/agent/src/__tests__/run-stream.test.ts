@@ -91,6 +91,23 @@ afterEach(() => {
 });
 
 describe("runAgentStream", () => {
+  it("passes the route's trusted automatic attribution to the runner", async () => {
+    const decisions = new PendingDecisions();
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler) => handler.onDone());
+    const opts = {
+      ...options("automatic-source", decisions),
+      channelUserId: "",
+      attribution: { turnKind: "rca_execution" as const },
+    };
+    await runAgentStream(fakeStream(), opts);
+    expect(mockedRunAgent).toHaveBeenCalledWith(
+      opts.agent,
+      opts.message,
+      expect.any(Object),
+      "rca_execution",
+    );
+  });
+
   it("releases the run claim even when the terminal flush throws", async () => {
     // resolve() is what lets the caller's finally release the claim. If a
     // throw in the done handler skipped it, this session would sit in

@@ -195,6 +195,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     detector = await prisma.detector.create({
       data: {
         projectId,
+        authorUserId: user.id,
         name,
         template,
         prompt,

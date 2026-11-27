@@ -90,6 +90,18 @@ beforeEach(() => {
   });
 });
 
+describe("POST .../detectors — authorship", () => {
+  it("records the signed-in user instead of a client-supplied author", async () => {
+    const result = await POST(
+      makeRequest(validBody({ authorUserId: "forged-user" })),
+      makeParams(),
+    );
+
+    expect(result.status).toBe(201);
+    expect(detectorCreateMock.mock.calls[0][0].data.authorUserId).toBe("user-1");
+  });
+});
+
 describe("POST .../detectors — role gating", () => {
   it("returns 403 for a VIEWER-role member and never creates", async () => {
     requireProjectAccessMock.mockResolvedValue({
