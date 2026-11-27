@@ -17,20 +17,34 @@
     'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/>' +
     '<path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg>';
 
-  // Mintlify lists a page's translations in <head>. A page without one links to the other language's
-  // first page.
+  // A page without a translation links to the other language's first page. The hosted site lists every
+  // page in its sitemap; the local preview has no sitemap and lists a page's translations in <head>.
+  let pages = new Set();
   function target() {
     const base = /^\/docs(?:\/|$)/.test(location.pathname) ? "/docs" : "";
-    const path = location.pathname.slice(base.length).replace(/\/$/, "");
+    const here = location.pathname.replace(/\/$/, "");
+    const path = here.slice(base.length);
     const at = Math.max(0, languages.findIndex(({ prefix }) => prefix && (path + "/").startsWith(prefix + "/")));
     const next = languages[(at + 1) % languages.length];
+    const samePage = base + next.prefix + (path.slice(languages[at].prefix.length) || home);
     const alternate = code => {
       const href = document.head.querySelector(`link[rel="alternate"][hreflang="${code}"]`)?.getAttribute("href");
       return href ? new URL(href, location.href).pathname.replace(/\/$/, "") : null;
     };
     // During a client-side navigation <head> can still describe the previous page.
-    const current = alternate(languages[at].code) === location.pathname.replace(/\/$/, "");
-    return { at, next, href: (current && alternate(next.code)) || base + next.prefix + home };
+    const translated = pages.has(samePage) || (alternate(languages[at].code) === here && alternate(next.code) === samePage);
+    return { at, next, href: translated ? samePage : base + next.prefix + home };
+  }
+
+  function loadPages() {
+    const base = /^\/docs(?:\/|$)/.test(location.pathname) ? "/docs" : "";
+    fetch(`${base}/sitemap.xml`, { signal: events.signal })
+      .then(response => (response.ok ? response.text() : ""))
+      .then(xml => {
+        pages = new Set([...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(([, loc]) => new URL(loc).pathname.replace(/\/$/, "")));
+        mount();
+      })
+      .catch(() => {});
   }
 
   function update(link) {
@@ -71,6 +85,7 @@
       document.querySelectorAll(".tr-lang").forEach(link => link.remove());
     },
   };
+  loadPages();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true, signal: events.signal });
   else mount();
 })();
