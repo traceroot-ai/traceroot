@@ -32,6 +32,8 @@ vi.mock("@traceroot/core/rca-executions", () => ({
 vi.mock("@traceroot/core", async (orig) => ({
   ...(await orig<any>()),
   prisma: {
+    detector: { findMany: async () => [{ id: "d1", name: "det1", authorUserId: "author-1" }] },
+    workspaceMember: { findMany: async () => [{ userId: "author-1", role: "MEMBER" }] },
     workspace: { findUnique: (...a: unknown[]) => workspaceFindUnique(...a) },
     project: { findUnique: (...a: unknown[]) => projectFindUnique(...a) },
     gitHubInstallation: { count: (...a: unknown[]) => gitHubInstallationCount(...a) },

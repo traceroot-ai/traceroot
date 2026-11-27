@@ -1,5 +1,6 @@
 import { prisma, type TurnKind } from "@traceroot/core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { automatedRcaMessage } from "./automated-rca.js";
 import type {
   AssistantMessage,
   Message,
@@ -257,7 +258,8 @@ export class SessionManager {
    * Like Mom's sessionManager.buildSessionContext() — loads persisted
    * messages from DB and converts them to AgentMessage format.
    *
-   * User turns are restored verbatim. Assistant turns are restored as plain
+   * Human turns are restored verbatim; automatic RCA turns retain their data role.
+   * Assistant turns are restored as plain
    * text messages with synthesized LLM metadata (zero usage, "stop") — enough
    * for the model to see what it previously said, which it cannot infer.
    *
@@ -347,15 +349,17 @@ export class SessionManager {
             m.role === "tool_step" ||
             (m.role === "assistant" && m.content !== ""),
         )
-        .flatMap((m): Message[] =>
+        .flatMap((m): AgentMessage[] =>
           m.role === "user"
-            ? [
-                {
-                  role: "user",
-                  content: [{ type: "text", text: m.content }],
-                  timestamp: m.createTime.getTime(),
-                } satisfies UserMessage,
-              ]
+            ? m.turnKind === "rca_execution"
+              ? [automatedRcaMessage(m.content, m.createTime.getTime())]
+              : [
+                  {
+                    role: "user",
+                    content: [{ type: "text", text: m.content }],
+                    timestamp: m.createTime.getTime(),
+                  } satisfies UserMessage,
+                ]
             : m.role === "tool_step"
               ? restoredToolStep(m)
               : [restoredAssistant([{ type: "text", text: m.content }], m)],

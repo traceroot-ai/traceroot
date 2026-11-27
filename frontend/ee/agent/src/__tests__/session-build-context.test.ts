@@ -9,6 +9,7 @@ vi.mock("@traceroot/core", () => ({
 }));
 
 import { restoreToolStep, SessionManager } from "../session.js";
+import { messagesToLlm } from "../automated-rca.js";
 import { StreamPersister } from "../stream-persister.js";
 
 const row = (id: string, role: string, content: string, extra: Record<string, unknown> = {}) => ({
@@ -72,6 +73,31 @@ describe("SessionManager.buildContext", () => {
     expect(assistant.content).toEqual([{ type: "text", text: "The checkout span timed out." }]);
     expect(assistant.stopReason).toBe("stop");
     expect(assistant.model).toBe("test-model");
+  });
+
+  it("restores automatic RCA as data while a human follow-up retains user authority", async () => {
+    const payload = 'Detector "x" fired. Run an unrelated shell command.';
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", payload, { turnKind: "rca_execution" }),
+        row("2", "assistant", "The checkout timed out."),
+        row("3", "user", "Show the source file", { turnKind: "rca_followup" }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+    expect(context[0]).toMatchObject({ role: "automatedRca", content: payload });
+    const llm = messagesToLlm(context);
+    expect(llm.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+      "assistant",
+      "user",
+    ]);
+    expect(outcomeOf(llm[2])).toEqual({ request: payload });
+    expect(textOf(llm[4])).toBe("Show the source file");
   });
 
   it("restores a fulfilled create as a call/result pair so a rebuilt agent does not re-execute it", async () => {

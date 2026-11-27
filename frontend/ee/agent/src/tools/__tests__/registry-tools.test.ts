@@ -855,7 +855,7 @@ describe("createTools", () => {
     ]);
   });
 
-  it("omits the write tools when there is no acting user (system/RCA sessions)", () => {
+  it("keeps automatic analysis read-only, with bounded download and Git tools", () => {
     const tools = createTools({
       projectId: "p1",
       userId: "",
@@ -863,7 +863,15 @@ describe("createTools", () => {
       agentSessionId: "s1",
       executor: {} as Executor,
     });
-    expect(tools.map((t) => t.name)).toEqual([...READ_TOOL_NAMES, ...OTHER_TOOL_NAMES]);
+    expect(tools.map((t) => t.name)).toEqual([
+      ...READ_TOOL_NAMES,
+      "list_detector_models",
+      "download_traces",
+      "download_session",
+      "check_github_access",
+      "git_clone",
+      "read",
+    ]);
   });
 
   it("omits the write tools when session provenance is missing", () => {

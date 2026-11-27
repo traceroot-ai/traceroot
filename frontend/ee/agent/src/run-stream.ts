@@ -1,5 +1,5 @@
 import type { Agent } from "@earendil-works/pi-agent-core";
-import { runAgent } from "./agent.js";
+import { runAgent, type AgentEventHandler } from "./agent.js";
 import { clearSessionDeleted } from "./executors/deleted-session-fence.js";
 import {
   CLIENT_DISCONNECTED_SKIP_REASON,
@@ -181,7 +181,7 @@ export async function runAgentStream(
   const run = () =>
     new Promise<{ persister: StreamPersister; error?: Error }>((resolve) => {
       const persister = new StreamPersister(append, { toolSpanIds: currentToolSpanIds });
-      runAgent(agent, message, {
+      const handler: AgentEventHandler = {
         onEvent: (event) => {
           if (event.type === "message_update") {
             // Log only the very first message_update for debugging
@@ -275,7 +275,8 @@ export async function runAgentStream(
             resolve({ persister });
           }
         },
-      });
+      };
+      runAgent(agent, message, handler, options.attribution.turnKind);
     });
 
   try {

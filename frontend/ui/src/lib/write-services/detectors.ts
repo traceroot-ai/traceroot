@@ -230,6 +230,7 @@ export async function createDetector(input: {
       const detector = await tx.detector.create({
         data: {
           projectId: input.projectId,
+          authorUserId: input.actorUserId,
           name,
           template,
           prompt,
@@ -401,16 +402,21 @@ export async function updateDetector(input: {
         return { result: { ok: false, status: 400, error: NO_FIELDS_MESSAGE } };
       }
 
+      // Bind authorship to the configuration read under this lock, not a concurrent edit.
+      await tx.$queryRaw`SELECT id FROM detectors WHERE id = ${input.detectorId} AND project_id = ${input.projectId} FOR UPDATE`;
       const existing = await tx.detector.findFirst({
         where: { id: input.detectorId, projectId: input.projectId },
         include: { trigger: true },
       });
       if (!existing) return { result: DETECTOR_NOT_FOUND };
 
-      const { changed, data } = diffPatch(patch, {
-        ...existing,
-        triggerConditions: existing.trigger?.conditions ?? [],
-      });
+      const { changed, data } = diffPatch(
+        { ...patch, authorUserId: input.actorUserId },
+        {
+          ...existing,
+          triggerConditions: existing.trigger?.conditions ?? [],
+        },
+      );
       if (changed.length === 0) return { result: { ok: true, data: existing, changed } };
 
       const { triggerConditions: conditions, ...columns } = data;

@@ -7,6 +7,7 @@ import {
   formatSize,
   truncateHead,
   truncateTail,
+  truncateStringToBytesFromStart,
   type TruncationResult,
 } from "./truncate.js";
 
@@ -104,14 +105,27 @@ const readSchema = Type.Object({
   }),
   path: Type.String({ description: "Path to the file to read" }),
   offset: Type.Optional(
-    Type.Number({ description: "Line number to start reading from (1-indexed)" }),
+    Type.Integer({ minimum: 1, description: "Line number to start reading from (1-indexed)" }),
   ),
-  limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+  limit: Type.Optional(
+    Type.Integer({ minimum: 1, description: "Maximum number of lines to read" }),
+  ),
+  byteOffset: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      description:
+        "UTF-8 byte offset within the selected lines; use the returned nextByteOffset to continue a long line",
+    }),
+  ),
 });
 
 interface ReadToolDetails {
   truncation?: TruncationResult;
+  nextByteOffset?: number;
 }
+
+// Leave room for the continuation hint inside the read tool's output cap.
+const READ_CONTINUATION_BYTES = 128;
 
 export function createReadTool(executor: Executor): AgentTool<any> {
   return {
@@ -119,19 +133,30 @@ export function createReadTool(executor: Executor): AgentTool<any> {
     label: "read",
     description:
       `Read the contents of a file. Output is truncated to ${DEFAULT_MAX_LINES} lines or ` +
-      `${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files.`,
+      `${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use line offset/limit for large files, ` +
+      `or the returned byteOffset to continue within a long line.`,
     parameters: readSchema,
     execute: async (
       _toolCallId: string,
       params: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<ReadToolDetails | undefined>> => {
-      const { path, offset, limit } = params as {
+      const { path, offset, limit, byteOffset } = params as {
         label: string;
         path: string;
         offset?: number;
         limit?: number;
+        byteOffset?: number;
       };
+      for (const [name, value, minimum] of [
+        ["offset", offset, 1],
+        ["limit", limit, 1],
+        ["byteOffset", byteOffset, 0],
+      ] as const) {
+        if (value !== undefined && (!Number.isSafeInteger(value) || value < minimum)) {
+          throw new Error(`${name} must be a safe integer >= ${minimum}`);
+        }
+      }
       if (!executor.isReady()) {
         await executor.init();
       }
@@ -179,12 +204,36 @@ export function createReadTool(executor: Executor): AgentTool<any> {
       let outputText: string;
       let details: ReadToolDetails | undefined;
 
-      if (truncation.firstLineExceedsLimit) {
-        const firstLineSize = formatSize(
-          Buffer.byteLength(selectedContent.split("\n")[0], "utf-8"),
-        );
-        outputText = `[Line ${startLine} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLine}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-        details = { truncation };
+      if (byteOffset !== undefined || truncation.firstLineExceedsLimit) {
+        const bytes = Buffer.from(selectedContent, "utf-8");
+        const start = byteOffset ?? 0;
+        if (start > bytes.length) throw new Error("byteOffset is beyond the selected content");
+        if (start < bytes.length && (bytes[start] & 0xc0) === 0x80) {
+          throw new Error("byteOffset must be at a UTF-8 boundary");
+        }
+        const remaining = bytes.subarray(start).toString("utf-8");
+        const head = truncateHead(remaining, {
+          maxBytes: DEFAULT_MAX_BYTES - READ_CONTINUATION_BYTES,
+        });
+        // A leading empty line before an oversized line also has no whole-line prefix.
+        const fragment =
+          head.content ||
+          truncateStringToBytesFromStart(remaining, DEFAULT_MAX_BYTES - READ_CONTINUATION_BYTES);
+        const nextByteOffset = start + Buffer.byteLength(fragment, "utf-8");
+        const more = nextByteOffset < bytes.length;
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                fragment +
+                (more
+                  ? `\n\n[Use byteOffset=${nextByteOffset} with the same offset/limit to continue]`
+                  : ""),
+            },
+          ],
+          details: more ? { nextByteOffset } : undefined,
+        };
       } else if (truncation.truncated) {
         const endLineDisplay = startLine + truncation.outputLines - 1;
         const nextOffset = endLineDisplay + 1;

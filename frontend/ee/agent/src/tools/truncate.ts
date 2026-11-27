@@ -6,7 +6,7 @@
  * - Line limit (default: 2000 lines)
  * - Byte limit (default: 50KB)
  *
- * Never returns partial lines (except bash tail truncation edge case).
+ * Line-based truncation preserves whole lines; byte fragments preserve UTF-8 boundaries.
  */
 
 export const DEFAULT_MAX_LINES = 2000;
@@ -201,4 +201,13 @@ function truncateStringToBytesFromEnd(str: string, maxBytes: number): string {
   }
 
   return buf.slice(start).toString("utf-8");
+}
+
+/** Keep a UTF-8-safe head fragment, including when a single line exceeds the cap. */
+export function truncateStringToBytesFromStart(str: string, maxBytes: number): string {
+  const buf = Buffer.from(str, "utf-8");
+  if (buf.length <= maxBytes) return str;
+  let end = maxBytes;
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
+  return buf.subarray(0, end).toString("utf-8");
 }
