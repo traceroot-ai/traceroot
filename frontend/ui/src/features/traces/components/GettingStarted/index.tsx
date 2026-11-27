@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FirstTraceLine } from "@/components/first-trace-line";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { SampleTrace } from "./SampleTrace";
 import { SetupTabs, type SetupTab } from "./SetupTabs";
 
 interface GettingStartedProps {
@@ -49,6 +50,8 @@ export function GettingStarted({ projectId, wait }: GettingStartedProps) {
             }}
           />
         </div>
+
+        {wait.kind === "waiting" && <SampleTrace projectId={projectId} />}
       </div>
     </div>
   );
