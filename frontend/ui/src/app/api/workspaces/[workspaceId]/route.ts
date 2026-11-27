@@ -1,6 +1,14 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Role, getRetentionDays } from "@traceroot/core";
+import {
+  prisma,
+  PlanType,
+  Role,
+  getRetentionDays,
+  isBillingEnabled,
+  isLoopRunBlocked,
+} from "@traceroot/core";
+import { countFreeLoopRunsUsed } from "@traceroot/core/loops";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -9,10 +17,36 @@ import {
 } from "@/lib/auth-helpers";
 import { isDemoViewer, isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPlainObject } from "@/lib/is-plain-object";
+import { isLoopsEnabled } from "@/lib/loops-enabled";
 import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
 import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
+
+/**
+ * A Free workspace's Loop plan state, counted live as Run now and the worker
+ * count it: the stored `loopBlocked` and Loop meter only change on the hourly
+ * billing pass, so the Loop pages and the billing card would lag the cap.
+ */
+async function loopPlanState(workspace: {
+  id: string;
+  billingPlan: string;
+  loopBlocked: boolean;
+  currentUsage: unknown;
+}): Promise<{ loopBlocked: boolean; currentUsage: unknown }> {
+  const stored = { loopBlocked: workspace.loopBlocked, currentUsage: workspace.currentUsage };
+  if (!isBillingEnabled() || !isLoopsEnabled() || workspace.billingPlan !== PlanType.FREE) {
+    return stored;
+  }
+  const runsUsed = await countFreeLoopRunsUsed(prisma, workspace.id);
+  const usage = isPlainObject(workspace.currentUsage) ? workspace.currentUsage : {};
+  const loop = isPlainObject(usage.loop) ? usage.loop : {};
+  const metered = typeof loop.runsUsed === "number" ? loop.runsUsed : 0;
+  return {
+    loopBlocked: isLoopRunBlocked(PlanType.FREE, runsUsed),
+    currentUsage: { ...usage, loop: { ...loop, runsUsed: Math.max(metered, runsUsed) } },
+  };
+}
 
 // GET /api/workspaces/[workspaceId] - Get workspace details with projects
 async function handleGET(request: NextRequest, { params }: RouteParams) {
@@ -55,8 +89,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
         billingCustomerId: workspace.billingCustomerId,
         billingSubscriptionId: workspace.billingSubscriptionId,
         billingStatus: workspace.billingStatus,
-        currentUsage: workspace.currentUsage,
-        loopBlocked: workspace.loopBlocked,
+        ...(await loopPlanState(workspace)),
       };
   return successResponse({
     id: workspace.id,
