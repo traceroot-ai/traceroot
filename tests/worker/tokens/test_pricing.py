@@ -249,6 +249,7 @@ XAI_MODEL_CASES = [
     ("grok-4.3", "grok-4.3"),
     ("grok-4-3", "grok-4.3"),
     ("xai/grok-4.3", "grok-4.3"),
+    ("x-ai/grok-4.3", "grok-4.3"),
     ("grok-4.5", "grok-4.5"),
     ("grok-4-5", "grok-4.5"),
     ("xai/grok-4.5", "grok-4.5"),
