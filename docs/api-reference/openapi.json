@@ -5851,11 +5851,6 @@
             "title": "Rows",
             "type": "array"
           },
-          "statistics": {
-            "additionalProperties": true,
-            "title": "Statistics",
-            "type": "object"
-          },
           "truncated": {
             "description": "True when more rows matched than were returned",
             "title": "Truncated",

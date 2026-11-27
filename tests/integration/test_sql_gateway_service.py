@@ -192,6 +192,26 @@ def test_the_route_answers_only_for_the_credential_s_project(http, gateway, proj
     assert count.json()["rows"] == [[len(seeded.spans[project])]]
 
 
+@pytest.mark.parametrize(
+    "table,time_column", [("spans", "span_start_time"), ("traces", "trace_start_time")]
+)
+@pytest.mark.parametrize(
+    "predicate",
+    ["", " WHERE {time_column} >= now() - INTERVAL 1 DAY", " WHERE name = 'zzz-nonexistent-zzz'"],
+)
+def test_an_empty_project_cannot_read_shared_scan_statistics(
+    http, gateway, table, time_column, predicate
+):
+    assert gateway.seeded.spans[PROJECT_B]
+    query = f"SELECT count() FROM {table}" + predicate.format(time_column=time_column)
+    response = http("proj_empty_sql").post(SQL_URL, json={"query": query}, headers=AUTH_HEADER)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rows"] == [[0]]
+    assert body["row_count"] == 1
+    assert "statistics" not in body
+
+
 # ---------------------------------------------------------------------------
 # 2. Caller parameters: bound as values, never allowed to name the scope
 # ---------------------------------------------------------------------------
