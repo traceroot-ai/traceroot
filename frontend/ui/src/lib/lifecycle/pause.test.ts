@@ -8,6 +8,9 @@ type Row = {
   followUpsPauseReason: string | null;
   followUpsIntentAt: Date | null;
   unsubscribedAt: Date | null;
+  emailPreferenceAt: Date | null;
+  emailPreferenceVersion?: number;
+  emailProviderSettledAt?: Date | null;
 };
 const db = vi.hoisted(() => ({
   users: [] as { id: string; email: string }[],
@@ -49,15 +52,38 @@ vi.mock("@traceroot/core", () => {
                 followUpsPauseReason: null,
                 followUpsIntentAt: null,
                 unsubscribedAt: null,
+                emailPreferenceAt: null,
               });
           return { count: 1 };
         },
         updateMany: async ({ where, data }: { where: Cond; data: Partial<Row> }) => {
           const hits = db.rows.filter((r) => matches(r, where));
-          for (const r of hits) Object.assign(r, data);
+          for (const r of hits)
+            for (const [k, v] of Object.entries(data)) {
+              const inc =
+                v && typeof v === "object" && "increment" in v
+                  ? (v as { increment: number })
+                  : null;
+              (r as Record<string, unknown>)[k] = inc
+                ? (((r as Record<string, unknown>)[k] as number) ?? 0) + inc.increment
+                : v;
+            }
           return { count: hits.length };
         },
         findUnique: async ({ where }: { where: { userId: string } }) => row(where.userId) ?? null,
+      },
+      // The unsubscribe's one guarded UPDATE (pause.ts): values are the time
+      // (UTC wall clock) for each placeholder and the user id.
+      $executeRaw: async (_sql: TemplateStringsArray, ...values: string[]) => {
+        const [at, , userId] = values;
+        const time = new Date(`${at}Z`);
+        const r = row(userId);
+        if (!r || (r.emailPreferenceAt && r.emailPreferenceAt > time)) return 0;
+        r.unsubscribedAt ??= time;
+        r.emailPreferenceAt = time;
+        r.emailPreferenceVersion = (r.emailPreferenceVersion ?? 0) + 1;
+        r.emailProviderSettledAt = null;
+        return 1;
       },
     },
   };
@@ -153,7 +179,11 @@ describe("unsubscribe stays in force", () => {
 
 describe("recording an unsubscribe", () => {
   it("finds the account by address, whatever its case", async () => {
-    expect(await recordUnsubscribe(" KAI@acme.DEV ", false, T1)).toBe("u1");
+    expect(await recordUnsubscribe(" KAI@acme.DEV ", false, T1)).toEqual({
+      userId: "u1",
+      applied: true,
+      subscribed: false,
+    });
     expect(db.rows[0].unsubscribedAt).toEqual(T1);
   });
 
@@ -173,5 +203,65 @@ describe("recording an unsubscribe", () => {
   it("records nothing for an address with no account", async () => {
     expect(await recordUnsubscribe("someone@else.dev", false)).toBeNull();
     expect(db.rows).toHaveLength(0);
+  });
+});
+
+describe("the latest unsubscribe or Subscribe again wins", () => {
+  it("ignores a Subscribe again made before a newer unsubscribe, however late it lands", async () => {
+    await recordUnsubscribe("kai@acme.dev", false, T2);
+    expect(await recordUnsubscribe("kai@acme.dev", true, T1)).toEqual({
+      userId: "u1",
+      applied: false,
+      subscribed: false,
+    });
+    expect(db.rows[0]).toMatchObject({ unsubscribedAt: T2, emailPreferenceAt: T2 });
+  });
+
+  it("still lets a later, deliberate Subscribe again through", async () => {
+    await recordUnsubscribe("kai@acme.dev", false, T1);
+    expect(await recordUnsubscribe("kai@acme.dev", true, T2)).toMatchObject({
+      applied: true,
+      subscribed: true,
+    });
+    expect(db.rows[0]).toMatchObject({ unsubscribedAt: null, emailPreferenceAt: T2 });
+  });
+
+  it("ignores an unsubscribe made before a newer Subscribe again", async () => {
+    await recordUnsubscribe("kai@acme.dev", true, T2);
+    expect(await recordUnsubscribe("kai@acme.dev", false, T1)).toMatchObject({
+      applied: false,
+      subscribed: true,
+    });
+    expect(db.rows[0].unsubscribedAt).toBeNull();
+  });
+
+  it("applies a choice on an account recorded before choices had a time", async () => {
+    await recordUnsubscribe("kai@acme.dev", false, T1);
+    db.rows[0].emailPreferenceAt = null;
+    expect(await recordUnsubscribe("kai@acme.dev", true, T2)).toMatchObject({ applied: true });
+  });
+
+  it("lets an unsubscribe win over a Subscribe again made at the same instant, in either order", async () => {
+    await recordUnsubscribe("kai@acme.dev", true, T1);
+    expect(await recordUnsubscribe("kai@acme.dev", false, T1)).toMatchObject({
+      applied: true,
+      subscribed: false,
+    });
+    expect(await recordUnsubscribe("kai@acme.dev", true, T1)).toMatchObject({
+      applied: false,
+      subscribed: false,
+    });
+    expect(db.rows[0].unsubscribedAt).toEqual(T1);
+  });
+
+  it("gives every applied choice a new version and leaves it to be confirmed, even at the same instant", async () => {
+    await recordUnsubscribe("kai@acme.dev", true, T1);
+    expect(db.rows[0].emailPreferenceVersion).toBe(1);
+    db.rows[0].emailProviderSettledAt = T1;
+    await recordUnsubscribe("kai@acme.dev", false, T1);
+    expect(db.rows[0]).toMatchObject({ emailPreferenceVersion: 2, emailProviderSettledAt: null });
+    db.rows[0].emailProviderSettledAt = T1;
+    await recordUnsubscribe("kai@acme.dev", true, T1); // ignored: changes nothing
+    expect(db.rows[0]).toMatchObject({ emailPreferenceVersion: 2, emailProviderSettledAt: T1 });
   });
 });
