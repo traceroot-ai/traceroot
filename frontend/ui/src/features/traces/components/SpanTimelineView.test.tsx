@@ -89,8 +89,8 @@ describe("SpanTimelineView token/cost badges", () => {
     renderTimeline();
 
     // Cost renders twice: the trace-root rollup and the one LLM span's own —
-    // both format to "0.0123" here since there's only a single span.
-    expect(screen.getAllByText("0.0123").length).toBe(2);
+    // both format to "$0.0123" here since there's only a single span.
+    expect(screen.getAllByText("$0.0123").length).toBe(2);
   });
 
   it("draws a glyph alongside each token and cost badge", () => {
@@ -98,12 +98,31 @@ describe("SpanTimelineView token/cost badges", () => {
 
     // The badge text nodes are wrapped in a span that also holds the icon, so
     // a missing glyph shows up as a badge with no svg child.
-    for (const badge of screen.getAllByText("0.0123")) {
+    for (const badge of screen.getAllByText("$0.0123")) {
       expect(badge.querySelector("svg")).toBeTruthy();
     }
     for (const badge of screen.getAllByText("100 → 50 (150)")) {
       expect(badge.querySelector("svg")).toBeTruthy();
     }
+  });
+
+  it("shows a sub-cent cost with real digits", () => {
+    // gpt-4o-mini, 100 input tokens at $0.15/M = $0.000015.
+    const span = { ...trace.spans[0], model_name: "gpt-4o-mini", cost: 0.000015 };
+    render(
+      <SpanTimelineView
+        trace={{ ...trace, spans: [span] }}
+        selection={selection}
+        onSelect={vi.fn()}
+        collapsedIds={new Set()}
+        scrollRef={{ current: null }}
+        hoveredSpanId={null}
+        onHoverChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("$0.000015")).toHaveLength(2);
+    expect(screen.queryByText("0.0000")).toBeNull();
   });
 });
 
@@ -123,7 +142,7 @@ describe("SpanTimelineView selection", () => {
     const { rerender } = render(
       <SpanTimelineView {...props} selection={{ type: "trace" }} hoveredSpanId={null} />,
     );
-    const spanRow = screen.getAllByText("0.0123")[1].closest("div.group")!;
+    const spanRow = screen.getAllByText("$0.0123")[1].closest("div.group")!;
     fireEvent.mouseEnter(spanRow);
     expect(onHoverChange).toHaveBeenCalledWith("span-1");
     fireEvent.click(spanRow);

@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
+import { cn, formatCost, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanStatus, SpanKind, MODEL_SPAN_KINDS } from "@traceroot/core";
 import { flattenTreeWithMetrics } from "../utils/timeline";
 import {
@@ -256,7 +256,7 @@ export function SpanTimelineView({
                       {traceAggregates.totalCost > 0 && (
                         <span className="inline-flex items-center gap-0.5">
                           <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
-                          {traceAggregates.totalCost.toFixed(4)}
+                          {formatCost(traceAggregates.totalCost)}
                         </span>
                       )}
                     </span>
@@ -329,7 +329,7 @@ export function SpanTimelineView({
                     {showCost && (
                       <span className="inline-flex items-center gap-0.5">
                         <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
-                        {span.cost!.toFixed(4)}
+                        {formatCost(span.cost)}
                       </span>
                     )}
                   </span>
