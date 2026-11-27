@@ -4,6 +4,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { getWorkspaces, getWorkspace } from "@/lib/api";
 
+export const ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
+
 /**
  * Hook for fetching all workspaces for the current user
  */
