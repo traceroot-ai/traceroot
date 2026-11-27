@@ -53,12 +53,11 @@ export default function LoopsPage() {
 
   const isEmptyProject = !isLoading && !error && (meta?.total ?? 0) === 0 && !state.keyword;
   const isEmptySearch = !isLoading && !error && loops.length === 0 && !!state.keyword;
-  // The limit counts every loop in the project: while a search narrows the list, read that count
-  // on its own.
-  const searching = !!queryOptions.search_query;
-  const unfiltered = useLoopList(projectId, { page: 0, limit: 1 }, { enabled: searching });
-  const projectTotal = (searching ? unfiltered.data?.meta.total : meta?.total) ?? 0;
-  const atCapacity = projectTotal >= LOOP_LIMITS.loopsPerProject;
+  // The limit counts every loop in the project, so it is read on its own, whatever a search
+  // narrows the list to. New loop stays disabled until that count is known.
+  const unfiltered = useLoopList(projectId, { page: 0, limit: 1 });
+  const projectTotal = unfiltered.data?.meta.total;
+  const atCapacity = projectTotal !== undefined && projectTotal >= LOOP_LIMITS.loopsPerProject;
 
   // Anything not running is started again; only an active loop is paused.
   const handleToggleStatus = (loop: Loop) =>
@@ -88,7 +87,7 @@ export default function LoopsPage() {
               )}
               <Button
                 size="sm"
-                disabled={atCapacity}
+                disabled={projectTotal === undefined || atCapacity}
                 onClick={() => router.push(`/projects/${projectId}/loops/new`)}
               >
                 New loop

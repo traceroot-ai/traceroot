@@ -171,6 +171,18 @@ describe("use-loops", () => {
     );
   });
 
+  it("reads the workspace again after Run now, also when the plan's runs are used up", async () => {
+    fetchMock.mockReturnValue(
+      json({ error: "This workspace has used its plan's loop runs." }, 409),
+    );
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useRunLoop("p1", "l1"), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync().catch(() => {});
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspace"] });
+  });
+
   it("reads the project's Loop memory, which all its Loops share", async () => {
     fetchMock.mockReturnValue(json({ data: [{ key: "k" }] }));
     const { result } = renderHook(() => useLoopMemory("p1"), { wrapper });
