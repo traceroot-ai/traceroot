@@ -9,6 +9,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { isDemoWorkspace } from "@/lib/demo-workspace";
+import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
 
 const addMemberSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -119,6 +120,8 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       role,
     },
   });
+
+  void notifyWorkspaceMember({ userId, workspaceId, via: "added" });
 
   return NextResponse.json(
     {

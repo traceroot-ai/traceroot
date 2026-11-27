@@ -11,6 +11,7 @@ import {
   useLoop,
   useLoopList,
   useLoopMemory,
+  useLoopRun,
   useLoopRuns,
   useRunLoop,
   useSetLoopStatus,
@@ -141,6 +142,23 @@ describe("use-loops", () => {
     expect(interval(withLast(null))).toBe(false);
   });
 
+  it("looks at a linked run again every 10 s while it is queued or running", async () => {
+    fetchMock.mockReturnValue(json({ run: { id: "r1", status: "pending" } }));
+    renderHook(() => useLoopRun("p1", "l1", "r1"), { wrapper });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const query = client.getQueryCache().find({ queryKey: loopKeys.run("p1", "l1", "r1") })!;
+    const { refetchInterval: interval } = query.options as unknown as {
+      refetchInterval: (q: { state: { data: unknown } }) => number | false;
+    };
+    const withRun = (status: string | null) => ({
+      state: { data: status ? { status } : undefined },
+    });
+    expect(interval(withRun("pending"))).toBe(10_000);
+    expect(interval(withRun("running"))).toBe(10_000);
+    expect(interval(withRun("succeeded"))).toBe(false);
+    expect(interval(withRun(null))).toBe(false);
+  });
+
   it("queues a run with a POST to the run route", async () => {
     fetchMock.mockReturnValue(json({ run: { id: "r1" } }, 201));
     const { result } = renderHook(() => useRunLoop("p1", "l1"), { wrapper });
@@ -151,6 +169,18 @@ describe("use-loops", () => {
       "/api/projects/p1/loops/l1/run",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("reads the workspace again after Run now, also when the plan's runs are used up", async () => {
+    fetchMock.mockReturnValue(
+      json({ error: "This workspace has used its plan's loop runs." }, 409),
+    );
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useRunLoop("p1", "l1"), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync().catch(() => {});
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspace"] });
   });
 
   it("reads the project's Loop memory, which all its Loops share", async () => {

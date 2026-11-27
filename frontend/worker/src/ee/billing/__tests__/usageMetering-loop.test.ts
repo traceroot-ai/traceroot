@@ -124,12 +124,13 @@ describe("Loop metering", () => {
 
     const groupBy = vi.mocked(prisma.aIMessage.groupBy).mock.calls.map(([query]) => query);
     const sessions = groupBy.find((query) => query.by.includes("sessionId"))!;
-    // One session per run that called the agent: its Loop turn, which outlives the Loop.
+    // One session per run the agent replied in: its Loop turn, which outlives the Loop.
     expect(sessions.by).toEqual(["sessionId"]);
     expect(sessions.where).toMatchObject({
       workspaceId: "ws-1",
       kind: "loop",
       sessionId: { not: null },
+      OR: [{ role: "tool_step" }, { role: "assistant", content: { not: "" } }],
     });
     expect(written().currentUsage.loop).toMatchObject({
       runsUsed: 12,
@@ -150,8 +151,8 @@ describe("Loop metering", () => {
         _count: { id: 3 },
         _sum: { inputTokens: 900, outputTokens: 90, cost: 0.2 },
       },
-      // A row whose fields Postgres left empty.
-      { model: null, provider: null, isByok: null, _count: { id: 1 }, _sum: {} },
+      // A system row whose model and provider Postgres left empty.
+      { model: null, provider: null, isByok: false, _count: { id: 1 }, _sum: {} },
     ];
     const groupBy = vi.mocked(prisma.aIMessage.groupBy);
     const sessionsOnly = groupBy.getMockImplementation()!;

@@ -33,6 +33,7 @@ export interface Workspace {
   project_count?: number;
   create_time: string;
   update_time?: string;
+  last_ingested_at?: string | null;
   // Effective read window, including when billing details are hidden. Null means unlimited.
   retention_days?: number | null;
   // Billing fields
@@ -64,6 +65,7 @@ export interface Project {
   delete_time?: string | null;
   create_time: string;
   update_time?: string;
+  last_ingested_at?: string | null;
 }
 
 // Member types
@@ -357,7 +359,7 @@ export interface DetectorUsageData {
 }
 
 // Loop run usage (nested in UsageStats.loop). Same shape and rules as detector scans:
-// runsUsed counts runs that called the agent (BYOK + system); the Free plan caps it.
+// runsUsed counts runs in which the agent replied (BYOK + system); the Free plan caps it.
 export interface LoopUsageData {
   runsUsed: number;
   systemTokenCost: number;

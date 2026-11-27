@@ -18,6 +18,9 @@ const mocks = vi.hoisted(() => {
     handleSend: vi.fn(),
     messages: [] as Array<{ id: string; role: string; content: string }>,
     projectData: undefined as { workspace_id: string } | undefined,
+    nextSteps: { first_trace: true, detector: false, signal: false, eval_run: false } as
+      | { first_trace: boolean; detector: boolean; signal: boolean; eval_run: boolean }
+      | undefined,
     llmModels: undefined as
       | {
           systemModels: Array<{
@@ -61,6 +64,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (queryKey[0] === "workspace") return { data: mocks.workspaceData };
     if (queryKey[0] === "project") return { data: mocks.projectData };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
+    if (queryKey[0] === "project-next-steps") return { data: mocks.nextSteps };
     return { data: undefined };
   },
 }));
@@ -114,6 +118,7 @@ afterEach(() => {
   mocks.workspaceData = { is_demo: false, role: "ADMIN" };
   mocks.projectData = undefined;
   mocks.llmModels = undefined;
+  mocks.nextSteps = { first_trace: true, detector: false, signal: false, eval_run: false };
 });
 
 describe("Home page", () => {
@@ -192,6 +197,53 @@ describe("Home page", () => {
     });
   });
 
+  it("never sends a starter prompt to a detector-only decision model", () => {
+    mocks.projectData = { workspace_id: "ws-1" };
+    mocks.llmModels = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "my-openai",
+          adapter: "openai",
+          source: "byok",
+          models: [
+            { id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions", supported: true },
+            { id: "gpt-6-luna", label: "gpt-6-luna", supported: true },
+          ],
+        },
+      ],
+    };
+    render(<HomePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Summarize today's sessions" }));
+    expect(mocks.handleSend).toHaveBeenCalledWith("Summarize today's sessions", {
+      model: "gpt-6-luna",
+      provider: "my-openai",
+      source: "byok",
+      adapter: "openai",
+    });
+  });
+
+  it("offers no starter prompts when the only model is a decision model", () => {
+    mocks.projectData = { workspace_id: "ws-1" };
+    mocks.llmModels = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "my-openai",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "gpt-6-luna-decisions", label: "gpt-6-luna-decisions", supported: true }],
+        },
+      ],
+    };
+    render(<HomePage />);
+
+    // The panel shows its no-models state instead of the greeting.
+    expect(screen.queryByRole("button", { name: "Summarize today's sessions" })).toBeNull();
+    expect(mocks.handleSend).not.toHaveBeenCalled();
+  });
+
   it("disables starter prompts until the model list has loaded", () => {
     render(<HomePage />);
     const chip = screen.getByRole("button", {
@@ -250,3 +302,35 @@ it.each(["VIEWER", "MEMBER"])(
     expect(mocks.handleSend).not.toHaveBeenCalled();
   },
 );
+
+describe("Home page next steps", () => {
+  it("shows the next steps above the greeting", () => {
+    render(<HomePage />);
+    const card = screen.getByRole("region", { name: "Next steps" });
+    const greeting = screen.getByText("How can I help?");
+    expect(card.compareDocumentPosition(greeting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("1 of 4 done")).toBeDefined();
+  });
+
+  it("shows the next steps when no model is set up and the greeting gives way", () => {
+    mocks.llmModels = { systemModels: [], byokProviders: [] };
+    render(<HomePage />);
+    expect(screen.getByText("No LLM models available")).toBeDefined();
+    expect(screen.queryByText("How can I help?")).toBeNull();
+    expect(screen.getByRole("region", { name: "Next steps" })).toBeDefined();
+  });
+
+  it("shows no next steps to a read-only demo visitor", () => {
+    mocks.workspaceData = { is_demo: true, role: "VIEWER" };
+    render(<HomePage />);
+    expect(screen.queryByRole("region", { name: "Next steps" })).toBeNull();
+    expect(screen.getByText("How can I help?")).toBeDefined();
+  });
+
+  it("shows no card once every step is done", () => {
+    mocks.nextSteps = { first_trace: true, detector: true, signal: true, eval_run: true };
+    render(<HomePage />);
+    expect(screen.queryByRole("region", { name: "Next steps" })).toBeNull();
+    expect(screen.getByText("How can I help?")).toBeDefined();
+  });
+});

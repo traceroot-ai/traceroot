@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ApiClient } from "@traceroot-ai/tools";
 import { UNTRUSTED_TAG } from "../../untrusted.js";
-import { newLoopRunState } from "../loop/budget.js";
+import { BLOCKED_CALLS_BEFORE_STOP, newLoopRunState } from "../loop/budget.js";
 import { LOOP_TOOL_NAMES, createLoopTools, type LoopToolsParams } from "../loop/index.js";
 import { TRACE_SPAN_CAP, clip, formatTraceDetail } from "../loop/format.js";
 import { SIGNAL_READ_PATH } from "../loop/signals.js";
@@ -81,7 +81,10 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 beforeEach(() => {
   process.env.BACKEND_INTERNAL_URL = "http://fastapi.test";
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe("createLoopTools", () => {
   it("offers exactly the Loop's read, memory and summary tools", () => {
@@ -363,6 +366,19 @@ describe("createLoopTools", () => {
     expect(state.summary).toBe("Checked 40 traces.");
     expect(done.terminate).toBe(true);
     expect(textOf(done)).toContain("stop now");
+  });
+
+  it("stops a run that keeps submitting an empty summary", async () => {
+    const onRunaway = vi.fn();
+    const { tool, state } = build({ onRunaway });
+    for (let i = 0; i < BLOCKED_CALLS_BEFORE_STOP - 1; i++) {
+      await tool("loop_submit_summary").execute("tc", { summary: "" });
+    }
+    expect(onRunaway).not.toHaveBeenCalled();
+    await tool("loop_submit_summary").execute("tc", { summary: " " });
+    expect(onRunaway).toHaveBeenCalledTimes(1);
+    expect(state.blockedCalls).toBe(BLOCKED_CALLS_BEFORE_STOP);
+    expect(state.summary).toBeNull();
   });
 });
 
@@ -664,6 +680,9 @@ describe("get_signal", () => {
 
 describe("loop memory notes", () => {
   it("loop_recall shows a note's expiry and leaves out a missing loop", async () => {
+    // Recall hides expired notes by the real clock: pin it to NOW so the note stays live.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
     const { tool, db } = build();
     db.loopMemory.findMany.mockResolvedValueOnce([
       {

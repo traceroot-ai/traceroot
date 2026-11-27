@@ -1,6 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, PlanType } from "@traceroot/core";
+import { USER_DETECTOR_WHERE } from "@traceroot/core/loops/pure";
 import { signalsForRuns } from "@traceroot/core/signals";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
 import { clampStartAfter } from "@/lib/server/retention";
@@ -21,6 +22,14 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
   const { projectId, detectorId } = await params;
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+
+  // Only a user detector's runs: a loop's hidden detector answers 404 here, as on the detector
+  // route; its runs are read through the loop.
+  const detector = await prisma.detector.findFirst({
+    where: { id: detectorId, projectId, ...USER_DETECTOR_WHERE },
+    select: { id: true },
+  });
+  if (!detector) return errorResponse("Detector not found", 404);
 
   const { searchParams } = req.nextUrl;
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);

@@ -2,6 +2,7 @@
 import type { Loop, LoopRun, Prisma } from "@prisma/client";
 import {
   COUNTED_RUN_STATUSES,
+  LOOP_REPLIED_MESSAGE_WHERE,
   type ExistingLoopSignal,
   type LoopDto,
   type LoopMemoryDto,
@@ -63,17 +64,21 @@ export function runToDto(run: LoopRun): LoopRunDto {
   };
 }
 
-/** Attach each Loop's last run, run count, mean cost and signal count: four queries, however many Loops. */
+/**
+ * Attach each Loop's last run, run count, mean cost and signal count. The last
+ * run is one indexed lookup per Loop (a project has at most five), so the read
+ * never scans a Loop's whole run history.
+ */
 async function summarize(db: Db, loops: Loop[]): Promise<LoopSummaryDto[]> {
   if (loops.length === 0) return [];
   const loopIds = loops.map((l) => l.id);
   const detectorIds = loops.map((l) => l.detectorId);
   const [lastRuns, counted, signals] = await Promise.all([
-    db.loopRun.findMany({
-      where: { loopId: { in: loopIds } },
-      orderBy: [{ loopId: "asc" }, { seq: "desc" }],
-      distinct: ["loopId"],
-    }),
+    Promise.all(
+      loopIds.map((loopId) =>
+        db.loopRun.findFirst({ where: { loopId }, orderBy: { seq: "desc" } }),
+      ),
+    ),
     db.loopRun.groupBy({
       by: ["loopId"],
       where: { loopId: { in: loopIds }, status: { in: [...COUNTED_RUN_STATUSES] } },
@@ -86,7 +91,7 @@ async function summarize(db: Db, loops: Loop[]): Promise<LoopSummaryDto[]> {
       _count: { _all: true },
     }),
   ]);
-  const lastByLoop = new Map(lastRuns.map((r) => [r.loopId, r]));
+  const lastByLoop = new Map(lastRuns.flatMap((r) => (r ? [[r.loopId, r] as const] : [])));
   const countedByLoop = new Map(counted.map((c) => [c.loopId, c]));
   const signalsByDetector = new Map(signals.map((s) => [s.detectorId, s._count._all]));
   return loops.map((loop) => {
@@ -186,6 +191,63 @@ export async function getLoopRun(
 ): Promise<LoopRunDto | null> {
   const run = await db.loopRun.findFirst({ where: { id: runId, loopId } });
   return run ? runToDto(run) : null;
+}
+
+/**
+ * Loop runs a Free workspace has used, read live: every run whose agent
+ * replied, over the workspace's lifetime as the billing pass counts Free
+ * usage, plus each running run that has not replied yet. Gating on this
+ * instead of the hourly `loopBlocked` keeps the cap between billing passes.
+ */
+export async function countFreeLoopRunsUsed(db: Db, workspaceId: string): Promise<number> {
+  const replied = await db.aIMessage.groupBy({
+    by: ["sessionId"],
+    where: {
+      workspaceId,
+      kind: "loop",
+      sessionId: { not: null },
+      OR: LOOP_REPLIED_MESSAGE_WHERE,
+    },
+  });
+  const repliedSessions = new Set(replied.map((row) => row.sessionId));
+  const running = await db.loopRun.findMany({
+    where: { status: "running", project: { workspaceId } },
+    select: { sessionId: true },
+  });
+  const notYetReplied = running.filter(
+    (run) => run.sessionId === null || !repliedSessions.has(run.sessionId),
+  );
+  return repliedSessions.size + notYetReplied.length;
+}
+
+/**
+ * Loop runs a project started since `since`, for its daily cap, counted from
+ * records that outlive a deleted Loop (deleting a Loop deletes its runs, not
+ * their sessions). A run counts once the agent service started its turn: that
+ * turn's first row, the kickoff, is a Loop row in the run's own session, so
+ * each session with a Loop row since then is one run. A run that failed before
+ * that (its model could not be resolved, or the agent service refused it) has
+ * no Loop row and does not count. Each running run whose session has no Loop
+ * row yet counts too, so a run is counted from the start to its kickoff.
+ */
+export async function countProjectLoopRunsSince(
+  db: Db,
+  projectId: string,
+  since: Date,
+): Promise<number> {
+  const loopTurn = { kind: "loop", createTime: { gte: since } };
+  const sessions = await db.aISession.count({
+    where: { projectId, messages: { some: loopTurn } },
+  });
+  const runningBeforeTurn = await db.loopRun.count({
+    where: {
+      projectId,
+      status: "running",
+      createTime: { gte: since },
+      OR: [{ sessionId: null }, { session: { messages: { none: loopTurn } } }],
+    },
+  });
+  return sessions + runningBeforeTurn;
 }
 
 export function isExpired(memory: { expiresAt: Date | null }, now: Date): boolean {

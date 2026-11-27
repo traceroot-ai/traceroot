@@ -206,12 +206,26 @@ describe("Loop detail", () => {
   });
 
   it("says when the Free plan's loop runs are used up, with a link to billing", () => {
-    mocks.workspace = { data: { loopBlocked: true, currentUsage: { loop: { runsUsed: 30 } } } };
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "free", currentUsage: { loop: { runsUsed: 30 } } },
+    };
     render(<LoopDetailPage />);
     expect(screen.getByText(/30 loop runs are used/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "upgrade" }).getAttribute("href")).toBe(
       "/workspaces/ws-1/settings/billing",
     );
+  });
+
+  it("lets a paid workspace run with the flag still set, and says nothing about a limit", () => {
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "pro", currentUsage: { loop: { runsUsed: 30 } } },
+    };
+    render(<LoopDetailPage />);
+    expect(screen.queryByText(/loop runs are used/)).toBeNull();
+    const button = screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(mocks.runNow).toHaveBeenCalledTimes(1);
   });
 
   it("says nothing about a limit while runs remain", () => {
@@ -225,7 +239,9 @@ describe("Loop detail", () => {
       isLoading: false,
       error: null,
     };
-    mocks.workspace = { data: { loopBlocked: true, currentUsage: { loop: { runsUsed: 30 } } } };
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "free", currentUsage: { loop: { runsUsed: 30 } } },
+    };
     render(<LoopDetailPage />);
     const dry = screen.getByText(/Dry run: this loop records a summary/);
     expect(screen.getAllByText(/Dry run/)).toHaveLength(1);
@@ -256,6 +272,17 @@ describe("Loop detail", () => {
     expect(screen.queryByText(/looks again/)).toBeNull();
   });
 
+  it("says Running once the worker has started the run", () => {
+    const started = run({ id: "r2", seq: 2, status: "running", finishedAt: null });
+    mocks.loop = { data: loop({ lastRun: started }), isLoading: false, error: null };
+    withRuns([started, run()]);
+    render(<LoopDetailPage />);
+    expect((screen.getByRole("button", { name: "Running…" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.queryByRole("button", { name: "Run queued" })).toBeNull();
+  });
+
   it("knows about a run queued on an earlier page, and keeps the runs polling", () => {
     const queued = run({
       id: "r60",
@@ -278,7 +305,9 @@ describe("Loop detail", () => {
   });
 
   it("disables Run now, and says why, when the plan's loop runs are used up", () => {
-    mocks.workspace = { data: { loopBlocked: true, currentUsage: { loop: { runsUsed: 30 } } } };
+    mocks.workspace = {
+      data: { loopBlocked: true, billingPlan: "free", currentUsage: { loop: { runsUsed: 30 } } },
+    };
     render(<LoopDetailPage />);
     const button = screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);

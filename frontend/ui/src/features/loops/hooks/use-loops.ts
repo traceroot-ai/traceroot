@@ -240,7 +240,10 @@ export function useLoopRuns(
   });
 }
 
-/** One run by id (a `?run=` link names a run that may be on no loaded page); pass null to skip. */
+/**
+ * One run by id (a `?run=` link names a run that may be on no loaded page); pass null to skip.
+ * Looks again every 10 s while the run is queued or running.
+ */
 export function useLoopRun(projectId: string, loopId: string, runId: string | null) {
   return useQuery({
     queryKey: loopKeys.run(projectId, loopId, runId),
@@ -250,6 +253,7 @@ export function useLoopRun(projectId: string, loopId: string, runId: string | nu
       return ((await res.json()) as { run: LoopRunDto }).run;
     },
     enabled: !!projectId && !!loopId && !!runId,
+    refetchInterval: (q) => (isActiveRun(q.state.data) ? ACTIVE_RUN_POLL_MS : false),
   });
 }
 
@@ -278,6 +282,9 @@ export function useRunLoop(projectId: string, loopId: string) {
         "Failed to start a run",
       ),
     onSuccess: () => invalidateLoopReads(queryClient),
+    // Either answer can change the plan state (a refusal means the runs are used up), so the
+    // workspace, which the plan banner and Run now read, is read again.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["workspace"] }),
   });
 }
 

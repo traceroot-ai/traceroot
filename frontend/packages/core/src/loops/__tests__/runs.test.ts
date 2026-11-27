@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Prisma } from "@prisma/client";
 import { createRun, hasActiveRun } from "../writes.ts";
-import { listLoopRuns, runToDto } from "../queries.ts";
+import { listLoopRuns, listLoops, runToDto } from "../queries.ts";
 
 function fakeTx(maxSeq: number | null) {
   const calls: string[] = [];
@@ -142,5 +142,58 @@ describe("listLoopRuns", () => {
     await listLoopRuns(db, { ...input, signalId: null });
     expect(signal.findFirst).not.toHaveBeenCalled();
     expect(loopRun.count).toHaveBeenCalledWith({ where: { loopId: "l1" } });
+  });
+});
+
+describe("listLoops", () => {
+  it("reads each Loop's last run with its own indexed lookup, not the whole run history", async () => {
+    const at = new Date("2026-11-11T10:00:00Z");
+    const loop = (id: string) => ({
+      id,
+      projectId: "p1",
+      detectorId: `d-${id}`,
+      name: id,
+      template: null,
+      instructions: "",
+      scheduleKind: "daily",
+      intervalHours: null,
+      weekday: null,
+      hour: 9,
+      timezone: "UTC",
+      status: "active",
+      dryRun: false,
+      model: null,
+      provider: null,
+      source: null,
+      lookbackHours: 24,
+      nextRunAt: null,
+      lastRunAt: null,
+      failureStreak: 0,
+      createdBy: "u1",
+      createTime: at,
+      updateTime: at,
+    });
+    const run = { id: "r7", loopId: "l1", seq: 7, status: "succeeded", createTime: at };
+    const findFirst = vi.fn(async (args: { where: { loopId: string } }) =>
+      args.where.loopId === "l1" ? run : null,
+    );
+    const findMany = vi.fn();
+    const db = {
+      loop: { findMany: vi.fn(async () => [loop("l1"), loop("l2")]), count: vi.fn(async () => 2) },
+      loopRun: { findFirst, findMany, groupBy: vi.fn(async () => []) },
+      signal: { groupBy: vi.fn(async () => []) },
+    } as unknown as Prisma.TransactionClient;
+
+    const listed = await listLoops(db, { projectId: "p1", page: 0, limit: 50 });
+
+    expect(findMany).not.toHaveBeenCalled();
+    expect(findFirst.mock.calls).toEqual([
+      [{ where: { loopId: "l1" }, orderBy: { seq: "desc" } }],
+      [{ where: { loopId: "l2" }, orderBy: { seq: "desc" } }],
+    ]);
+    expect(listed.data.map((l) => [l.id, l.lastRun?.seq ?? null])).toEqual([
+      ["l1", 7],
+      ["l2", null],
+    ]);
   });
 });

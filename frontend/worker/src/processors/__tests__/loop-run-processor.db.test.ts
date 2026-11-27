@@ -16,6 +16,7 @@ import {
   LOOP_LIMITS,
   createLoopWithDetector,
   createRun,
+  deleteLoopKeepingDetector,
   type LoopAgentResult,
   type LoopRunStatus,
 } from "@traceroot/core/loops";
@@ -26,7 +27,13 @@ import {
   startLoopRun,
 } from "../../loops/start.js";
 import { loopFindingRunId } from "../../loops/findings.js";
-import { LOOP_FINDINGS_FAILED, noTracesSkip, processLoopRun } from "../loop-run-processor.js";
+import {
+  LOOP_FINDINGS_FAILED,
+  LOOP_SESSION_TIMEOUT_ERROR,
+  LOOP_SESSION_TIMEOUT_MS,
+  noTracesSkip,
+  processLoopRun,
+} from "../loop-run-processor.js";
 
 vi.stubEnv("INTERNAL_API_SECRET", "unit-test-internal-secret-0123456789abcdef");
 
@@ -56,6 +63,7 @@ vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mocks.enqueueSi
 vi.mock("../../loops/window-traces.js", () => ({ windowHasTraces: mocks.windowHasTraces }));
 
 const url = process.env.TEST_DATABASE_URL;
+const billingAtLoad = process.env.ENABLE_BILLING;
 const suffix = Math.random().toString(36).slice(2, 8);
 const workspaces: string[] = [];
 let count = 0;
@@ -75,9 +83,29 @@ async function createSession(target: string): Promise<Response> {
   return Response.json({ id: session.id });
 }
 
+/** The kickoff row the agent service writes when it starts a run's turn. */
+async function writeKickoff(sessionId: string, workspaceId: string) {
+  await prisma.aIMessage.create({
+    data: {
+      workspaceId,
+      sessionId,
+      kind: "loop",
+      turnKind: "loop_execution",
+      role: "user",
+      content: "Run the loop.",
+    },
+  });
+}
+
 function agentAnswers(result: Partial<LoopAgentResult>) {
-  fetchMock.mockImplementation(async (target: string) => {
+  fetchMock.mockImplementation(async (target: string, init?: RequestInit) => {
     if (target.endsWith("/sessions")) return createSession(target);
+    const { sessionId } = JSON.parse(String(init?.body)) as { sessionId: string };
+    const { workspaceId } = await prisma.aISession.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { workspaceId: true },
+    });
+    await writeKickoff(sessionId, workspaceId);
     return Response.json({
       status: "submitted",
       summary: "Nothing recurring in the last 24 hours.",
@@ -94,7 +122,6 @@ function agentAnswers(result: Partial<LoopAgentResult>) {
 
 interface Setup {
   plan?: string;
-  loopBlocked?: boolean;
   project?: { rcaModel?: string; rcaProvider?: string; rcaSource?: string };
   loop?: { model?: string; provider?: string; source?: "system" | "byok"; failureStreak?: number };
 }
@@ -110,7 +137,6 @@ async function setup(options: Setup = {}) {
       id: workspaceId,
       name: workspaceId,
       billingPlan: options.plan ?? "starter",
-      loopBlocked: options.loopBlocked ?? false,
     },
   });
   await prisma.project.create({
@@ -146,17 +172,11 @@ async function addRun(
   options: {
     trigger?: "manual" | "schedule";
     status?: LoopRunStatus;
-    /** The run called the agent: it has a session. */
-    withSession?: boolean;
+    /** The agent started the run's turn: a session with its Loop kickoff row. */
+    withTurn?: boolean;
   } = {},
 ) {
-  const sessionId = options.withSession
-    ? (
-        await prisma.aISession.create({
-          data: { projectId: ids.projectId, workspaceId: ids.workspaceId },
-        })
-      ).id
-    : null;
+  const sessionId = options.withTurn ? await loopTurn(ids) : null;
   return prisma.$transaction((tx) =>
     createRun(tx, {
       loopId: ids.loopId,
@@ -166,6 +186,60 @@ async function addRun(
       data: { sessionId },
     }),
   );
+}
+
+/** A Loop session with its turn's kickoff row, as the agent service writes it. */
+async function loopTurn(ids: Ids): Promise<string> {
+  const session = await prisma.aISession.create({
+    data: { projectId: ids.projectId, workspaceId: ids.workspaceId },
+  });
+  await writeKickoff(session.id, ids.workspaceId);
+  return session.id;
+}
+
+/** Another active Loop in the same project. */
+async function addLoop(ids: Ids, name: string): Promise<Ids> {
+  const loop = await prisma.$transaction((tx) =>
+    createLoopWithDetector(tx, {
+      projectId: ids.projectId,
+      createdBy: "u1",
+      name,
+      template: null,
+      instructions: "look",
+      schedule: { kind: "interval", intervalHours: 1 },
+      dryRun: false,
+      lookbackHours: 24,
+      model: null,
+      provider: null,
+      source: null,
+      now: new Date(),
+    }),
+  );
+  await prisma.loop.update({ where: { id: loop.id }, data: { nextRunAt: null } });
+  return { ...ids, loopId: loop.id };
+}
+
+/**
+ * Runs the workspace used: each a Loop session in which the agent replied,
+ * two days ago, so they count toward the plan but not the project's daily cap.
+ */
+async function useRuns(ids: Ids, count: number) {
+  const createTime = new Date(Date.now() - 2 * 24 * 3_600_000);
+  for (let i = 0; i < count; i++) {
+    const session = await prisma.aISession.create({
+      data: { projectId: ids.projectId, workspaceId: ids.workspaceId },
+    });
+    await prisma.aIMessage.create({
+      data: {
+        workspaceId: ids.workspaceId,
+        sessionId: session.id,
+        kind: "loop",
+        role: "tool_step",
+        content: "list_traces",
+        createTime,
+      },
+    });
+  }
 }
 
 const runJob = (runId: string) => processLoopRun({ data: { runId } });
@@ -190,6 +264,8 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    // Only the plan tests' switch: unstubbing every env would drop the secret stubbed above.
+    vi.stubEnv("ENABLE_BILLING", billingAtLoad);
     vi.restoreAllMocks();
   });
   afterAll(async () => {
@@ -250,8 +326,10 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       });
     });
 
-    it("skips as blocked when a Free workspace used its loop runs", async () => {
-      const ids = await setup({ plan: "free", loopBlocked: true });
+    it("skips as blocked once a Free workspace used its loop runs, before any billing pass", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "free" });
+      await useRuns(ids, 30);
       const run = await addRun(ids);
       await runJob(run.id);
       const after = await runRow(run.id);
@@ -260,17 +338,62 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("lets a paid workspace run whatever its loopBlocked says", async () => {
-      const ids = await setup({ plan: "pro", loopBlocked: true });
+    it("starts a Free workspace's last plan run", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "free" });
+      await useRuns(ids, 29);
       const run = await addRun(ids);
       await runJob(run.id);
       expect((await runRow(run.id)).status).toBe("quiet");
     });
 
+    it("lets a paid workspace run whatever it used", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "pro" });
+      await useRuns(ids, 30);
+      const run = await addRun(ids);
+      await runJob(run.id);
+      expect((await runRow(run.id)).status).toBe("quiet");
+    });
+
+    it("starts only one of two projects' runs at a Free workspace's last plan run", async () => {
+      vi.stubEnv("ENABLE_BILLING", "true");
+      const ids = await setup({ plan: "free" });
+      await useRuns(ids, 29);
+      const otherProject = `${ids.projectId}_b`;
+      await prisma.project.create({
+        data: { id: otherProject, workspaceId: ids.workspaceId, name: "b" },
+      });
+      const other = await prisma.$transaction((tx) =>
+        createLoopWithDetector(tx, {
+          projectId: otherProject,
+          createdBy: "u1",
+          name: "Slow lookups",
+          template: null,
+          instructions: "look",
+          schedule: { kind: "interval", intervalHours: 1 },
+          dryRun: false,
+          lookbackHours: 24,
+          model: null,
+          provider: null,
+          source: null,
+          now: new Date(),
+        }),
+      );
+      const runs = [
+        await addRun(ids),
+        await addRun({ ...ids, projectId: otherProject, loopId: other.id }),
+      ];
+      const starts = await Promise.all(runs.map((run) => startLoopRun(run)));
+      expect(starts.sort()).toEqual(["skipped", "started"]);
+      const statuses = await Promise.all(runs.map(async (run) => (await runRow(run.id)).status));
+      expect(statuses.sort()).toEqual(["running", "skipped_blocked"]);
+    });
+
     it("skips as blocked when the project hit its daily run cap", async () => {
       const ids = await setup();
       for (let i = 0; i < LOOP_LIMITS.runsPerProjectPerDay; i++) {
-        await addRun(ids, { status: "quiet", withSession: true });
+        await addRun(ids, { status: "quiet", withTurn: true });
       }
       const run = await addRun(ids);
       await runJob(run.id);
@@ -279,6 +402,45 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
         error: LOOP_DAILY_CAP_SKIP,
       });
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("still counts a deleted loop's runs toward the project's daily cap", async () => {
+      const ids = await setup();
+      for (let i = 0; i < LOOP_LIMITS.runsPerProjectPerDay; i++) {
+        await addRun(ids, { status: "quiet", withTurn: true });
+      }
+      const deleted = await loopRow(ids.loopId);
+      await prisma.$transaction((tx) => deleteLoopKeepingDetector(tx, deleted));
+      expect(await prisma.loopRun.count({ where: { projectId: ids.projectId } })).toBe(0);
+
+      const recreated = await addLoop(ids, "Tool errors");
+      const run = await addRun(recreated);
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "skipped_blocked",
+        error: LOOP_DAILY_CAP_SKIP,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("counts a running run that already wrote its loop turn once", async () => {
+      const ids = await setup();
+      // 23 of 24 used: 22 finished runs and one still running in its turn.
+      for (let i = 0; i < LOOP_LIMITS.runsPerProjectPerDay - 2; i++) {
+        await addRun(ids, { status: "quiet", withTurn: true });
+      }
+      await addRun(ids, { status: "running", withTurn: true });
+      const other = await addLoop(ids, "Slow lookups");
+      const last = await addRun(other);
+      await runJob(last.id);
+      expect((await runRow(last.id)).status).toBe("quiet");
+
+      const over = await addRun(other);
+      await runJob(over.id);
+      expect(await runRow(over.id)).toMatchObject({
+        status: "skipped_blocked",
+        error: LOOP_DAILY_CAP_SKIP,
+      });
     });
 
     it("counts a running run toward the daily cap before it has its session", async () => {
@@ -474,6 +636,39 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       );
     });
 
+    it("gives the session create its own short timeout, and fails the run when it fires", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+      // The session's timer fires at once; any other keeps its real length.
+      const timeout = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockImplementation((ms) =>
+          ms === LOOP_SESSION_TIMEOUT_MS
+            ? AbortSignal.abort(new DOMException("The operation timed out.", "TimeoutError"))
+            : realTimeout(ms),
+        );
+      // A hung agent service: the request settles only when its signal aborts.
+      fetchMock.mockImplementation(
+        (_target: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            const signal = init.signal!;
+            if (signal.aborted) reject(signal.reason);
+            signal.addEventListener("abort", () => reject(signal.reason));
+          }),
+      );
+
+      await runJob(run.id);
+
+      expect(timeout).toHaveBeenCalledWith(LOOP_SESSION_TIMEOUT_MS);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "failed",
+        error: LOOP_SESSION_TIMEOUT_ERROR,
+        sessionId: null,
+      });
+    });
+
     it("records the agent's outcome: a failed answer fails the run", async () => {
       const ids = await setup();
       const run = await addRun(ids);
@@ -628,14 +823,32 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       expect((await runRow(run.id)).status).toBe("quiet");
     });
 
-    it("still fails a run whose model cannot be resolved", async () => {
-      const ids = await setup({ loop: { model: "gpt-5", provider: "my-openai", source: "byok" } });
+    it("skips a run whose BYOK provider is missing, without resolving its model", async () => {
+      const ids = await setup({
+        loop: {
+          model: "gpt-5",
+          provider: "my-openai",
+          source: "byok",
+          failureStreak: LOOP_LIMITS.failureStreakToPause - 1,
+        },
+      });
       mocks.resolveProjectModel.mockResolvedValue({ error: "BYOK provider is gone" });
       mocks.windowHasTraces.mockResolvedValue(false);
       const run = await addRun(ids, { trigger: "schedule" });
       await runJob(run.id);
-      expect((await runRow(run.id)).status).toBe("failed");
-      expect(mocks.windowHasTraces).not.toHaveBeenCalled();
+      const after = await runRow(run.id);
+      expect(after).toMatchObject({
+        status: "skipped_no_traces",
+        error: noTracesSkip(24),
+        sessionId: null,
+      });
+      expect(after.metadata).toMatchObject({ model: null, provider: null, source: null });
+      expect(mocks.resolveProjectModel).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await loopRow(ids.loopId)).toMatchObject({
+        failureStreak: LOOP_LIMITS.failureStreakToPause - 1,
+        status: "active",
+      });
     });
 
     it("calls the agent when the check itself fails", async () => {

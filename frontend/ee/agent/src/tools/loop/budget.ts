@@ -56,7 +56,7 @@ export interface LoopRunState {
   findingRecords: number;
   /** A cap refused at least one call. */
   budgetExhausted: boolean;
-  /** Calls refused by a cap. */
+  /** Calls refused: over a cap, or an empty summary. */
   blockedCalls: number;
 }
 

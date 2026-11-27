@@ -370,7 +370,7 @@ export function BillingTab({
           runsHelper={
             loopCapReached
               ? "Limit reached: Loop runs are skipped until you upgrade."
-              : "Each run that called the agent."
+              : "Each run in which the agent replied."
           }
           systemCost={loopUsage?.systemTokenCost ?? 0}
           systemHelper={

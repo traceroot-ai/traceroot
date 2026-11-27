@@ -6,6 +6,7 @@ export {
   isProductMailConfigured,
   ensureContact,
   setTopicSubscription,
+  PRODUCT_FOOTER_SLOT,
   type EmailKind,
   type OutboundEmail,
   type SendResult,
@@ -23,3 +24,14 @@ export {
 } from "./unsubscribe.ts";
 export { type EmailSendClient } from "./send-record.ts";
 export { sendOnce, type SendOnceResult } from "./send-once.ts";
+export {
+  audienceSettings,
+  localExclusion,
+  providerState,
+  runNewsletterAudience,
+  NEWSLETTER_DELAY_MS,
+  type AudienceMode,
+  type AudienceRun,
+  type AudienceSettings,
+  type Exclusion,
+} from "./newsletter.ts";

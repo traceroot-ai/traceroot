@@ -1,11 +1,11 @@
 /**
- * Executes one Loop run: its start (every gate, under one lock), its model,
- * then the agent service's loop-run route on a fresh system session. The agent
- * reads traces and answers with a summary and its findings; this processor owns
- * the run's lifecycle (loop_runs.status) from pending to its end state. The
- * findings are recorded as hits of the Loop's hidden detector, which the
- * signals round groups into signals. A dry run's answer has none (the agent
- * route drops them).
+ * Executes one Loop run: its start (every gate, under one lock), the check that
+ * its window has traces, its model, then the agent service's loop-run route on
+ * a fresh system session. The agent reads traces and answers with a summary and
+ * its findings; this processor owns the run's lifecycle (loop_runs.status) from
+ * pending to its end state. The findings are recorded as hits of the Loop's
+ * hidden detector, which the signals round groups into signals. A dry run's
+ * answer has none (the agent route drops them).
  */
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@traceroot/core";
@@ -34,6 +34,10 @@ import {
 } from "../queues/loop-run-queue.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
+/** The session create is one row write: a hung agent service must not hold the run's slot. */
+export const LOOP_SESSION_TIMEOUT_MS = 30_000;
+export const LOOP_SESSION_TIMEOUT_ERROR =
+  "The agent service did not create the loop session in time.";
 
 export const LOOP_NO_SUMMARY = "The run ended without a summary.";
 export const LOOP_FINDINGS_FAILED =
@@ -123,6 +127,7 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
     loopId: run.loopId,
     trigger: run.trigger,
     fromStatus: "running" as const,
+    attempts: run.attempts,
   };
   const timeoutMs = loopRunTimeoutMs();
   let resolved: ResolvedModel | null = null;
@@ -130,38 +135,41 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
   let ranOn: LoopRunModel | null = null;
   let finish: LoopRunFinish;
   try {
-    // The Loop's own model, else the project's Agent model.
-    const choice = loop.model
-      ? { model: loop.model, provider: loop.provider, source: loop.source }
-      : { model: project.rcaModel, provider: project.rcaProvider, source: project.rcaSource };
-    const model = await resolveProjectModel(
-      choice.model,
-      choice.provider,
-      choice.source,
-      project.workspaceId,
-    );
-    if (model && "error" in model) {
-      // Failed where the user sees it, and on the failure streak, but the agent
-      // was never called: no session, so it counts against neither cap.
-      finish = { status: "failed", error: model.error };
-    } else if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
-      // Nothing for the agent to read: no session, so it counts against
-      // neither cap, and it leaves the failure streak alone.
+    if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
+      // Nothing for the agent to read, checked before the model so that an
+      // empty window always skips, whatever its model: no session, so it
+      // counts against neither cap, and it leaves the failure streak alone.
       finish = { status: "skipped_no_traces", error: noTracesSkip(loop.lookbackHours) };
     } else {
-      resolved = model;
-      const result = await callAgent({
-        runId: run.id,
-        projectId: project.id,
-        workspaceId: project.workspaceId,
-        title: `[Loop] ${loop.name} #${run.seq}`,
-        resolved,
-        timeoutMs,
-      });
-      ranOn = result.modelUsed;
-      finish = outcomeOf(result, timeoutMs);
-      if (finish.status === "quiet" && result.findings.length > 0) {
-        finish = await recordFindings(project.id, loop, result.findings, finish);
+      // The Loop's own model, else the project's Agent model.
+      const choice = loop.model
+        ? { model: loop.model, provider: loop.provider, source: loop.source }
+        : { model: project.rcaModel, provider: project.rcaProvider, source: project.rcaSource };
+      const model = await resolveProjectModel(
+        choice.model,
+        choice.provider,
+        choice.source,
+        project.workspaceId,
+      );
+      if (model && "error" in model) {
+        // Failed where the user sees it, and on the failure streak, but the
+        // agent was never called: no session, so it counts against neither cap.
+        finish = { status: "failed", error: model.error };
+      } else {
+        resolved = model;
+        const result = await callAgent({
+          runId: run.id,
+          projectId: project.id,
+          workspaceId: project.workspaceId,
+          title: `[Loop] ${loop.name} #${run.seq}`,
+          resolved,
+          timeoutMs,
+        });
+        ranOn = result.modelUsed;
+        finish = outcomeOf(result, timeoutMs);
+        if (finish.status === "quiet" && result.findings.length > 0) {
+          finish = await recordFindings(project.id, loop, result.findings, finish);
+        }
       }
     }
   } catch (error) {
@@ -225,10 +233,19 @@ async function callAgent(params: {
 
   // Created first, as runRcaSession does, so the run links to its chat even
   // when the run itself fails.
-  const sessionRes = await fetch(
-    `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
-    { method: "POST", headers, body: JSON.stringify({ title: params.title }) },
-  );
+  let sessionRes: Response;
+  try {
+    sessionRes = await fetch(`${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: params.title }),
+      signal: AbortSignal.timeout(LOOP_SESSION_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // A failed run, not a timed-out one: the agent never started on it.
+    if (isAbort(error)) throw new Error(LOOP_SESSION_TIMEOUT_ERROR);
+    throw error;
+  }
   if (!sessionRes.ok) {
     throw new Error(`Failed to create the loop session: HTTP ${sessionRes.status}`);
   }

@@ -54,8 +54,9 @@ export default function LoopDetailPage() {
     poll: active,
   });
   // Whether the Free plan's Loop runs are used up: runs are skipped as blocked until it upgrades.
+  // Only a Free workspace is held to the flag, as the run route and the worker do.
   const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
-  const planBlocked = workspace?.loopBlocked === true;
+  const planBlocked = workspace?.loopBlocked === true && workspace.billingPlan === PlanType.FREE;
   const statusMutation = useSetLoopStatus(projectId);
   const deleteMutation = useDeleteLoop(projectId);
   const { openAiSession } = useLayout();
@@ -123,6 +124,7 @@ export default function LoopDetailPage() {
         projectId={projectId}
         loopId={loop.id}
         active={active}
+        running={loop.lastRun?.status === "running"}
         planBlocked={planBlocked}
         paused={stopped}
       />

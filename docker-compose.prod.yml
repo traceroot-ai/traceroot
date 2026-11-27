@@ -314,6 +314,8 @@ services:
       AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
       AUTH_AGENTID_CLIENT_ID: ${AUTH_AGENTID_CLIENT_ID:-}
       AUTH_AGENTID_CLIENT_SECRET: ${AUTH_AGENTID_CLIENT_SECRET:-}
+      AUTH_GITHUB_CLIENT_ID: ${AUTH_GITHUB_CLIENT_ID:-}
+      AUTH_GITHUB_CLIENT_SECRET: ${AUTH_GITHUB_CLIENT_SECRET:-}
       # --- API ---
       # NOTE: NEXT_PUBLIC_* vars are baked at build time in Next.js.
       # For production, rebuild the image with the correct value or use
@@ -620,6 +622,7 @@ services:
       SANDBOX_IDLE_TTL_MINUTES: ${SANDBOX_IDLE_TTL_MINUTES:-30}
       SANDBOX_RECLAIM_ON_START: ${SANDBOX_RECLAIM_ON_START:-true}
       DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
+      SMOL_CLOUD_TOKEN: ${SMOL_CLOUD_TOKEN:-}
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

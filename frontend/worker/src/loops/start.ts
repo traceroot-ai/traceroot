@@ -4,12 +4,15 @@
  * with the start, so two runs of one project (different Loops, different
  * workers) cannot both read 23 of 24 and both start. The Loop's row lock means
  * a pause committed before the start is seen here, and one committed after it
- * waits for the run to be running.
+ * waits for the run to be running. A Free workspace's plan runs are counted
+ * live under a workspace lock, so runs of two of its projects cannot both read
+ * 29 of 30 and both start.
  */
-import { PlanType, prisma } from "@traceroot/core";
+import { PlanType, isBillingEnabled, isLoopRunBlocked, prisma, type Prisma } from "@traceroot/core";
 import {
-  COUNTED_RUN_WHERE,
   LOOP_LIMITS,
+  countFreeLoopRunsUsed,
+  countProjectLoopRunsSince,
   lockLoop,
   type LoopRunStatus,
 } from "@traceroot/core/loops";
@@ -47,7 +50,8 @@ export async function startLoopRun(run: {
         project: {
           select: {
             deleteTime: true,
-            workspace: { select: { billingPlan: true, loopBlocked: true } },
+            workspaceId: true,
+            workspace: { select: { billingPlan: true } },
           },
         },
       },
@@ -62,19 +66,17 @@ export async function startLoopRun(run: {
     if (loop?.status !== "active" || project.deleteTime !== null) {
       skip = { status: "skipped_paused", error: LOOP_PAUSED_SKIP };
     } else if (
-      project.workspace.loopBlocked &&
-      (project.workspace.billingPlan as PlanType) === PlanType.FREE
+      await freePlanRunsUsedUp(tx, project.workspaceId, project.workspace.billingPlan as PlanType)
     ) {
       skip = { status: "skipped_blocked", error: LOOP_PLAN_SKIP };
     } else {
-      const runsToday = await tx.loopRun.count({
-        where: {
-          projectId: run.projectId,
-          createTime: { gte: new Date(now.getTime() - DAY_MS) },
-          // A run that started counts before it has its session.
-          OR: [{ status: "running" }, COUNTED_RUN_WHERE],
-        },
-      });
+      // Counted from the agent's sessions, not from loop_runs: deleting a Loop
+      // deletes its runs, and must not hand the project a fresh allowance.
+      const runsToday = await countProjectLoopRunsSince(
+        tx,
+        run.projectId,
+        new Date(now.getTime() - DAY_MS),
+      );
       if (runsToday >= LOOP_LIMITS.runsPerProjectPerDay) {
         skip = { status: "skipped_blocked", error: LOOP_DAILY_CAP_SKIP };
       }
@@ -89,4 +91,19 @@ export async function startLoopRun(run: {
     if (moved.count === 0) return "taken";
     return skip ? "skipped" : "started";
   });
+}
+
+/**
+ * Whether a Free workspace has used its plan's Loop runs, counted live (the
+ * hourly `loopBlocked` lags between billing passes). Paid plans, and billing
+ * off, are never held and take no lock.
+ */
+async function freePlanRunsUsedUp(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  plan: PlanType,
+): Promise<boolean> {
+  if (!isBillingEnabled() || plan !== PlanType.FREE) return false;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('loop_plan_runs'), hashtext(${workspaceId}))`;
+  return isLoopRunBlocked(plan, await countFreeLoopRunsUsed(tx, workspaceId));
 }
