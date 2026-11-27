@@ -324,6 +324,13 @@ REJECTED = [
         f"SELECT span_id FROM spans_public_v1(project_id = '{PROJECT_B}', {OPEN_BOUNDS})",
     ),
     ("CTE shadowing a public table", "WITH spans AS (SELECT * FROM traces) SELECT * FROM spans"),
+    ("quoted identifier with backslash", 'SELECT 1 AS "a\\\\"'),
+    (
+        "ARRAY JOIN subquery",
+        "SELECT x FROM spans ARRAY JOIN (SELECT groupArray(name) FROM system.tables) AS x",
+    ),
+    ("IN system table", "SELECT 1 WHERE 1 IN system.numbers"),
+    ("GLOBAL IN subquery", "SELECT 1 WHERE 1 GLOBAL IN (SELECT 1 FROM spans)"),
 ]
 
 

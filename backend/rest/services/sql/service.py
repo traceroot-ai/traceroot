@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 
 import sqlglot
 import sqlglot.expressions as exp
+from clickhouse_connect.driver.binding import external_bind_re
 from clickhouse_connect.driver.exceptions import ClickHouseError
 from sqlglot.errors import SqlglotError
 
@@ -365,26 +366,44 @@ class SqlQueryService:
             query, project_id, retention_floor=retention_floor
         )
 
+        # Forward only caller parameters that match an actual `{name:Type}`
+        # placeholder in the query. clickhouse-connect switches from server-side
+        # HTTP `param_*` binding to client-side Python `%`-formatting whenever
+        # `parameters` is non-empty and the SQL text has no `{name:Type}` match.
+        # Combined with the rewriter omitting `scope_project_id` when no curated
+        # view was emitted, a query with no server-side placeholders is always
+        # sent with `parameters=None` so client-side interpolation cannot run.
+        declared_placeholders = _placeholder_names(query)
+        used_caller_params = {k: v for k, v in caller_params.items() if k in declared_placeholders}
+
         # The scope bind goes on last and wins outright. The scrub above already
         # refuses these names, so the ordering is the second of two independent
         # reasons a caller cannot displace the tenant scope.
-        merged_params = {**caller_params, **bind_params}
+        merged_params = {**used_caller_params, **bind_params}
 
         wrapped = f"SELECT * FROM (\n{scoped_sql}\n) LIMIT {effective_max + 1}"
+
+        # Defense-in-depth invariant: refuse to pass non-empty parameters to
+        # clickhouse-connect unless the rendered SQL carries a `{name:Type}`
+        # placeholder, guaranteeing `bind_query` can never fall back to
+        # `finalize_query` `%`-formatting.
+        if merged_params and external_bind_re.search(wrapped) is None:
+            logger.error("refusing to pass parameters to SQL with no server-side placeholders")
+            raise SqlExecutionError(_UNEXPECTED, is_client_error=False)
 
         client = self._resolve_client()
         started = time.perf_counter()
         try:
             # No settings argument. See the module docstring: readonly = 1
             # refuses every per-query override, stricter ones included.
-            result = client.query(wrapped, parameters=merged_params)
+            result = client.query(wrapped, parameters=merged_params or None)
         except ClickHouseError as exc:
             message, is_client_error = classify_ch_error(str(exc))
             if _error_code(str(exc)) == _UNKNOWN_QUERY_PARAMETER and _caller_parameter_missing(
-                str(exc), query, caller_params
+                str(exc), query, used_caller_params
             ):
                 message, is_client_error = _MISSING_PARAMETER, True
-            elif _caller_parameter_unparseable(str(exc), caller_params):
+            elif _caller_parameter_unparseable(str(exc), used_caller_params):
                 message, is_client_error = _BAD_PARAMETER_VALUE, True
             # The raw text may name the curated views, so it is logged and never
             # returned. Nothing derived from it reaches the caller except the

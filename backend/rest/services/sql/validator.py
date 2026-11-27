@@ -26,10 +26,12 @@ Policy summary
 5.  Every ``exp.Table`` node must reference a bare whitelisted public table name
     (``spans`` or ``traces``), or a CTE alias defined in the same query.
     Rejected: table functions, database/catalog-qualified names, internal view
-    names (``spans_public_v1`` / ``traces_public_v1``), FINAL modifier.
-    Note: ARRAY JOIN right-hand sides do not produce Table nodes in sqlglot
-    (they appear as ``Alias(Column(...))`` inside a ``Join``), so no special
-    ARRAY JOIN skip logic is required.
+    names (``spans_public_v1`` / ``traces_public_v1``), FINAL modifier,
+    subqueries inside ``ARRAY JOIN`` (sqlglot's ClickHouse parser turns every
+    ``exp.Table`` inside an ``ARRAY JOIN`` subtree into an ``exp.Column``),
+    non-table/subquery sources in ``FROM`` / ``JOIN``, and table-reference or
+    ``GLOBAL`` forms of ``IN`` (``expr IN db.table``, ``expr IN (db.table)``,
+    ``GLOBAL IN``).
 6.  CTE shadow: a CTE whose alias matches a public table name is rejected.
 7.  ``project_id`` is blocked as a column reference and as an output alias.
 8.  ``SETTINGS`` clause is blocked at any nesting level.
@@ -38,6 +40,9 @@ Policy summary
 10. Function gate — ALLOWLIST-PRIMARY: every function node's lowercased name
     must be in ``ALLOWED_FUNCTIONS``.  The blocklist (``BLOCKED_FUNCTIONS`` and
     ``BLOCKED_PREFIXES``) wins even if a name also appears in the allowlist.
+11. Quoted identifiers carrying backslashes or ASCII control characters are
+    rejected (ClickHouse's lexer interprets ``\\`` inside double-quoted
+    identifiers whereas sqlglot's generator does not re-escape it).
 
 Sqlglot findings / surprises
 -----------------------------
@@ -366,6 +371,78 @@ def is_blocked_function(node: exp.Expression) -> bool:
     return name in BLOCKED_FUNCTIONS or any(name.startswith(p) for p in BLOCKED_PREFIXES)
 
 
+def has_unsafe_identifier_chars(name: str) -> bool:
+    """Return ``True`` if *name* carries a backslash or ASCII control character.
+
+    sqlglot's ClickHouse tokenizer unescapes ``\\`` inside double-quoted and
+    backtick-quoted identifiers, while ``Generator.identifier_sql`` doubles
+    ``"`` without re-escaping ``\\`` or control characters. ClickHouse's lexer
+    interprets ``\\`` as an escape inside double-quoted identifiers, so a
+    trailing ``\\`` or ``\\"`` escapes the closing quote and breaks out of the
+    identifier. Refusing backslashes and control characters eliminates that
+    lexer differential at both Layer 1 and Layer 3.
+    """
+    return any(ch == "\\" or ord(ch) < 0x20 or ord(ch) == 0x7F for ch in name)
+
+
+def _unwrap_parens(node: exp.Expression) -> exp.Expression:
+    """Strip any surrounding ``exp.Paren`` wrappers from *node*."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    return node
+
+
+def _in_operand_error(node: exp.Expression) -> str | None:
+    """Return a sanitized error message if the lone ``IN`` operand *node* is unsafe.
+
+    Only placeholders and callable functions are judged here; anything else
+    returns ``None`` for the caller to decide. ClickHouse substitutes a
+    ``{t:Identifier}`` placeholder as a name, and a lone name on the right of
+    ``IN`` is looked up as a table, so ``expr IN {t:Identifier}`` and
+    ``expr IN ({t:Identifier})`` read whatever table the caller names. Layer 3
+    calls this helper without assuming Layer 1 ran, and Layer 3 has no
+    placeholder or function allowlist of its own, so both are checked here.
+    """
+    if isinstance(node, exp.Placeholder):
+        if not isinstance(node.args.get("kind"), exp.DataType):
+            return "Query parameters must be typed as values"
+    elif isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):
+        if is_blocked_function(node):
+            return "Function is blocked by the security policy"
+        if _func_name(node) not in ALLOWED_FUNCTIONS:
+            return "Function is not in the allowed list"
+    return None
+
+
+def is_unsafe_in_clause(node: exp.In) -> str | None:
+    """Return a sanitized error message if *node* uses a disallowed ``IN`` form.
+
+    ClickHouse resolves ``expr IN table``, ``expr IN db.table``, and single
+    parenthesised identifiers ``expr IN (db.table)`` / ``expr IN ((table))`` as
+    table lookups without producing an ``exp.Table`` node in sqlglot. Value
+    lists, subqueries (``query``), value-typed placeholders, and allowlisted
+    functions (such as ``mapKeys(metadata)``) remain permitted.
+    """
+    if node.args.get("is_global"):
+        return "GLOBAL IN is not allowed"
+    if node.args.get("unnest") is not None:
+        return "UNNEST in IN clauses is not allowed"
+    in_field = node.args.get("field")
+    if in_field is not None:
+        unwrapped = _unwrap_parens(in_field)
+        if not isinstance(unwrapped, (exp.Placeholder, exp.Func)) or isinstance(
+            unwrapped, _SKIP_FUNC_TYPES
+        ):
+            return "Table references in IN clauses are not allowed; use a value list or subquery"
+        return _in_operand_error(unwrapped)
+    if len(node.expressions) == 1:
+        only = _unwrap_parens(node.expressions[0])
+        if isinstance(only, exp.Column):
+            return "Table references in IN clauses are not allowed; use a value list or subquery"
+        return _in_operand_error(only)
+    return None
+
+
 def validate(sql: str) -> exp.Query:
     """Parse and validate *sql* against the read-only analytics contract.
 
@@ -477,6 +554,14 @@ def validate(sql: str) -> exp.Query:
     # Walk the full AST (including subqueries, CTEs, window bodies) for all
     # remaining policy checks.
     for node in tree.walk():
+        # 12. Unsafe identifier characters — prevent ClickHouse/sqlglot quoting
+        #     differentials in any identifier position (columns, aliases, CTEs,
+        #     table names).
+        if isinstance(node, exp.Identifier) and has_unsafe_identifier_chars(node.name):
+            raise SqlValidationError(
+                "Identifiers may not contain backslashes or control characters"
+            )
+
         # 8/9. SETTINGS and FORMAT clauses, at any nesting level. Checked on
         #      exp.Query (not just exp.Select): these modifiers can attach to a
         #      set-operation root (exp.Union) or a Subquery — e.g.
@@ -492,6 +577,34 @@ def validate(sql: str) -> exp.Query:
         #     the Table node; it is NOT stored in table.args["final"].
         if isinstance(node, exp.Final):
             raise SqlValidationError("FINAL modifier is not allowed")
+
+        # 5c. FROM / JOIN source validation.
+        #     sqlglot's ClickHouse parser turns every exp.Table inside an ARRAY
+        #     JOIN subtree into an exp.Column, so a subquery inside ARRAY JOIN
+        #     loses its Table nodes before this walk sees them. Reject
+        #     subqueries inside ARRAY JOIN, and require every FROM and non-ARRAY
+        #     JOIN to target only an exp.Table or exp.Subquery.
+        if isinstance(node, exp.From):
+            if isinstance(node.this, exp.Final):
+                raise SqlValidationError("FINAL modifier is not allowed")
+            if not isinstance(node.this, (exp.Table, exp.Subquery)):
+                raise SqlValidationError("Unsupported table source in FROM clause")
+
+        if isinstance(node, exp.Join):
+            if (node.kind or "").upper() == "ARRAY":
+                if any(isinstance(n, (exp.Query, exp.Subquery)) for n in node.walk()):
+                    raise SqlValidationError("Subqueries are not allowed inside ARRAY JOIN")
+            else:
+                if isinstance(node.this, exp.Final):
+                    raise SqlValidationError("FINAL modifier is not allowed")
+                if not isinstance(node.this, (exp.Table, exp.Subquery)):
+                    raise SqlValidationError("Unsupported table source in JOIN clause")
+
+        # 5d. IN / GLOBAL IN table references (not represented as exp.Table).
+        if isinstance(node, exp.In):
+            in_error = is_unsafe_in_clause(node)
+            if in_error is not None:
+                raise SqlValidationError(in_error)
 
         # 5b. Table whitelist.
         if isinstance(node, exp.Table):
