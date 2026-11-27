@@ -2,14 +2,13 @@
 
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { Logo } from "@/components/Logo";
 import { Card, CardContent } from "@/components/ui/card";
 import { ConnectStep } from "@/features/onboarding/components/connect-step";
 import { StandaloneFrame } from "@/features/onboarding/components/standalone-frame";
 import { StepUnavailable } from "@/features/onboarding/components/step-unavailable";
 import { connectStepUrl, createdInRun, setupStepUrl } from "@/features/onboarding/step-urls";
-import { getProject } from "@/lib/api";
+import { useProject } from "@/features/projects/hooks";
 
 /**
  * The sign-up step that connects GitHub and Slack, between creating the
@@ -34,11 +33,7 @@ function Connect() {
   const projectId = searchParams.get("projectId") ?? "";
   const created = createdInRun(searchParams);
 
-  const { data: project, isError } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId),
-    enabled: !!projectId,
-  });
+  const { data: project, isError } = useProject(projectId);
 
   if (!projectId || isError) return <StepUnavailable />;
   const next = () => router.push(setupStepUrl(projectId, created));

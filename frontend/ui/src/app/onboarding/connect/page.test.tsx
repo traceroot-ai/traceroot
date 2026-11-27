@@ -14,6 +14,9 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 vi.mock("@/lib/api", () => ({ getProject: mocks.getProject }));
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "reader" } }, isPending: false }),
+}));
 vi.mock("@/features/onboarding/components/connect-step", () => ({
   ConnectStep: (
     props: Record<string, unknown> & { onContinue: () => void; onSkip: () => void },

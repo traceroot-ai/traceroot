@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImpersonationError } from "@/lib/api/errors";
 import { getAccessKeys, createAccessKey, updateAccessKey, deleteAccessKey } from "@/lib/api";
 import { AccessKeysTab } from "./AccessKeysTab";
 
-const state = vi.hoisted(() => ({ role: "ADMIN" as "ADMIN" | "MEMBER" | "VIEWER" | undefined }));
+const state = vi.hoisted(() => ({
+  role: "ADMIN" as "ADMIN" | "MEMBER" | "VIEWER" | undefined,
+  userId: "user",
+  sessionPending: false,
+}));
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: state.userId } }, isPending: state.sessionPending }),
+}));
 
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: { workspace_id: "w" } }),
@@ -25,6 +32,8 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   state.role = "ADMIN";
+  state.userId = "user";
+  state.sessionPending = false;
 });
 
 it("shows the restriction instead of an empty key list", async () => {
@@ -159,7 +168,7 @@ it("lets a member create a key without reading or displaying the existing invent
     },
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["access-keys", "p"], {
+  client.setQueryData(["access-keys", "p", "user"], {
     access_keys: [{ id: "private-key", name: "Existing private key", key_hint: "tr-private-hint" }],
   });
   render(
@@ -206,3 +215,43 @@ it.each(["VIEWER", undefined] as const)(
     expect(screen.queryByText(/No API keys yet/)).toBeNull();
   },
 );
+
+it("does not render another account's cached key inventory", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+  });
+  const privateInventory = {
+    access_keys: [{ id: "private-key", name: "Previous account key", key_hint: "tr-private-hint" }],
+  };
+  client.setQueryData(["access-keys", "p"], privateInventory);
+  client.setQueryData(["access-keys", "p", "previous-user"], privateInventory);
+  vi.mocked(getAccessKeys).mockRejectedValue(new Error("Connection unavailable"));
+  render(
+    <QueryClientProvider client={client}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  expect(screen.queryByText("Previous account key")).toBeNull();
+  expect(screen.queryByText(/tr-priv[.][.][.]hint/)).toBeNull();
+  await waitFor(() =>
+    expect(client.getQueryState(["access-keys", "p", "user"])?.status).toBe("error"),
+  );
+  expect(screen.queryByText("Previous account key")).toBeNull();
+  expect(getAccessKeys).toHaveBeenCalled();
+});
+
+it("waits for identity even when an administrator membership is cached", () => {
+  state.sessionPending = true;
+  const client = new QueryClient();
+  client.setQueryData(["access-keys", "p", "user"], {
+    access_keys: [{ id: "private-key", name: "Pending session key", key_hint: "tr-private-hint" }],
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  expect(screen.queryByText("Pending session key")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Create new API key" })).toBeNull();
+  expect(getAccessKeys).not.toHaveBeenCalled();
+});

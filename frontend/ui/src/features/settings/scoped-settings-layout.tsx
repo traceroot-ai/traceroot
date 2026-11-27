@@ -78,7 +78,13 @@ export function ProjectSettingsLayout({
   const workspaceId = project?.workspace_id;
   const { data: workspace, isError } = useWorkspace(workspaceId ?? "");
   const access =
-    projectError || isError ? { mode: "full" as const } : projectSettingsAccess(tab, workspace);
+    projectError || isError
+      ? {
+          mode: "denied" as const,
+          title: "Project settings unavailable",
+          message: "Could not load project settings. Reload the page to try again.",
+        }
+      : projectSettingsAccess(tab, workspace);
 
   return (
     <div className="flex h-full">

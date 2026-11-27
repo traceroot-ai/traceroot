@@ -31,8 +31,8 @@ export function PricingDialog({
   currentPlan = PlanType.FREE,
   hasSubscription = false,
 }: PricingDialogProps) {
-  const { data: workspace, isPending } = useWorkspace(workspaceId, open);
-  const canManageBilling = workspace?.role === Role.ADMIN;
+  const { data: workspace, isPending, isError, refetch } = useWorkspace(workspaceId, open);
+  const canManageBilling = !isError && workspace?.role === Role.ADMIN;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,11 +77,18 @@ export function PricingDialog({
           <DialogHeader>
             <DialogTitle>Workspace plan</DialogTitle>
             <DialogDescription>
-              {isPending
-                ? "Loading workspace..."
-                : "Contact a workspace administrator to view or change this workspace's plan."}
+              {isError
+                ? "Could not load workspace information."
+                : isPending
+                  ? "Loading workspace..."
+                  : "Contact a workspace administrator to view or change this workspace's plan."}
             </DialogDescription>
           </DialogHeader>
+          {isError && (
+            <Button variant="outline" onClick={() => void refetch()}>
+              Try again
+            </Button>
+          )}
         </DialogContent>
       </Dialog>
     );

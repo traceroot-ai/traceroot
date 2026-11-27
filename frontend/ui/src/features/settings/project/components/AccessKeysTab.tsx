@@ -7,6 +7,7 @@ import { Info } from "lucide-react";
 import { hasMinRole, Role } from "@traceroot/core";
 import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
+import { useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
@@ -47,10 +48,12 @@ function formatKeyHint(keyHint: string): string {
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
   const formId = useId();
+  const { data: session, isPending: sessionPending } = useSession();
+  const userId = sessionPending ? undefined : session?.user.id;
   const { data: project } = useProject(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
-  const canListKeys = workspace?.role === Role.ADMIN;
-  const canCreateKeys = workspace ? hasMinRole(workspace.role, Role.MEMBER) : false;
+  const canListKeys = !!userId && workspace?.role === Role.ADMIN;
+  const canCreateKeys = !!userId && !!workspace && hasMinRole(workspace.role, Role.MEMBER);
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -60,7 +63,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["access-keys", projectId],
+    queryKey: ["access-keys", projectId, userId],
     queryFn: () => getAccessKeys(projectId),
     enabled: canListKeys,
   });

@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/select";
 import { Role } from "@traceroot/core";
 import {
-  getWorkspace,
   getMembers,
   updateMemberRole,
   removeMember,
@@ -34,6 +33,7 @@ import {
   type Invite,
 } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
+import { useWorkspace } from "@/features/workspaces/hooks";
 
 interface MembersTabProps {
   workspaceId: string;
@@ -49,10 +49,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
   const [newMemberRole, setNewMemberRole] = useState<Role>(Role.MEMBER);
   const [editingMember, setEditingMember] = useState<{ userId: string; role: Role } | null>(null);
 
-  const { data: workspace } = useQuery({
-    queryKey: ["workspace", workspaceId],
-    queryFn: () => getWorkspace(workspaceId),
-  });
+  const { data: workspace } = useWorkspace(workspaceId);
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ["members", workspaceId],

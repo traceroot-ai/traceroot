@@ -15,7 +15,8 @@ import {
 } from "@/features/ai-assistant/lib/resolve-model";
 import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
 import { DEMO_AGENT_SEND_DENIED } from "@/features/ai-assistant/constants";
-import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { getAvailableLLMModels } from "@/lib/api";
+import { useProject } from "@/features/projects/hooks";
 import { NextStepsChecklist } from "@/features/onboarding/components/next-steps-checklist";
 
 // Starter prompts shown while the current session has no messages. Clicking
@@ -68,11 +69,7 @@ export default function HomePage() {
   // the auto-pick default, not the selector's live state — the selector's
   // selection lives inside MessageInput and isn't readable from here.
   // These queries share keys with the panel's own, so react-query dedups them.
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId),
-    enabled: !!projectId,
-  });
+  const { data: project } = useProject(projectId);
   const workspaceId = project?.workspace_id;
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],

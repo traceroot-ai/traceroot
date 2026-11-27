@@ -26,7 +26,7 @@ function renderMembers(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false }, mutations: { retry: false } },
   });
-  queryClient.setQueryData(["workspace", "w1"], { role: "ADMIN" });
+  queryClient.setQueryData(["workspace", "w1", "admin-1"], { role: "ADMIN" });
   queryClient.setQueryData(
     ["members", "w1"],
     [

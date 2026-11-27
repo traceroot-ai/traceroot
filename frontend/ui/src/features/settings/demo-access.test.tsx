@@ -233,10 +233,11 @@ describe("the settings layouts when the workspace cannot be read", () => {
     expect(screen.queryByText("Page content")).toBeNull();
   });
 
-  it("lets project settings handle a workspace lookup failure as before", () => {
+  it("does not mount project settings when the workspace lookup fails", () => {
     state.workspaceError = true;
     renderProjectPage("general");
-    expect(screen.getByText("Page content")).toBeTruthy();
+    expect(screen.getByText("Project settings unavailable")).toBeTruthy();
+    expect(screen.queryByText("Page content")).toBeNull();
     expect(screen.queryByTestId("settings-read-only")).toBeNull();
   });
 });

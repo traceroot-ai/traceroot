@@ -5,12 +5,19 @@ import { PlanType, Role } from "@traceroot/core";
 import { changePlan, createCheckoutSession } from "./api";
 import { PricingDialog } from "./PricingDialog";
 
-const state = vi.hoisted(() => ({ role: "ADMIN" as string | undefined, isPending: false }));
+const state = vi.hoisted(() => ({
+  role: "ADMIN" as string | undefined,
+  isPending: false,
+  isError: false,
+  refetch: vi.fn(),
+}));
 
 vi.mock("@/features/workspaces/hooks", () => ({
   useWorkspace: () => ({
     data: state.role ? { role: state.role } : undefined,
     isPending: state.isPending,
+    isError: state.isError,
+    refetch: state.refetch,
   }),
 }));
 
@@ -24,6 +31,7 @@ afterEach(() => {
   vi.resetAllMocks();
   state.role = Role.ADMIN;
   state.isPending = false;
+  state.isError = false;
 });
 
 describe("PricingDialog", () => {
@@ -59,6 +67,25 @@ describe("PricingDialog", () => {
 
     state.role = Role.ADMIN;
     state.isPending = false;
+    rerender(<PricingDialog open onOpenChange={vi.fn()} workspaceId="ws_1" />);
+    expect(screen.getByRole("button", { name: "Current Plan" })).toBeTruthy();
+  });
+
+  it.each([Role.ADMIN, undefined])("shows a retry on load failure with cached role %s", (role) => {
+    state.role = role;
+    state.isError = true;
+    const { rerender } = render(<PricingDialog open onOpenChange={vi.fn()} workspaceId="ws_1" />);
+
+    expect(screen.getByText("Could not load workspace information.")).toBeTruthy();
+    expect(screen.queryByText(/Contact a workspace administrator/)).toBeNull();
+    expect(screen.queryByText("Current Plan")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(state.refetch).toHaveBeenCalledOnce();
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(changePlan).not.toHaveBeenCalled();
+
+    state.role = Role.ADMIN;
+    state.isError = false;
     rerender(<PricingDialog open onOpenChange={vi.fn()} workspaceId="ws_1" />);
     expect(screen.getByRole("button", { name: "Current Plan" })).toBeTruthy();
   });

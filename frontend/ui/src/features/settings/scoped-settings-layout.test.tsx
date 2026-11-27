@@ -4,6 +4,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorkspaceSettingsLayout } from "./scoped-settings-layout";
 
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "reader" } }, isPending: false }),
+}));
 vi.mock("@/features/workspaces/components", () => ({ WorkspaceBreadcrumb: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/workspaces/qa/settings/general" }));

@@ -40,6 +40,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (data: unknown) => NextResponse.json(data),
 }));
 vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "user-1" } }, isPending: false }),
   authClient: { useSession: () => ({ data: { user: { id: "user-1" } } }) },
 }));
 vi.mock("next/navigation", () => ({
@@ -116,7 +117,7 @@ describe("Projects Updated column", () => {
 
   it("refreshes cached data when entering the Projects page", async () => {
     await queryClient.prefetchQuery({
-      queryKey: ["workspace", "ws-1"],
+      queryKey: ["workspace", "ws-1", "user-1"],
       queryFn: () => getWorkspace("ws-1"),
     });
     mocks.workspace.projects[0].lastIngestedAt = new Date("2026-11-14T12:34:56Z");

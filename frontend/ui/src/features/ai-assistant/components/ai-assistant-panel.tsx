@@ -12,7 +12,8 @@ import { PendingDecisionBar } from "./pending-decision-bar";
 import { SessionHistory } from "./session-history";
 import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
-import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { getAvailableLLMModels } from "@/lib/api";
+import { useProject } from "@/features/projects/hooks";
 import { useDemoAgentAccess } from "../hooks/use-demo-agent-access";
 import { DEMO_AGENT_SEND_DENIED } from "../constants";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -85,11 +86,7 @@ export function AiAssistantPanel({
   const headerCls = "flex h-11 items-center gap-1 border-b px-4";
   const btnCls = "h-7 w-7 shrink-0 p-0";
   const iconCls = compact ? "h-3.5 w-3.5" : "h-4 w-4";
-  const { data: project } = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
-  });
+  const { data: project } = useProject(projectId ?? "");
 
   // workspaceId from project (only available on project pages)
   const workspaceId = project?.workspace_id;

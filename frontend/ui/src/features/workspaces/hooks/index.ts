@@ -3,6 +3,7 @@
  */
 import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { getWorkspaces, getWorkspace } from "@/lib/api";
+import { useSession } from "@/lib/auth-client";
 import type { Workspace, WorkspaceWithProjects } from "@/types/api";
 
 // Refresh ingestion dates while a workspace or project table is visible.
@@ -34,10 +35,12 @@ export function useWorkspace(
     "refetchInterval" | "refetchOnMount"
   > = {},
 ) {
+  const { data: session, isPending: sessionPending } = useSession();
+  const userId = sessionPending ? undefined : session?.user.id;
   return useQuery({
-    queryKey: ["workspace", workspaceId],
+    queryKey: ["workspace", workspaceId, userId],
     queryFn: () => getWorkspace(workspaceId),
-    enabled: enabled && !!workspaceId,
+    enabled: enabled && !!workspaceId && !!userId,
     ...queryOptions,
   });
 }
