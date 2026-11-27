@@ -769,6 +769,57 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       });
     });
 
+    it("records nothing when the run is reclaimed while the agent works", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      const answer = fetchMock.getMockImplementation()!;
+      // The tick reclaims the run mid-call and its retry is already running.
+      fetchMock.mockImplementation(async (target: string, init: RequestInit) => {
+        if (!target.endsWith("/sessions")) {
+          await prisma.loopRun.update({
+            where: { id: run.id },
+            data: { attempts: { increment: 1 } },
+          });
+        }
+        return answer(target, init);
+      });
+      await runJob(run.id);
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+      expect(await runRow(run.id)).toMatchObject({
+        status: "running",
+        attempts: 2,
+        finishedAt: null,
+        findingKeys: [],
+      });
+    });
+
+    it("records nothing when the run already finished while the agent works", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      const answer = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation(async (target: string, init: RequestInit) => {
+        if (!target.endsWith("/sessions")) {
+          await prisma.loopRun.update({
+            where: { id: run.id },
+            data: { status: "timed_out", error: "reclaimed", finishedAt: new Date() },
+          });
+        }
+        return answer(target, init);
+      });
+      await runJob(run.id);
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+      expect(await runRow(run.id)).toMatchObject({
+        status: "timed_out",
+        error: "reclaimed",
+        findingKeys: [],
+      });
+    });
+
     it("records nothing for a run that failed", async () => {
       const ids = await setup();
       const run = await addRun(ids);

@@ -4,8 +4,8 @@
  * a fresh system session. The agent reads traces and answers with a summary and
  * its findings; this processor owns the run's lifecycle (loop_runs.status) from
  * pending to its end state. The findings are recorded as hits of the Loop's
- * hidden detector, which the signals round groups into signals. A dry run's
- * answer has none (the agent route drops them).
+ * hidden detector, which the signals round groups into signals, only while the
+ * run is still this try's. A dry run's answer has none (the agent route drops them).
  */
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@traceroot/core";
@@ -18,7 +18,7 @@ import {
   type LoopRunModel,
 } from "@traceroot/core/loops";
 import { resolveProjectModel, type ResolvedModel } from "../agent/resolve-model.js";
-import { finishLoopRun, type LoopRunFinish } from "../loops/finish.js";
+import { finishLoopRun, ownsLoopRun, type LoopRunFinish } from "../loops/finish.js";
 import { recordLoopFindings } from "../loops/findings.js";
 import { startLoopRun } from "../loops/start.js";
 import { windowHasTraces } from "../loops/window-traces.js";
@@ -168,7 +168,15 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
         ranOn = result.modelUsed;
         finish = outcomeOf(result, timeoutMs);
         if (finish.status === "quiet" && result.findings.length > 0) {
-          finish = await recordFindings(project.id, loop, result.findings, finish);
+          // A try that outlived its reclaim, or whose run already finished,
+          // records nothing: its finish below does not land either.
+          if (await ownsLoopRun(running)) {
+            finish = await recordFindings(project.id, loop, result.findings, finish);
+          } else {
+            console.log(
+              `[Loops] run=${run.id} attempt ${run.attempts} is stale; its findings are not recorded.`,
+            );
+          }
         }
       }
     }

@@ -40,10 +40,25 @@ interface FinishTarget {
   metadata?: Prisma.JsonValue | null;
 }
 
+/** The run is still this try's: it has `fromStatus` and was not reclaimed since. */
+function ownedBy(run: Pick<FinishTarget, "id" | "fromStatus" | "attempts">) {
+  return { id: run.id, status: run.fromStatus, attempts: run.attempts };
+}
+
 /**
- * Finish a run once: the update only lands while the run still has
- * `fromStatus` and is on the same try, so a reclaim and a late worker cannot
- * both finish it. Returns false when someone else already did.
+ * Whether the run is still this try's, by the same rule finishLoopRun writes
+ * under. A try that outlived its reclaim, or a run already finished, is not.
+ */
+export async function ownsLoopRun(
+  run: Pick<FinishTarget, "id" | "fromStatus" | "attempts">,
+): Promise<boolean> {
+  return (await prisma.loopRun.count({ where: ownedBy(run) })) > 0;
+}
+
+/**
+ * Finish a run once: the update only lands while the run is still this try's
+ * (see ownedBy), so a reclaim and a late worker cannot both finish it. Returns
+ * false when someone else already did.
  */
 export async function finishLoopRun(
   run: FinishTarget,
@@ -59,7 +74,7 @@ export async function finishLoopRun(
             ...finish.metadata,
           } as Prisma.InputJsonObject);
     const written = await tx.loopRun.updateMany({
-      where: { id: run.id, status: run.fromStatus, attempts: run.attempts },
+      where: ownedBy(run),
       data: {
         status: finish.status,
         finishedAt: now,
