@@ -104,6 +104,7 @@ def test_integrations_overview_parity() -> None:
         "codex",
         "pi-cli",
         "exa",
+        "notte",
         "predictleads",
         "tavily",
         "tinyfish",
