@@ -221,8 +221,8 @@ describe("POST model-providers/test - network providers succeed", () => {
     },
     {
       name: "openai with baseUrl",
-      body: { adapter: "openai", apiKey: "k", baseUrl: "https://proxy.test/v1/" },
-      url: "https://proxy.test/v1/models",
+      body: { adapter: "openai", apiKey: "k", baseUrl: "https://api.openai.com/v1/" },
+      url: "https://api.openai.com/v1/models",
     },
     {
       name: "google",
@@ -283,15 +283,15 @@ describe("POST model-providers/test - network providers succeed", () => {
     );
   });
 
-  it("anthropic with baseUrl posts to the custom endpoint", async () => {
+  it("anthropic with baseUrl posts to the explicit vendor endpoint", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const res = await POST(
-      makeRequest({ adapter: "anthropic", apiKey: "k", baseUrl: "https://proxy.test/" }),
+      makeRequest({ adapter: "anthropic", apiKey: "k", baseUrl: "https://api.anthropic.com/" }),
       makeParams(),
     );
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://proxy.test/v1/messages",
+      "https://api.anthropic.com/v1/messages",
       expect.objectContaining({
         method: "POST",
         signal: expect.any(AbortSignal),
@@ -300,179 +300,81 @@ describe("POST model-providers/test - network providers succeed", () => {
     );
   });
 
-  it("google with baseUrl checks models on the custom endpoint", async () => {
+  it("google with baseUrl checks models on the explicit vendor endpoint", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const res = await POST(
-      makeRequest({ adapter: "google", apiKey: "k", baseUrl: "https://proxy.test/v1alpha/" }),
+      makeRequest({
+        adapter: "google",
+        apiKey: "k",
+        baseUrl: "https://generativelanguage.googleapis.com/v1alpha/",
+      }),
       makeParams(),
     );
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://proxy.test/v1alpha/models",
+      "https://generativelanguage.googleapis.com/v1alpha/models",
       expect.objectContaining({ signal: expect.any(AbortSignal), redirect: "error" }),
     );
   });
 
-  it("openrouter with baseUrl checks models on the custom endpoint", async () => {
+  it("openrouter with baseUrl checks models on the explicit vendor endpoint", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const res = await POST(
       makeRequest({
         adapter: "openrouter",
         apiKey: "k",
-        baseUrl: "https://proxy.test/api/v1/",
+        baseUrl: "https://openrouter.ai/api/v1/",
       }),
       makeParams(),
     );
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://proxy.test/api/v1/models",
+      "https://openrouter.ai/api/v1/models",
       expect.objectContaining({ signal: expect.any(AbortSignal), redirect: "error" }),
     );
   });
 });
 
-describe("POST model-providers/test - error responses", () => {
-  // Every status-code-based provider surfaces the same HTTP error shape.
-  const httpErrorAdapters: Array<Record<string, unknown>> = [
-    { adapter: "openai", apiKey: "k" },
-    { adapter: "google", apiKey: "k" },
-    { adapter: "openrouter", apiKey: "k" },
-    { adapter: "deepseek", apiKey: "k" },
-    { adapter: "xai", apiKey: "k" },
-    { adapter: "moonshot", apiKey: "k" },
-    { adapter: "zai", apiKey: "k" },
-    { adapter: "azure", apiKey: "k", baseUrl: "https://my.openai.azure.com/" },
-    { adapter: "typesafe", apiKey: "k" },
-  ];
-
-  for (const body of httpErrorAdapters) {
-    it(`${body.adapter} returns success:false with an HTTP status error on non-ok`, async () => {
-      fetchMock.mockResolvedValue({ ok: false, status: 500, statusText: "Internal Server Error" });
-      const res = await POST(makeRequest(body), makeParams());
+describe("POST model-providers/test - normalized failures", () => {
+  it.each([
+    "openai",
+    "anthropic",
+    "google",
+    "deepseek",
+    "openrouter",
+    "xai",
+    "moonshot",
+    "zai",
+    "typesafe",
+    "azure",
+  ])("%s does not expose target status or body", async (adapter) => {
+    const readBody = vi.fn().mockResolvedValue({ error: { message: "internal secret" } });
+    for (const status of [400, 401, 403, 404, 405, 500]) {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status,
+        statusText: "internal service",
+        json: readBody,
+      });
+      const res = await POST(
+        makeRequest({
+          adapter,
+          apiKey: "k",
+          ...(adapter === "azure" ? { baseUrl: "https://my.openai.azure.com" } : {}),
+        }),
+        makeParams(),
+      );
       expect(await res.json()).toEqual({
         success: false,
-        error: "Connection failed",
-        detail: "HTTP 500: Internal Server Error",
+        error:
+          status === 401
+            ? "Invalid API key"
+            : status === 403
+              ? "API lacks permission"
+              : "Connection failed",
       });
-    });
-  }
-
-  it("anthropic 401 maps to Invalid API key", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized" });
-    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
-  });
-
-  it("anthropic non-auth (non-401/403) errors are treated as connectable (success)", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 400, statusText: "Bad Request" });
-    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({ success: true });
-  });
-
-  it("openai 401 normalizes to Invalid API key, ignoring the provider's own message", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 401,
-      statusText: "Unauthorized",
-      json: async () => ({ error: { message: "Incorrect API key provided" } }),
-    });
-    const res = await POST(makeRequest({ adapter: "openai", apiKey: "bad" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
-  });
-
-  it("openai surfaces the provider's own error message on non-401 statuses", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 400,
-      statusText: "Bad Request",
-      json: async () => ({ error: { message: "Malformed request body" } }),
-    });
-    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({
-      success: false,
-      error: "Connection failed",
-      detail: "Malformed request body",
-    });
-  });
-
-  it("anthropic 401 always normalizes to Invalid API key, ignoring the provider's own message", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 401,
-      statusText: "Unauthorized",
-      json: async () => ({ error: { message: "invalid x-api-key" } }),
-    });
-    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
-  });
-
-  it("typesafe sends the key as a Bearer token", async () => {
-    fetchMock.mockResolvedValue(okResponse());
-    await POST(makeRequest({ adapter: "typesafe", apiKey: "ts-key" }), makeParams());
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.typesafe.ai/v1/models",
-      expect.objectContaining({ headers: { Authorization: "Bearer ts-key" } }),
-    );
-  });
-
-  it("anthropic 403 maps to API lacks permission", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
-    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "API lacks permission" });
-  });
-
-  it("openai 403 maps to API lacks permission", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
-    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "API lacks permission" });
-  });
-
-  it("google 400 API_KEY_INVALID maps to Invalid API key", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 400,
-      statusText: "Bad Request",
-      json: async () => ({
-        error: {
-          code: 400,
-          message: "API key not valid. Please pass a valid API key.",
-          status: "INVALID_ARGUMENT",
-          details: [
-            { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID" },
-          ],
-        },
-      }),
-    });
-    const res = await POST(makeRequest({ adapter: "google", apiKey: "bad" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
-  });
-
-  it("xai 400 incorrect API key maps to Invalid API key", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 400,
-      statusText: "Bad Request",
-      json: async () => ({
-        error: "Incorrect API key provided. You can obtain an API key from https://console.x.ai.",
-      }),
-    });
-    const res = await POST(makeRequest({ adapter: "xai", apiKey: "bad" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
-  });
-
-  it("xai 400 with an unrelated error surfaces the raw message", async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 400,
-      statusText: "Bad Request",
-      json: async () => ({ error: "Model not found: grok-beta" }),
-    });
-    const res = await POST(makeRequest({ adapter: "xai", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({
-      success: false,
-      error: "Connection failed",
-      detail: "Model not found: grok-beta",
-    });
+    }
+    expect(readBody).not.toHaveBeenCalled();
   });
 
   it("azure without baseUrl fails before any network call", async () => {
@@ -592,102 +494,63 @@ describe("POST model-providers/test - write-only stored credentials", () => {
   });
 });
 
-describe("POST model-providers/test - timeout (acceptance criteria)", () => {
-  it("returns success:false with a timed-out error when the provider never responds", async () => {
+describe("POST model-providers/test - bounded and normalized transport", () => {
+  it("bounds an unresponsive vendor without exposing timeout details", async () => {
     fetchMock.mockImplementation(hangingFetch());
-
     const start = Date.now();
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    const elapsed = Date.now() - start;
-
-    const body = (await res.json()) as { success: boolean; error: string };
-    expect(body.success).toBe(false);
-    expect(body.error).toMatch(/timed out/i);
-    // Bounded well under any real provider timeout (module pinned to 50ms above).
-    expect(elapsed).toBeLessThan(2000);
+    expect(await res.json()).toEqual({ success: false, error: "Connection failed" });
+    expect(Date.now() - start).toBeLessThan(2000);
   });
 
-  it("demotes an ordinary fetch rejection to the detail line under a normalized headline", async () => {
-    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+  it("does not expose transport errors", async () => {
+    fetchMock.mockRejectedValue(new Error("ECONNREFUSED 127.0.0.1:3000"));
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    const body = (await res.json()) as { success: boolean; error: string; detail?: string };
-    expect(body.success).toBe(false);
-    expect(body.error).toBe("Connection failed");
-    expect(body.detail).toBe("ECONNREFUSED");
-    expect(body.error).not.toMatch(/timed out/i);
-  });
-
-  it("times out when headers arrive but the error body read stalls", async () => {
-    // Models a host that returns a non-ok status, then never finishes the body.
-    // The body read runs inside withTimeout, so the deadline still fires and we
-    // must report a timeout — not swallow the abort into an HTTP status error.
-    fetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) =>
-      Promise.resolve({
-        ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        json: () =>
-          new Promise((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () =>
-              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
-            );
-          }),
-      }),
-    );
-    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    const body = (await res.json()) as { success: boolean; error: string };
-    expect(body.success).toBe(false);
-    expect(body.error).toMatch(/timed out/i);
-  });
-
-  it("anthropic 401 short-circuits without reading the body, so it cannot time out", async () => {
-    // The anthropic branch hardcodes "Invalid API key" on 401 without touching
-    // the response body at all, so a stalled body read is a non-issue here.
-    fetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) =>
-      Promise.resolve({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized",
-        json: () =>
-          new Promise((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () =>
-              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
-            );
-          }),
-      }),
-    );
-    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
-    const body = (await res.json()) as { success: boolean; error: string };
-    expect(body).toEqual({ success: false, error: "Invalid API key" });
+    expect(await res.json()).toEqual({ success: false, error: "Connection failed" });
   });
 
   it.each([
-    [401, "Invalid API key"],
-    [403, "API lacks permission"],
-  ])(
-    "checkEndpoint short-circuits a %i before reading the body, so a stalled body cannot time it out",
-    async (status, expected) => {
-      // checkEndpoint is the path every provider except anthropic/bedrock takes.
-      // It must decide on the status alone: a provider that returns auth-failure
-      // headers and then stalls the body would otherwise report a timeout, hiding
-      // the real cause from the user.
-      fetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) =>
-        Promise.resolve({
-          ok: false,
-          status,
-          statusText: "Auth failure",
-          json: () =>
-            new Promise((_resolve, reject) => {
-              init?.signal?.addEventListener("abort", () =>
-                reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
-              );
-            }),
-        }),
-      );
+    "http://198.51.100.99",
+    "http://127.0.0.1:3000/#",
+    "https://staging.traceroot.ai/api/v1/nonexistent-xyz#",
+    "http://169.254.169.254/latest/meta-data",
+    "file:///etc/passwd",
+    "gopher://127.0.0.1",
+    "https://api.openai.com/v1#",
+    "https://api.openai.com/v1?target=internal",
+    "https://api.openai.com.attacker.test/v1",
+  ])("rejects %s before any network request", async (baseUrl) => {
+    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k", baseUrl }), makeParams());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Provider URL must use the adapter's trusted HTTPS endpoint",
+    });
+    expect(await res.json()).toEqual({
+      error: "Provider URL must use the adapter's trusted HTTPS endpoint",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
 
-      const res = await POST(makeRequest({ adapter: "openai", apiKey: "bad" }), makeParams());
-      const body = (await res.json()) as { success: boolean; error: string };
-      expect(body).toEqual({ success: false, error: expected });
-    },
+describe("POST model-providers/test - response resources", () => {
+  it("cancels a vendor body instead of reading or leaving it streaming", async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue({ ok: true, body: { cancel } });
+    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
+    expect(await res.json()).toEqual({ success: true });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+});
+
+it("ignores a stale Base URL in the non-network Bedrock check", async () => {
+  const res = await POST(
+    makeRequest({
+      adapter: "amazon-bedrock",
+      useDefaultCredentials: true,
+      baseUrl: "https://api.openai.com/v1",
+    }),
+    makeParams(),
   );
+  expect(await res.json()).toEqual({ success: true });
+  expect(fetchMock).not.toHaveBeenCalled();
 });

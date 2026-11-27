@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 
 // Mock prisma BEFORE importing the resolver so fetchProviderConfig hits the mock.
 vi.mock("../lib/prisma", () => ({
@@ -129,7 +130,12 @@ describe("resolvePiModel", () => {
     // modelId the resolver would have nothing sensible to use, so it must throw
     // rather than silently send "claude-sonnet-4-5" to a non-Anthropic provider.
     for (const adapter of ["azure", "amazon-bedrock", "openrouter"]) {
-      const cfg: ProviderModelConfig = { adapter, key: "sk-test", baseUrl: null, config: null };
+      const cfg: ProviderModelConfig = {
+        adapter,
+        key: "sk-test",
+        baseUrl: adapter === "azure" ? "https://resource.openai.azure.com" : null,
+        config: null,
+      };
       expect(() => resolvePiModel(undefined, cfg)).toThrow(/no curated model catalog/i);
     }
   });
@@ -161,30 +167,82 @@ describe("resolvePiModel", () => {
   });
 
   it("respects per-model modelProtocols override over adapter default", () => {
-    // The escape hatch for OpenAI-compatible proxies that only speak chat completions.
+    // Protocol selection remains independent of the trusted provider endpoint.
     const cfg: ProviderModelConfig = {
       adapter: "openai",
       key: "sk-test",
-      baseUrl: "https://proxy.example.com/v1",
+      baseUrl: "https://api.openai.com/v1",
       config: { modelProtocols: { "gpt-5": "openai-completions" } },
     };
     const m = resolvePiModel("gpt-5", cfg);
     expect(m.api).toBe("openai-completions");
   });
 
-  it("uses caller-supplied baseUrl over adapter default", () => {
+  it("does not apply a stale Bedrock row's base URL to the model", () => {
+    const model = resolvePiModel("custom-bedrock-model", {
+      adapter: "amazon-bedrock",
+      key: "aws-test-key",
+      baseUrl: "http://127.0.0.1:3000/#",
+      config: null,
+    });
+    expect(model.api).toBe("bedrock-converse-stream");
+    expect(model.baseUrl).toBe("");
+  });
+
+  it("rejects a BYOK model using a caller-controlled endpoint", () => {
     const cfg: ProviderModelConfig = {
       adapter: "openai",
       key: "sk-test",
       baseUrl: "https://custom.example.com/v1",
       config: null,
     };
-    const m = resolvePiModel("gpt-5", cfg);
-    expect(m.baseUrl).toBe("https://custom.example.com/v1");
+    expect(() => resolvePiModel("gpt-5", cfg)).toThrow(/trusted HTTPS endpoint/);
   });
 });
 
 describe("fetchProviderConfig", () => {
+  it("installs the connection policy even when the provider config comes from cache", async () => {
+    const original = getGlobalDispatcher();
+    const fallback = new MockAgent();
+    fallback.disableNetConnect();
+    try {
+      vi.mocked(prisma.modelProvider.findUnique).mockResolvedValueOnce({
+        adapter: "openai",
+        keyCipher: "cipher",
+        enabled: true,
+        baseUrl: "https://api.openai.com/v1",
+        config: null,
+      } as never);
+      const config = await fetchProviderConfig("ws-cached-network-policy", "openai");
+      setGlobalDispatcher(fallback);
+      expect(await fetchProviderConfig("ws-cached-network-policy", "openai")).toBe(config);
+      expect(getGlobalDispatcher()).not.toBe(fallback);
+    } finally {
+      setGlobalDispatcher(original);
+      await fallback.close();
+    }
+  });
+
+  it.each([
+    "http://169.254.169.254/latest/meta-data",
+    "file:///etc/passwd",
+    "https://collector.invalid/v1",
+  ])("rejects an unsafe historical endpoint before decryption (%s)", async (baseUrl) => {
+    invalidateProviderConfigCache("ws-unsafe", "stored-provider");
+    vi.mocked(decryptKey).mockClear();
+    vi.mocked(prisma.modelProvider.findUnique).mockResolvedValueOnce({
+      adapter: "openai",
+      keyCipher: "cipher",
+      enabled: true,
+      baseUrl,
+      config: null,
+    } as never);
+    await expect(fetchProviderConfig("ws-unsafe", "stored-provider")).rejects.toThrow(
+      /trusted HTTPS endpoint/,
+    );
+    expect(decryptKey).not.toHaveBeenCalled();
+  });
+
   it("returns null when no row found", async () => {
     (prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
     const cfg = await fetchProviderConfig("ws-1", "missing-provider");
@@ -239,7 +297,7 @@ describe("fetchProviderConfig", () => {
         adapter: "anthropic",
         keyCipher: "cipher",
         enabled: true,
-        baseUrl: "https://collector.invalid",
+        baseUrl: "https://api.anthropic.com",
         config: { modelProtocols: { "claude-opus-4-8": "openai-completions" } },
       });
       expect(await fetchProviderConfig("ws-blank", "collector")).toBeNull();
@@ -248,6 +306,22 @@ describe("fetchProviderConfig", () => {
 });
 
 describe("findByokKeyForPiProvider", () => {
+  it("does not turn an unsafe provider into an absent key and trigger a platform fallback", async () => {
+    vi.mocked(prisma.modelProvider.findMany).mockResolvedValueOnce([
+      { provider: "unsafe-provider", adapter: "openai" },
+    ] as never);
+    vi.mocked(prisma.modelProvider.findUnique).mockResolvedValueOnce({
+      adapter: "openai",
+      keyCipher: "cipher",
+      enabled: true,
+      baseUrl: "https://collector.invalid/v1",
+      config: null,
+    } as never);
+    await expect(findByokKeyForPiProvider("ws-unsafe-key", "openai")).rejects.toThrow(
+      /trusted HTTPS endpoint/,
+    );
+  });
+
   it("skips a row whose stored key is blank and uses the next matching row", async () => {
     invalidateProviderConfigCache("ws-7", "blank-claude");
     invalidateProviderConfigCache("ws-7", "real-claude");

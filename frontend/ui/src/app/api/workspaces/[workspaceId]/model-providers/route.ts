@@ -1,3 +1,4 @@
+import { resolveProviderBaseUrl, InvalidProviderUrlError } from "@traceroot/core/provider-url";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -142,6 +143,15 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
     useDefaultCredentials,
   } = result.data;
 
+  let normalizedBaseUrl: string | null;
+  try {
+    const resolved = resolveProviderBaseUrl(adapter, baseUrl);
+    normalizedBaseUrl = baseUrl ? (resolved ?? null) : null;
+  } catch (error) {
+    if (error instanceof InvalidProviderUrlError) return errorResponse(error.message, 400);
+    throw error;
+  }
+
   // Determine the credential to encrypt
   let credentialToEncrypt: string;
   let credentialPreview: string;
@@ -190,7 +200,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
         provider,
         keyCipher,
         keyPreview: credentialPreview,
-        baseUrl: baseUrl || null,
+        baseUrl: normalizedBaseUrl,
         customModels,
         withDefaultModels,
         config: Object.keys(providerConfig).length > 0 ? (providerConfig as object) : undefined,
