@@ -264,7 +264,7 @@ describe("POST model-providers/test - network providers succeed", () => {
       expect(await res.json()).toEqual({ success: true });
       expect(fetchMock).toHaveBeenCalledWith(
         c.url,
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        expect.objectContaining({ signal: expect.any(AbortSignal), redirect: "error" }),
       );
     });
   }
@@ -275,7 +275,11 @@ describe("POST model-providers/test - network providers succeed", () => {
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.anthropic.com/v1/messages",
-      expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+        redirect: "error",
+      }),
     );
   });
 
@@ -288,7 +292,11 @@ describe("POST model-providers/test - network providers succeed", () => {
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://proxy.test/v1/messages",
-      expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+        redirect: "error",
+      }),
     );
   });
 
@@ -301,7 +309,7 @@ describe("POST model-providers/test - network providers succeed", () => {
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://proxy.test/v1alpha/models",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ signal: expect.any(AbortSignal), redirect: "error" }),
     );
   });
 
@@ -318,7 +326,7 @@ describe("POST model-providers/test - network providers succeed", () => {
     expect(await res.json()).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://proxy.test/api/v1/models",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ signal: expect.any(AbortSignal), redirect: "error" }),
     );
   });
 });

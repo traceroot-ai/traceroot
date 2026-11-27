@@ -158,7 +158,7 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
       const res = await PATCH(makeRequest({ baseUrl }), makeParams());
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({
-        error: "Re-enter the API key when changing the Base URL.",
+        error: "Re-enter credentials when changing the Base URL.",
       });
       expect(modelProviderUpdateMock).not.toHaveBeenCalled();
       expect(fetch).not.toHaveBeenCalled();
@@ -180,14 +180,97 @@ describe("PATCH model-providers/[providerId] - credential destination binding", 
       makeParams(),
     );
     expect(res.status).toBe(200);
-    expect(modelProviderUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "mp-1", workspaceId: "ws-1", baseUrl: null, keyCipher: "old-cipher" },
-        data: expect.objectContaining({
-          baseUrl: "https://new.example/v1",
-          keyCipher: "enc(new-key)",
-        }),
-      }),
+    expect(modelProviderUpdateMock).toHaveBeenCalledWith({
+      where: { id: "mp-1", workspaceId: "ws-1", baseUrl: null, keyCipher: "old-cipher" },
+      data: {
+        baseUrl: "https://new.example/v1",
+        keyCipher: "enc(new-key)",
+        keyPreview: "mask(new-key)",
+      },
+      select: {
+        id: true,
+        adapter: true,
+        provider: true,
+        keyPreview: true,
+        baseUrl: true,
+        customModels: true,
+        withDefaultModels: true,
+        config: true,
+        enabled: true,
+        createdBy: true,
+        createTime: true,
+        updateTime: true,
+      },
+    });
+  });
+
+  it("keeps the credential ciphertext out of the update response", async () => {
+    modelProviderUpdateMock.mockImplementation(
+      async ({
+        data,
+        select,
+      }: {
+        data: Record<string, unknown>;
+        select?: Record<string, boolean>;
+      }) => {
+        const row = { id: "mp-1", ...data };
+        return select
+          ? Object.fromEntries(Object.entries(row).filter(([field]) => select[field]))
+          : row;
+      },
+    );
+    const res = await PATCH(makeRequest({ apiKey: "new-key" }), makeParams());
+    expect(await res.json()).toEqual({ id: "mp-1", keyPreview: "mask(new-key)" });
+  });
+
+  it.each([{}, { apiKey: "not-an-aws-replacement" }, { awsAccessKeyId: "AKIAEXAMPLE" }])(
+    "cannot redirect saved Bedrock credentials without replacing them (%j)",
+    async (credentials) => {
+      modelProviderFindFirstMock.mockResolvedValue({
+        id: "mp-1",
+        workspaceId: "ws-1",
+        adapter: "amazon-bedrock",
+        provider: "Bedrock",
+        baseUrl: null,
+        keyCipher: "old-aws-cipher",
+        config: null,
+      });
+      const res = await PATCH(
+        makeRequest({ baseUrl: "https://collector.example", ...credentials }),
+        makeParams(),
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "Re-enter credentials when changing the Base URL.",
+      });
+      expect(modelProviderUpdateMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { awsAccessKeyId: "AKIAEXAMPLE", awsSecretAccessKey: "new-secret" },
+    { useDefaultCredentials: true },
+  ])("can replace Bedrock credentials together with a destination (%j)", async (credentials) => {
+    modelProviderFindFirstMock.mockResolvedValue({
+      id: "mp-1",
+      workspaceId: "ws-1",
+      adapter: "amazon-bedrock",
+      provider: "Bedrock",
+      baseUrl: null,
+      keyCipher: "old-aws-cipher",
+      config: null,
+    });
+    const res = await PATCH(
+      makeRequest({ baseUrl: "https://new.example", ...credentials }),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+    const { data } = modelProviderUpdateMock.mock.calls[0][0];
+    expect(data.baseUrl).toBe("https://new.example");
+    expect(data.keyCipher).toBe(
+      "useDefaultCredentials" in credentials
+        ? "enc(__BEDROCK_DEFAULT_CREDENTIALS__)"
+        : 'enc({"awsAccessKeyId":"AKIAEXAMPLE","awsSecretAccessKey":"new-secret"})',
     );
   });
 

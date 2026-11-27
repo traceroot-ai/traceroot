@@ -97,15 +97,6 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     useDefaultCredentials,
   } = result.data;
 
-  if (
-    existing.adapter !== "amazon-bedrock" &&
-    baseUrl !== undefined &&
-    baseUrl !== existing.baseUrl &&
-    !apiKey
-  ) {
-    return errorResponse("Re-enter the API key when changing the Base URL.", 400);
-  }
-
   const data: Record<string, unknown> = {};
   if (provider !== undefined) {
     if (provider !== existing.provider) {
@@ -150,6 +141,10 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
   } else if (apiKey) {
     data.keyCipher = encryptKey(apiKey);
     data.keyPreview = maskKey(apiKey);
+  }
+
+  if (baseUrl !== undefined && baseUrl !== existing.baseUrl && data.keyCipher === undefined) {
+    return errorResponse("Re-enter credentials when changing the Base URL.", 400);
   }
 
   try {
