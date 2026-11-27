@@ -98,8 +98,9 @@ def test_integrations_overview_parity() -> None:
     picker_integrations = set(re.findall(r'id:\s*"([a-zA-Z0-9-]+)"', picker_content))
 
     missing_in_docs = picker_integrations - docs_integrations
-    # Tools and coding agents documented in overview.mdx:
+    # Tools, coding agents and sign-in providers documented in overview.mdx:
     tools_and_agents_docs = {
+        "agentid",
         "claude-code",
         "codex",
         "pi-cli",

@@ -1,0 +1,129 @@
+---
+title: AgentID
+description: Let an AI agent sign in to traceroot with its own AgentMail inbox
+---
+
+Let an AI agent sign in to traceroot as itself. [AgentID](https://www.agentid.com) is AgentMail's sign-in service for AI agents: it turns the agent's AgentMail inbox into a login, through OpenID Connect. The agent gets a traceroot account of its own, and signing in again with the same inbox returns to that account.
+
+<Note>
+  Signing in gives the agent an account. To read or write a project's data, the agent also needs access to that project. See [After signing in](#after-signing-in).
+</Note>
+
+## Install
+
+The agent approves its sign-in with the AgentMail CLI:
+
+```bash
+npm install -g agentmail-cli@latest
+```
+
+## Set up
+
+The agent needs two things from AgentMail:
+
+1. An inbox, for example `agent@agentmail.to`.
+2. An API key that can access the inbox, with the `app_connect` permission turned on. Set it as `AGENTMAIL_API_KEY`.
+
+[AgentID Sign-In](https://docs.agentmail.to/agentid-sign-in) in the AgentMail docs covers both.
+
+## Usage
+
+There are two ways to sign in. Both end on the same traceroot account.
+
+<Tabs>
+  <Tab title="From the sign-in page">
+    1. Open [app.traceroot.ai/auth/sign-in](https://app.traceroot.ai/auth/sign-in) and choose **Continue with AgentID**.
+    2. AgentID's sign-in page shows a one-time token. Approve the sign-in with it:
+
+       ```bash
+       agentmail inboxes authorize \
+         --inbox-id agent@agentmail.to \
+         --auth-token "$AGENTID_AUTH_TOKEN"
+       ```
+
+    3. The browser continues to traceroot, signed in.
+  </Tab>
+  <Tab title="From AgentMail">
+    1. Find traceroot in the AgentID catalog and start a sign-in:
+
+       ```bash
+       agentmail apps search --q "traceroot"
+
+       agentmail apps connect \
+         --app-id <app_id> \
+         --inbox-id agent@agentmail.to
+       ```
+
+    2. Open the returned `magic_url` in the agent's browser. The link works once and is valid for five minutes.
+  </Tab>
+</Tabs>
+
+### After signing in
+
+The agent works in its own account, the same way any new traceroot user does. From a repository, it can set up tracing in one command:
+
+```bash
+npx -y traceroot-cli@latest setup
+```
+
+To work in a project your team already has, create a project API key in that project's settings and give it to the agent. The key is scoped to that one project:
+
+```bash
+export TRACEROOT_API_KEY="tr-..."
+
+traceroot traces list
+```
+
+[Authentication and Configuration](/cli/authentication) explains how the CLI chooses between a browser login and an API key.
+
+## Verify
+
+1. **In the traceroot UI**: after the sign-in, the browser lands on [traceroot Cloud](https://app.traceroot.ai) with the agent's inbox address as the account email.
+2. **Via the CLI**: run `traceroot status` to see who the current credential belongs to and where it came from.
+
+## What traceroot receives
+
+traceroot requests the `openid`, `email` and `profile` scopes.
+
+| Claim | Used for |
+|-------|----------|
+| Identifier (`sub`) | Matching a returning agent to its account |
+| Email | The account's email address |
+| Name | The account's display name. The part of the email before `@` is used when no name is set |
+
+## Self-hosting
+
+Sign in with AgentID is off until both variables are set in `.env`. With both set, **Continue with AgentID** on the sign-in and sign-up pages becomes active.
+
+```bash
+AUTH_AGENTID_CLIENT_ID=your-agentid-client-id
+AUTH_AGENTID_CLIENT_SECRET=your-agentid-client-secret
+```
+
+1. Create an application in the AgentID console.
+2. Register the callback `<BETTER_AUTH_URL>/api/auth/callback/agentid`.
+3. Set **Maximum signups per owner** on the application before you turn sign-in on. AgentID enforces that cap.
+4. Add the client ID and secret to `.env` and restart the web service.
+
+## Limitations
+
+- An agent account stays separate from every other account. Signing in with AgentID never links to an existing account, including one registered with the same email address.
+- A workspace invitation is accepted with a verified email address, and traceroot stores an agent's address as unverified. To give an agent access to a team's project, use a project API key.
+- AgentMail's sign-in key lasts 30 days from activation. A replacement takes one more sign-in.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="traceroot CLI" icon="terminal" href="/cli/get-started">
+    Set up tracing and work with traces, detectors and evaluations from the terminal.
+  </Card>
+  <Card title="Workspaces, projects, and access" icon="users" href="/getting-started/concepts">
+    Roles, project API keys and how access is scoped.
+  </Card>
+  <Card title="Coding agents" icon="robot" href="/getting-started/coding-agents">
+    Prompts and setup for using traceroot from a coding agent.
+  </Card>
+  <Card title="traceroot in the AgentID directory" icon="id-badge" href="https://www.agentid.com/apps/traceroot">
+    AgentID's page about signing in to traceroot.
+  </Card>
+</CardGroup>
