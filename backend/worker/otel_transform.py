@@ -188,6 +188,59 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
+def first_present_entry(attrs: dict[str, Any], keys: list[str]) -> tuple[str | None, Any]:
+    """Like ``first_present`` but also return which key won, as ``(key, value)``."""
+    for key in keys:
+        value = attrs.get(key)
+        if value is not None:
+            return key, value
+    return None, None
+
+
+def _json_or_raw(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (ValueError, RecursionError):
+        return value
+
+
+def _format_input_with_system_instructions(input_messages: Any, system_instructions: Any) -> Any:
+    """Prepend ``gen_ai.system_instructions`` to ``gen_ai.input.messages`` as a system message.
+
+    The GenAI semconv keeps system instructions out of ``gen_ai.input.messages``, so
+    without this an emitter that follows it (AI SDK 7's ``@ai-sdk/otel``, for one)
+    has its system prompt stored nowhere. Input that is not a message list, empty
+    instructions, and instructions the emitter already put in a system message (Agent
+    Framework 1.0-1.5 does both) are left as is; non-list instructions are kept as text.
+    """
+    messages = _json_or_raw(input_messages)
+    if not isinstance(messages, list):
+        return input_messages
+    instructions = _json_or_raw(system_instructions)
+    if not isinstance(instructions, list):
+        instructions = system_instructions
+    if not instructions:
+        return input_messages
+    existing_system_parts = {
+        json.dumps(part, sort_keys=True)
+        for message in messages
+        if isinstance(message, dict)
+        and message.get("role") == "system"
+        and isinstance(message.get("parts"), list)
+        for part in message["parts"]
+    }
+    if isinstance(instructions, list) and all(
+        json.dumps(part, sort_keys=True) in existing_system_parts for part in instructions
+    ):
+        return input_messages
+    key = "parts" if isinstance(instructions, list) else "content"
+    combined = json.dumps([{"role": "system", key: instructions}, *messages], ensure_ascii=False)
+    # A lone surrogate (from a JSON \ud800 escape) can't be UTF-8 encoded; re-escape it.
+    return combined.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
 # Upper sanity bound per token field, shared by the manual-usage and instrumentor
 # paths. Sized by the tightest downstream column, which is `cost`, not the token
 # columns: every accepted count is priced into Decimal64(9) — Decimal(18,9), nine
@@ -861,7 +914,7 @@ def transform_otel_to_clickhouse(
                 #
                 # Presence checks (`is not None`) rather than truthiness ensure that falsy
                 # but valid values (e.g. empty string) do not fall through to lower-priority keys.
-                span_input = first_present(
+                input_key, span_input = first_present_entry(
                     span_attrs,
                     [
                         "traceroot.span.input",  # 1. traceroot SDK explicit input
@@ -872,6 +925,11 @@ def transform_otel_to_clickhouse(
                         "tool_arguments",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
                     ],
                 )
+                system_instructions = span_attrs.get("gen_ai.system_instructions")
+                if input_key == "gen_ai.input.messages" and system_instructions is not None:
+                    span_input = _format_input_with_system_instructions(
+                        span_input, system_instructions
+                    )
                 span_output = first_present(
                     span_attrs,
                     [

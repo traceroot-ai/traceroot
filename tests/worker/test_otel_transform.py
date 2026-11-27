@@ -1,6 +1,7 @@
 """Unit tests for OTEL → ClickHouse transformation logic."""
 
 import base64
+import json
 from datetime import datetime
 from typing import ClassVar
 
@@ -1506,6 +1507,153 @@ class TestGenAIInputOutputFallback:
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert spans[0]["input"] == '[{"role":"user","content":"hi"}]'
+
+    def test_gen_ai_system_instructions_prepended_to_input_messages(self):
+        # Attribute values from a real AI SDK 7 (@ai-sdk/otel) invoke_agent span:
+        # the system prompt is only in gen_ai.system_instructions, which the
+        # semconv keeps out of gen_ai.input.messages.
+        system_parts = [{"type": "text", "content": "You are a concise weather assistant."}]
+        user_message = {
+            "role": "user",
+            "parts": [{"type": "text", "content": "What is the weather in Tokyo?"}],
+        }
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="invoke_agent gpt-4o-mini",
+                    attributes=[
+                        make_attr("gen_ai.operation.name", "invoke_agent"),
+                        make_attr("gen_ai.system_instructions", json.dumps(system_parts)),
+                        make_attr("gen_ai.input.messages", json.dumps([user_message])),
+                    ],
+                )
+            ]
+        )
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert json.loads(spans[0]["input"]) == [
+            {"role": "system", "parts": system_parts},
+            user_message,
+        ]
+        assert traces[0]["input"] == spans[0]["input"]
+
+    @pytest.mark.parametrize(
+        ("system_instructions", "expected_first"),
+        [
+            ("null", {"role": "system", "content": "null"}),
+            ("Be brief.", {"role": "system", "content": "Be brief."}),
+            ("", None),
+            ("[]", None),
+        ],
+    )
+    def test_gen_ai_system_instructions_edge_values(self, system_instructions, expected_first):
+        user_message = {"role": "user", "content": "hi"}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.system_instructions", system_instructions),
+                        make_attr("gen_ai.input.messages", json.dumps([user_message])),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        expected = [expected_first, user_message] if expected_first else [user_message]
+        assert json.loads(spans[0]["input"]) == expected
+
+    @pytest.mark.parametrize("instructions", [["Be brief."], ["Be brief.", "Answer in English."]])
+    def test_gen_ai_system_instructions_already_in_input_messages_not_duplicated(
+        self, instructions
+    ):
+        # Agent Framework 1.0-1.5 writes each instruction both as a leading system
+        # message in gen_ai.input.messages and in gen_ai.system_instructions.
+        system_messages = [
+            {"role": "system", "parts": [{"type": "text", "content": text}]}
+            for text in instructions
+        ]
+        input_messages = json.dumps(
+            [*system_messages, {"role": "user", "parts": [{"type": "text", "content": "hi"}]}]
+        )
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr(
+                            "gen_ai.system_instructions",
+                            json.dumps([{"type": "text", "content": t} for t in instructions]),
+                        ),
+                        make_attr("gen_ai.input.messages", input_messages),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == input_messages
+
+    def test_gen_ai_system_instructions_keeps_non_ascii_text_unescaped(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr(
+                            "gen_ai.system_instructions",
+                            '[{"type":"text","content":"簡潔に答えて"}]',
+                        ),
+                        make_attr(
+                            "gen_ai.input.messages",
+                            '[{"role":"user","parts":[{"type":"text","content":"東京の天気"}]}]',
+                        ),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "簡潔に答えて" in spans[0]["input"]
+        assert "東京の天気" in spans[0]["input"]
+
+    def test_gen_ai_system_instructions_with_lone_surrogate_stays_utf8_encodable(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.system_instructions", '[{"type":"text","content":"x"}]'),
+                        make_attr(
+                            "gen_ai.input.messages", '[{"role":"user","content":"\\ud800 hi"}]'
+                        ),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        spans[0]["input"].encode("utf-8")
+        assert json.loads(spans[0]["input"])[1] == {"role": "user", "content": "\ud800 hi"}
+
+    def test_gen_ai_system_instructions_ignored_when_input_comes_from_higher_tier(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("input.value", "oi-input"),
+                        make_attr("gen_ai.system_instructions", "be brief"),
+                        make_attr("gen_ai.input.messages", "should-be-ignored"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == "oi-input"
 
     def test_gen_ai_output_messages_used_as_output(self):
         trace_hex = "aa" * 16
