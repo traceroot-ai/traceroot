@@ -580,6 +580,60 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] == pytest.approx(100 * 0.0000025 + 50 * 0.00001)
 
+    def test_detector_decisions_span_keeps_tokens_and_the_runs_cost(self):
+        """The detector's OpenAI Decisions span is costed at the run's cost, not list price.
+
+        Decisions output is free, but gpt-6-luna's row prices output, so the
+        worker sends the run's cost as llm.cost.total; the reported tokens,
+        output and cache included, are still stored as they are.
+        """
+        from unittest.mock import patch
+
+        gpt_6_luna = {
+            "input": 0.0000001,
+            "output": 0.0000005,
+            "cacheRead": 0.00000001,
+            "cacheWrite": 0.000000125,
+        }
+        run_cost = (
+            300 * gpt_6_luna["input"]
+            + 600 * gpt_6_luna["cacheRead"]
+            + 100 * gpt_6_luna["cacheWrite"]
+        )
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("traceroot.span.type", "DECISION"),
+                        make_attr("traceroot.llm.model", "gpt-6-luna"),
+                        make_attr("decision.system", "openai"),
+                        make_attr("decision.model_name", "gpt-6-luna"),
+                        make_attr("gen_ai.usage.input_tokens", 1000),
+                        make_attr("gen_ai.usage.output_tokens", 7),
+                        make_attr("gen_ai.usage.cache_read.input_tokens", 600),
+                        make_attr("gen_ai.usage.cache_creation.input_tokens", 100),
+                        make_attr("decision.token_count.input", 1000),
+                        make_attr("decision.token_count.output", 7),
+                        make_attr("llm.cost.total", run_cost),
+                    ],
+                )
+            ],
+            scope_name="traceroot.detector-worker",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=gpt_6_luna):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["span_kind"] == "DECISION"
+        assert span["model_name"] == "gpt-6-luna"
+        assert span["input_tokens"] == 1000
+        assert span["output_tokens"] == 7
+        assert span["usage_details"]["cache_read_tokens"] == 600
+        assert span["usage_details"]["cache_write_tokens"] == 100
+        assert span["cost"] == pytest.approx(run_cost)
+
     @pytest.mark.parametrize(
         ("scope_name", "input_attr", "cache_read_attr", "cache_write_attr"),
         [

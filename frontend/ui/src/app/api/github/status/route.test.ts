@@ -52,6 +52,30 @@ beforeEach(() => {
   findManyMock.mockReset();
   requireAuthMock.mockReset();
   requireMembershipMock.mockReset();
+  vi.stubEnv("GITHUB_APP_CLIENT_ID", "Iv1.client");
+  vi.stubEnv("GITHUB_APP_NAME", "test-app");
+});
+
+describe("GET /api/github/status: whether GitHub can be connected here", () => {
+  it.each([
+    ["the client id", { GITHUB_APP_CLIENT_ID: "" }],
+    ["the app name", { GITHUB_APP_NAME: "" }],
+    ["both", { GITHUB_APP_CLIENT_ID: "", GITHUB_APP_NAME: "" }],
+  ])("says unavailable without %s", async (_what, unset) => {
+    for (const [name, value] of Object.entries(unset)) vi.stubEnv(name, value);
+    requireAuthMock.mockResolvedValue({ user: { id: "u_1" } });
+    requireMembershipMock.mockResolvedValue({ membership: { workspaceId: "ws_1" } });
+    findManyMock.mockResolvedValue([]);
+    const body = await (await GET(makeRequest("ws_1"))).json();
+    expect(body).toEqual({ connected: false, available: false, installations: [] });
+  });
+
+  it("says available when both are set", async () => {
+    requireAuthMock.mockResolvedValue({ user: { id: "u_1" } });
+    requireMembershipMock.mockResolvedValue({ membership: { workspaceId: "ws_1" } });
+    findManyMock.mockResolvedValue([]);
+    expect((await (await GET(makeRequest("ws_1"))).json()).available).toBe(true);
+  });
 });
 
 describe("GET /api/github/status", () => {
@@ -86,7 +110,7 @@ describe("GET /api/github/status", () => {
     findManyMock.mockResolvedValue([]);
     const res = await GET(makeRequest("ws_1"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ connected: false, installations: [] });
+    expect(await res.json()).toEqual({ connected: false, available: true, installations: [] });
   });
 
   it("returns connected:true with installations", async () => {

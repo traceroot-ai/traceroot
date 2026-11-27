@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 import { traceUrl } from "@/lib/first-trace";
+import { cn } from "@/lib/utils";
 import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 
 interface FirstTraceLineProps {
   /** How the watch for the first trace is going. */
   wait: TraceWait;
+  /** Centred under sign-up's centred header; at the start under the traces page's heading. */
+  align?: "center" | "start";
 }
 
 /**
@@ -27,22 +30,26 @@ interface FirstTraceLineProps {
  * anything around it. The run is happening in a terminal and will finish
  * whatever this line says — including when it says nothing arrived.
  */
-export function FirstTraceLine({ wait }: FirstTraceLineProps) {
+export function FirstTraceLine({ wait, align = "center" }: FirstTraceLineProps) {
   return (
     // One live region, present in every state rather than mounted along with
     // its text: a region that appears at the same moment as its content is not
     // announced, and reporting a change nobody is watching for is this line's
     // entire job — the person was told to go back to their terminal.
     <div role="status" aria-live="polite">
-      <Line wait={wait} />
+      <Line wait={wait} align={align} />
     </div>
   );
 }
 
-function Line({ wait }: FirstTraceLineProps) {
+function Line({ wait, align }: Required<FirstTraceLineProps>) {
+  const row = cn("flex items-center gap-2 text-[12px] text-muted-foreground", {
+    "justify-center": align === "center",
+  });
+  const text = cn("text-[12px] text-muted-foreground", { "text-center": align === "center" });
   if (wait.kind === "waiting") {
     return (
-      <p className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
+      <p className={row}>
         <Loader2 className="h-3 w-3 animate-spin" />
         Waiting for your first trace. This page updates when it arrives.
       </p>
@@ -51,7 +58,7 @@ function Line({ wait }: FirstTraceLineProps) {
 
   if (wait.kind === "found") {
     return (
-      <p className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
+      <p className={row}>
         <Check className="h-3.5 w-3.5 text-success" />
         <span>Your first trace arrived. Opening it…</span>
         <Link href={traceUrl(wait.found)} className="font-medium underline hover:text-foreground">
@@ -66,7 +73,7 @@ function Line({ wait }: FirstTraceLineProps) {
     // run that this tab cannot make. The way out is the same page either way,
     // and it is also where an expired session gets asked to sign in again.
     return (
-      <p className="text-center text-[12px] text-muted-foreground">
+      <p className={text}>
         We could not read your traces from this tab.{" "}
         <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
           Open your traces
@@ -80,7 +87,7 @@ function Line({ wait }: FirstTraceLineProps) {
   // page that will show the trace whenever it does turn up — the setup itself
   // is still running wherever the command was run.
   return (
-    <p className="text-center text-[12px] text-muted-foreground">
+    <p className={text}>
       Still no trace.{" "}
       <Link href={wait.fallbackUrl} className="underline hover:text-foreground">
         Open your traces
