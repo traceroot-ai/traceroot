@@ -1,5 +1,5 @@
 ---
-title: Coding agent
+title: Coding agents
 description: 让 coding agent 帮你设置 traceroot、检索这份文档并操作你的项目
 ---
 
@@ -51,7 +51,7 @@ npx skills add traceroot-ai/traceroot-skills --skill traceroot-cli
 
 ## Docs MCP
 
-通过 `https://traceroot.ai/docs/mcp`，你的 agent 可以搜索和阅读这份文档，不需要 API key。要访问你的 trace，请使用 [CLI](#cli)。
+通过 `https://traceroot.ai/docs/mcp`，你的 agent 可以搜索和阅读这份文档，不需要 API key。要访问你的 trace，请使用 [CLI](#the-cli)。
 
 <Tabs>
   <Tab title="Claude Code">
@@ -87,7 +87,7 @@ npx skills add traceroot-ai/traceroot-skills --skill traceroot-cli
 - [llms-full.txt](https://traceroot.ai/docs/llms-full.txt) 把所有页面放在一个文件里，大约 300 KB。
 - [skill.md](https://traceroot.ai/docs/skill.md) 是写给 agent 的简短指南：包括设置步骤、常见错误和下一步该看哪里。
 
-## CLI
+## The CLI
 
 你的 agent 通过 traceroot CLI 操作你的项目：trace、detector 的 finding、告警、仪表盘、eval 和 SQL。请在运行过 setup 的目录里执行这些命令。在其他目录下，需要先用 `traceroot login` 登录，并[限定到某个项目](/zh/cli/get-started#限定到某个项目)。如果没有全局安装，把 `traceroot` 换成 `npx -y traceroot-cli@latest`。
 

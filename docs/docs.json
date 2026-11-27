@@ -525,7 +525,7 @@
                 ]
               },
               {
-                "group": "Coding agent",
+                "group": "Coding Agents",
                 "pages": [
                   "zh/integrations/claude-code",
                   "zh/integrations/codex",

@@ -28,7 +28,7 @@ npx -y traceroot-cli@latest setup --no-input --api-key "$TRACEROOT_API_KEY"
 
 项目 API key 同时也确定了项目。没有 key 时，先运行 `npx -y traceroot-cli@latest login`，再运行不带 `--api-key` 的 setup。login 会打印一个 URL 和一个验证码，等待有人在浏览器里确认，所以 coding agent 必须把它们展示给你。如果 setup 以退出码 10 退出，说明它没法替你做选择，通常是因为你有多个项目或一个项目都没有：按它打印的解决办法操作即可。有多个项目时，可以传 `--project`。
 
-无提示运行时，setup 遇到未提交的改动只会给出提示，不再询问；它也不会运行 coding agent，只把插桩任务写到 `.traceroot/prompts/setup-instrument.md`。要运行 coding agent，请传 `--agent claude` 或 `--agent codex`。任务完成、应用也运行过之后，带上 `--resume` 重新运行同一条 setup 命令，例如 `npx -y traceroot-cli@latest setup --no-input --resume`，就能拿到第一条 trace 的链接。[退出码](/zh/cli/scripting#退出码)列出了每个退出码的含义，[Coding agent](/zh/getting-started/coding-agents#设置追踪) 页面把这些步骤写成了一段提示词。
+无提示运行时，setup 遇到未提交的改动只会给出提示，不再询问；它也不会运行 coding agent，只把插桩任务写到 `.traceroot/prompts/setup-instrument.md`。要运行 coding agent，请传 `--agent claude` 或 `--agent codex`。任务完成、应用也运行过之后，带上 `--resume` 重新运行同一条 setup 命令，例如 `npx -y traceroot-cli@latest setup --no-input --resume`，就能拿到第一条 trace 的链接。[退出码](/zh/cli/scripting#退出码)列出了每个退出码的含义，[Coding agents](/zh/getting-started/coding-agents#设置追踪) 页面把这些步骤写成了一段提示词。
 
 ### setup 的 flag
 
@@ -129,7 +129,7 @@ traceroot traces get <trace-id> --fields full --json
 traceroot traces export <trace-id> --output ./my-trace
 ```
 
-[Trace](/zh/cli/traces) 页面讲解了时间筛选、字段组和导出的文件。
+[Traces](/zh/cli/traces) 页面讲解了时间筛选、字段组和导出的文件。
 
 ## 诊断与添加 skill
 
@@ -144,7 +144,7 @@ traceroot skills install traceroot-instrument-repo --agent claude --dry-run
 
 `instrument` 会写出一段提示词，让 coding agent 添加 traceroot，它本身不改你的代码。它接受 `--agent`（`claude`、`codex` 或 `generic`）、把提示词写到 stdout 的 `--print`、`--output <path>`，以及覆盖已有提示词的 `--force`。通常直接用 `setup` 就行。
 
-`skills list` 显示 CLI 自带的 skill 以及它们的安装位置。`skills install` 把其中一个复制到某个 agent 的 skill 目录，接受 `--agent`、`--force`，以及只展示将要写入内容的 `--dry-run`。[Coding agent](/zh/getting-started/coding-agents#skills) 页面列出了可以使用的 skill。
+`skills list` 显示 CLI 自带的 skill 以及它们的安装位置。`skills install` 把其中一个复制到某个 agent 的 skill 目录，接受 `--agent`、`--force`，以及只展示将要写入内容的 `--dry-run`。[Coding agents](/zh/getting-started/coding-agents#skills) 页面列出了可以使用的 skill。
 
 ## 命令参考
 
@@ -217,7 +217,7 @@ traceroot skills install traceroot-instrument-repo --agent claude --dry-run
 
 ## 下一步
 
-每组命令在**命令**分组下都有自己的页面，第一页是 [Trace](/zh/cli/traces)。
+每组命令在**命令**分组下都有自己的页面，第一页是 [Traces](/zh/cli/traces)。
 
 <CardGroup cols={2}>
   <Card title="认证与配置" icon="key" href="/zh/cli/authentication">
