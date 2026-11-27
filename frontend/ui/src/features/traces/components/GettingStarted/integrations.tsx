@@ -88,6 +88,9 @@ export const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string 
 ];
 
 const PYTHON_INSTALL_COMMAND = "pip install traceroot";
+// These instrumentors ship only as traceroot extras; quoted so zsh does not glob the brackets.
+const DSPY_INSTALL_COMMAND = 'pip install "traceroot[dspy]"';
+const AGENT_FRAMEWORK_INSTALL_COMMAND = 'pip install "traceroot[agent-framework]"';
 const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
@@ -212,7 +215,7 @@ traceroot.initialize(integrations=[
       kind: "sdk",
       languages: {
         python: {
-          installCommand: PYTHON_INSTALL_COMMAND,
+          installCommand: DSPY_INSTALL_COMMAND,
           initSnippet: `import traceroot
 from traceroot import Integration
 
@@ -336,7 +339,7 @@ traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
       kind: "sdk",
       languages: {
         python: {
-          installCommand: PYTHON_INSTALL_COMMAND,
+          installCommand: AGENT_FRAMEWORK_INSTALL_COMMAND,
           initSnippet: `import traceroot
 from traceroot import Integration
 

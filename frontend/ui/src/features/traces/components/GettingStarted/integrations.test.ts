@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ADAPTER_CONFIG, LLMAdapter } from "@traceroot/core";
 
@@ -118,5 +121,30 @@ describe("the provider key each integration asks for", () => {
         expect(ADAPTER_CONFIG[binding.adapter]?.label, integration.id).toBeTruthy();
       }
     }
+  });
+});
+
+describe("the Python install command each entry shows", () => {
+  it("installs the traceroot extra its docs page names", () => {
+    // Some instrumentors ship only as a traceroot extra (traceroot[dspy]). Without
+    // it, initialize() logs a warning and the app runs while exporting nothing.
+    const docsDir = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../../../../../docs/integrations",
+    );
+    const checked: string[] = [];
+    for (const integration of INTEGRATIONS) {
+      const python =
+        integration.setup.kind === "sdk" ? integration.setup.languages.python : undefined;
+      if (!python) continue;
+      const slug = integration.href.split("/").pop();
+      const page = readFileSync(path.join(docsDir, `${slug}.mdx`), "utf8");
+      for (const [, extra] of page.matchAll(/traceroot\[([\w-]+)\]/g)) {
+        expect(python.installCommand, integration.id).toContain(`traceroot[${extra}]`);
+        checked.push(integration.id);
+      }
+    }
+    // Guards the scan itself: these two pages do name an extra.
+    expect(checked).toEqual(expect.arrayContaining(["dspy", "microsoft-agent-framework"]));
   });
 });
