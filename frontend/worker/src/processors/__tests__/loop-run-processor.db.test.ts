@@ -62,6 +62,7 @@ vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mocks.enqueueSi
 vi.mock("../../loops/window-traces.js", () => ({ windowHasTraces: mocks.windowHasTraces }));
 
 const url = process.env.TEST_DATABASE_URL;
+const billingAtLoad = process.env.ENABLE_BILLING;
 const suffix = Math.random().toString(36).slice(2, 8);
 const workspaces: string[] = [];
 let count = 0;
@@ -212,7 +213,8 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
+    // Only the plan tests' switch: unstubbing every env would drop the secret stubbed above.
+    vi.stubEnv("ENABLE_BILLING", billingAtLoad);
     vi.restoreAllMocks();
   });
   afterAll(async () => {
