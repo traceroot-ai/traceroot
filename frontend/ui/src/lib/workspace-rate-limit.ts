@@ -17,10 +17,12 @@ export async function withWorkspaceRateLimit<R extends Response>(
 ): Promise<R | NextResponse> {
   if (!isBillingEnabled()) return operation();
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { billingPlan: true },
-  });
+  const workspace = await prisma.workspace
+    .findUnique({
+      where: { id: workspaceId },
+      select: { billingPlan: true },
+    })
+    .catch(() => null);
   const unavailable = () =>
     NextResponse.json({ error: "Unable to check request limit" }, { status: 503 });
   if (!workspace) return unavailable();

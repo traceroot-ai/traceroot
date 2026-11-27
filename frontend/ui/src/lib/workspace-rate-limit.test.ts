@@ -90,6 +90,16 @@ describe("withWorkspaceRateLimit", () => {
     expect(operation).not.toHaveBeenCalled();
   });
 
+  it("fails closed when the workspace plan lookup is unavailable", async () => {
+    mocks.workspace.findUnique.mockRejectedValue(new Error("database unavailable"));
+    const operation = vi.fn();
+    const response = await withWorkspaceRateLimit("ws-1", operation);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Unable to check request limit" });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(operation).not.toHaveBeenCalled();
+  });
+
   it("does not fall back to a free bucket for a missing workspace", async () => {
     mocks.workspace.findUnique.mockResolvedValue(null);
     const operation = vi.fn();
