@@ -1133,6 +1133,18 @@
     }
   },
   {
+    "id": "tr-gemini-4-neon",
+    "modelName": "gemini-4-neon",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-4-neon$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": 0.00000015,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-3-6-flash",
     "modelName": "gemini-3.6-flash",
     "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.6-flash(-[\\d-]+)?$",

@@ -285,6 +285,9 @@ GEMINI_MODEL_CASES = [
     ("models/gemini-4-hydrogen", "gemini-4-hydrogen"),
     ("gemini-3.8-flash", "gemini-3.8-flash"),
     ("google/gemini-3.8-flash", "gemini-3.8-flash"),
+    ("gemini-4-neon", "gemini-4-neon"),
+    ("google/gemini-4-neon", "gemini-4-neon"),
+    ("models/gemini-4-neon", "gemini-4-neon"),
     ("gemini-3.8-live", "gemini-3.8-live"),
     ("google/gemini-3.8-live", "gemini-3.8-live"),
     ("models/gemini-3.8-live", "gemini-3.8-live"),
@@ -643,6 +646,31 @@ class TestGemini3xPublishedPrices:
         assert entry["prices"]["input"] == pytest.approx(7.5e-07)  # $0.75 / 1M tokens (text)
         assert entry["prices"]["output"] == pytest.approx(1.2e-05)  # $12.00 / 1M tokens (audio)
         assert entry["prices"]["cacheRead"] is None
+
+
+GEMINI_4_NEON_NON_MATCHES = [
+    ("gemini-4-neon", "gemini-4-neon-fast"),
+]
+
+
+class TestGemini4NeonPublishedPrices:
+    """Assert the provider-published rates directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+    """
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-4-neon")
+        assert entry["prices"]["input"] == pytest.approx(3e-06)  # $3 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1.5e-05)  # $15 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(1.5e-07)  # $0.15 / 1M tokens
+        assert entry["prices"]["cacheWrite"] is None
+
+    @pytest.mark.parametrize("owner,model_id", GEMINI_4_NEON_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 class TestGeminiModelIds:
