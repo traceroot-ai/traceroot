@@ -12,6 +12,7 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 const workspaceFindUniqueMock = vi.fn();
+const isBillingEnabledMock = vi.fn(() => false);
 vi.mock("@traceroot/core", () => ({
   prisma: {
     modelProvider: { findFirst: vi.fn() },
@@ -19,7 +20,8 @@ vi.mock("@traceroot/core", () => ({
   },
   ModelSource: { BYOK: "BYOK", SYSTEM: "SYSTEM" },
   PlanType: { FREE: "FREE" },
-  isBillingEnabled: () => false,
+  Role: { MEMBER: "MEMBER", ADMIN: "ADMIN" },
+  isBillingEnabled: () => isBillingEnabledMock(),
 }));
 
 import { POST } from "./route";
@@ -39,10 +41,11 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages", () =
     requireAuthMock.mockReset();
     requireProjectAccessMock.mockReset();
     workspaceFindUniqueMock.mockReset();
+    isBillingEnabledMock.mockReturnValue(false);
     requireAuthMock.mockResolvedValue({ user: { id: "u1" } });
     requireProjectAccessMock.mockResolvedValue({
       project: { id: "p1", workspaceId: "ws1", name: "proj" },
-      membership: { workspaceId: "ws1", userId: "u1", role: "VIEWER" },
+      membership: { workspaceId: "ws1", userId: "u1", role: "MEMBER" },
     });
     workspaceFindUniqueMock.mockResolvedValue({ aiBlocked: false, billingPlan: "PRO" });
     fetchMock = vi.fn();
@@ -64,6 +67,7 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages", () =
     const res = await POST(makeRequest(sendBody), { params });
 
     expect(res.status).toBe(200);
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("u1", "p1", "MEMBER");
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
     expect(await res.text()).toContain("event: done");
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -127,6 +131,19 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages", () =
 
     const res = await POST(makeRequest(sendBody), { params });
     expect(res.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the free-plan run limit for an authorized member", async () => {
+    isBillingEnabledMock.mockReturnValue(true);
+    workspaceFindUniqueMock.mockResolvedValue({ aiBlocked: true, billingPlan: "FREE" });
+
+    const res = await POST(makeRequest(sendBody), { params });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "AI run limit reached. Upgrade your plan to continue.",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

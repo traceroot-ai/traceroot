@@ -21,6 +21,7 @@ vi.mock("@traceroot/core", () => ({
   prisma: { workspace: { findUnique: vi.fn().mockResolvedValue(null) } },
   ModelSource: { BYOK: "BYOK" },
   PlanType: { FREE: "FREE" },
+  Role: { MEMBER: "MEMBER", ADMIN: "ADMIN" },
   isBillingEnabled: () => false,
 }));
 
@@ -116,7 +117,11 @@ describe.each(routes)("$name proxy URL", (route) => {
   ])("keeps the decoded ID in one path segment: %s", async (id) => {
     const response = await invoke(id);
     expect(response.status).toBe(200);
-    expect(requireProjectAccess).toHaveBeenCalledWith("caller", "caller-project");
+    expect(requireProjectAccess).toHaveBeenCalledWith(
+      "caller",
+      "caller-project",
+      ...(route.method === "POST" ? ["MEMBER"] : []),
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [input, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const url = new URL(new Request(input, init).url);
@@ -154,7 +159,11 @@ describe.each(routes)("$name proxy URL", (route) => {
     const projectId = "project/with?reserved#chars&project_id=other";
     await invoke("normal-id", projectId);
     const url = new URL(fetchMock.mock.calls[0][0]);
-    expect(requireProjectAccess).toHaveBeenCalledWith("caller", projectId);
+    expect(requireProjectAccess).toHaveBeenCalledWith(
+      "caller",
+      projectId,
+      ...(route.method === "POST" ? ["MEMBER"] : []),
+    );
     expect(url.hash).toBe("");
     if (route.internal) {
       expect([...url.searchParams]).toEqual([["project_id", projectId]]);
@@ -194,7 +203,11 @@ describe.each([
       { params: Promise.resolve({ projectId }) },
     );
     const url = new URL(fetchMock.mock.calls[0][0]);
-    expect(requireProjectAccess).toHaveBeenCalledWith("caller", projectId);
+    expect(requireProjectAccess).toHaveBeenCalledWith(
+      "caller",
+      projectId,
+      ...(route.method === "POST" ? ["MEMBER"] : []),
+    );
     expect(url.pathname).toBe(`/api/v1/projects/${encodeURIComponent(projectId)}/sessions`);
     expect(url.search).toBe("");
     expect(url.hash).toBe("");

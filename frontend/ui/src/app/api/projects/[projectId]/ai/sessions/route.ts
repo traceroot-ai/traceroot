@@ -1,4 +1,5 @@
 import { agentRequestHeaders } from "@traceroot/core/agent-service";
+import { Role } from "@traceroot/core";
 import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
@@ -48,7 +49,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const { projectId } = await params;
 
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
   const denied = demoAgentWriteDenied(
     accessResult.project.workspaceId,

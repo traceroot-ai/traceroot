@@ -2,7 +2,7 @@ import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
-import { prisma, ModelSource, PlanType, isBillingEnabled } from "@traceroot/core";
+import { prisma, ModelSource, PlanType, Role, isBillingEnabled } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
@@ -51,7 +51,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const { projectId, sessionId } = await params;
 
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
   const denied = demoAgentWriteDenied(
     accessResult.project.workspaceId,
