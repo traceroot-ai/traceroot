@@ -58,6 +58,18 @@ describe("loopPlanState", () => {
     ).toEqual({ loopBlocked: false, currentUsage: { loop: { runsUsed: 2 } } });
   });
 
+  it("falls back to the stored state when the live count fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    countFreeLoopRunsUsed.mockRejectedValue(new Error("db unavailable"));
+    const stored = workspace("free", false, 29);
+    expect(await loopPlanState(stored)).toEqual({
+      loopBlocked: false,
+      currentUsage: stored.currentUsage,
+    });
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("returns the stored state for a paid plan, with billing off or with Loops off", async () => {
     const paid = workspace("pro", true, 40);
     expect(await loopPlanState(paid)).toEqual({
