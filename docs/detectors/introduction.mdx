@@ -40,6 +40,8 @@ Open your project in [traceroot Cloud](https://app.traceroot.ai), select **Detec
 6. **Signals**: leave **Generate signals** on to group findings into signals. Set **Root cause analysis** as described [below](#root-cause-analysis).
 7. Click **Create Detector**. The detector checks traces that arrive from then on.
 
+Before creating or saving a detector, use **Preview filter on a trace** to paste the ID of a trace from the same project. The preview shows which filter conditions match that trace at the time of the request; a live trace can change as more spans arrive. It reads the trace without saving the detector, applying sampling, or running the judge model. It respects the project's trace retention window.
+
 ## Create detectors with AI
 
 Select **Agent** from the left nav to open the traceroot Agent, then describe the detector you want, or ask it to suggest one from your project. For example:
