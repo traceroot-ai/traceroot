@@ -1411,7 +1411,7 @@
   {
     "id": "tr-glm-4-7",
     "modelName": "glm-4.7",
-    "matchPattern": "(?i)^(zai\\/)?glm-4\\.7(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/|z-ai\\/|zai\\.)?glm-4\\.7(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000006,
