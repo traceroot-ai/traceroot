@@ -300,7 +300,7 @@
   {
     "id": "tr-gpt-6-2-sol",
     "modelName": "gpt-6.2-sol",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6[.-]2-sol)$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6[.-]2-sol)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000002,
@@ -360,7 +360,7 @@
   {
     "id": "tr-gpt-6-1-terra",
     "modelName": "gpt-6.1-terra",
-    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6[.-]1-terra)$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6[.-]1-terra)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000001,
@@ -408,7 +408,7 @@
   {
     "id": "tr-gpt-6-2-astra",
     "modelName": "gpt-6.2-astra",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6[.-]2-astra)$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6[.-]2-astra)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000008,
