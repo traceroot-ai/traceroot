@@ -25,6 +25,8 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/traces/{trace_id}/time-since-last-span"),
     ("GET", "/api/v1/internal/traces/{trace_id}/findings"),
     ("GET", "/api/v1/internal/traces/{trace_id}/detector-runs"),
+    # When a finding's trace started, for the RCA read's retention gate.
+    ("GET", "/api/v1/internal/findings/{finding_id}/trace-start"),
     ("GET", "/api/v1/internal/detector-window-summary"),
     ("GET", "/api/v1/internal/trace-counts"),
     ("POST", "/api/v1/internal/traces"),

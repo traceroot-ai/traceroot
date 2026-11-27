@@ -3,9 +3,10 @@
 Every read is secret-gated and scoped by project id.
 """
 
+import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -21,7 +22,11 @@ from rest.schemas.detectors import (
     RunListResponse,
     TraceCountsResponse,
 )
-from rest.services.trace_reader import _evaluation_exclusion, customer_traffic_only
+from rest.services.trace_reader import (
+    _evaluation_exclusion,
+    customer_traffic_only,
+    get_trace_reader_service,
+)
 from rest.sql_utils import escape_ilike, to_utc_naive
 
 logger = logging.getLogger(__name__)
@@ -893,3 +898,76 @@ def list_trace_counts(
         for label, offset_seconds, count in result.result_rows
     ]
     return {"data": data}
+
+
+def _utc_iso(value: datetime) -> str:
+    """Render ``value`` as ISO-8601 with an explicit ``+00:00``.
+
+    A naive value is read as UTC, and an aware one is converted. The offset matters
+    because JavaScript's ``new Date()`` reads an ISO string without one as local time.
+    """
+    return to_utc_naive(value).replace(tzinfo=UTC).isoformat()
+
+
+@router.get(
+    "/findings/{finding_id}/trace-start",
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def get_finding_trace_start(finding_id: str, project_id: str):
+    """Look up the customer trace's start time for a finding's retention gate.
+
+    Retention is judged by the customer trace's start time rather than the
+    finding row's ``timestamp`` or the RCA's ``createTime``, because those are
+    processing times (detectors evaluate a trace after it goes quiet and may
+    re-evaluate it later) and can fall inside the window for a trace that
+    started outside it.
+
+    Resolves the root span's start time first (customer traffic only). When the
+    root span has not arrived, falls back to the earliest customer span start
+    time in the trace. ``timestamp`` is always returned so callers can fall back
+    to it only when the trace has no customer span at all (``trace_start_time`` is
+    ``None``). It is the oldest of the finding's stored versions, so it is never
+    later than the newest version the public finding read gates on.
+
+    Args:
+        finding_id (str): Stored finding id to look up (matched exactly).
+        project_id (str): Project that owns the finding; scopes both the
+            finding lookup and the trace-span lookup.
+
+    Returns:
+        dict: ``{"trace_id": str, "trace_start_time": str | None, "timestamp": str}``
+            with UTC ISO-8601 timestamps (``+00:00`` offset). ``trace_start_time``
+            is ``None`` only when the trace has no customer span at all.
+
+    Raises:
+        HTTPException: 404 if no finding with ``finding_id`` exists in
+            ``project_id``.
+    """
+    ch = get_clickhouse_client()
+    result = await asyncio.to_thread(
+        ch.query,
+        """SELECT trace_id, min(timestamp)
+           FROM detector_findings
+           WHERE project_id = {project_id:String} AND finding_id = {finding_id:String}
+           GROUP BY trace_id
+           LIMIT 1""",
+        parameters={"project_id": project_id, "finding_id": finding_id},
+    )
+    if not result.result_rows:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    trace_id, first_seen = result.result_rows[0]
+    reader = get_trace_reader_service()
+    start = await asyncio.to_thread(
+        reader.get_trace_start_time, project_id, trace_id, customer_only=True
+    )
+    if start is None:
+        start = await asyncio.to_thread(
+            reader.get_trace_earliest_span_time, project_id, trace_id, customer_only=True
+        )
+
+    return {
+        "trace_id": trace_id,
+        "trace_start_time": _utc_iso(start) if start is not None else None,
+        "timestamp": _utc_iso(first_seen),
+    }
