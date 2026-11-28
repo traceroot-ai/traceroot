@@ -7,7 +7,7 @@ import json
 import logging
 import threading
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 
 from rest.sql_utils import to_utc_naive
@@ -83,8 +83,8 @@ _MODEL_CALL_KINDS = frozenset({SpanKind.LLM, SpanKind.DECISION})
 
 
 @dataclass(frozen=True)
-class TaskMetrics:
-    """One evaluation trace's CANDIDATE-TASK totals, scorer subtree already excluded."""
+class LlmMetrics:
+    """The model-call totals of one part of an evaluation trace: the task or its scorers."""
 
     cost: float = 0.0
     prompt_tokens: int = 0
@@ -92,38 +92,73 @@ class TaskMetrics:
     total_tokens: int = 0
     llm_calls: int = 0
     llm_duration_ms: int = 0
+    # The calls that ended up with a cost. ``cost`` sums only these, so with none it is
+    # 0 for want of a price, not because the calls were free.
+    priced_llm_calls: int = 0
 
 
-def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
-    """Per-trace task metrics EXCLUDING the scorer subtree (scorer spans + descendants).
+@dataclass(frozen=True)
+class EvalTraceMetrics:
+    """One evaluation trace, split into the CANDIDATE TASK and the scorer subtree."""
+
+    task: LlmMetrics
+    scorer: LlmMetrics
+
+
+def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
+    """Per-trace model-call metrics, kept apart for the task and for the scorer subtree.
 
     An evaluation trace is ``EVALUATION(root) -> TASK -> SCORER`` (see the SDK eval
     engine). A scorer can itself call an LLM — an ``llm_judge`` self-instruments its
     model call, and a hand-rolled ``@scorer`` function may call a provider directly —
     and that LLM span lands in the SAME trace under the SCORER span. Folding it into the
-    result would over-report what it costs to run the CANDIDATE, so we drop every scorer
-    span and its whole subtree and fold only the remaining (task) spans.
+    result would over-report what it costs to run the CANDIDATE, so a SCORER span and its
+    whole subtree are the scorer's, and every other span is the task's. ``task`` is the
+    candidate alone; ``scorer`` is what grading it cost.
 
-    That exclusion is why tokens are derived HERE rather than summed off the trace: an
+    That split is why tokens are derived HERE rather than summed off the trace: an
     llm_judge's prompt and completion tokens are the judge's own accounting, and are a
     different number from the system under test's. Summing the trace naively would
     silently bill the candidate for grading itself.
 
-    Calls, tokens and LLM time come from model-call spans (LLM or DECISION) with no
-    model-call descendant, so each model call is counted once. Two instrumentors on one
-    call (LangChain's ChatOpenAI span around the OpenAI client's span) nest one LLM span in
-    another with the same tokens, and an LLM-kind step wrapper (``agent_step``) spans
-    several calls. Counting every LLM span would count both of those twice. Cost is summed
-    as before.
+    Calls, tokens, LLM time and cost come from model-call spans (LLM or DECISION) with no
+    model-call descendant in the same part, so each model call is counted once. Two
+    instrumentors on one call (LangChain's ChatOpenAI span around the OpenAI client's span)
+    nest one LLM span in another with the same tokens and the same price, and an LLM-kind
+    step wrapper (``agent_step``) spans several calls. Counting every LLM span would count
+    those calls twice. Cost follows the same rule: summing every priced span billed nested
+    instrumentation twice, so a span's own cost counts only if it is a counted call or
+    the ancestor one borrows from (below). A cost reported on a span that is not a model
+    call (for example a tool's ``llm.cost.total``) is not counted, so cost is the sum of
+    model calls only.
 
-    A counted call that reported no usage takes its tokens from the nearest LLM ancestor
-    that did, provided that ancestor wraps no other counted call. Streaming often leaves
-    the client span without usage while the framework span around it has it; an ancestor
-    around several calls has a total for all of them, so it is never borrowed from.
+    A call borrows only from its sole wrapper: the nearest model-call ancestor in its part,
+    provided that ancestor wraps no other counted call. An ancestor around several calls
+    has a total for all of them, so it is never borrowed from. Tokens and cost are borrowed
+    separately:
+
+    - Tokens: a counted call that reported no usage takes its sole wrapper's tokens.
+      Streaming often leaves the client span without usage while the framework span
+      around it has it. A call that reported usage keeps its own.
+    - Cost: a counted call with no cost of its own takes its sole wrapper's cost, whether
+      or not it reported tokens. A framework span priced from its model name can wrap a
+      client span that reported tokens but no model name, and so has no price.
+
+    A cost of 0 on a span that reported no usage counts as no cost, on the call and on the
+    wrapper alike. Ingest prices a call with no usage and no captured text from zero
+    tokens, so a priced model stores exactly 0 for it, and taking that as the price would
+    turn missing telemetry into $0. Such a call takes its sole wrapper's cost, or, with no
+    wrapper, stays unpriced. A 0 on a span that reported usage is a real, free call.
+
+    A call is priced when it ends up with a cost.
+
+    The two parts are worked out apart, as if the link from each scorer subtree to its
+    parent were cut, so a judge call never hides or borrows from a task span above its
+    SCORER.
 
     ``rows`` are ``(trace_id, span_id, parent_span_id, span_kind, cost, input_tokens,
-    output_tokens, total_tokens, span_start_time, span_end_time)``. A trace with no model
-    call folds to all-zero, which the writer turns back into NULL.
+    output_tokens, total_tokens, span_start_time, span_end_time)``. A span row that appears
+    more than once is one span. A part with no model call folds to all-zero.
     """
     per_trace: dict[str, dict] = defaultdict(
         lambda: {"children": defaultdict(list), "parents": {}, "spans": {}}
@@ -154,73 +189,101 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
             t["children"][parent_span_id].append(span_id)
             t["parents"][span_id] = parent_span_id
 
-    result: dict[str, TaskMetrics] = {}
+    result: dict[str, EvalTraceMetrics] = {}
     for trace_id, t in per_trace.items():
-        excluded: set[str] = set()
+        in_scorer: set[str] = set()
         stack = [sid for sid, sp in t["spans"].items() if sp["kind"] == SpanKind.SCORER]
         while stack:
             sid = stack.pop()
-            if sid in excluded:
+            if sid in in_scorer:
                 continue
-            excluded.add(sid)
+            in_scorer.add(sid)
             stack.extend(t["children"].get(sid, ()))
 
-        # Every span with a counted model-call span somewhere beneath it. A model-call span
-        # in this set wraps a call that is already counted, so it is not a call of its own.
+        # Each span's parent within its own part. Only a scorer subtree's top span has a
+        # parent in the other part, so cutting those links keeps every walk below in one.
+        parents = {
+            sid: parent
+            for sid, parent in t["parents"].items()
+            if (sid in in_scorer) == (parent in in_scorer)
+        }
+
+        # One bottom-up pass over the tree: a span is taken once all its children have
+        # been, and hands its totals to its parent, so the work grows with the number of
+        # spans and not with spans times depth. ``wraps_llm`` gets every span with a
+        # model-call span somewhere beneath it; a model-call span in it wraps a call that
+        # is already counted, so it is not a call of its own. ``calls_under`` counts the
+        # counted calls beneath each span, so a usage-less call only borrows from an
+        # ancestor whose usage is that call's alone.
         wraps_llm: set[str] = set()
-        for sid, sp in t["spans"].items():
-            if sid in excluded or sp["kind"] not in _MODEL_CALL_KINDS:
-                continue
-            parent = t["parents"].get(sid)
-            while parent is not None and parent not in wraps_llm:
-                wraps_llm.add(parent)
-                parent = t["parents"].get(parent)
-
-        # How many counted calls each span wraps, so a usage-less call only borrows from
-        # an ancestor whose usage is that call's alone.
         calls_under: dict[str, int] = defaultdict(int)
-        for sid, sp in t["spans"].items():
-            if sid in excluded or sp["kind"] not in _MODEL_CALL_KINDS or sid in wraps_llm:
+        children_left = dict.fromkeys(t["spans"], 0)
+        for parent in parents.values():
+            if parent in children_left:
+                children_left[parent] += 1
+        ready = [sid for sid, left in children_left.items() if not left]
+        while ready:
+            sid = ready.pop()
+            parent = parents.get(sid)
+            if parent is None:
                 continue
-            parent = t["parents"].get(sid)
-            seen: set[str] = set()
-            while parent is not None and parent not in seen:
-                seen.add(parent)
-                calls_under[parent] += 1
-                parent = t["parents"].get(parent)
+            counted = t["spans"][sid]["kind"] in _MODEL_CALL_KINDS and sid not in wraps_llm
+            calls_under[parent] += calls_under[sid] + int(counted)
+            if counted or sid in wraps_llm:
+                wraps_llm.add(parent)
+            if parent in children_left:
+                children_left[parent] -= 1
+                if not children_left[parent]:
+                    ready.append(parent)
 
-        cost = 0.0
-        prompt_tokens = completion_tokens = total_tokens = 0
-        llm_calls = 0
-        llm_duration_ms = 0
-        for sid, sp in t["spans"].items():
-            if sid in excluded:
+        # A span still waiting on a child sits on a loop of parent links, which no tracer
+        # sends but a project can. Every span of a loop is above the whole loop and all
+        # that hangs off it, itself included, so each takes the loop's totals and none of
+        # them is a call of its own.
+        for sid, left in children_left.items():
+            if not left:
                 continue
-            if sp["cost"] is not None:
-                cost += float(sp["cost"])
-            # Token counts and call/latency accounting are model-call-span facts. Keying
-            # them on span_kind rather than "has tokens" keeps llm_calls honest for a model
-            # call whose provider reported no usage.
+            loop = [sid]
+            while parents[loop[-1]] != sid:
+                loop.append(parents[loop[-1]])
+            calls = sum(calls_under[s] for s in loop)
+            wraps = any(s in wraps_llm or t["spans"][s]["kind"] in _MODEL_CALL_KINDS for s in loop)
+            for s in loop:
+                children_left[s] = 0
+                calls_under[s] = calls
+                if wraps:
+                    wraps_llm.add(s)
+
+        task, scorer = asdict(LlmMetrics()), asdict(LlmMetrics())
+        for sid, sp in t["spans"].items():
+            # Token counts and call/latency/cost accounting are model-call-span facts.
+            # Keying them on span_kind rather than "has tokens" keeps llm_calls honest for
+            # a model call whose provider reported no usage.
             if sp["kind"] not in _MODEL_CALL_KINDS or sid in wraps_llm:
                 continue
-            llm_calls += 1
-            usage = _call_usage(sid, t["spans"], t["parents"], calls_under)
-            prompt_tokens += int(usage["input_tokens"] or 0)
-            completion_tokens += int(usage["output_tokens"] or 0)
-            total_tokens += int(usage["total_tokens"] or 0)
+            part = scorer if sid in in_scorer else task
+            part["llm_calls"] += 1
+            wrapper = _sole_wrapper(sid, t["spans"], parents, calls_under)
+            # Tokens and cost are borrowed separately: a call can report tokens without a
+            # price, or a price without tokens.
+            usage = sp if _has_usage(sp) or wrapper is None else wrapper
+            part["prompt_tokens"] += int(usage["input_tokens"] or 0)
+            part["completion_tokens"] += int(usage["output_tokens"] or 0)
+            part["total_tokens"] += int(usage["total_tokens"] or 0)
+            cost = _price(sp)
+            if cost is None and wrapper is not None:
+                cost = _price(wrapper)
+            if cost is not None:
+                part["cost"] += float(cost)
+                part["priced_llm_calls"] += 1
             # An unfinished span has no end time; it contributes no duration rather than
             # being treated as instantaneous.
             if sp["start"] is not None and sp["end"] is not None:
-                llm_duration_ms += max(0, round((sp["end"] - sp["start"]).total_seconds() * 1000))
+                part["llm_duration_ms"] += max(
+                    0, round((sp["end"] - sp["start"]).total_seconds() * 1000)
+                )
 
-        result[trace_id] = TaskMetrics(
-            cost=cost,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            llm_calls=llm_calls,
-            llm_duration_ms=llm_duration_ms,
-        )
+        result[trace_id] = EvalTraceMetrics(task=LlmMetrics(**task), scorer=LlmMetrics(**scorer))
     return result
 
 
@@ -228,13 +291,27 @@ def _has_usage(span: dict) -> bool:
     return any(span[k] for k in ("input_tokens", "output_tokens", "total_tokens"))
 
 
-def _call_usage(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict:
-    """The span whose token counts stand for counted call ``sid``: the call itself if it
-    reported usage, else its nearest model-call ancestor when that ancestor wraps only
-    this call."""
-    span = spans[sid]
-    if _has_usage(span):
-        return span
+def _price(span: dict) -> float | None:
+    """The span's cost if it is a real price, else None.
+
+    A cost of 0 on a span that reported no usage is missing telemetry, not a free call:
+    ingest prices a call with no usage and no captured text from zero tokens, and a priced
+    model then stores exactly 0. A 0 on a span that reported usage is a real price.
+    """
+    cost = span["cost"]
+    if cost is None or (not cost and not _has_usage(span)):
+        return None
+    return float(cost)
+
+
+def _sole_wrapper(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict | None:
+    """The nearest model-call ancestor of counted call ``sid`` when that ancestor wraps
+    only this call, else None. ``parents`` maps each span to its parent in the same part
+    of the trace, so the ancestor is never the other part's.
+
+    The walk passes only spans that wrap this call alone and stops at the first that wraps
+    more, so no span is passed for two calls, and the walks for every call in a trace take
+    one step per span between them."""
     parent = parents.get(sid)
     seen: set[str] = set()
     while parent is not None and parent not in seen and calls_under[parent] == 1:
@@ -244,7 +321,7 @@ def _call_usage(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict
             # The nearest model-call ancestor decides; nothing above it is this call's alone.
             return ancestor
         parent = parents.get(parent)
-    return span
+    return None
 
 
 # The metric columns are Postgres INTEGER. A value outside that range raises inside the
@@ -346,10 +423,24 @@ def _record_project_ingestion(project_id: str, received_at: datetime) -> None:
 def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -> None:
     """Denormalize each evaluation trace's CANDIDATE-TASK cost onto its EvaluationResult.
 
-    The SDK doesn't report per-case cost, so we derive it from the trace's LLM-span cost,
-    scoped to the candidate task (the scorer subtree is excluded — see
-    ``_task_metrics_by_trace`` for why). This lets the runs table read ``result.cost``
-    directly. Idempotent + self-healing: recomputed on every batch, so late-arriving spans
+    The SDK doesn't report per-case cost, so we derive it from the trace's model-call
+    cost, scoped to the candidate task (the scorer subtree is kept apart — see
+    ``_eval_metrics_by_trace`` for why). This lets the runs table read ``result.cost``
+    directly. The scorer subtree's own cost and call count are stored beside it, with how
+    many calls in each part carried a price, so a run can tell judge overhead and unpriced
+    calls apart from the candidate's cost.
+
+    The priced-call counts and ``scorer_llm_calls`` are real counts, 0 included, written
+    for every result whose trace had spans; a result whose trace had none is only stamped,
+    so NULL there with ``scorer_metrics_derived_at`` set means no spans were found.
+    ``scorer_cost`` is NULL when no scorer call was priced, else the real sum (0 allowed).
+
+    These columns have their own marker, ``scorer_metrics_derived_at``, stamped with the
+    other two. A worker without the scorer split stamps only ``cost_derived_at`` and
+    ``metrics_derived_at``, so the backfill derives any row it handled again, whichever
+    order the services deploy in.
+
+    Idempotent + self-healing: recomputed on every batch, so late-arriving spans
     correct the total in BOTH directions. That two-way property is the point — under
     ``BatchSpanProcessor`` a parent exports after its children, so a scorer's LLM child
     routinely lands in an earlier batch than the SCORER span itself. In that window
@@ -366,8 +457,8 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     revisits it — ``cost`` stays NULL despite fully-priced LLM spans sitting in
     ClickHouse. ``backfill_eval_result_costs`` closes that gap by re-running this
     derivation for not-yet-derived result rows; it keys off the ``cost_derived_at`` and
-    ``metrics_derived_at`` markers stamped below (NOT ``cost IS NULL``), so a zero-cost
-    trace settles after one pass instead of being re-swept forever.
+    ``scorer_metrics_derived_at`` markers stamped below (NOT ``cost IS NULL``), so a
+    zero-cost trace settles after one pass instead of being re-swept forever.
 
     NOTE: once the SDK reports an authoritative per-result cost OR token counts, this
     derivation must DEFER to them rather than overwrite — it exists only because those
@@ -397,7 +488,7 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
             # is handed back clean (not idle-in-transaction).
             if eval_trace_ids:
                 # Pull the full span tree (not just cost-bearing spans) so the scorer
-                # subtree can be identified and excluded before summing.
+                # subtree can be identified and summed apart from the task.
                 rows = ch_client.query(
                     "SELECT trace_id, span_id, parent_span_id, span_kind, cost,"
                     " input_tokens, output_tokens, total_tokens,"
@@ -406,28 +497,47 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                     parameters={"pid": project_id, "ids": eval_trace_ids},
                 ).result_rows
 
-                for trace_id, m in _task_metrics_by_trace(rows).items():
+                for trace_id, m in _eval_metrics_by_trace(rows).items():
+                    task, scorer = m.task, m.scorer
                     # Written unconditionally — see the docstring. NULLIF keeps a genuinely
                     # cost-less (or model-call-less) trace at NULL rather than a misleading
                     # 0, while still letting an over-reported total be corrected
                     # back down. Every metric here shares that property, so they are written
-                    # in one statement.
+                    # in one statement. The counts and scorer_cost take no NULLIF: their 0
+                    # is real, and scorer_cost is NULL only when no scorer call was priced.
                     cur.execute(
                         "UPDATE evaluation_results SET cost = NULLIF(%s, 0),"
                         " prompt_tokens = NULLIF(%s, 0), completion_tokens = NULLIF(%s, 0),"
                         " total_tokens = NULLIF(%s, 0), llm_calls = NULLIF(%s, 0),"
-                        " llm_duration_ms = NULLIF(%s, 0), update_time = now()"
+                        " llm_duration_ms = NULLIF(%s, 0), priced_llm_calls = %s,"
+                        " scorer_cost = %s, scorer_llm_calls = %s,"
+                        " scorer_priced_llm_calls = %s, update_time = now()"
                         " WHERE project_id = %s AND trace_id = %s",
                         (
-                            m.cost,
-                            _int4_or_none(m.prompt_tokens, "prompt_tokens", project_id, trace_id),
+                            task.cost,
                             _int4_or_none(
-                                m.completion_tokens, "completion_tokens", project_id, trace_id
+                                task.prompt_tokens, "prompt_tokens", project_id, trace_id
                             ),
-                            _int4_or_none(m.total_tokens, "total_tokens", project_id, trace_id),
-                            _int4_or_none(m.llm_calls, "llm_calls", project_id, trace_id),
                             _int4_or_none(
-                                m.llm_duration_ms, "llm_duration_ms", project_id, trace_id
+                                task.completion_tokens, "completion_tokens", project_id, trace_id
+                            ),
+                            _int4_or_none(task.total_tokens, "total_tokens", project_id, trace_id),
+                            _int4_or_none(task.llm_calls, "llm_calls", project_id, trace_id),
+                            _int4_or_none(
+                                task.llm_duration_ms, "llm_duration_ms", project_id, trace_id
+                            ),
+                            _int4_or_none(
+                                task.priced_llm_calls, "priced_llm_calls", project_id, trace_id
+                            ),
+                            scorer.cost if scorer.priced_llm_calls else None,
+                            _int4_or_none(
+                                scorer.llm_calls, "scorer_llm_calls", project_id, trace_id
+                            ),
+                            _int4_or_none(
+                                scorer.priced_llm_calls,
+                                "scorer_priced_llm_calls",
+                                project_id,
+                                trace_id,
                             ),
                             project_id,
                             trace_id,
@@ -440,13 +550,15 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 # self-healing above is unaffected; only ``backfill_eval_result_costs``
                 # reads them.
                 #
-                # Two markers because two writers exist during a deploy. A worker from
-                # before the LLM metrics writes `cost` and stamps `cost_derived_at` only,
-                # so a row it handled still reads `metrics_derived_at IS NULL` and the
-                # backfill re-derives it here, whichever worker got to it first.
+                # One marker per set of derived columns, because older workers write a
+                # subset during a deploy. A worker from before the LLM metrics stamps
+                # `cost_derived_at` only, and one from before the scorer split stamps
+                # `metrics_derived_at` too but never `scorer_metrics_derived_at`. A row
+                # either handled still reads `scorer_metrics_derived_at IS NULL`, so the
+                # backfill derives it again here, whichever worker got to it first.
                 cur.execute(
                     "UPDATE evaluation_results SET cost_derived_at = now(),"
-                    " metrics_derived_at = now()"
+                    " metrics_derived_at = now(), scorer_metrics_derived_at = now()"
                     " WHERE project_id = %s AND trace_id = ANY(%s)",
                     (project_id, eval_trace_ids),
                 )
@@ -480,11 +592,13 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     ``batch_size`` newest-first rows within a recent window (backed by the partial index
     ``ix_eval_result_cost_backfill``), the next run picks up any remainder.
 
-    The same sweep fills the LLM metrics for results that predate them or were handled by
-    a worker that does not derive them (``metrics_derived_at IS NULL``). That selection has
-    no time window: the marker is stamped whatever the outcome, including for a trace whose
-    spans are gone, so each pass shrinks the set by up to ``batch_size`` rows until it is
-    empty, backed by ``ix_eval_result_metrics_backfill``.
+    The same sweep derives every result that predates the scorer split or was handled by
+    a worker without it (``scorer_metrics_derived_at IS NULL``). Every derivation stamps
+    that marker with ``metrics_derived_at``, so this also covers every result whose LLM
+    metrics were never derived. The selection has no time window: the marker is stamped
+    whatever the outcome, including for a trace whose spans are gone, so each pass shrinks
+    the set by up to ``batch_size`` rows until it is empty, backed by
+    ``ix_eval_result_scorer_metrics_backfill``.
 
     Requires a Celery *beat* process to be scheduled (see ``celery_app.beat_schedule``).
     """
@@ -518,12 +632,12 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
                 (batch_size,),
             )
             rows = list(cur.fetchall())
-            # Results whose LLM metrics were never derived, of any age. A separate query so
-            # each selection stays on its own partial index and a backlog of one cannot
+            # Results the scorer split was never derived for, of any age. A separate query
+            # so each selection stays on its own partial index and a backlog of one cannot
             # take the other's batch.
             cur.execute(
                 "SELECT project_id, trace_id FROM evaluation_results "
-                "WHERE metrics_derived_at IS NULL AND trace_id IS NOT NULL "
+                "WHERE scorer_metrics_derived_at IS NULL AND trace_id IS NOT NULL "
                 "ORDER BY create_time DESC "
                 "LIMIT %s",
                 (batch_size,),

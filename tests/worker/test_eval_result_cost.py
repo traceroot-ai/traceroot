@@ -4,7 +4,7 @@ The load-bearing rule: a scorer can call an LLM of its own — an ``llm_judge``
 self-instruments its model call, and a hand-rolled ``@scorer`` may call a provider
 directly — and that LLM span lands in the SAME trace, nested under the SCORER span.
 Folding it into the result over-reports what the candidate cost to run, so the whole
-scorer subtree is dropped before summing.
+scorer subtree is kept out of the task's totals and measured on its own.
 
 `rows` mirror the ClickHouse projection the worker queries:
 ``(trace_id, span_id, parent_span_id, span_kind, cost, input_tokens, output_tokens,
@@ -16,6 +16,8 @@ for grading itself.
 """
 
 import logging
+import re
+import sys
 from datetime import datetime, timedelta
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -24,8 +26,8 @@ import pytest
 
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.ingest_tasks import (
+    _eval_metrics_by_trace,
     _int4_or_none,
-    _task_metrics_by_trace,
     _update_eval_result_costs,
     process_s3_traces,
 )
@@ -48,7 +50,7 @@ def _row(span_id, parent, kind, cost, *, tokens=None, ms=None, trace=T):
 
 def _cost(rows, trace=T):
     """The candidate-task cost, the property the original tests were written against."""
-    return _task_metrics_by_trace(rows)[trace].cost
+    return _eval_metrics_by_trace(rows)[trace].task.cost
 
 
 class TestScorerSubtreeIsExcluded:
@@ -140,7 +142,7 @@ class TestLlmMetricsShareTheExclusion:
     """
 
     def _metrics(self, rows):
-        return _task_metrics_by_trace(rows)[T]
+        return _eval_metrics_by_trace(rows)[T].task
 
     def test_judge_tokens_are_not_charged_to_the_candidate(self):
         m = self._metrics(
@@ -294,30 +296,30 @@ class TestCacheTokensAreCountedOnce:
     def test_prompt_tokens_equal_the_stored_cache_inclusive_input(self, input_attr, gross_input):
         s, row = self._stored_row(input_attr)
         assert s["input_tokens"] == gross_input
-        m = _task_metrics_by_trace([row])[row[0]]
+        m = _eval_metrics_by_trace([row])[row[0]].task
         assert m.prompt_tokens == s["input_tokens"]
         assert m.completion_tokens == 27
         assert m.total_tokens == s["total_tokens"] == gross_input + 27
         assert m.cost == pytest.approx(s["cost"])
 
     def test_cache_counts_are_not_added_to_an_already_gross_row(self):
-        m = _task_metrics_by_trace(
+        m = _eval_metrics_by_trace(
             [
                 _row("root", None, "EVALUATION", None),
                 # 3 uncached + 3581 cache read + 834 cache write, stored gross.
                 _row("llm", "root", "LLM", 0.01, tokens=(4418, 27, 4445), ms=10),
             ]
-        )[T]
+        )[T].task
         assert (m.prompt_tokens, m.total_tokens) == (4418, 4445)
 
 
 class TestEachModelCallIsCountedOnce:
-    """Calls, tokens and LLM time come from LLM spans with no LLM-kind descendant.
+    """Calls, tokens, LLM time and cost come from LLM spans with no LLM-kind descendant.
     Two instrumentors on one call, or an LLM-kind step wrapper around several calls, nest
-    LLM spans in each other; counting every LLM span counts those calls twice."""
+    LLM spans in each other; counting every LLM span counts and bills those calls twice."""
 
     def _metrics(self, rows):
-        return _task_metrics_by_trace(rows)[T]
+        return _eval_metrics_by_trace(rows)[T].task
 
     def test_two_instrumentors_on_one_call_count_as_one_call(self):
         # LangChain's ChatOpenAI span around the OpenAI client's span, same usage on both.
@@ -373,25 +375,29 @@ class TestEachModelCallIsCountedOnce:
         assert m.llm_calls == 1
         assert m.total_tokens == 10
 
-    def test_cost_is_still_summed_over_every_priced_span(self):
+    def test_nested_instrumentation_bills_the_call_once(self):
+        # Both instrumentors priced the same call. Summing every priced span billed 0.008.
         m = self._metrics(
             [
                 _row("root", None, "EVALUATION", None),
-                _row("chain", "root", "LLM", 0.10),
-                _row("client", "chain", "LLM", 0.10),
+                _row("chain", "root", "LLM", 0.004),
+                _row("client", "chain", "LLM", 0.004),
             ]
         )
-        assert m.cost == pytest.approx(0.20)
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.004)
 
 
 class TestAUsageLessCallBorrowsItsWrappersUsage:
     """Streaming often leaves the client's LLM span without usage while the framework's
     LLM span around it has it. The call is still counted once, at the inner span, but its
     tokens come from the nearest LLM ancestor — as long as that ancestor wraps only this
-    call, so a step wrapper's total for several calls is never borrowed."""
+    call, so a step wrapper's total for several calls is never borrowed. Cost is borrowed
+    from the same ancestor on its own terms: whenever the call has no cost, even if it
+    reported tokens."""
 
     def _metrics(self, rows):
-        return _task_metrics_by_trace(rows)[T]
+        return _eval_metrics_by_trace(rows)[T].task
 
     def test_the_outer_spans_usage_stands_for_a_usage_less_inner_call(self):
         m = self._metrics(
@@ -451,15 +457,91 @@ class TestAUsageLessCallBorrowsItsWrappersUsage:
         )
         assert (m.llm_calls, m.total_tokens) == (1, 0)
 
-    def test_cost_is_unchanged_by_the_fallback(self):
+    def test_a_streaming_call_takes_its_wrappers_cost_too(self):
         m = self._metrics(
             [
                 _row("root", None, "EVALUATION", None),
-                _row("chain", "root", "LLM", 0.10, tokens=(18, 29, 47)),
+                _row("chain", "root", "LLM", 0.003, tokens=(18, 29, 47)),
                 _row("client", "chain", "LLM", None),
             ]
         )
-        assert m.cost == pytest.approx(0.10)
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.003)
+
+    def test_a_call_with_tokens_but_no_price_takes_its_wrappers_cost(self):
+        # The framework span is priced from its model name; the client span under it
+        # reported tokens but no model name, so it has no price of its own.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.004),
+                _row("client", "chain", "LLM", None, tokens=(10, 5, 15)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.004)
+        # Tokens still come from the call itself, which reported them.
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (10, 5, 15)
+
+    def test_a_judge_call_with_tokens_but_no_price_takes_its_wrappers_cost(self):
+        m = _eval_metrics_by_trace(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("scorer", "root", "SCORER", None),
+                _row("chain", "scorer", "LLM", 0.004),
+                _row("client", "chain", "LLM", None, tokens=(10, 5, 15)),
+            ]
+        )[T].scorer
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.004)
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (10, 5, 15)
+
+    def test_a_zero_token_zero_cost_call_takes_its_wrappers_cost(self):
+        # Ingest prices a call with no usage and no captured text from zero tokens, so a
+        # priced model stores cost 0.0 for it. That 0 is missing telemetry, not a price.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.003, tokens=(18, 29, 47)),
+                _row("client", "chain", "LLM", 0.0, tokens=(0, 0, 0)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.003)
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (18, 29, 47)
+
+    def test_a_zero_token_zero_cost_call_alone_is_unpriced(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("client", "root", "LLM", 0.0, tokens=(0, 0, 0)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 0)
+
+    def test_a_wrappers_zero_token_zero_cost_is_not_lent(self):
+        # The same missing telemetry on the wrapper side: it must not price the call at $0.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.0, tokens=(0, 0, 0)),
+                _row("client", "chain", "LLM", None, tokens=(10, 5, 15)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 0)
+
+    def test_a_wrapper_around_several_calls_lends_no_cost(self):
+        # The step's 0.01 is for both calls, so neither call can take it as its own.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("step", "root", "LLM", 0.01),
+                _row("call-a", "step", "LLM", 0.002),
+                _row("call-b", "step", "LLM", None),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (2, 1)
+        assert m.cost == pytest.approx(0.002)
 
 
 class TestDecisionSpansAreModelCalls:
@@ -468,7 +550,7 @@ class TestDecisionSpansAreModelCalls:
     DECISION spans stores a cost with NULL calls and tokens."""
 
     def _metrics(self, rows):
-        return _task_metrics_by_trace(rows)[T]
+        return _eval_metrics_by_trace(rows)[T].task
 
     def test_a_priced_decision_span_under_the_task_is_one_call(self):
         m = self._metrics(
@@ -508,6 +590,178 @@ class TestDecisionSpansAreModelCalls:
         )
         assert m.llm_calls == 1
         assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (12, 4, 16)
+
+
+class TestTheScorersAreMeasuredApart:
+    """The scorer subtree is not thrown away: its calls and cost are the scorers' own
+    totals, folded by the same once-per-call and borrowing rules as the task's. Each part
+    also counts how many of its calls carried a price, so an unpriced call is never read
+    as a free one."""
+
+    def _metrics(self, rows):
+        return _eval_metrics_by_trace(rows)[T]
+
+    def test_a_task_and_a_judge_in_one_trace_are_split(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("priced", "task", "LLM", 0.002),
+                _row("unpriced", "task", "LLM", None, tokens=(10, 5, 15)),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge", "scorer", "LLM", 0.001),
+            ]
+        )
+        assert (m.task.llm_calls, m.task.priced_llm_calls) == (2, 1)
+        assert m.task.cost == pytest.approx(0.002)
+        assert (m.scorer.llm_calls, m.scorer.priced_llm_calls) == (1, 1)
+        assert m.scorer.cost == pytest.approx(0.001)
+
+    def test_a_code_only_scorer_has_no_calls_and_nothing_priced(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task-llm", "root", "LLM", 0.002),
+                _row("scorer", "root", "SCORER", None),
+                _row("check", "scorer", "SPAN", None),
+            ]
+        )
+        assert (m.scorer.llm_calls, m.scorer.priced_llm_calls) == (0, 0)
+        assert m.scorer.cost == 0.0
+
+    def test_a_duplicated_span_row_counts_once(self):
+        rows = [
+            _row("root", None, "EVALUATION", None),
+            _row("llm", "root", "LLM", 0.002, tokens=(10, 5, 15)),
+        ]
+        m = self._metrics([*rows, rows[1]])
+        assert (m.task.llm_calls, m.task.priced_llm_calls) == (1, 1)
+        assert m.task.cost == pytest.approx(0.002)
+
+    def test_a_call_deep_under_a_scorer_is_the_scorers(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("scorer", "root", "SCORER", None),
+                _row("chain", "scorer", "CHAIN", None),
+                _row("judge", "chain", "LLM", 0.001),
+            ]
+        )
+        assert (m.scorer.llm_calls, m.scorer.priced_llm_calls) == (1, 1)
+        assert m.scorer.cost == pytest.approx(0.001)
+        assert (m.task.llm_calls, m.task.priced_llm_calls, m.task.cost) == (0, 0, 0.0)
+
+    def test_a_judge_call_does_not_borrow_from_a_task_call_above_its_scorer(self):
+        # The scorer sits under a task LLM span. The usage-less judge call must not take
+        # the task call's usage or cost, which would bill that call to both parts.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task-llm", "root", "LLM", 0.05, tokens=(5, 5, 10)),
+                _row("scorer", "task-llm", "SCORER", None),
+                _row("judge", "scorer", "LLM", None),
+            ]
+        )
+        assert (m.task.llm_calls, m.task.priced_llm_calls, m.task.total_tokens) == (1, 1, 10)
+        assert m.task.cost == pytest.approx(0.05)
+        assert (m.scorer.llm_calls, m.scorer.priced_llm_calls, m.scorer.total_tokens) == (1, 0, 0)
+        assert m.scorer.cost == 0.0
+
+    def test_a_non_call_span_adds_no_cost(self):
+        # Cost is a counted call's own, or the one wrapper it borrows from. A TASK or
+        # SCORER carrying a cost is not a model call, so it bills neither part.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", 9.00),
+                _row("task-llm", "task", "LLM", 0.002),
+                _row("scorer", "root", "SCORER", 7.00),
+                _row("judge", "scorer", "LLM", 0.001),
+            ]
+        )
+        assert m.task.cost == pytest.approx(0.002)
+        assert m.scorer.cost == pytest.approx(0.001)
+
+
+def _calls_made(fn) -> int:
+    """How many calls ``fn()`` makes, builtins such as ``dict.get`` and ``set.add`` included.
+
+    A count, not a timing, so it comes out the same on every machine."""
+    made = 0
+
+    def count(frame, event, arg):
+        nonlocal made
+        if event in ("call", "c_call"):
+            made += 1
+
+    previous = sys.getprofile()
+    sys.setprofile(count)
+    try:
+        fn()
+    finally:
+        sys.setprofile(previous)
+    return made
+
+
+class TestDeepTreesTakeLinearWork:
+    """A project sends whatever span tree it likes, so the derivation must not walk every
+    call up through all its ancestors. That costs calls times depth: 9 million steps for a
+    chain of 3,000 spans ending in 3,000 calls, on every derivation of the trace."""
+
+    @staticmethod
+    def _calls_under_a_chain(depth, calls):
+        """``depth`` spans in a chain, the deepest wrapping ``calls`` priced calls."""
+        rows = [_row("s0", None, "EVALUATION", None)]
+        rows += [_row(f"s{i}", f"s{i - 1}", "TOOL", None) for i in range(1, depth)]
+        rows += [
+            _row(f"llm{i}", f"s{depth - 1}", "LLM", 0.001, tokens=(2, 1, 3)) for i in range(calls)
+        ]
+        return rows
+
+    @staticmethod
+    def _a_call_at_every_level(depth):
+        """A chain of ``depth`` spans with a priced call hanging off each one."""
+        rows = [_row("s0", None, "EVALUATION", None)]
+        rows += [_row(f"s{i}", f"s{i - 1}", "TOOL", None) for i in range(1, depth)]
+        rows += [_row(f"llm{i}", f"s{i}", "LLM", 0.001, tokens=(2, 1, 3)) for i in range(depth)]
+        return rows
+
+    def test_a_deep_chain_ending_in_many_calls_counts_each_once(self):
+        task = _eval_metrics_by_trace(self._calls_under_a_chain(3000, 3000))[T].task
+        assert (task.llm_calls, task.priced_llm_calls) == (3000, 3000)
+        assert task.cost == pytest.approx(3.0)
+        assert (task.prompt_tokens, task.completion_tokens, task.total_tokens) == (
+            6000,
+            3000,
+            9000,
+        )
+
+    @pytest.mark.parametrize("shape", ["calls_under_a_chain", "a_call_at_every_level"])
+    def test_the_work_grows_with_the_spans_not_with_spans_times_depth(self, shape):
+        if shape == "calls_under_a_chain":
+            rows = self._calls_under_a_chain(1000, 1000)
+        else:
+            rows = self._a_call_at_every_level(1000)
+        made = _calls_made(lambda: _eval_metrics_by_trace(rows))
+        # A handful of calls per span. Walking each call up a 1,000-span chain makes one
+        # to two million.
+        assert made < 50 * len(rows), f"{made} calls for {len(rows)} spans"
+
+    def test_parent_links_that_loop_end_and_count_the_call_beneath_once(self):
+        # No tracer sends a loop, but a project can. Each span of the loop is above the
+        # other, so the LLM span on it wraps a call and is not a call itself. The one call
+        # hangs off the loop, reported no usage, and borrows from that span, which wraps it
+        # alone.
+        task = _eval_metrics_by_trace(
+            [
+                _row("a", "b", "TOOL", None),
+                _row("b", "a", "LLM", 0.5, tokens=(7, 3, 10)),
+                _row("call", "a", "LLM", None),
+            ]
+        )[T].task
+        assert (task.llm_calls, task.priced_llm_calls) == (1, 1)
+        assert task.cost == pytest.approx(0.5)
+        assert task.total_tokens == 10
 
 
 class TestWriteIsUnconditional:
@@ -656,6 +910,161 @@ class TestOutOfRangeMetricsCannotPoisonTheBatch:
         assert "llm_duration_ms=1700000000000" in warnings[0]
         assert "project proj-1" in warnings[0]
         assert "trace bad" in warnings[0]
+
+
+class TestTheScorerColumnsAreWritten:
+    """The priced-call counts and the scorer totals ride the metrics UPDATE. The counts
+    are real counts, 0 included, for every result whose trace had spans; they stay NULL
+    only for a result with no spans, which the run read takes as "no spans found".
+    ``scorer_cost`` is NULL when no scorer call was priced, never a made-up 0."""
+
+    NEW_COLUMNS = (
+        "priced_llm_calls",
+        "scorer_cost",
+        "scorer_llm_calls",
+        "scorer_priced_llm_calls",
+    )
+
+    def _run(self, rows, trace_ids):
+        ch = MagicMock()
+        ch.query.return_value.result_rows = rows
+        conn, cur = MagicMock(), MagicMock()
+        cur.fetchall.return_value = [(t,) for t in trace_ids]
+        conn.cursor.return_value.__enter__.return_value = cur
+        with patch("psycopg2.connect", return_value=conn):
+            _update_eval_result_costs("proj-1", set(trace_ids), ch)
+        return cur
+
+    def _writes(self, cur):
+        """``{trace_id: {column: param}}`` for each metrics UPDATE, every column in it.
+
+        Columns are paired with params by parsing the SQL, not by position, so a swap of
+        two columns' values fails the test that reads them."""
+        out = {}
+        for c in cur.execute.call_args_list:
+            sql, params = c[0]
+            if "NULLIF" not in sql:
+                continue
+            for column in self.NEW_COLUMNS:
+                # Real counts and a real sum: none of the four is NULLIF'd.
+                assert re.search(rf"(?<![a-z_]){column} = %s", sql), column
+            columns = re.findall(r"(\w+) = (?:NULLIF\()?%s", sql)
+            write = dict(zip(columns, params, strict=True))
+            out[write["trace_id"]] = write
+        return out
+
+    def _new_columns(self, cur):
+        """``{trace_id: {new column: param}}``, the four columns this change adds."""
+        return {
+            trace: {column: write[column] for column in self.NEW_COLUMNS}
+            for trace, write in self._writes(cur).items()
+        }
+
+    def test_a_trace_with_spans_writes_all_four_and_one_without_gets_only_the_markers(self):
+        cur = self._run(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("priced", "task", "LLM", 0.002),
+                _row("unpriced", "task", "LLM", None, tokens=(10, 5, 15)),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge", "scorer", "LLM", 0.001),
+            ],
+            [T, "no-spans"],
+        )
+        writes = self._new_columns(cur)
+        assert set(writes) == {T}, "a trace with no spans gets no metrics UPDATE"
+        assert writes[T] == {
+            "priced_llm_calls": 1,
+            "scorer_cost": pytest.approx(0.001),
+            "scorer_llm_calls": 1,
+            "scorer_priced_llm_calls": 1,
+        }
+        stamps = [c[0] for c in cur.execute.call_args_list if "_derived_at = now()" in c[0][0]]
+        assert len(stamps) == 1
+        sql, params = stamps[0]
+        # Every derivation stamps all three markers, so a row this worker handled leaves
+        # the scorer columns' own backfill selection.
+        assert set(re.findall(r"(\w+) = now\(\)", sql)) == {
+            "cost_derived_at",
+            "metrics_derived_at",
+            "scorer_metrics_derived_at",
+        }
+        assert set(params[1]) == {T, "no-spans"}
+
+    def test_a_code_only_scorer_writes_null_cost_and_zero_counts(self):
+        cur = self._run(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task-llm", "root", "LLM", None),
+                _row("scorer", "root", "SCORER", None),
+            ],
+            [T],
+        )
+        assert self._new_columns(cur)[T] == {
+            "priced_llm_calls": 0,
+            "scorer_cost": None,
+            "scorer_llm_calls": 0,
+            "scorer_priced_llm_calls": 0,
+        }
+
+    def test_the_counts_land_in_their_own_columns(self):
+        # Every count differs (task 4 calls, 3 priced; scorers 2 calls, 1 priced), so a
+        # value written to the wrong column cannot pass.
+        cur = self._run(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("a", "task", "LLM", 0.001),
+                _row("b", "task", "LLM", 0.002),
+                _row("c", "task", "LLM", 0.003),
+                _row("d", "task", "LLM", None, tokens=(10, 5, 15)),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge-priced", "scorer", "LLM", 0.004),
+                _row("judge-unpriced", "scorer", "LLM", None, tokens=(10, 5, 15)),
+            ],
+            [T],
+        )
+        write = self._writes(cur)[T]
+        assert (write["llm_calls"], write["priced_llm_calls"]) == (4, 3)
+        assert (write["scorer_llm_calls"], write["scorer_priced_llm_calls"]) == (2, 1)
+        assert write["cost"] == pytest.approx(0.006)
+        assert write["scorer_cost"] == pytest.approx(0.004)
+
+    def test_a_judge_that_lands_before_its_scorer_moves_over_on_the_next_batch(self):
+        # Under BatchSpanProcessor the SCORER exports after its judge call. Until the
+        # SCORER lands, the judge reads as a task call; the next batch moves it over.
+        root = _row("root", None, "EVALUATION", None)
+        judge = _row("judge", "scorer", "LLM", 0.001, tokens=(10, 5, 15))
+
+        first = self._writes(self._run([root, judge], [T]))[T]
+        assert (first["llm_calls"], first["priced_llm_calls"]) == (1, 1)
+        assert first["cost"] == pytest.approx(0.001)
+        assert first["scorer_cost"] is None
+        assert (first["scorer_llm_calls"], first["scorer_priced_llm_calls"]) == (0, 0)
+
+        scorer = _row("scorer", "root", "SCORER", None)
+        second = self._writes(self._run([root, scorer, judge], [T]))[T]
+        assert (second["llm_calls"], second["priced_llm_calls"]) == (0, 0)
+        assert second["cost"] == 0.0, "written, so NULLIF clears the task's cost"
+        assert second["scorer_cost"] == pytest.approx(0.001)
+        assert (second["scorer_llm_calls"], second["scorer_priced_llm_calls"]) == (1, 1)
+
+    def test_a_priced_judge_that_cost_nothing_writes_a_real_zero(self):
+        # The judge reported real usage and its model is free, so 0 is its price, not
+        # missing telemetry.
+        cur = self._run(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge", "scorer", "LLM", 0.0, tokens=(12, 4, 16)),
+            ],
+            [T],
+        )
+        write = self._new_columns(cur)[T]
+        assert write["scorer_cost"] == 0.0
+        assert write["scorer_cost"] is not None
+        assert (write["scorer_llm_calls"], write["scorer_priced_llm_calls"]) == (1, 1)
 
 
 class TestOrdinaryIngestDoesNotTouchPostgres:

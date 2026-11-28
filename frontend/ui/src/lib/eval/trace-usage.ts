@@ -14,12 +14,14 @@
  * under a SCORER subtree — so application (task) cost is separated from evaluation-judge
  * (scorer) cost, and a wrapper is never summed on top of its children (no double count).
  *
- * The attribution rule matches the backend's `_task_metrics_by_trace`
+ * The attribution rule matches the backend's `_eval_metrics_by_trace`
  * (backend/worker/ingest_tasks.py): a span under a SCORER (an LLM judge or a hand-rolled
  * scorer that calls a provider directly) is scorer cost; everything else is task cost.
  * There is no third "neither" bucket on either side — an LLM span with no TASK wrapper
- * (e.g. emitted directly under the EVALUATION root) is task cost, not excluded, on both
- * surfaces, so the two numbers rendered side by side on the compare views never disagree.
+ * (e.g. emitted directly under the EVALUATION root) is task cost, not excluded. Only the
+ * split rule is shared: this fold sums every usage-bearing span and has neither the
+ * worker's count-once rule nor its zero-token rule, so its figures can differ from the
+ * stored ones.
  *
  * States: `pending` (no trace yet — it may still be ingesting), `unknown` (a trace with
  * no provider usage anywhere), `present` (real usage found). A real zero is only reported
@@ -116,11 +118,12 @@ function addUsage(bucket: UsageBucket, s: UsageSpan, models: Set<string>): void 
 
 /**
  * Walk from a span up its parent chain: if any ancestor is a SCORER, the span is
- * judge (scorer) usage; otherwise it's candidate-task usage. This mirrors the
- * backend's `_task_metrics_by_trace`, which excludes every span under a SCORER subtree
- * and counts everything else as task cost — there is no third "neither" bucket, so
- * a span with no TASK wrapper in its ancestry still counts as task, on both surfaces.
- * Guards against cycles.
+ * judge (scorer) usage; otherwise it's candidate-task usage. The split mirrors the
+ * backend's `_eval_metrics_by_trace`, which counts only model calls (LLM/DECISION spans):
+ * a counted call under a SCORER subtree is scorer usage, and every other counted call is
+ * task usage. There is no third "neither" bucket, so a span with no TASK wrapper in its
+ * ancestry still counts as task. This fold also sums usage-bearing spans that aren't
+ * calls. Guards against cycles.
  */
 function attributionOf(span: UsageSpan, byId: Map<string, UsageSpan>): "task" | "scorer" {
   const seen = new Set<string>();
