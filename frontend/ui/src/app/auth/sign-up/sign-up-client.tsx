@@ -24,6 +24,8 @@ import {
 import { signupEmailError } from "@/lib/signup/email-policy";
 import type { SocialProvider } from "@/lib/social-providers";
 import { useSocialSignIn } from "../use-social-sign-in";
+import { ClientVerifiedBy, UnverifiedClientNotice } from "@/features/oauth-connect";
+import { CONTINUE_PATH, type OAuthClientDisplay } from "@/lib/oauth/client-display";
 
 // The password is asked for once; the show/hide toggle is how to check it.
 const signUpSchema = z.object({
@@ -41,6 +43,8 @@ type SignUpForm = z.infer<typeof signUpSchema>;
 type SignUpClientProps = {
   socialProviders: SocialProvider[];
   emailDomainPolicyEnabled: boolean;
+  // Set when this sign-up is part of connecting an assistant (lib/oauth/client-display).
+  connection?: OAuthClientDisplay | null;
 };
 
 // A brand-new account always finishes at onboarding. The one thing that can
@@ -71,8 +75,10 @@ function postSignUpDestination(callbackUrl: string): string {
   // Match the /device path exactly, not by prefix: a startsWith check would also
   // catch an unrelated future route like /device-settings and wrongly funnel a
   // new account into the device-authorization flow.
+  // An assistant's authorization (CONTINUE_PATH) waits the same way: a new
+  // account sets up its first project, then picks it for the assistant.
   const [path, query = ""] = callbackUrl.split("?");
-  if (path === "/device") {
+  if (path === "/device" || path === CONTINUE_PATH) {
     return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   }
   // Back from "Not you? Sign out" on a sign-up step: /onboarding already carries
@@ -81,14 +87,18 @@ function postSignUpDestination(callbackUrl: string): string {
   if (path === "/onboarding") {
     const handBack = new URLSearchParams(query).get("callbackUrl");
     const [handBackPath] = (handBack ?? "").split("?");
-    if (handBack && handBackPath === "/device") {
+    if (handBack && (handBackPath === "/device" || handBackPath === CONTINUE_PATH)) {
       return `/onboarding?callbackUrl=${encodeURIComponent(handBack)}`;
     }
   }
   return "/onboarding";
 }
 
-function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClientProps) {
+function SignUpContent({
+  socialProviders,
+  emailDomainPolicyEnabled,
+  connection = null,
+}: SignUpClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -155,9 +165,21 @@ function SignUpContent({ socialProviders, emailDomainPolicyEnabled }: SignUpClie
       }
     >
       <AuthHeader
-        title="Create your account"
-        subtitle="Start tracing and improving your AI agents."
+        title={
+          connection ? `Create an account to connect ${connection.name}` : "Create your account"
+        }
+        subtitle={
+          connection
+            ? `Then set up a project for ${connection.name} to read.`
+            : "Start tracing and improving your AI agents."
+        }
       />
+      {connection && (
+        <div className="mb-5 space-y-2">
+          <ClientVerifiedBy client={connection} />
+          <UnverifiedClientNotice client={connection} />
+        </div>
+      )}
       <AuthProviderOptions social={social} />
       <div className="space-y-5">
         <AuthError message={error} />

@@ -23,6 +23,8 @@ import {
 } from "@/components/auth/auth-layout";
 import type { SocialProvider } from "@/lib/social-providers";
 import { useSocialSignIn } from "../use-social-sign-in";
+import { ClientVerifiedBy, UnverifiedClientNotice } from "@/features/oauth-connect";
+import type { OAuthClientDisplay } from "@/lib/oauth/client-display";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -35,9 +37,15 @@ type SignInContentProps = {
   socialProviders: SocialProvider[];
   /** Only when SMTP is set up, since the reset link goes out by email. */
   passwordResetEnabled?: boolean;
+  // Set when this sign-in is part of connecting an assistant (lib/oauth/client-display).
+  connection?: OAuthClientDisplay | null;
 };
 
-function SignInContent({ socialProviders, passwordResetEnabled = false }: SignInContentProps) {
+function SignInContent({
+  socialProviders,
+  passwordResetEnabled = false,
+  connection = null,
+}: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
@@ -90,9 +98,19 @@ function SignInContent({ socialProviders, passwordResetEnabled = false }: SignIn
   return (
     <AuthLayout>
       <AuthHeader
-        title="Welcome back"
-        subtitle="Sign in to traceroot to see your traces and agents."
+        title={connection ? `Sign in to connect ${connection.name}` : "Welcome back"}
+        subtitle={
+          connection
+            ? `Then choose the project ${connection.name} can read.`
+            : "Sign in to traceroot to see your traces and agents."
+        }
       />
+      {connection && (
+        <div className="mb-5 space-y-2">
+          <ClientVerifiedBy client={connection} />
+          <UnverifiedClientNotice client={connection} />
+        </div>
+      )}
       <AuthProviderOptions social={social} />
       <div className="space-y-5">
         <AuthError message={error} />
