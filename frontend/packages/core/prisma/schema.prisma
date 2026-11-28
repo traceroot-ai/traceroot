@@ -276,24 +276,28 @@ model SdkLabelReceipt {
 
 // Users - Authentication and identity
 model User {
-  id            String            @id @default(cuid()) @db.VarChar
-  email         String            @unique @db.VarChar
-  emailVerified Boolean           @default(false) @map("email_verified")
-  name          String?           @db.VarChar
-  image         String?           @db.VarChar
-  password      String?           @db.VarChar
-  role          String?           @db.VarChar
-  banned        Boolean?
-  banReason     String?           @map("ban_reason") @db.VarChar
-  banExpires    DateTime?         @map("ban_expires") @db.Timestamp(6)
-  createdAt     DateTime          @default(now()) @db.Timestamp(6)
-  updatedAt     DateTime          @updatedAt @db.Timestamp(6)
-  invites       Invite[]
-  memberships   WorkspaceMember[]
-  accounts      Account[]
-  sessions      Session[]
-  emailSends    EmailSend[]
-  onboarding    UserOnboarding?
+  id                 String              @id @default(cuid()) @db.VarChar
+  email              String              @unique @db.VarChar
+  emailVerified      Boolean             @default(false) @map("email_verified")
+  name               String?             @db.VarChar
+  image              String?             @db.VarChar
+  password           String?             @db.VarChar
+  role               String?             @db.VarChar
+  banned             Boolean?
+  banReason          String?             @map("ban_reason") @db.VarChar
+  banExpires         DateTime?           @map("ban_expires") @db.Timestamp(6)
+  createdAt          DateTime            @default(now()) @db.Timestamp(6)
+  updatedAt          DateTime            @updatedAt @db.Timestamp(6)
+  invites            Invite[]
+  memberships        WorkspaceMember[]
+  accounts           Account[]
+  sessions           Session[]
+  emailSends         EmailSend[]
+  onboarding         UserOnboarding?
+  oauthClients       OauthClient[]
+  oauthConsents      OauthConsent[]
+  oauthAccessTokens  OauthAccessToken[]
+  oauthRefreshTokens OauthRefreshToken[]
 
   @@map("users")
 }
@@ -405,7 +409,9 @@ model Session {
   createdAt      DateTime @default(now()) @db.Timestamp(6)
   updatedAt      DateTime @updatedAt @db.Timestamp(6)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  oauthAccessTokens  OauthAccessToken[]
+  oauthRefreshTokens OauthRefreshToken[]
 
   @@index([userId], map: "ix_session_user_id")
   @@map("sessions")
@@ -1305,4 +1311,192 @@ model AuditLog {
   @@index([actorUserId], map: "ix_audit_actor_user_id")
   @@index([impersonationSessionId], map: "ix_audit_impersonation_session_id")
   @@map("audit_logs")
+}
+
+// ── OAuth provider (better-auth oauthProvider plugin) ────────────────────────
+// Lets an assistant (an MCP client) connect to a user's project: the client
+// registers itself, the user signs in and consents on the web app, and the
+// client receives a short-lived access token for the MCP resource. Field names
+// are the plugin's own; only the column and table names follow our convention.
+
+// A registered client application (assistants register themselves dynamically).
+model OauthClient {
+  id                               String    @id @default(cuid()) @db.VarChar
+  clientId                         String    @unique @map("client_id") @db.VarChar
+  clientSecret                     String?   @map("client_secret") @db.VarChar
+  clientDiscoveryId                String?   @map("client_discovery_id") @db.VarChar
+  disabled                         Boolean?  @default(false)
+  skipConsent                      Boolean?  @map("skip_consent")
+  enableEndSession                 Boolean?  @map("enable_end_session")
+  subjectType                      String?   @map("subject_type") @db.VarChar
+  scopes                           String[]
+  clientCredentialsScopes          String[]  @default([]) @map("client_credentials_scopes")
+  userId                           String?   @map("user_id") @db.VarChar
+  createdAt                        DateTime? @map("created_at") @db.Timestamp(6)
+  updatedAt                        DateTime? @map("updated_at") @db.Timestamp(6)
+  name                             String?   @db.VarChar
+  uri                              String?   @db.VarChar
+  icon                             String?   @db.VarChar
+  contacts                         String[]
+  tos                              String?   @db.VarChar
+  policy                           String?   @db.VarChar
+  softwareId                       String?   @map("software_id") @db.VarChar
+  softwareVersion                  String?   @map("software_version") @db.VarChar
+  softwareStatement                String?   @map("software_statement")
+  redirectUris                     String[]  @map("redirect_uris")
+  postLogoutRedirectUris           String[]  @map("post_logout_redirect_uris")
+  backchannelLogoutUri             String?   @map("backchannel_logout_uri") @db.VarChar
+  backchannelLogoutSessionRequired Boolean?  @map("backchannel_logout_session_required")
+  tokenEndpointAuthMethod          String?   @map("token_endpoint_auth_method") @db.VarChar
+  applicationType                  String?   @map("application_type") @db.VarChar
+  jwks                             String?
+  jwksUri                          String?   @map("jwks_uri") @db.VarChar
+  grantTypes                       String[]  @map("grant_types")
+  responseTypes                    String[]  @map("response_types")
+  requirePKCE                      Boolean?  @map("require_pkce")
+  dpopBoundAccessTokens            Boolean?  @default(false) @map("dpop_bound_access_tokens")
+  referenceId                      String?   @map("reference_id") @db.VarChar
+  metadata                         Json?
+
+  user          User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resources     OauthClientResource[]
+  accessTokens  OauthAccessToken[]
+  refreshTokens OauthRefreshToken[]
+  consents      OauthConsent[]
+
+  @@index([userId], map: "ix_oauth_client_user_id")
+  @@map("oauth_clients")
+}
+
+// A protected resource tokens are issued for (the MCP server).
+model OauthResource {
+  id                            String    @id @default(cuid()) @db.VarChar
+  identifier                    String    @unique @db.VarChar
+  name                          String    @db.VarChar
+  accessTokenTtl                Int?      @map("access_token_ttl")
+  refreshTokenTtl               Int?      @map("refresh_token_ttl")
+  signingAlgorithm              String?   @map("signing_algorithm") @db.VarChar
+  signingKeyId                  String?   @map("signing_key_id") @db.VarChar
+  allowedScopes                 String[]  @map("allowed_scopes")
+  customClaims                  Json?     @map("custom_claims")
+  dpopBoundAccessTokensRequired Boolean?  @default(false) @map("dpop_bound_access_tokens_required")
+  disabled                      Boolean?  @default(false)
+  createdAt                     DateTime? @map("created_at") @db.Timestamp(6)
+  updatedAt                     DateTime? @map("updated_at") @db.Timestamp(6)
+  policyVersion                 Int?      @default(1) @map("policy_version")
+  metadata                      Json?
+
+  clients OauthClientResource[]
+
+  @@map("oauth_resources")
+}
+
+// Which client may request which resource.
+model OauthClientResource {
+  id         String    @id @default(cuid()) @db.VarChar
+  clientId   String    @map("client_id") @db.VarChar
+  resourceId String    @map("resource_id") @db.VarChar
+  metadata   Json?
+  createdAt  DateTime? @map("created_at") @db.Timestamp(6)
+
+  client   OauthClient   @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  resource OauthResource @relation(fields: [resourceId], references: [identifier], onDelete: Cascade)
+
+  @@unique([clientId, resourceId], map: "uq_oauth_client_resource")
+  @@index([clientId], map: "ix_oauth_client_resource_client_id")
+  @@index([resourceId], map: "ix_oauth_client_resource_resource_id")
+  @@map("oauth_client_resources")
+}
+
+// Refresh tokens (opaque), linked to the signed-in session.
+model OauthRefreshToken {
+  id                      String    @id @default(cuid()) @db.VarChar
+  token                   String    @unique @db.VarChar
+  clientId                String    @map("client_id") @db.VarChar
+  sessionId               String?   @map("session_id") @db.VarChar
+  userId                  String    @map("user_id") @db.VarChar
+  referenceId             String?   @map("reference_id") @db.VarChar
+  authorizationCodeId     String?   @map("authorization_code_id") @db.VarChar
+  resources               String[]
+  requestedUserInfoClaims String[]  @map("requested_user_info_claims")
+  expiresAt               DateTime  @map("expires_at") @db.Timestamp(6)
+  createdAt               DateTime  @map("created_at") @db.Timestamp(6)
+  revoked                 DateTime? @db.Timestamp(6)
+  rotatedAt               DateTime? @map("rotated_at") @db.Timestamp(6)
+  rotationReplayResponse  String?   @map("rotation_replay_response")
+  rotationReplayExpiresAt DateTime? @map("rotation_replay_expires_at") @db.Timestamp(6)
+  authTime                DateTime? @map("auth_time") @db.Timestamp(6)
+  confirmation            Json?
+  scopes                  String[]
+
+  client       OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  session      Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessTokens OauthAccessToken[]
+
+  @@index([clientId], map: "ix_oauth_refresh_token_client_id")
+  @@index([sessionId], map: "ix_oauth_refresh_token_session_id")
+  @@index([userId], map: "ix_oauth_refresh_token_user_id")
+  @@index([authorizationCodeId], map: "ix_oauth_refresh_token_code_id")
+  @@map("oauth_refresh_tokens")
+}
+
+// Opaque access tokens (used when no resource audience is requested).
+model OauthAccessToken {
+  id                      String    @id @default(cuid()) @db.VarChar
+  token                   String?   @unique @db.VarChar
+  clientId                String    @map("client_id") @db.VarChar
+  sessionId               String?   @map("session_id") @db.VarChar
+  userId                  String?   @map("user_id") @db.VarChar
+  referenceId             String?   @map("reference_id") @db.VarChar
+  authorizationCodeId     String?   @map("authorization_code_id") @db.VarChar
+  resources               String[]
+  requestedUserInfoClaims String[]  @map("requested_user_info_claims")
+  refreshId               String?   @map("refresh_id") @db.VarChar
+  expiresAt               DateTime  @map("expires_at") @db.Timestamp(6)
+  createdAt               DateTime  @map("created_at") @db.Timestamp(6)
+  revoked                 DateTime? @db.Timestamp(6)
+  confirmation            Json?
+  scopes                  String[]
+
+  client  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  session Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  user    User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refresh OauthRefreshToken? @relation(fields: [refreshId], references: [id], onDelete: Cascade)
+
+  @@index([clientId], map: "ix_oauth_access_token_client_id")
+  @@index([sessionId], map: "ix_oauth_access_token_session_id")
+  @@index([userId], map: "ix_oauth_access_token_user_id")
+  @@index([authorizationCodeId], map: "ix_oauth_access_token_code_id")
+  @@index([refreshId], map: "ix_oauth_access_token_refresh_id")
+  @@map("oauth_access_tokens")
+}
+
+// A user's consent for a client; referenceId is the project they chose.
+model OauthConsent {
+  id                      String   @id @default(cuid()) @db.VarChar
+  clientId                String   @map("client_id") @db.VarChar
+  userId                  String?  @map("user_id") @db.VarChar
+  referenceId             String?  @map("reference_id") @db.VarChar
+  resources               String[]
+  requestedUserInfoClaims String[] @map("requested_user_info_claims")
+  scopes                  String[]
+  createdAt               DateTime @map("created_at") @db.Timestamp(6)
+  updatedAt               DateTime @map("updated_at") @db.Timestamp(6)
+
+  client OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user   User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId], map: "ix_oauth_consent_client_id")
+  @@index([userId], map: "ix_oauth_consent_user_id")
+  @@map("oauth_consents")
+}
+
+// Replay protection for signed client assertions.
+model OauthClientAssertion {
+  id        String   @id @default(cuid()) @db.VarChar
+  expiresAt DateTime @map("expires_at") @db.Timestamp(6)
+
+  @@index([expiresAt], map: "ix_oauth_client_assertion_expires_at")
+  @@map("oauth_client_assertions")
 }
