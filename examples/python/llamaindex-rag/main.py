@@ -22,7 +22,7 @@ else:
 import traceroot
 from traceroot import Integration, observe, using_attributes
 
-traceroot.initialize(integrations=[Integration.LLAMA_INDEX])
+traceroot.initialize(integrations=[Integration.LLAMA_INDEX, Integration.OPENAI])
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,10 +32,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 from llama_index.core import Document, Settings, VectorStoreIndex
+from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
 
-# Set up LLM with explicit model for cost tracking
+# Set up LLM and embedding model with explicit models for cost tracking
 Settings.llm = OpenAI(model="gpt-4o-mini")
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
 
 # Create documents about traceroot
 documents = [
