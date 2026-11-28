@@ -1,7 +1,7 @@
 /**
  * Email service for sending workspace invitations
  */
-import nodemailer from "nodemailer";
+import { sendSmtpEmail } from "./transport";
 import { EMAIL_COLORS as C, escapeHtml, renderEmailCard } from "@traceroot/core";
 import { env } from "@/env";
 
@@ -25,40 +25,18 @@ interface SendInviteEmailParams {
 export async function sendInviteEmail(params: SendInviteEmailParams): Promise<void> {
   const { to, inviterName, inviterEmail, workspaceName, inviteId, role } = params;
 
-  const smtpUrl = env.TRACEROOT_SMTP_URL;
-  const mailFrom = env.TRACEROOT_SMTP_MAIL_FROM;
   const baseUrl = env.BETTER_AUTH_URL;
-
-  if (!smtpUrl || !mailFrom) {
-    console.warn(
-      "[Email] SMTP not configured. Set TRACEROOT_SMTP_URL and TRACEROOT_SMTP_MAIL_FROM to enable invite emails.",
-    );
-    return;
-  }
-
-  // Parse SMTP URL: smtp://user:pass@host:port
-  const url = new URL(smtpUrl);
-  const transporter = nodemailer.createTransport({
-    host: url.hostname,
-    port: parseInt(url.port) || 587,
-    secure: url.port === "465", // true for 465, false for other ports (uses STARTTLS)
-    auth: {
-      user: decodeURIComponent(url.username),
-      pass: decodeURIComponent(url.password),
-    },
-  });
   const acceptLink = `${baseUrl}/invites/${inviteId}`;
   const roleName = role.charAt(0) + role.slice(1).toLowerCase();
 
-  await transporter.sendMail({
-    from: `traceroot <${mailFrom}>`,
+  const sent = await sendSmtpEmail({
     to,
     subject: `${inviterName} invited you to join "${workspaceName}" on traceroot`,
     html: buildHtmlEmail({ inviterName, inviterEmail, workspaceName, acceptLink, roleName }),
     text: buildTextEmail({ inviterName, inviterEmail, workspaceName, acceptLink, roleName }),
   });
 
-  console.log(`[Email] Invite email sent to ${to}`);
+  if (sent) console.log(`[Email] Invite email sent to ${to}`);
 }
 
 interface EmailContentParams {

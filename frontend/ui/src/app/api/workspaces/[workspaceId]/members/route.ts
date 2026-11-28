@@ -1,7 +1,6 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { prisma, Role, RoleSchema } from "@traceroot/core";
+import { NextRequest } from "next/server";
+import { prisma, Role } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -9,12 +8,6 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { isDemoWorkspace } from "@/lib/demo-workspace";
-import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
-
-const addMemberSchema = z.object({
-  userId: z.string().min(1, "User ID is required"),
-  role: RoleSchema,
-});
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
@@ -61,79 +54,18 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
   return successResponse({ members });
 }
 
-// POST /api/workspaces/[workspaceId]/members - Add a member (ADMIN+)
-async function handlePOST(request: NextRequest, { params }: RouteParams) {
+// Memberships are created only when the invited account accepts its invite.
+async function handlePOST(_request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
-
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
-  const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
-  if (membershipResult.error) return membershipResult.error;
+  const access = await requireWorkspaceMembership(authResult.user.id, workspaceId, Role.ADMIN);
+  if (access.error) return access.error;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return errorResponse("Invalid JSON", 400);
-  }
-
-  const result = addMemberSchema.safeParse(body);
-  if (!result.success) {
-    return errorResponse(result.error.issues[0].message, 400);
-  }
-
-  const { userId, role } = result.data;
-
-  // Check if user exists
-  const targetUser = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, email: true, name: true },
-  });
-
-  if (!targetUser) {
-    return errorResponse("User not found", 404);
-  }
-
-  // Check if already a member
-  const existingMembership = await prisma.workspaceMember.findUnique({
-    where: {
-      workspaceId_userId: {
-        workspaceId,
-        userId,
-      },
-    },
-  });
-
-  if (existingMembership) {
-    return errorResponse("User is already a member of this workspace", 409);
-  }
-
-  const membershipId = crypto.randomUUID();
-
-  const membership = await prisma.workspaceMember.create({
-    data: {
-      id: membershipId,
-      workspaceId,
-      userId,
-      role,
-    },
-  });
-
-  void notifyWorkspaceMember({ userId, workspaceId, via: "added" });
-
-  return NextResponse.json(
-    {
-      id: membership.id,
-      user_id: targetUser.id,
-      email: targetUser.email,
-      name: targetUser.name,
-      role: membership.role,
-      create_time: membership.createTime,
-    },
-    { status: 201 },
-  );
+  const response = errorResponse("Send an invitation to add a workspace member.", 405);
+  response.headers.set("Allow", "GET");
+  return response;
 }
 export const GET = withImpersonationPolicy(handleGET);
 export const POST = withImpersonationPolicy(handlePOST);

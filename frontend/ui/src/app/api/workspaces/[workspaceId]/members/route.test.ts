@@ -7,7 +7,11 @@ vi.mock("@/lib/support/route-guard", () => ({
 vi.mock("next/server", () => ({
   NextRequest: class {},
   NextResponse: {
-    json: (data: unknown, init?: { status?: number }) => ({ status: init?.status ?? 200, data }),
+    json: (data: unknown, init?: { status?: number }) => ({
+      status: init?.status ?? 200,
+      data,
+      headers: new Headers(),
+    }),
   },
 }));
 
@@ -33,10 +37,15 @@ const notifyMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/signup/membership-webhook", () => ({ notifyWorkspaceMember: notifyMock }));
 
 const requireWorkspaceMembershipMock = vi.fn();
+const auth = vi.hoisted(() => ({ error: null as unknown }));
 vi.mock("@/lib/auth-helpers", () => ({
-  requireAuth: async () => ({ user: { id: "user-1" } }),
+  requireAuth: async () => (auth.error ? { error: auth.error } : { user: { id: "user-1" } }),
   requireWorkspaceMembership: (...args: unknown[]) => requireWorkspaceMembershipMock(...args),
-  errorResponse: (msg: string, status: number) => ({ status, data: { error: msg } }),
+  errorResponse: (msg: string, status: number) => ({
+    status,
+    data: { error: msg },
+    headers: new Headers(),
+  }),
   successResponse: (data: unknown) => ({ status: 200, data }),
 }));
 
@@ -52,6 +61,7 @@ function get(workspaceId: string) {
 }
 
 beforeEach(() => {
+  auth.error = null;
   vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
   memberFindManyMock.mockReset();
   memberFindManyMock.mockResolvedValue([]);
@@ -113,33 +123,53 @@ describe("GET /api/workspaces/[workspaceId]/members", () => {
 
 describe("POST /api/workspaces/[workspaceId]/members", () => {
   const post = (body: unknown) =>
-    (
-      POST as unknown as (
-        req: unknown,
-        ctx: { params: Promise<{ workspaceId: string }> },
-      ) => Promise<{ status: number; data: unknown }>
-    )({ json: async () => body }, { params: Promise.resolve({ workspaceId: "w1" }) });
+    POST({ json: vi.fn().mockResolvedValue(body) } as never, {
+      params: Promise.resolve({ workspaceId: "w1" }),
+    });
 
   beforeEach(() => {
     notifyMock.mockReset();
     requireWorkspaceMembershipMock.mockResolvedValue({ membership: { role: "ADMIN" } });
-    db.userFindUnique
-      .mockReset()
-      .mockResolvedValue({ id: "u2", email: "kai@acme.test", name: "Kai" });
-    db.memberFindUnique.mockReset().mockResolvedValue(null);
-    db.memberCreate
-      .mockReset()
-      .mockResolvedValue({ id: "m2", role: "MEMBER", createTime: new Date() });
+    db.userFindUnique.mockReset();
+    db.memberFindUnique.mockReset();
+    db.memberCreate.mockReset();
   });
 
-  it("reports a member an admin added as added to that workspace", async () => {
-    expect((await post({ userId: "u2", role: "MEMBER" })).status).toBe(201);
-    expect(notifyMock).toHaveBeenCalledWith({ userId: "u2", workspaceId: "w1", via: "added" });
-  });
-
-  it("reports nothing when the person is already a member", async () => {
-    db.memberFindUnique.mockResolvedValue({ id: "m1" });
-    expect((await post({ userId: "u2", role: "MEMBER" })).status).toBe(409);
+  it.each([
+    { userId: "existing-user", role: "ADMIN" },
+    { userId: "unknown-user", role: "VIEWER" },
+    { userId: "already-member", role: "MEMBER" },
+    { inviteId: "pending-invite", userId: "another-user", role: "ADMIN" },
+    {},
+    null,
+  ])("requires an invitation without resolving the supplied account: %j", async (body) => {
+    db.userFindUnique.mockResolvedValue({
+      id: "existing-user",
+      email: "private@example.com",
+      name: "Private",
+    });
+    db.memberCreate.mockResolvedValue({ id: "new-membership", role: "ADMIN" });
+    const response = await post(body);
+    expect(response.status).toBe(405);
+    expect(response.headers.get("Allow")).toBe("GET");
+    expect((response as unknown as { data: unknown }).data).toEqual({
+      error: "Send an invitation to add a workspace member.",
+    });
+    expect(requireWorkspaceMembershipMock).toHaveBeenCalledWith("user-1", "w1", "ADMIN");
+    expect(db.userFindUnique).not.toHaveBeenCalled();
+    expect(db.memberFindUnique).not.toHaveBeenCalled();
+    expect(db.memberCreate).not.toHaveBeenCalled();
     expect(notifyMock).not.toHaveBeenCalled();
+  });
+
+  it("retains authentication and workspace authorization", async () => {
+    auth.error = { status: 401 };
+    expect((await post({ userId: "u2", role: "ADMIN" })).status).toBe(401);
+    expect(requireWorkspaceMembershipMock).not.toHaveBeenCalled();
+    auth.error = null;
+    requireWorkspaceMembershipMock.mockResolvedValue({ error: { status: 403 } });
+    expect((await post({ userId: "u2", role: "ADMIN" })).status).toBe(403);
+    expect(db.userFindUnique).not.toHaveBeenCalled();
+    expect(db.memberCreate).not.toHaveBeenCalled();
   });
 });
