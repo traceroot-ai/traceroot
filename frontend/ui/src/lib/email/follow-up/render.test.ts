@@ -13,7 +13,7 @@ const render = (
   firstName: string | null = "Kai",
 ) => renderFollowUp({ campaign, firstName, links: LINKS, unsubscribeUrl: UNSUB });
 
-const SIGNOFF = "Best,\nXinwei He\nTraceRoot.AI | CEO";
+const SIGNOFF = "Best,\nXinwei He\ntraceroot | CEO";
 const OPT_OUT = `Unsubscribe from product emails: ${UNSUB}`;
 
 /** The plain text of one email: greeting, body, sign-off and opt-out. */
@@ -132,7 +132,7 @@ describe("every follow-up", () => {
       expect(html).toContain(
         `<a href="${UNSUB}" style="color:#5F646B;text-decoration:underline">Unsubscribe from product emails</a>`,
       );
-      expect(html).toContain("Best,<br>Xinwei He<br>TraceRoot.AI | CEO");
+      expect(html).toContain("Best,<br>Xinwei He<br>traceroot | CEO");
       // One wordmark, at the top; no second logo by the signature.
       expect(html.match(/<img /g) ?? []).toHaveLength(1);
       // The provider fills the postal address in, under the opt-out line.

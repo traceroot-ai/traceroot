@@ -10,6 +10,7 @@ export type WelcomeVariant = "generic" | "exploring";
 
 export interface FounderWelcomeInput {
   variant: WelcomeVariant;
+  appUrl: string;
   /** The demo project, or the app when there is none. */
   demoUrl: string;
   bookingUrl: string;
@@ -19,8 +20,6 @@ export interface FounderWelcomeInput {
   /** Only for someone who will get the Slack invite, while invites are on. */
   slackInviteLine: boolean;
 }
-
-export const WELCOME_SETUP_COMMAND = "npx -y traceroot-cli@latest setup";
 
 export function founderWelcomeCopy(input: FounderWelcomeInput): FounderEmailCopy {
   const closing = [
@@ -46,7 +45,7 @@ export function founderWelcomeCopy(input: FounderWelcomeInput): FounderEmailCopy
       ],
       button: { label: "Open the demo project", url: input.demoUrl },
       after: [
-        `When you’re ready to try it on your own agent, run \`${WELCOME_SETUP_COMMAND}\` in your project.`,
+        `When you’re ready to trace your own agent, [open traceroot](${input.appUrl}), choose your project, and copy its setup command.`,
         ...closing,
       ],
     };
@@ -54,7 +53,7 @@ export function founderWelcomeCopy(input: FounderWelcomeInput): FounderEmailCopy
   return {
     subject: "Send your first trace",
     paragraphs: [
-      `Welcome to traceroot. Open the project you want to trace and run \`${WELCOME_SETUP_COMMAND}\`. Once setup finishes, run your agent as you normally would.`,
+      `Welcome to traceroot. [Open traceroot](${input.appUrl}), choose your project, and copy its setup command. Run the command in your project directory, then run your agent as usual.`,
       "Open the trace from that run. You’ll see which tools your agent called and how long each step took.",
       "If you get stuck, reply and tell us which framework you’re using.",
       ...closing,

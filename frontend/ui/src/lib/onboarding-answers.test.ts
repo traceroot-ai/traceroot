@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Row = {
   userId: string;
   role: string | null;
+  roleOther: string | null;
   companyInput: string | null;
   companyDomain: string | null;
   uses: string[];
+  usesOther: string | null;
   source: string | null;
   sourceOther: string | null;
   questionsDoneAt: Date | null;
@@ -26,9 +28,11 @@ vi.mock("@traceroot/core", () => {
             db.rows.push({
               userId,
               role: null,
+              roleOther: null,
               companyInput: null,
               companyDomain: null,
               uses: [],
+              usesOther: null,
               source: null,
               sourceOther: null,
               questionsDoneAt: null,
@@ -101,6 +105,35 @@ describe("saving answers as they are given", () => {
     expect(db.rows[0]).toMatchObject({ role: null, companyInput: null, companyDomain: null });
   });
 
+  it("reads other details for their owner, keeps them out of analytics, and clears them on deselection", async () => {
+    await saveOnboardingAnswers("alice", { role: "other", roleOther: "Research librarian" });
+    await saveOnboardingAnswers("alice", {
+      uses: ["rag", "other"],
+      usesOther: "Classify citations",
+    });
+    expect(await readOnboardingAnswers("alice", null)).toMatchObject({
+      roleOther: "Research librarian",
+      usesOther: "Classify citations",
+    });
+    expect(await readOnboardingAnswers("bob", null)).toMatchObject({
+      roleOther: null,
+      usesOther: null,
+    });
+    await finishOnboardingQuestions("alice", "alice@example.org");
+    expect(analytics.capture.mock.calls[0][2]).toEqual({
+      role: "other",
+      company_asked: false,
+      company_domain: null,
+      uses: ["rag", "other"],
+      source: null,
+    });
+    await saveOnboardingAnswers("alice", { role: null, uses: ["rag"] });
+    expect(await readOnboardingAnswers("alice", null)).toMatchObject({
+      roleOther: null,
+      usesOther: null,
+    });
+  });
+
   it("survives two first saves at once", async () => {
     await Promise.all([
       saveOnboardingAnswers("u1", { role: "data" }),
@@ -120,8 +153,10 @@ describe("the answers a page reads back", () => {
     expect(await readOnboardingAnswers("u1", "kai@acme.com")).toEqual({
       userId: "u1",
       role: null,
+      roleOther: null,
       company: null,
       uses: [],
+      usesOther: null,
       source: null,
       sourceOther: null,
       companyAsked: false,
@@ -187,6 +222,14 @@ describe("what a save accepts", () => {
   it.each([
     [{ role: "founder" }, true],
     [{ role: "ceo" }, false],
+    [{ role: "other", roleOther: "Research" }, true],
+    [{ role: "other", roleOther: null }, true],
+    [{ role: "other", roleOther: "x".repeat(201) }, false],
+    [{ role: "student", roleOther: "Research" }, false],
+    [{ roleOther: "Research" }, false],
+    [{ uses: ["rag", "other"], usesOther: "Audit" }, true],
+    [{ uses: ["rag"], usesOther: "Audit" }, false],
+    [{ uses: ["other"], usesOther: "x".repeat(201) }, false],
     [{ uses: ["rag", "exploring", "other"] }, true],
     [{ uses: ["rag", "exploring", "other", "coding_agents"] }, false],
     [{ source: "other", sourceOther: "a talk" }, true],

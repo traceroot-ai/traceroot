@@ -73,8 +73,8 @@ describe("sendEmail", () => {
       reply_to: "lucas@traceroot.ai",
       to: ["a@x.io"],
       subject: "Hi",
-      text: "hello\n\nTraceRoot, Inc. · 989 Market St, San Francisco, CA 94103",
-      html: '<body><p>hello</p><p style="font-size:12px;color:#777">TraceRoot, Inc. · 989 Market St, San Francisco, CA 94103</p></body>',
+      text: "hello\n\ntraceroot, Inc. · 989 Market St, San Francisco, CA 94103",
+      html: '<body><p>hello</p><p style="font-size:12px;color:#777">traceroot, Inc. · 989 Market St, San Francisco, CA 94103</p></body>',
       topic_id: "topic-123",
       headers,
       tags: [{ name: "t", value: "a_b" }],
@@ -87,9 +87,9 @@ describe("sendEmail", () => {
     await sendEmail({ ...email, html }, api);
     const { body } = api.sent();
     expect(body.html).toBe(
-      '<body><div><p style="font-size:12px">TraceRoot, Inc. · 989 Market St, San Francisco, CA 94103</p></div></body>',
+      '<body><div><p style="font-size:12px">traceroot, Inc. · 989 Market St, San Francisco, CA 94103</p></div></body>',
     );
-    expect(body.text).toBe("hello\n\nTraceRoot, Inc. · 989 Market St, San Francisco, CA 94103");
+    expect(body.text).toBe("hello\n\ntraceroot, Inc. · 989 Market St, San Francisco, CA 94103");
   });
 
   it("sends transactional mail with no topic, no reply-to and the text unchanged", async () => {
