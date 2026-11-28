@@ -475,7 +475,7 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                     task, scorer = m.task, m.scorer
                     # Written unconditionally — see the docstring. NULLIF keeps a genuinely
                     # cost-less (or model-call-less) trace at NULL rather than a misleading
-                    # 0, while still letting a previously over-reported total be corrected
+                    # 0, while still letting an over-reported total be corrected
                     # back down. Every metric here shares that property, so they are written
                     # in one statement. The counts and scorer_cost take no NULLIF: their 0
                     # is real, and scorer_cost is NULL only when no scorer call was priced.
