@@ -677,6 +677,87 @@ describe("runDetectionForTrace", () => {
     }
   });
 
+  it("turns prompt caching off on every attempt, whatever the protocol", async () => {
+    // pi-ai's default ("short") writes the whole judge input to Anthropic's
+    // cache at 1.25x the input rate, and only a retry would read it back.
+    const apis = [
+      "anthropic-messages",
+      "openai-completions",
+      "openai-responses",
+      "bedrock-converse-stream",
+      "google-generative-ai",
+    ];
+
+    for (const api of apis) {
+      mockComplete.mockClear();
+      mockResolvePiModel.mockReturnValueOnce({ ...ANTHROPIC_MODEL, api });
+      // A plain-text first answer, so the retry's options are checked too.
+      mockComplete
+        .mockResolvedValueOnce({
+          content: [{ type: "text", text: "looks fine" }],
+          usage: ZERO_USAGE,
+          stopReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: "toolCall",
+              name: "submit_result",
+              arguments: { identified: false, summary: "ok", data: {} },
+            },
+          ],
+          usage: ZERO_USAGE,
+          stopReason: "toolUse",
+        });
+
+      await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockComplete).toHaveBeenCalledTimes(2);
+      for (const call of mockComplete.mock.calls) {
+        expect((call[2] as { cacheRetention?: string }).cacheRetention).toBe("none");
+      }
+    }
+  });
+
+  it("sends Anthropic a request with no cache_control on the judge input", async () => {
+    // Runs the real pi-ai request builder and stops it in onPayload, before any
+    // network call, so this holds against the pinned pi-ai version itself.
+    const actual = await vi.importActual<typeof import("@earendil-works/pi-ai/compat")>(
+      "@earendil-works/pi-ai/compat",
+    );
+    const realModel = actual.getModel("anthropic", "claude-haiku-4-5");
+    mockResolvePiModel.mockReturnValueOnce(realModel);
+
+    const payloads: unknown[] = [];
+    mockComplete.mockImplementation((model, context, options) =>
+      actual.complete(model, context, {
+        ...options,
+        onPayload: (payload: unknown) => {
+          payloads.push(payload);
+          throw new Error("stop before sending");
+        },
+      }),
+    );
+
+    await runDetectionForTrace({
+      traceId: "t",
+      spansJsonl: '{"span_id":"1","name":"agent","input":"hello"}',
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "claude-haiku-4-5" },
+      workspaceId: "ws-1",
+    });
+    mockComplete.mockReset();
+
+    expect(payloads).toHaveLength(1);
+    const serialized = JSON.stringify(payloads[0]);
+    expect(serialized).toContain("TRACE:");
+    expect(serialized).not.toContain("cache_control");
+  });
+
   it("sends the trace as compacted text under 150000 chars and explains the markers", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [

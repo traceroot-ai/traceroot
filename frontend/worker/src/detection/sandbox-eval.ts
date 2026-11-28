@@ -102,6 +102,22 @@ export function parseDetectorEvalTimeoutMs(raw: string | undefined): number {
  */
 const TOOL_CHOICE = "auto";
 
+/**
+ * Prompt caching is off for detector eval.
+ *
+ * pi-ai defaults to `"short"`, which for Anthropic puts `cache_control` on the
+ * last user message: here, the whole judge input. Writing it to the cache is
+ * billed at 1.25x the input rate, and only a retry of the same scan reads it
+ * back: each trace's text is unique, and detectors on one trace differ in
+ * their tools and their first line. Caching costs 1.25 + 0.1p input units per
+ * scan against 1 + p without it (p = retry rate), so it only pays when more
+ * than ~28% of scans retry.
+ *
+ * It also makes the recorded usage complete: pi-ai's `usage.input` excludes
+ * cached tokens, so a cached judge call recorded almost none of its input.
+ */
+const CACHE_RETENTION = "none";
+
 function errorResult(
   message: string,
   source: "system" | "byok",
@@ -325,6 +341,7 @@ ${judgeInput.text.slice(0, SAFETY_TRUNCATE_CHARS)}`;
       const options: ProviderStreamOptions = {
         apiKey,
         toolChoice: TOOL_CHOICE,
+        cacheRetention: CACHE_RETENTION,
         signal: controller.signal,
       };
       const response = await complete(
