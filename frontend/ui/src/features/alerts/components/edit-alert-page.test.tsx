@@ -80,7 +80,25 @@ describe("EditAlertPage", () => {
         renotify: { mode: "OFF" },
         name: "Checkout latency",
       },
+      hasOpenPage: false,
     });
+  });
+
+  it("tells the form when the stored rule has an alert open that a save could close", () => {
+    const openAt = "2026-07-01T00:05:00.000Z";
+    const formProps = () => JSON.parse(screen.getByTestId("form").textContent ?? "");
+
+    mocks.useAlert.mockReturnValue(
+      loaded({ ...storedAlert, severity: "ALERT", alertedAt: openAt }),
+    );
+    renderPage();
+    expect(formProps().hasOpenPage).toBe(true);
+    cleanup();
+
+    // In ALERT but never announced: nothing in the channel to close.
+    mocks.useAlert.mockReturnValue(loaded({ ...storedAlert, severity: "ALERT", alertedAt: null }));
+    renderPage();
+    expect(formProps().hasOpenPage).toBe(false);
   });
 
   it("separates a rule that is gone from a server fault, and opens no form for either", () => {

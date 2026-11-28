@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
+import { encodeEditedText } from "@/lib/eval/json-value";
 import { useDatasets } from "../hooks";
 
 /** Read-only fields never edit, so onChange is a no-op. */
@@ -42,27 +43,24 @@ export interface ResultForDataset {
 
 const ACTION_META: Record<
   ResultDatasetAction,
-  { title: string; blurb: string; cta: string; picksDataset: boolean }
+  { title: string; blurb: string; picksDataset: boolean }
 > = {
   update_existing_case: {
     title: "Update source case",
     blurb:
       "Publishes a new immutable version of this run's dataset with this case updated. Runs already recorded keep pointing at the version they used.",
-    cta: "Publish update",
     picksDataset: false,
   },
   save_new_case: {
     title: "Save as a new case",
     blurb:
       "Adds a brand-new case to the chosen dataset. Blocked if it would just recreate this result's own source case — use “Update source case” for that.",
-    cta: "Save new case",
     picksDataset: true,
   },
   duplicate_as_variant: {
     title: "Duplicate as a variant",
     blurb:
       "Adds a new case tagged as a variant of the source case. Always allowed — useful for exploring a tweak without touching the original.",
-    cta: "Duplicate case",
     picksDataset: true,
   },
 };
@@ -177,8 +175,28 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
+  // Only "update" republishes an existing case, so only it needs a dirty gate; save/duplicate
+  // always create a case and are savable as they stand. Every field is compared the way it is
+  // PERSISTED — `input` and `expected` compare encoded values against their stored seed so
+  // structured values that EditableValueBlock pretty-prints on mount do not start dirty, while
+  // real value edits (and string whitespace edits) enable Save.
+  const hasChanges =
+    action === "update_existing_case"
+      ? encodeEditedText(result.input, input) !== encodeEditedText(result.input, result.input) ||
+        (useCandidateAsExpected
+          ? result.candidateOutput === null
+            ? result.expectedOutput !== null
+            : result.expectedOutput === null ||
+              encodeEditedText(result.expectedOutput, result.candidateOutput) !==
+                encodeEditedText(result.expectedOutput, result.expectedOutput)
+          : encodeEditedText(result.expectedOutput, expected) !==
+            encodeEditedText(result.expectedOutput, result.expectedOutput ?? ""))
+      : true;
+
   const canSave =
-    !save.isPending && (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId));
+    !save.isPending &&
+    (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId)) &&
+    hasChanges;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -194,19 +212,19 @@ export function SaveResultToDatasetDrawer({
         <DrawerBody className="space-y-4">
           {/* Target dataset — fixed for update, chosen for save/duplicate. */}
           <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Dataset</div>
+            <div className="text-[12px] font-medium text-muted-foreground">Dataset</div>
             {meta.picksDataset ? (
               <Select
                 value={datasets.some((d) => d.id === targetDatasetId) ? targetDatasetId : ""}
                 onValueChange={setTargetDatasetId}
               >
-                <SelectTrigger className="h-8 text-[12px]">
+                <SelectTrigger className="h-8 text-[13px]">
                   <SelectValue placeholder="Choose a dataset" />
                 </SelectTrigger>
                 <SelectContent>
                   {datasets.length ? (
                     datasets.map((d) => (
-                      <SelectItem key={d.id} value={d.id} className="text-[12px]">
+                      <SelectItem key={d.id} value={d.id}>
                         {d.name}
                       </SelectItem>
                     ))
@@ -222,7 +240,7 @@ export function SaveResultToDatasetDrawer({
                 </SelectContent>
               </Select>
             ) : (
-              <div className="rounded-md border border-input bg-muted/40 px-2.5 py-1.5 text-[12px]">
+              <div className="rounded-md border border-input bg-muted px-2.5 py-1.5 text-[12px]">
                 <span className="font-medium">{sourceDatasetName}</span>
                 <span className="text-muted-foreground">
                   {" "}
@@ -251,7 +269,7 @@ export function SaveResultToDatasetDrawer({
                 <span className="text-[12px] font-medium">
                   Use this candidate output as the expected answer
                 </span>
-                <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                <span className="mt-0.5 block text-[12px] text-muted-foreground">
                   Off by default — a candidate&rsquo;s output never becomes the expected answer
                   unless you say so.
                 </span>
@@ -290,7 +308,7 @@ export function SaveResultToDatasetDrawer({
           {error && (
             <div
               role="alert"
-              className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive"
+              className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-[12px] text-destructive"
             >
               {error}
             </div>
@@ -302,7 +320,7 @@ export function SaveResultToDatasetDrawer({
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : meta.cta}
+            {save.isPending ? "Saving…" : "Save"}
           </Button>
         </DrawerFooter>
       </DrawerContent>

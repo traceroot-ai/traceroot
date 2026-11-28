@@ -50,7 +50,7 @@ from rest.schemas.public_write import (
     UpdateAlertResponse,
 )
 
-router = APIRouter(prefix="/public", tags=["Alerts (Public)"])
+router = APIRouter(prefix="/public", tags=["Alerts"])
 
 
 def _renotify_body(renotify: AlertRenotifyRequest) -> dict[str, Any]:

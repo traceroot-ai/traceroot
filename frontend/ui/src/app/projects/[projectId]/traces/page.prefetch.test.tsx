@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
+import { ApiError } from "@/lib/api/errors";
 
 const prefetch = vi.fn();
 let searchParamsValue = "";
 let autoRefresh = false;
+let traceListError: ApiError | null = null;
 vi.mock("@/features/traces/hooks", () => ({
   useTraces: () => ({
     data: {
@@ -14,7 +16,7 @@ vi.mock("@/features/traces/hooks", () => ({
       meta: { page: 3, limit: 50, total: 500 },
     },
     isLoading: false,
-    error: null,
+    error: traceListError,
   }),
   usePrefetchTraces: () => prefetch,
   useTracesExist: () => ({ data: { exists: true }, isPending: false }),
@@ -27,7 +29,7 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
     state: {
       page: 3,
       limit: 50,
-      dateFilter: "all",
+      dateFilter: { id: "all" },
       customStartDate: null,
       customEndDate: null,
       keyword: "",
@@ -50,10 +52,11 @@ vi.mock("@/lib/hooks/use-local-storage", () => ({
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e" } }, isPending: false }),
 }));
+const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
   useSearchParams: () => new URLSearchParams(searchParamsValue),
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push: pushMock }),
 }));
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHideAiButton: vi.fn() }),
@@ -86,6 +89,8 @@ afterEach(() => {
   cleanup();
   prefetch.mockReset();
   autoRefresh = false;
+  traceListError = null;
+  searchParamsValue = "";
 });
 
 describe("TracesPage prefetch wiring", () => {
@@ -125,4 +130,26 @@ describe("TracesPage by-id scoping", () => {
     expect(panel.getAttribute("data-trace-id")).toBe("aaaaaaaabbbbccccddddeeeeeeeeeeee");
     expect(panel.getAttribute("data-source")).toBe("user");
   });
+});
+
+describe("TracesPage user_id filter badge", () => {
+  it("shows a clearable badge for the active user_id filter", () => {
+    searchParamsValue = "user_id=user-42";
+    render(<TracesPage />, { wrapper: Wrapper });
+
+    expect(screen.getByText("User:")).toBeTruthy();
+    expect(screen.getByText("user-42")).toBeTruthy();
+
+    const clearButton = screen.getByText("User:").parentElement?.querySelector("button");
+    expect(clearButton).toBeTruthy();
+    fireEvent.click(clearButton!);
+    expect(pushMock).toHaveBeenCalledWith("/projects/p1/traces?date_filter=all");
+  });
+});
+
+it("shows the label filter error instead of stale rows or API-key guidance", () => {
+  traceListError = new ApiError(422, "This label matches more than 100 traces");
+  render(<TracesPage />, { wrapper: Wrapper });
+  expect(screen.getByText("This label matches more than 100 traces")).toBeTruthy();
+  expect(screen.queryByText(/make sure the api server/i)).toBeNull();
 });

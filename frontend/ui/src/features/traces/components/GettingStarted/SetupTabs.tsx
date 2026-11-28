@@ -1,78 +1,111 @@
 "use client";
 
-import { useState } from "react";
+import type { ReactNode } from "react";
+import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CodeBlock } from "./CodeBlock";
-import { CLI_COMMANDS, INSTRUMENT_PROMPT, SKILLS_COMMAND } from "./commands";
+import { AITab, type CommandCopy } from "./AITab";
+import { ManualTab } from "./ManualTab";
+import { useSetupRouteChosen, type SetupCommandSurface } from "./use-setup-command-copied";
 
-type SetupTab = "cli" | "ai" | "skills";
+export type SetupTab = "ai" | "manual";
 
-const TABS: { id: SetupTab; label: string }[] = [
-  { id: "cli", label: "CLI" },
-  { id: "ai", label: "Prompt" },
-  { id: "skills", label: "Skills" },
-];
+interface SetupTabsProps {
+  projectId: string;
+  /** Where the tabs are shown: the last step of sign-up, or an empty project. */
+  surface: SetupCommandSurface;
+  /** The open tab; the caller holds it, since its own heading follows it. */
+  tab: SetupTab;
+  onTabChange: (tab: SetupTab) => void;
+  /** How this surface words the command block. */
+  commandCopy: CommandCopy;
+  /** More ways out under the command, beside the demo project. */
+  commandActions?: ReactNode;
+  /** Under the manual walkthrough. */
+  manualFooter?: ReactNode;
+}
 
 /**
- * Compact setup widget mirroring the marketing site's hero ReadmeBox: one set of
- * underline tabs (CLI · Prompt · Skills, fixed order) over a shared CodeBlock,
- * with the explanation always below. The CLI tab is the read-only verify/list
- * flow; it does not add instrumentation itself.
+ * The two ways to set up tracing, as one component for both places that offer
+ * them: the end of sign-up and a project with no traces yet. One copy, so a
+ * change to either route reaches both. Each place keeps its own frame and its
+ * own wording for the command block.
+ *
+ * "Using AI" says what the automatic route actually is — a coding agent edits
+ * the repository — which is the thing a reader weighs before choosing it.
  */
-export function SetupTabs() {
-  const [tab, setTab] = useState<SetupTab>("cli");
+export function SetupTabs({
+  projectId,
+  surface,
+  tab,
+  onTabChange,
+  commandCopy,
+  commandActions,
+  manualFooter,
+}: SetupTabsProps) {
+  const recordRoute = useSetupRouteChosen(projectId, surface);
+
+  // Records only an actual change of tab.
+  const switchTo = (next: SetupTab) => {
+    if (next === tab) return;
+    recordRoute(next === "ai" ? "command" : "manual");
+    onTabChange(next);
+  };
 
   return (
-    <div className="space-y-2">
-      <div className="flex border-b border-border">
-        {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            aria-pressed={tab === id}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
-              tab === id
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
+    <div>
+      <div role="tablist" aria-label="Setup" className="flex items-center gap-1">
+        <TabButton active={tab === "ai"} onClick={() => switchTo("ai")}>
+          <Sparkle className="h-3.5 w-3.5" />
+          Using AI
+        </TabButton>
+        <TabButton active={tab === "manual"} onClick={() => switchTo("manual")}>
+          <Code2 className="h-3.5 w-3.5" />
+          Manual
+        </TabButton>
       </div>
 
-      {tab === "cli" && (
-        <>
-          <CodeBlock label="bash" value={CLI_COMMANDS} />
-          <p className="text-xs text-muted-foreground">
-            Verify and list your traces from the terminal after your app is instrumented — the CLI
-            doesn&apos;t add instrumentation itself.{" "}
-            <code className="font-mono">traceroot login</code> prompts for the API key from step 1
-            and defaults to <code className="font-mono">https://app.traceroot.ai</code>.
-          </p>
-        </>
-      )}
-
-      {tab === "ai" && (
-        <>
-          <CodeBlock label="prompt" value={INSTRUMENT_PROMPT} mono={false} />
-          <p className="text-xs text-muted-foreground">
-            Hand this to any AI coding agent — Claude Code, Codex, Cursor, etc.
-          </p>
-        </>
-      )}
-
-      {tab === "skills" && (
-        <>
-          <CodeBlock label="bash" value={SKILLS_COMMAND} />
-          <p className="text-xs text-muted-foreground">
-            Install the first-party TraceRoot skills into your coding agent, then ask it to add
-            tracing.
-          </p>
-        </>
-      )}
+      <div className="mt-4">
+        {tab === "ai" ? (
+          <AITab
+            projectId={projectId}
+            surface={surface}
+            copy={commandCopy}
+            actions={commandActions}
+          />
+        ) : (
+          <div className="space-y-6">
+            <ManualTab projectId={projectId} surface={surface} />
+            {manualFooter}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+        active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }

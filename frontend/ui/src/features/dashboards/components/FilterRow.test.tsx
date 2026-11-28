@@ -16,7 +16,7 @@ vi.mock("@/features/filters/hooks", () => ({
 const stringField: WidgetSchemaField = {
   type: "string",
   label: "Model",
-  filterOps: ["=", "contains"],
+  filterOps: ["=", "contains", "in"],
   groupable: true,
   aggs: [],
 };
@@ -270,6 +270,72 @@ describe("FilterRow value input", () => {
     expect(screen.getByRole("option", { name: "contains" })).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: "contains" }));
     expect(onChange).toHaveBeenCalledWith(0, { op: "contains" });
+  });
+
+  it("switching to `in` starts an empty list", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onChange = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onChange={onChange}
+        filter={{ field: "model_name", op: "=", value: "gpt-5" }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "is" }));
+    fireEvent.click(screen.getByRole("option", { name: "is any of" }));
+    expect(onChange).toHaveBeenCalledWith(0, { op: "in", value: [] });
+  });
+
+  it("an `in` row toggles stored values in and out of its list, menu kept open", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({
+      values: [
+        { value: "gpt-5", count: 3 },
+        { value: "gemini", count: 2 },
+      ],
+      isLoading: false,
+    });
+    const onChange = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onChange={onChange}
+        filter={{ field: "model_name", op: "in", value: ["gpt-5", "retired-model"] }}
+      />,
+    );
+    // The trigger reads the selection; a saved value no longer stored stays listed.
+    fireEvent.click(screen.getByRole("button", { name: "gpt-5, retired-model" }));
+    expect(screen.getByRole("option", { name: /retired-model/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /gpt-5/ }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("option", { name: /gemini/ }));
+    expect(onChange).toHaveBeenLastCalledWith(0, {
+      value: ["gpt-5", "retired-model", "gemini"],
+    });
+    // Still open: several values can be picked in one go.
+    fireEvent.click(screen.getByRole("option", { name: /gpt-5/ }));
+    expect(onChange).toHaveBeenLastCalledWith(0, { value: ["retired-model"] });
+  });
+
+  it("an empty `in` row shows the multi-select placeholder", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(<FilterRow {...baseProps} filter={{ field: "model_name", op: "in", value: [] }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Select values" }));
+    expect(screen.getByText("No options")).toBeTruthy();
+  });
+
+  it("a saved `in` row reads as its list while fields load", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        fieldsLoading
+        filter={{ field: "span_kind", op: "in", value: ["LLM", "DECISION"] }}
+      />,
+    );
+    expect(screen.getByText("span_kind in LLM,DECISION")).toBeTruthy();
   });
 
   it("adorns cost and duration values with their unit like the trace-list builder", () => {

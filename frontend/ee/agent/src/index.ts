@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -11,6 +12,7 @@ import {
   deleteSession,
   updateSessionTitle,
   executionBelongsToProject,
+  projectWorkspaceId,
   type TurnAttribution,
 } from "./session.js";
 import {
@@ -20,6 +22,11 @@ import {
   invalidateProviderCache,
 } from "./agent.js";
 import { decisionsRoute } from "./decisions-route.js";
+import {
+  assertInternalSecretConfigured,
+  callerIdentity,
+  requireInternalSecret,
+} from "./internal-auth.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
 import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
 import {
@@ -30,7 +37,14 @@ import {
   type AgentTraceKind,
 } from "./self-trace.js";
 import { getSystemPrompt } from "./prompts/system.js";
-import { createExecutor } from "./executors/index.js";
+import { createExecutor, sandboxProvider } from "./executors/index.js";
+import { reclaimOrphanedSandboxes } from "./executors/docker.js";
+import {
+  SandboxRegistry,
+  idleTtlMsFromEnv,
+  reclaimOnStartFromEnv,
+  startSandboxHousekeeping,
+} from "./executors/registry.js";
 import {
   clearSessionDeleted,
   fenceExecutorToSession,
@@ -44,17 +58,30 @@ import {
   rememberListener,
 } from "./hot-reload.js";
 import { parseQueryWindow } from "./tools/query-window.js";
-import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { SessionManager } from "./session.js";
 
 const app = new Hono();
 
+// Every route but the health check requires the internal credential.
+app.use("*", requireInternalSecret());
+
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 
-// Per-session executor cache (executor lifecycle tied to session)
-const sessionExecutors = new Map<string, Executor>();
+// Identifies this process to its sandbox containers. Startup reconciliation
+// removes every sandbox that does not carry it, so it must be fresh per process,
+// and agents sharing a Docker host must turn reconciliation off.
+const INSTANCE_ID = randomUUID();
+
+// Per-session executor cache. Sandboxes are also labelled with INSTANCE_ID so a
+// restart can reclaim them without any in-memory state, and the registry expires
+// them on an idle TTL so a session nobody deletes cannot hold one forever.
+const sessionExecutors = new SandboxRegistry({
+  create: (sessionId) =>
+    fenceExecutorToSession(createExecutor({ sessionId, ownerId: INSTANCE_ID }), sessionId),
+  idleTtlMs: idleTtlMsFromEnv(),
+});
 
 /** The self-trace kind of a turn is its attribution's turn kind (the three this route produces). */
 const TRACE_KIND: Record<"rca_execution" | "rca_followup" | "chat", AgentTraceKind> = {
@@ -92,9 +119,18 @@ app.post("/api/v1/cache/invalidate-provider", async (c) => {
 // Session CRUD routes
 app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
-  const userId = c.req.header("x-user-id") || undefined;
-  const workspaceId = c.req.header("x-workspace-id") || "";
+  const caller = callerIdentity(c, { allowSystem: true });
+  if (!caller) return c.json({ error: "x-user-id header required" }, 400);
+  const userId = caller.system ? undefined : caller.userId; // undefined → stored as null for system/RCA sessions
+  const claimedWorkspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{ title?: string; executionId?: unknown }>();
+
+  // The session's workspace is the project's own.
+  const workspaceId = await projectWorkspaceId(projectId);
+  if (!workspaceId) return c.json({ error: "project not found" }, 404);
+  if (claimedWorkspaceId && claimedWorkspaceId !== workspaceId) {
+    return c.json({ error: "workspace does not match this project" }, 400);
+  }
 
   // Every message in this session reaches its execution through the session's
   // executionId, so an id from another project would attribute this project's
@@ -115,7 +151,7 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const session = await createSession({
     projectId,
     workspaceId,
-    userId, // undefined → stored as null for system/RCA sessions
+    userId,
     title: body.title,
     executionId,
   });
@@ -124,7 +160,7 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
 
 app.get("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
   if (!userId) {
     return c.json({ error: "x-user-id header required" }, 400);
   }
@@ -133,7 +169,8 @@ app.get("/api/v1/projects/:projectId/sessions", async (c) => {
 });
 
 app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
+  if (!userId) return c.json({ error: "x-user-id header required" }, 400);
   const projectId = c.req.param("projectId");
   const session = await getSession(c.req.param("sessionId"), userId, projectId);
   if (!session) return c.json({ error: "not found" }, 404);
@@ -142,7 +179,8 @@ app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
 
 // GET messages for a session (for loading history in UI)
 app.get("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
+  if (!userId) return c.json({ error: "x-user-id header required" }, 400);
   const projectId = c.req.param("projectId");
   const messages = await getSessionMessages(c.req.param("sessionId"), userId, projectId);
   if (!messages) return c.json({ error: "not found" }, 404);
@@ -151,7 +189,8 @@ app.get("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =>
 
 app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = callerIdentity(c, { allowSystem: false })?.userId;
+  if (!userId) return c.json({ error: "x-user-id header required" }, 400);
 
   // Authorize first: deleteSession only removes a session the caller owns
   // in this project. Tearing down the executor and agent before that check
@@ -176,13 +215,9 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const settled = await waitForRunToSettle(sessionId);
 
   try {
-    const executor = sessionExecutors.get(sessionId);
-    if (executor) {
-      // Untracked before destroy: a teardown that throws must not leave a
-      // dead executor in the map for a later request to hand out.
-      sessionExecutors.delete(sessionId);
-      await executor.destroy();
-    }
+    // Untracked before destroy: a teardown that throws must not leave a dead
+    // executor in the registry for a later request to hand out.
+    await sessionExecutors.release(sessionId);
     removeAgent(sessionId);
   } finally {
     // The fence must never outlive the request that raised it, even when the
@@ -202,7 +237,9 @@ app.route("/", decisionsRoute);
 app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
-  const userId = c.req.header("x-user-id") || "";
+  const caller = callerIdentity(c, { allowSystem: true });
+  if (!caller) return c.json({ error: "x-user-id header required" }, 400);
+  const userId = caller.userId;
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -248,12 +285,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     window,
   });
 
-  // Get or create executor for this session (lazy — not initialized until tool use)
-  let executor = sessionExecutors.get(sessionId);
-  if (!executor) {
-    executor = fenceExecutorToSession(createExecutor(), sessionId);
-    sessionExecutors.set(sessionId, executor);
-  }
+  // Get or create executor for this session (lazy — not initialized until tool
+  // use). This also marks the session as active for the idle sweep.
+  const executor = sessionExecutors.acquire(sessionId);
 
   // Both tenancy ids come from the ONE session row authorized above — never
   // the raw header or the raw path value — so tools can't be coerced into
@@ -366,8 +400,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     },
   };
 
-  return streamSSE(c, (stream) =>
-    runAgentStream(stream, {
+  return streamSSE(c, (stream) => {
+    // Held for the whole turn: a tool loop can outlast the idle TTL, and without
+    // this the sweeper would tear the sandbox down mid-request.
+    const releaseSandbox = sessionExecutors.retain(sessionId);
+    // .finally, not a trailing call: an aborted or failed turn must give the
+    // sandbox back too, or that session is never swept again.
+    return runAgentStream(stream, {
       agent,
       message: body.message,
       sessionId,
@@ -380,8 +419,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       sessionManager,
       attribution,
       trace: traceMeta,
-    }),
-  );
+    }).finally(releaseSandbox);
+  });
 });
 
 // Graceful shutdown
@@ -392,11 +431,10 @@ async function shutdown(signal: string): Promise<void> {
   isShuttingDown = true;
   console.log(`\n[Agent] Received ${signal}, shutting down...`);
   try {
-    // Destroy all active executors (sandbox containers)
-    for (const [id, executor] of sessionExecutors) {
-      await executor.destroy();
-      sessionExecutors.delete(id);
-    }
+    // Destroy all active executors (sandbox containers) concurrently — N
+    // sequential `docker rm -f` calls can outlast compose's stop grace period,
+    // and everything still alive when SIGKILL lands is leaked.
+    await sessionExecutors.destroyAll();
     await prisma.$disconnect();
     console.log("[Agent] Cleanup complete");
     process.exit(0);
@@ -407,7 +445,8 @@ async function shutdown(signal: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log("[Agent] TraceRoot Agent Service starting...");
+  console.log("[Agent] traceroot Agent Service starting...");
+  assertInternalSecretConfigured();
 
   // First, before anything slow: under `vite-node --watch` this module is
   // re-executed in the same process, so the previous execution's listener is
@@ -435,6 +474,17 @@ async function main(): Promise<void> {
   rememberListener(
     serve({ fetch: app.fetch, port: PORT }, (info) => {
       console.log(`[Agent] Listening on http://localhost:${info.port}`);
+      // Reclaim sandboxes left behind by an earlier instance, then expire the
+      // ones this instance stops using. Between them these replace `make reset`
+      // as the only sweeper in the repo. This waits for the port: a duplicate
+      // process that fails with EADDRINUSE must not remove the live sandboxes
+      // of the instance holding it.
+      void startSandboxHousekeeping({
+        provider: sandboxProvider(),
+        registry: sessionExecutors,
+        reclaimOnStart: reclaimOnStartFromEnv(),
+        reclaim: () => reclaimOrphanedSandboxes(INSTANCE_ID),
+      });
     }),
   );
 }

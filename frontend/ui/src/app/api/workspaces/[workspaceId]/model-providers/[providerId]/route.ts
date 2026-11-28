@@ -1,3 +1,4 @@
+import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -14,6 +15,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -21,7 +23,7 @@ async function invalidateAgentProviderCache(workspaceId: string, providerName: s
   try {
     await fetch(`${AGENT_SERVICE_URL}/api/v1/cache/invalidate-provider`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...agentRequestHeaders({ system: true }) },
       body: JSON.stringify({ workspaceId, providerName }),
     });
   } catch {
@@ -31,7 +33,7 @@ async function invalidateAgentProviderCache(workspaceId: string, providerName: s
 
 const updateSchema = z.object({
   provider: z.string().min(1).max(100).optional(), // rename label
-  apiKey: z.string().min(1).optional(),
+  apiKey: z.string().trim().min(1, "API key is required").optional(),
   baseUrl: z.string().url().nullable().optional(),
   customModels: z.array(z.string().min(1)).optional(),
   withDefaultModels: z.boolean().optional(),
@@ -96,7 +98,21 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
   } = result.data;
 
   const data: Record<string, unknown> = {};
-  if (provider !== undefined) data.provider = provider;
+  if (provider !== undefined) {
+    if (provider !== existing.provider) {
+      const duplicate = await prisma.modelProvider.findFirst({
+        where: {
+          workspaceId,
+          provider,
+          id: { not: providerId },
+        },
+      });
+      if (duplicate) {
+        return errorResponse("A provider with this name already exists in this workspace", 409);
+      }
+    }
+    data.provider = provider;
+  }
   if (baseUrl !== undefined) data.baseUrl = baseUrl;
   if (customModels !== undefined) data.customModels = customModels;
   if (withDefaultModels !== undefined) data.withDefaultModels = withDefaultModels;
@@ -127,29 +143,36 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     data.keyPreview = maskKey(apiKey);
   }
 
-  const updated = await prisma.modelProvider.update({
-    where: { id: providerId },
-    data,
-    select: {
-      id: true,
-      adapter: true,
-      provider: true,
-      keyPreview: true,
-      baseUrl: true,
-      customModels: true,
-      withDefaultModels: true,
-      config: true,
-      enabled: true,
-      createdBy: true,
-      createTime: true,
-      updateTime: true,
-    },
-  });
+  try {
+    const updated = await prisma.modelProvider.update({
+      where: { id: providerId },
+      data,
+      select: {
+        id: true,
+        adapter: true,
+        provider: true,
+        keyPreview: true,
+        baseUrl: true,
+        customModels: true,
+        withDefaultModels: true,
+        config: true,
+        enabled: true,
+        createdBy: true,
+        createTime: true,
+        updateTime: true,
+      },
+    });
 
-  // Invalidate agent cache so the new key takes effect immediately
-  await invalidateAgentProviderCache(workspaceId, existing.provider);
+    // Invalidate agent cache so the new key takes effect immediately
+    await invalidateAgentProviderCache(workspaceId, existing.provider);
 
-  return successResponse(updated);
+    return successResponse(updated);
+  } catch (error) {
+    if (isPrismaKnownError(error, "P2002")) {
+      return errorResponse("A provider with this name already exists in this workspace", 409);
+    }
+    throw error;
+  }
 }
 
 // DELETE /api/workspaces/[workspaceId]/model-providers/[providerId]

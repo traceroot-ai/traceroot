@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const {
   mockComplete,
@@ -31,6 +31,15 @@ vi.mock("../jev-eval.js", () => ({
   JEV_DEFAULT_MODEL_ID: "jev-1.13.0",
 }));
 
+const { mockRunOpenAIDecisionDetection } = vi.hoisted(() => ({
+  mockRunOpenAIDecisionDetection: vi.fn(),
+}));
+
+vi.mock("../openai-decision-eval.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../openai-decision-eval.js")>()),
+  runOpenAIDecisionDetection: mockRunOpenAIDecisionDetection,
+}));
+
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
@@ -44,7 +53,10 @@ import {
   DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
   MAX_DETECTOR_EVAL_TIMEOUT_MS,
 } from "../sandbox-eval.js";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import {
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
+} from "@traceroot/core/llm-providers";
 
 const DETECTOR = {
   id: "det-1",
@@ -130,6 +142,36 @@ describe("runDetectionForTrace", () => {
     expect(mockComplete).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps scanning a detector whose stored output schema has malformed entries", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: true, summary: "Tool errored", data: { category: "x" } },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: '{"span_id":"1","status":"ERROR"}',
+      detector: {
+        ...DETECTOR,
+        outputSchema: [null, { type: "number" }, ...DETECTOR.outputSchema],
+        detectionSource: "system",
+        detectionModel: "claude-haiku-4-5",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.identified).toBe(true);
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves the shared detector default for unpinned system detectors", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
@@ -174,6 +216,88 @@ describe("runDetectionForTrace", () => {
     });
 
     expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
+  });
+
+  describe("without an OpenAI key", () => {
+    const OPENAI_MODEL = {
+      ...ANTHROPIC_MODEL,
+      id: "gpt-6-luna",
+      api: "openai-responses",
+      provider: "openai",
+    };
+    const CLEAN = {
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    };
+
+    beforeEach(() => {
+      vi.stubEnv("OPENAI_API_KEY", "");
+      vi.stubEnv("ANTHROPIC_API_KEY", "");
+      mockResolvePiModel.mockImplementation((id: string) =>
+        id === DETECTOR_SYSTEM_DEFAULT_MODEL_ID ? OPENAI_MODEL : ANTHROPIC_MODEL,
+      );
+      // Only an Anthropic key exists, as on an Anthropic-only deployment.
+      mockFindByokKey.mockImplementation(async (_ws: string, provider: string) =>
+        provider === "anthropic" ? "anthropic-key" : null,
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("screens an unpinned detector on the Anthropic fallback", async () => {
+      mockComplete.mockResolvedValueOnce(CLEAN);
+
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(mockResolvePiModel).toHaveBeenLastCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete.mock.calls[0][0]).toBe(ANTHROPIC_MODEL);
+      expect(mockComplete.mock.calls[0][2].apiKey).toBe("anthropic-key");
+      // A DeepSeek/xAI key maps to "openai" too, but is no good on OpenAI's endpoint.
+      expect(mockFindByokKey).toHaveBeenCalledWith("ws-1", "openai", { nativeOnly: true });
+    });
+
+    it("keeps the OpenAI default when an OpenAI key resolves", async () => {
+      vi.stubEnv("OPENAI_API_KEY", "openai-key");
+      mockComplete.mockResolvedValueOnce(CLEAN);
+
+      await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockResolvePiModel).not.toHaveBeenCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete.mock.calls[0][0]).toBe(OPENAI_MODEL);
+    });
+
+    it("fails a pinned OpenAI detector instead of substituting the fallback", async () => {
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: "gpt-6-luna" },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toContain('No API key configured for provider "openai"');
+      expect(mockResolvePiModel).not.toHaveBeenCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete).not.toHaveBeenCalled();
+    });
   });
 
   // A retired model id, or one an API client invented, would otherwise resolve
@@ -401,6 +525,119 @@ describe("runDetectionForTrace", () => {
     });
   });
 
+  describe("OpenAI decision alias", () => {
+    const openaiConfig = { adapter: "openai", key: "sk-key", baseUrl: null, config: null };
+    const aliasDetector = {
+      ...DETECTOR,
+      detectionSource: "byok" as const,
+      detectionProvider: "my-openai",
+      detectionModel: "gpt-6-luna-decisions",
+    };
+    const run = (detector: typeof aliasDetector = aliasDetector) =>
+      runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector,
+        workspaceId: "ws-1",
+      });
+
+    it("judges it with the Decisions API, never resolving a chat model", async () => {
+      const decisionResult = { identified: true, summary: "Tool error (91% likely)", data: {} };
+      mockFetchProviderConfig.mockResolvedValueOnce(openaiConfig);
+      mockRunOpenAIDecisionDetection.mockResolvedValueOnce(decisionResult);
+      vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "12345");
+      try {
+        expect(await run()).toBe(decisionResult);
+        expect(mockRunOpenAIDecisionDetection).toHaveBeenCalledWith({
+          spansJsonl: "{}",
+          detector: aliasDetector,
+          providerConfig: openaiConfig,
+          timeoutMs: 12345,
+        });
+        expect(mockRunJevDetection).not.toHaveBeenCalled();
+        expect(mockResolvePiModel).not.toHaveBeenCalled();
+        expect(mockComplete).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("bills a refusal's usage and the cost the eval priced it at, under gpt-6-luna", async () => {
+      const usage = {
+        inputTokens: 1_000,
+        cachedTokens: 600,
+        cacheWriteTokens: 100,
+        outputTokens: 0,
+      };
+      mockFetchProviderConfig.mockResolvedValueOnce(openaiConfig);
+      mockRunOpenAIDecisionDetection.mockRejectedValueOnce(
+        Object.assign(new Error('OpenAI decisions refused to answer question "label"'), {
+          usage,
+          cost: 0.000042,
+        }),
+      );
+
+      const result = await run();
+
+      expect(result).toMatchObject({
+        identified: false,
+        error: 'OpenAI decisions refused to answer question "label"',
+        inferenceCost: 0.000042,
+        inferenceInputTokens: 1_000,
+        inferenceOutputTokens: 0,
+        inferenceSource: "byok",
+        inferenceModel: "gpt-6-luna",
+        inferenceProvider: "openai",
+        skipCostFallback: true,
+      });
+    });
+
+    it("attributes nothing when the call failed before any usage", async () => {
+      mockFetchProviderConfig.mockResolvedValueOnce(openaiConfig);
+      mockRunOpenAIDecisionDetection.mockRejectedValueOnce(
+        new Error("OpenAI decisions returned 401: invalid_api_key"),
+      );
+
+      const result = await run();
+
+      expect(result).toMatchObject({
+        error: "OpenAI decisions returned 401: invalid_api_key",
+        inferenceCost: 0,
+        inferenceInputTokens: 0,
+        inferenceModel: null,
+        inferenceProvider: null,
+      });
+    });
+
+    it.each(["anthropic", "typesafe"])(
+      "fails on a %s provider instead of reaching its chat models or Jev",
+      async (adapter) => {
+        mockFetchProviderConfig.mockResolvedValueOnce({ ...openaiConfig, adapter });
+
+        const result = await run();
+
+        expect(result.error).toBe('Model "gpt-6-luna-decisions" runs only on OpenAI providers');
+        expect(mockRunOpenAIDecisionDetection).not.toHaveBeenCalled();
+        expect(mockRunJevDetection).not.toHaveBeenCalled();
+        expect(mockResolvePiModel).not.toHaveBeenCalled();
+      },
+    );
+
+    it("keeps gpt-6-luna on an OpenAI provider on the chat judge", async () => {
+      mockFetchProviderConfig.mockResolvedValueOnce(openaiConfig);
+      mockComplete.mockResolvedValueOnce({
+        content: [],
+        stopReason: "stop",
+        usage: ZERO_USAGE,
+      });
+
+      await run({ ...aliasDetector, detectionModel: "gpt-6-luna" });
+
+      expect(mockRunOpenAIDecisionDetection).not.toHaveBeenCalled();
+      expect(mockResolvePiModel).toHaveBeenCalledWith("gpt-6-luna", openaiConfig);
+    });
+  });
+
   it("always passes toolChoice='auto' regardless of protocol", async () => {
     // We send "auto" universally — the system prompt + retry loop are what
     // get the model to call submit_result, not a protocol-level force flag.
@@ -440,7 +677,7 @@ describe("runDetectionForTrace", () => {
     }
   });
 
-  it("truncates spansJsonl at 150000 chars", async () => {
+  it("sends the trace as compacted text under 150000 chars and explains the markers", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
         {
@@ -453,7 +690,16 @@ describe("runDetectionForTrace", () => {
       stopReason: "toolUse",
     });
 
-    const longSpans = "x".repeat(200_000);
+    const longSpans = Array.from({ length: 20 }, (_, i) =>
+      JSON.stringify({
+        span_id: `s${i}`,
+        name: `tool-${i}`,
+        span_kind: "TOOL",
+        input: JSON.stringify("q"),
+        output: JSON.stringify("x".repeat(20_000)),
+        metadata: "{}",
+      }),
+    ).join("\n");
     await runDetectionForTrace({
       traceId: "t",
       spansJsonl: longSpans,
@@ -461,10 +707,17 @@ describe("runDetectionForTrace", () => {
       workspaceId: "ws-1",
     });
 
-    const ctxArg = mockComplete.mock.calls[0][1] as { messages: { content: string }[] };
+    const ctxArg = mockComplete.mock.calls[0][1] as {
+      systemPrompt: string;
+      messages: { content: string }[];
+    };
     const userMessage = ctxArg.messages[0].content;
     expect(typeof userMessage).toBe("string");
     expect((userMessage as string).length).toBeLessThan(152_000);
+    // Every span keeps a place, unlike a cut at the end of raw JSONL.
+    expect(userMessage).toContain("[20] tool-19 · TOOL");
+    expect(userMessage).toContain("chars truncated");
+    expect(ctxArg.systemPrompt).toContain("chars truncated");
   });
 
   it("returns error when complete() throws", async () => {

@@ -7,9 +7,12 @@ import {
   requireWorkspaceMembership,
   successResponse,
 } from "@/lib/auth-helpers";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
+import { isGitHubAppAvailable } from "@/lib/github-app-config";
 
 // GET /api/github/status?workspaceId=...
-// Returns the workspace's GitHub App installations.
+// Returns the workspace's GitHub App installations, and whether this deployment
+// has the GitHub App set up so a new connection can start.
 async function handleGET(request: NextRequest) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
@@ -22,6 +25,9 @@ async function handleGET(request: NextRequest) {
 
   const memberCheck = await requireWorkspaceMembership(user.id, workspaceId);
   if (memberCheck.error) return memberCheck.error;
+  if (isDemoViewer(workspaceId, memberCheck.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   const installations = await prisma.gitHubInstallation.findMany({
     where: { workspaceId },
@@ -31,6 +37,7 @@ async function handleGET(request: NextRequest) {
 
   return successResponse({
     connected: installations.length > 0,
+    available: isGitHubAppAvailable(),
     installations: installations.map((i) => ({
       installationId: i.installationId,
       accountLogin: i.accountLogin,

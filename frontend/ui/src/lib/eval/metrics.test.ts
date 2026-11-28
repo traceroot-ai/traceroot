@@ -53,4 +53,13 @@ describe("scorerManifestsEqual", () => {
     expect(scorerManifestsEqual(null, [])).toBe(false);
     expect(scorerManifestsEqual(null, null)).toBe(true);
   });
+
+  it("handles manifests with unpaired surrogates without throwing", () => {
+    const a = [{ name: "scorer\uD800", version: "v1" }];
+    const b = [{ name: "scorer\uD800", version: "v1" }];
+    expect(scorerManifestsEqual(a, b)).toBe(true);
+
+    const c = [{ name: "scorer\uD800", version: "v2" }];
+    expect(scorerManifestsEqual(a, c)).toBe(false);
+  });
 });

@@ -6,9 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { isDecisionAdapter } from "@traceroot/core";
 import { getAvailableLLMModels } from "@/lib/api";
-import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
+import { flattenAvailableModels, isChatModel, pickDefaultModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
@@ -29,8 +28,12 @@ interface ModelSelectorProps {
    * leave this unset and get the auto-pick.
    */
   defaultModelId?: string;
-  /** List decision models (TypeSafe); only detector pickers set it. */
+  /** Whether to infer a provider for a saved selection that only has a model ID. */
+  allowModelOnlyMatch?: boolean;
+  /** List decision models (TypeSafe, OpenAI Decisions); only detector pickers set it. */
   allowDecisionModels?: boolean;
+  /** Render the trigger as a full-width form field instead of the inline chip. */
+  field?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -42,7 +45,9 @@ export function ModelSelector({
   onChange,
   workspaceId,
   defaultModelId,
+  allowModelOnlyMatch = true,
   allowDecisionModels = false,
+  field = false,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -56,7 +61,7 @@ export function ModelSelector({
   // compiled-in fallback list while the query is still pending — once settled,
   // an empty response means the workspace genuinely has no models.
   const models = flattenAvailableModels(data, isPending).filter(
-    (m) => allowDecisionModels || !isDecisionAdapter(m.adapter),
+    (m) => allowDecisionModels || isChatModel(m),
   );
 
   // Reconcile the incoming selection against the catalog:
@@ -82,7 +87,7 @@ export function ModelSelector({
     // deduplicated, so a bare id could bind a system selection to a BYOK
     // provider sharing that id — same name, different credentials at run time.
     const modelOnly =
-      !exact && value.model && !value.provider
+      allowModelOnlyMatch && !exact && value.model && !value.provider
         ? (models.find((m) => m.id === value.model && m.source === value.source) ??
           models.find((m) => m.id === value.model))
         : null;
@@ -119,7 +124,7 @@ export function ModelSelector({
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange, isPending, defaultModelId]);
+  }, [models, value, onChange, isPending, defaultModelId, allowModelOnlyMatch]);
 
   // Present the tracked default as the selection so an unpinned parent reads
   // like one that stored this model. A BYOK selection with no model runs its
@@ -135,13 +140,17 @@ export function ModelSelector({
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
 
   return (
-    <div className="flex items-center">
+    <div className={cn("flex items-center", field && "w-full")}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
-            variant="ghost"
+            variant={field ? "outline" : "ghost"}
             size="sm"
-            className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            className={
+              field
+                ? "h-7 w-full justify-between gap-1 px-3 text-[13px] font-normal"
+                : "h-7 gap-1 rounded-sm px-2 text-[12px] text-muted-foreground hover:text-foreground"
+            }
           >
             {selectedModel?.label ||
               value.model ||
@@ -165,8 +174,8 @@ export function ModelSelector({
               <button
                 key={key}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-muted/50",
-                  isSelected && "font-medium text-foreground",
+                  "flex h-8 w-full items-center justify-between rounded-[2px] px-2 text-left text-[13px] transition-colors hover:bg-muted",
+                  isSelected && "bg-accent text-foreground",
                 )}
                 onClick={() => {
                   // Picking the already-shown default would look like a no-op
@@ -184,20 +193,20 @@ export function ModelSelector({
                 }}
               >
                 <span className="flex items-center gap-1.5">
-                  {isSelected && <span className="text-[11px]">&#10003;</span>}
+                  {isSelected && <span className="text-[12px]">&#10003;</span>}
                   {m.label}
                   {m.source === "byok" && !m.supported && (
-                    <span className="text-[10px] text-yellow-600">(unsupported)</span>
+                    <span className="text-[12px] text-muted-foreground">(unsupported)</span>
                   )}
                 </span>
                 {showProvider && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{m.provider}</span>
+                  <span className="shrink-0 text-[12px] text-muted-foreground">{m.provider}</span>
                 )}
               </button>
             );
           })}
           {models.length === 0 && (
-            <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
+            <div className="px-2.5 py-3 text-center text-[12px] text-muted-foreground">
               No models available
               {workspaceId && (
                 <>

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { SpanKind, SpanStatus } from "@traceroot/core";
 import { getSystemPrompt } from "../system.js";
 
 describe("getSystemPrompt", () => {
@@ -70,10 +71,12 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("Call download_session with this sessionId");
   });
 
-  it("includes ClickHouse schema reference", () => {
+  it("lists the span fields with the real span_kind and status values", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
-    expect(prompt).toContain("observations table");
-    expect(prompt).toContain("GENERATION|SPAN|EVENT");
+    expect(prompt).toContain("### spans.jsonl");
+    expect(prompt).toContain(`span_kind (${Object.values(SpanKind).join("|")})`);
+    expect(prompt).toContain(`status (${Object.values(SpanStatus).join("|")})`);
+    expect(prompt).not.toContain("GENERATION");
   });
 
   it("explains the confirmation flow so declined calls are never narrated as done", () => {

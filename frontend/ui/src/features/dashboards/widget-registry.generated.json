@@ -113,7 +113,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -126,7 +127,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -188,7 +190,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -201,7 +204,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -238,7 +242,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -251,7 +256,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": false,
         "histogrammable": false,
@@ -434,7 +440,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -495,7 +502,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -532,7 +540,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,
@@ -569,7 +578,8 @@
         "aggs": [],
         "filterOps": [
           "=",
-          "contains"
+          "contains",
+          "in"
         ],
         "groupable": true,
         "histogrammable": false,

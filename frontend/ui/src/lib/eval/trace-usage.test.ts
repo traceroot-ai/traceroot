@@ -111,7 +111,7 @@ describe("attributeTraceUsage", () => {
   });
 
   it("attributes an LLM span with no TASK wrapper to `task`, matching the backend", () => {
-    // The backend's `_task_cost_by_trace` only excludes SCORER subtrees — everything
+    // The backend's `_task_metrics_by_trace` only excludes SCORER subtrees — everything
     // else (including a span with no TASK ancestor) counts as task cost. There is no
     // third "neither" bucket on either side, so this must land in `task` here too.
     const spans = [

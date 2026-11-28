@@ -19,12 +19,17 @@ import {
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
   hasOutstandingAlertPage,
+  parseAlertPendingClose,
   DEFAULT_ALERT_SEVERITY,
   DEFAULT_ALERT_STATUS,
   DEFAULT_ALERT_VIEW,
   KEYED_ALERT_FILTER_FIELDS,
+  alertThresholdProblem,
   canonicalizeAlertFilters,
   clampRenotifyInterval,
+  getAlertUnit,
+  getAlertUnitForSource,
+  getMeasure,
   getValidAggregations,
   isAlertAggregation,
   isAlertFilterField,
@@ -39,8 +44,10 @@ import {
   resolveAlertMetricSource,
   windowToMs,
   type AlertFilter,
+  type AlertThresholdOperator,
   alertFiltersToTracePredicates,
   describeAlertFilter,
+  withAlertUnit,
 } from "../alerts.ts";
 
 describe("canonicalizeAlertFilters", () => {
@@ -141,8 +148,43 @@ describe("the statuses a client may ask for", () => {
   });
 });
 
+describe("parseAlertPendingClose", () => {
+  const marker = { reason: "resumed", actorUserId: "user-1", at: "2026-08-12T10:00:00.000Z" };
+
+  it("reads a stored marker back, dropping anything beyond its three fields", () => {
+    expect(parseAlertPendingClose(marker)).toEqual(marker);
+    expect(parseAlertPendingClose({ ...marker, extra: true })).toEqual(marker);
+  });
+
+  it("keeps a resend count it can read, and drops one it cannot without losing the close", () => {
+    expect(parseAlertPendingClose({ ...marker, resends: 2 })).toEqual({ ...marker, resends: 2 });
+    for (const resends of [0, -1, 1.5, "2", null]) {
+      expect(parseAlertPendingClose({ ...marker, resends })).toEqual(marker);
+    }
+  });
+
+  it("reads no marker, and anything that is not one, as nothing to close", () => {
+    const notMarkers = [
+      null,
+      undefined,
+      "edited",
+      [marker],
+      { ...marker, reason: "renamed" },
+      { ...marker, actorUserId: "" },
+      { ...marker, at: "not a date" },
+      { reason: marker.reason, actorUserId: marker.actorUserId },
+    ];
+    for (const value of notMarkers) expect(parseAlertPendingClose(value)).toBeNull();
+  });
+});
+
 describe("hasOutstandingAlertPage", () => {
   const announced = new Date("2026-08-12T10:00:00.000Z");
+
+  it("reads the timestamp as it arrives over JSON too, for the edit form", () => {
+    const state = { severity: "ALERT", alertedAt: announced.toISOString() };
+    expect(hasOutstandingAlertPage(state)).toBe(true);
+  });
 
   it("reads an announced breach in ALERT or NO_DATA as an open page", () => {
     expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: announced })).toBe(true);
@@ -174,7 +216,7 @@ describe("alert vocabulary guards", () => {
     expect(isAlertNoDataMode(DEFAULT_ALERT_NO_DATA_MODE)).toBe(true);
     expect(DEFAULT_ALERT_RENOTIFY).toEqual({ mode: "OFF" });
 
-    // TraceRoot has no warning severity and casing is never coerced
+    // traceroot has no warning severity and casing is never coerced
     expect(isAlertSeverity("WARNING")).toBe(false);
     expect(isAlertStatus("OK")).toBe(false);
     expect(isAlertView("spans")).toBe(false);
@@ -256,6 +298,123 @@ describe("what the form offers and what the engine can run", () => {
     }
 
     expect(problems).toEqual([]);
+  });
+});
+
+describe("alertThresholdProblem", () => {
+  // Every measure of every view: each is a count, a distinct count, a duration,
+  // money or tokens.
+  const measures = ALERT_VIEWS.flatMap((view) => ALERT_MEASURES_BY_VIEW[view]);
+
+  /** Each measure, operator and threshold the helper answers differently than `refused` says. */
+  function disagreements(
+    operators: readonly AlertThresholdOperator[],
+    thresholds: readonly number[],
+    refused: boolean,
+  ): string[] {
+    const found: string[] = [];
+    for (const measure of measures) {
+      for (const operator of operators) {
+        for (const threshold of thresholds) {
+          if ((alertThresholdProblem(measure, operator, threshold) !== null) !== refused) {
+            found.push(`${measure.id} ${operator} ${threshold}`);
+          }
+        }
+      }
+    }
+    return found;
+  }
+
+  it("refuses a threshold below zero on every measure, under every operator", () => {
+    // Against a reading that is never negative, each operator is then always
+    // or never true: `> -5` fires on every window with data.
+    expect(disagreements(ALERT_THRESHOLD_OPERATORS, [-0.01, -5], true)).toEqual([]);
+  });
+
+  it("accepts a threshold above zero on every measure, under every operator", () => {
+    expect(disagreements(ALERT_THRESHOLD_OPERATORS, [0.5, 500], false)).toEqual([]);
+  });
+
+  it("refuses the rule on zero that fires on any data", () => {
+    // `>= 0` is true on every window with data.
+    expect(disagreements([">="], [0], true)).toEqual([]);
+  });
+
+  it("accepts every operator but `>=` at zero, on every measure", () => {
+    // The helper sees only the measure, operator and threshold. `< 0` is a gap-only rule under
+    // NOTIFY only where the aggregation can read empty: count, sum and distinct counts read 0
+    // on an empty window, where it never fires.
+    expect(disagreements(["<", "=", "<=", "!=", ">"], [0], false)).toEqual([]);
+  });
+
+  it("names the measure and the fix", () => {
+    const latency = getMeasure("SPANS", "latency")!;
+    expect(alertThresholdProblem(latency, ">", -5)).toBe(
+      "Threshold must be zero or more: latency can never be negative",
+    );
+    expect(alertThresholdProblem(latency, ">=", 0)).toBe(
+      "This alert would fire on every window with data: latency can never be negative",
+    );
+  });
+
+  it("leaves a measure that can go negative to its own threshold", () => {
+    const latency = getMeasure("SPANS", "latency")!;
+    expect(alertThresholdProblem({ ...latency, signed: true }, ">", -5)).toBeNull();
+  });
+});
+
+describe("getAlertUnit", () => {
+  it("states a unit only for the measures whose bare number would mislead", () => {
+    const units = Object.fromEntries(
+      ALERT_MEASURES_BY_VIEW.SPANS.flatMap((m) => (m.unit ? [[m.id, m.unit]] : [])),
+    );
+    expect(units).toEqual({
+      latency: { suffix: "ms" },
+      cost: { prefix: "$" },
+      total_tokens_per_second: { suffix: "tok/s" },
+    });
+  });
+
+  it("keeps the unit under every aggregation that returns a value of the column", () => {
+    for (const aggregation of ["sum", "avg", "min", "max", "p50", "p99"]) {
+      expect(getAlertUnit("latency", aggregation)).toEqual({ suffix: "ms" });
+    }
+  });
+
+  it("drops the unit when the aggregation counts instead", () => {
+    // A count of latency rows, or of distinct latencies, is not milliseconds.
+    expect(getAlertUnit("latency", "count")).toBeUndefined();
+    expect(getAlertUnit("cost", "uniq")).toBeUndefined();
+  });
+
+  it("has nothing to say about a measure the registry does not know", () => {
+    expect(getAlertUnit("span_count", "avg")).toBeUndefined();
+  });
+});
+
+describe("getAlertUnitForSource", () => {
+  it("gives a computed number the unit of the measure its source belongs to", () => {
+    // The chart holds the engine's field, not the measure id the rule was written with.
+    expect(getAlertUnitForSource({ view: "spans", field: "duration_ms" }, "p95")).toEqual({
+      suffix: "ms",
+    });
+    expect(getAlertUnitForSource({ view: "spans", field: "tokens_per_second" }, "avg")).toEqual({
+      suffix: "tok/s",
+    });
+  });
+
+  it("drops the unit under a counting aggregation, and for a source no measure reads", () => {
+    expect(getAlertUnitForSource({ view: "spans", field: "duration_ms" }, "uniq")).toBeUndefined();
+    expect(getAlertUnitForSource({ view: "traces", field: "duration_ms" }, "p95")).toBeUndefined();
+  });
+});
+
+describe("withAlertUnit", () => {
+  it("puts a prefix before and a suffix after, tight on the prefix and spaced on the suffix", () => {
+    expect(withAlertUnit("5", { prefix: "$" })).toBe("$5");
+    expect(withAlertUnit("500", { suffix: "ms" })).toBe("500 ms");
+    expect(withAlertUnit("12.5", { suffix: "tok/s" })).toBe("12.5 tok/s");
+    expect(withAlertUnit("12", undefined)).toBe("12");
   });
 });
 

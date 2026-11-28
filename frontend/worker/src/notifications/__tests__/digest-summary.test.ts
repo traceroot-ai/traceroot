@@ -24,7 +24,7 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   fetchProviderConfig: vi.fn(async () => null),
 }));
 vi.mock("@traceroot/core/llm-providers", () => ({
-  DETECTOR_SYSTEM_DEFAULT_MODEL_ID: "claude-haiku-4-5",
+  DIGEST_SUMMARY_SYSTEM_MODEL_ID: "claude-haiku-4-5",
 }));
 
 // Dynamic import AFTER mocks, like detector-digest-processor.test.ts:
@@ -165,6 +165,8 @@ describe("generateDigestSummary", () => {
       ],
     });
     const r = await callGenerate();
+    const { resolvePiModel } = await import("@traceroot/core/model-resolver");
+    expect(resolvePiModel).toHaveBeenCalledWith("claude-haiku-4-5", null);
     expect(r).toEqual({
       summary: "Payments API is down.",
       usage: {

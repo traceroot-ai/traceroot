@@ -18,7 +18,11 @@ function getEncryptionKey(): Buffer {
  * Returns `base64(iv):base64(ciphertext):base64(authTag)`.
  */
 export function encryptKey(plaintext: string): string {
-  const key = getEncryptionKey();
+  return encryptWithKey(plaintext, getEncryptionKey());
+}
+
+/** Encrypt with an explicit key instead of the one in the environment. */
+export function encryptWithKey(plaintext: string, key: Buffer): string {
   const initVector = randomBytes(INIT_VECTOR_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, initVector, {
     authTagLength: AUTH_TAG_LENGTH,
@@ -32,7 +36,11 @@ export function encryptKey(plaintext: string): string {
  * Decrypt a string produced by `encryptKey()`.
  */
 export function decryptKey(encrypted: string): string {
-  const key = getEncryptionKey();
+  return decryptWithKey(encrypted, getEncryptionKey());
+}
+
+/** Decrypt with an explicit key instead of the one in the environment. */
+export function decryptWithKey(encrypted: string, key: Buffer): string {
   const [initVectorB64, ciphertextB64, tagB64] = encrypted.split(":");
   if (!initVectorB64 || !ciphertextB64 || !tagB64) {
     throw new Error("Invalid encrypted key format");

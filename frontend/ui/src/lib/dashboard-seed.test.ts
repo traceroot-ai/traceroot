@@ -22,6 +22,20 @@ describe("seedWidgets", () => {
   });
 });
 
+describe("seedWidgets by-model breakdowns", () => {
+  // DECISION spans carry a model, tokens and cost like LLM spans, so the
+  // by-model tiles must count them to add up to the Total cost tile (#2540).
+  it.each(["Cost over time · by model", "Tokens by model"])(
+    "%s counts LLM and DECISION spans",
+    (title) => {
+      const widget = seedWidgets().find((w) => w.title === title);
+      expect((widget?.spec as { filters: unknown[] }).filters).toEqual([
+        { field: "span_kind", op: "in", value: ["LLM", "DECISION"] },
+      ]);
+    },
+  );
+});
+
 describe("seedDefaultDashboard", () => {
   it("creates the Default dashboard with deterministic ids and the starter widgets", async () => {
     const create = vi.fn().mockResolvedValue({});

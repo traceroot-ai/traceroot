@@ -81,7 +81,14 @@ DETAIL_EXPECTED = {
     "update_time": "2026-08-02T00:00:00Z",
 }
 
-WIDGET_REF = {"id": "w-1", "dashboard_id": "dash-1", "title": "Cost by model", "type": "query"}
+WIDGET_REF = {
+    "id": "w-1",
+    "dashboard_id": "dash-1",
+    "title": "Cost by model",
+    "type": "query",
+    "dashboard_name": "Latency overview",
+    "spec": QUERY_SPEC,
+}
 
 
 def _mock_key_auth(body=KEY_OK_BODY):
@@ -217,6 +224,8 @@ def test_get_widget_data_answers_the_saved_spec_for_a_preset_window():
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["widget"] == WIDGET_REF
+    # The spec rides on the widget's identity, not beside the answer.
+    assert "spec" not in body
     assert body["status"] == "ok"
     assert body["columns"] == ["model_name", "value"]
     assert body["rows"] == _rows(3)["rows"]
@@ -298,7 +307,7 @@ def test_a_trace_feed_is_skipped_without_running_anything():
         resp = TestClient(app).get(DATA_PATH, headers=KEY_HEADER)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["widget"] == {**WIDGET_REF, "type": "trace_feed"}
+    assert body["widget"] == {**WIDGET_REF, "type": "trace_feed", "spec": {"filters": []}}
     assert body["status"] == "skipped"
     assert body["rows"] is None and body["columns"] is None
     assert body["error"] is None

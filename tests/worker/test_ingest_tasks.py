@@ -1,5 +1,6 @@
 """Unit tests for Celery task logic with mocked S3 + ClickHouse."""
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,14 +10,6 @@ from worker.ingest_tasks import _task_metrics_by_trace, process_s3_traces
 
 TRACE_HEX = "aa" * 16
 SPAN_HEX = "bb" * 8
-
-
-@pytest.fixture()
-def mock_s3(monkeypatch):
-    """Mock S3 service."""
-    mock = MagicMock()
-    monkeypatch.setattr("rest.services.s3.get_s3_service", lambda: mock)
-    return mock
 
 
 @pytest.fixture()
@@ -32,6 +25,14 @@ def mock_detector_enqueue(monkeypatch):
     """Mock the detector enqueue so tests never touch Postgres/Redis/BullMQ."""
     mock = MagicMock()
     monkeypatch.setattr("worker.detector_tasks.enqueue_detector_runs", mock)
+    return mock
+
+
+@pytest.fixture(autouse=True)
+def mock_trace_activity(monkeypatch):
+    """Mock the report to the web app so tests never touch Redis or HTTP."""
+    mock = MagicMock()
+    monkeypatch.setattr("worker.ingest_tasks.schedule_trace_activity_report", mock)
     return mock
 
 
@@ -142,6 +143,62 @@ class TestProcessS3Traces:
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         mock_detector_enqueue.assert_not_called()
+
+
+class TestProcessS3TracesReportsTraceActivity:
+    def test_reports_the_project_after_its_spans_are_written(
+        self, mock_s3, mock_ch, mock_trace_activity
+    ):
+        order = []
+        mock_ch.insert_spans_batch.side_effect = lambda *a: order.append("spans written")
+        mock_trace_activity.side_effect = lambda project_id, received_at: order.append(
+            f"report {project_id}"
+        )
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        assert order == ["spans written", "report proj-1"]
+
+    def test_reports_the_time_the_api_received_the_batch(
+        self, mock_s3, mock_ch, mock_trace_activity
+    ):
+        # Received just before midnight, processed after it: the report is for the
+        # day the traces arrived.
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+
+        process_s3_traces(
+            s3_key="test/key.json", project_id="proj-1", received_at="2026-11-17T23:59:50+00:00"
+        )
+
+        mock_trace_activity.assert_called_once_with(
+            "proj-1", datetime(2026, 11, 17, 23, 59, 50, tzinfo=UTC)
+        )
+
+    def test_a_batch_queued_without_a_receive_time_is_reported_without_one(
+        self, mock_s3, mock_ch, mock_trace_activity
+    ):
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_trace_activity.assert_called_once_with("proj-1", None)
+
+    def test_no_report_for_a_batch_without_spans(self, mock_s3, mock_ch, mock_trace_activity):
+        mock_s3.download_json.return_value = {"resourceSpans": []}
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_trace_activity.assert_not_called()
+
+    def test_no_report_when_writing_the_spans_fails(self, mock_s3, mock_ch, mock_trace_activity):
+        mock_s3.download_json.return_value = make_otel_payload([make_span(TRACE_HEX, SPAN_HEX)])
+        mock_ch.insert_spans_batch.side_effect = Exception("CH connection error")
+
+        with pytest.raises(Exception, match="CH connection error"):
+            process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_trace_activity.assert_not_called()
 
 
 class TestTaskCostByTrace:

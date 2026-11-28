@@ -125,9 +125,9 @@ afterEach(() => {
 
 describe("preview geometry", () => {
   // react-grid-layout's own arithmetic, for a grid at the reference width
-  // with its default ten-pixel margin and padding: this is what the real
+  // with its sixteen-pixel margin and padding: this is what the real
   // dashboard computes for the same layout, so the preview must match it.
-  const margin = 10;
+  const margin = 16;
   const colWidth = (REFERENCE_WIDTH - margin * (COLS - 1) - margin * 2) / COLS;
 
   it("derives the reference width from the grid's columns at the reference column width", () => {
@@ -253,6 +253,47 @@ describe("DashboardPreview", () => {
     const floored = quantizeRange({ start: new Date(Number(start)), end: new Date(Number(end)) });
     expect(vi.mocked(api.runWidgetQuery).mock.calls[0][2]).toEqual(floored);
     expect(Number(end) - Number(start)).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("draws a widget the read could not answer as its reason, querying nothing for it", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview([
+      tile(),
+      tile({ id: "w2", x: 6, widget: null, notice: "not answered: too many buckets" }),
+    ]);
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByText("not answered: too many buckets")).toHaveLength(1);
+    // Said outside the hidden grid too, so a screen reader learns why the tile is empty.
+    expect(screen.getByText("Tokens: not answered: too many buckets")).toBeTruthy();
+  });
+
+  it("draws a fixed span as its exact bounds on every tile", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    const bounds = { start: "2026-09-01T00:00:00.000Z", end: "2026-09-08T00:00:00.000Z" };
+    renderPreview([tile({ bounds }), tile({ id: "w2", x: 6, bounds })]);
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(2));
+    for (const [, , range] of vi.mocked(api.runWidgetQuery).mock.calls) {
+      expect(range.start.toISOString()).toBe(bounds.start);
+      expect(range.end.toISOString()).toBe(bounds.end);
+    }
+  });
+
+  it("keeps a tile with no body to draw in its place, titled and empty, querying nothing for it", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    const { grid } = renderPreview([
+      tile(),
+      tile({ id: "w2", title: "Legacy", x: 6, widget: null }),
+    ]);
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));
+    const tiles = grid.querySelectorAll("[data-preview-tile]");
+    expect(tiles).toHaveLength(2);
+    expect(tiles[1]!.textContent).toBe("Legacy");
   });
 
   it("shows the dashboard's own invalid-spec face for a spec the schema rejects, querying nothing", async () => {

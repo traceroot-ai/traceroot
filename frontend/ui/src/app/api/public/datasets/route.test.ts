@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   dataset: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
 }));
-const apiAuth = vi.hoisted(() => ({ requireApiKeyProject: vi.fn() }));
+const apiAuth = vi.hoisted(() => ({ requireEvalApiKeyProject: vi.fn() }));
 const prismaErr = vi.hoisted(() => ({ isPrismaKnownError: vi.fn(() => false) }));
 
 vi.mock("next/server", () => ({
@@ -26,7 +26,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return { ...actual, prisma: prismaMock };
 });
-vi.mock("@/lib/eval/auth", () => ({ requireApiKeyProject: apiAuth.requireApiKeyProject }));
+vi.mock("@/lib/eval/auth", () => ({ requireEvalApiKeyProject: apiAuth.requireEvalApiKeyProject }));
 vi.mock("@/lib/eval/prisma-errors", () => ({
   isPrismaKnownError: prismaErr.isPrismaKnownError,
 }));
@@ -44,7 +44,7 @@ const updateArg = () => prismaMock.dataset.update.mock.calls[0][0];
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiAuth.requireApiKeyProject.mockResolvedValue({ projectId: "p1" });
+  apiAuth.requireEvalApiKeyProject.mockResolvedValue({ projectId: "p1" });
   prismaErr.isPrismaKnownError.mockReturnValue(false);
 });
 
@@ -191,7 +191,7 @@ describe("POST (upsert)", () => {
   });
 
   it("401s a bad API key before touching the database", async () => {
-    apiAuth.requireApiKeyProject.mockResolvedValue({
+    apiAuth.requireEvalApiKeyProject.mockResolvedValue({
       error: { status: 401, json: async () => ({ error: "Invalid API key" }) },
     });
     const res = await POST(jsonReq(upsert));

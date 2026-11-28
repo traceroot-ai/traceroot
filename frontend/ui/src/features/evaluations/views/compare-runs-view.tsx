@@ -33,9 +33,17 @@ const RUN_DOTS = [
 ];
 
 // ── Formatters ────────────────────────────────────────────────────────────
+const isUnitScore = (v: number) => v >= 0 && v <= 1;
+const fmtPlainNumber = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
 /** A [0,1] score reads as a percentage; anything else as a trimmed number. */
-const fmtScoreNumber = (v: number) =>
-  v >= 0 && v <= 1 ? pctFraction(v) : Number.isInteger(v) ? String(v) : v.toFixed(2);
+const fmtScoreNumber = (v: number) => (isUnitScore(v) ? pctFraction(v) : fmtPlainNumber(v));
+/** A score change reads in the scale of the two scores it compares: on a 1–5 rubric
+ *  4 -> 5 is +1, not +100%, even though the difference itself falls in [0,1]. */
+const fmtScoreDelta = (delta: number, value: number, base: number) =>
+  isUnitScore(value) && isUnitScore(base)
+    ? pctFraction(delta)
+    : // Round off float noise (4.1 - 3.1 = 0.9999999999999996) so a whole point reads "1".
+      fmtPlainNumber(Math.round(delta * 100) / 100);
 const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
 const fmtCost = (n: number) => `$${n.toFixed(4)}`;
 /** A scorer's value as a comparable number (booleans/pass-fail fold to 1/0). */
@@ -108,7 +116,7 @@ function TextValue({ text }: { text: string | null }) {
       <TooltipContent
         align="start"
         side="bottom"
-        className="max-h-[420px] w-[460px] max-w-[80vw] overflow-auto whitespace-pre-wrap break-words border bg-popover p-3 font-mono text-[12px] leading-relaxed text-popover-foreground shadow-md"
+        className="max-h-[420px] w-[460px] max-w-[80vw] overflow-auto whitespace-pre-wrap break-words border bg-popover p-3 font-mono text-[12px] leading-relaxed text-popover-foreground shadow-[0_4px_12px_rgba(11,16,21,0.08)]"
       >
         {t}
       </TooltipContent>
@@ -146,6 +154,7 @@ function NumericStack({
   dotFor,
   get,
   fmt,
+  fmtDelta,
   higherIsBetter,
 }: {
   ordered: Bundle[];
@@ -153,6 +162,8 @@ function NumericStack({
   dotFor: (runId: string) => string;
   get: (b: Bundle) => number | null;
   fmt: (n: number) => string;
+  /** Formats a change against the baseline; defaults to `fmt`. */
+  fmtDelta?: (delta: number, value: number, base: number) => string;
   higherIsBetter: boolean;
 }) {
   const base = get(baseline);
@@ -169,7 +180,13 @@ function NumericStack({
           node: (
             <span className="whitespace-nowrap">
               {v === null ? "—" : fmt(v)}
-              {delta !== null && <Delta value={delta} fmt={fmt} higherIsBetter={higherIsBetter} />}
+              {delta !== null && (
+                <Delta
+                  value={delta}
+                  fmt={fmtDelta ? (d) => fmtDelta(d, v!, base!) : fmt}
+                  higherIsBetter={higherIsBetter}
+                />
+              )}
             </span>
           ),
         };
@@ -334,7 +351,7 @@ export function CompareRunsView({
         <ProjectBreadcrumb projectId={projectId} current="Run Comparison" />
 
         {/* Search + baseline picker. */}
-        <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-1.5">
+        <div className="flex min-h-11 flex-wrap items-center gap-3 border-b border-border px-4 py-1">
           <div className="relative min-w-[12rem] max-w-md flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -406,14 +423,14 @@ export function CompareRunsView({
             {/* Some runs exceeded the run-detail result cap, so their columns are
                 computed on a partial set — say so rather than imply full coverage. */}
             {truncatedRuns.length > 0 && (
-              <div className="border-b border-amber-400/60 bg-amber-100/50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+              <div className="border-b border-warning-border bg-warning-soft px-3 py-2 text-[12px] text-warning">
                 {truncatedRuns.map((b) => runLabel(b)).join(", ")} returned only the first{" "}
                 {truncatedRuns[0].results.length} of their cases (API limit), so their scores,
                 duration, and cost aggregates and deltas are partial.
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
-              <Table>
+              <Table className="sticky-sep">
                 <THead>
                   {/* Label row — grey, one line, with a divider below it. */}
                   <TRHead>
@@ -421,7 +438,7 @@ export function CompareRunsView({
                     <Th className="min-w-[220px]">Output</Th>
                     <Th className="min-w-[180px]">Expected</Th>
                     {scorerNames.map((name) => (
-                      <Th key={name} className="w-[130px] text-right font-mono">
+                      <Th key={name} className="w-[130px] text-right">
                         {name}
                       </Th>
                     ))}
@@ -434,18 +451,19 @@ export function CompareRunsView({
                     <Td />
                     <Td />
                     {scorerNames.map((name) => (
-                      <Td key={name} className="text-[10px] tabular-nums">
+                      <Td key={name} className="text-[12px] tabular-nums">
                         <NumericStack
                           ordered={ordered}
                           baseline={baseline}
                           dotFor={dotFor}
                           get={(b) => agg.scorer.get(name)?.get(b.run.id) ?? null}
                           fmt={fmtScoreNumber}
+                          fmtDelta={fmtScoreDelta}
                           higherIsBetter={higherFor(name)}
                         />
                       </Td>
                     ))}
-                    <Td className="text-[10px] tabular-nums">
+                    <Td className="text-[12px] tabular-nums">
                       <NumericStack
                         ordered={ordered}
                         baseline={baseline}
@@ -455,7 +473,7 @@ export function CompareRunsView({
                         higherIsBetter={false}
                       />
                     </Td>
-                    <Td className="text-[10px] tabular-nums">
+                    <Td className="text-[12px] tabular-nums">
                       <NumericStack
                         ordered={ordered}
                         baseline={baseline}
@@ -560,7 +578,7 @@ function CaseRow({
       {scorerNames.map((name) =>
         isCategorical(name) ? (
           // Categorical scorer — show each run's text value (no numeric delta).
-          <Td key={name} className="align-top text-[11px]">
+          <Td key={name} className="align-top text-[12px]">
             <RunStack
               align="right"
               values={ordered.map((b) => ({
@@ -575,19 +593,20 @@ function CaseRow({
             />
           </Td>
         ) : (
-          <Td key={name} className="align-top text-[11px] tabular-nums">
+          <Td key={name} className="align-top text-[12px] tabular-nums">
             <NumericStack
               ordered={ordered}
               baseline={baseline}
               dotFor={dotFor}
               get={(b) => scoreNumeric(rowOf(b)?.scores.find((s) => s.scorerName === name))}
               fmt={fmtScoreNumber}
+              fmtDelta={fmtScoreDelta}
               higherIsBetter={higherFor(name)}
             />
           </Td>
         ),
       )}
-      <Td className="align-top text-[11px] tabular-nums">
+      <Td className="align-top text-[12px] tabular-nums">
         <NumericStack
           ordered={ordered}
           baseline={baseline}
@@ -597,7 +616,7 @@ function CaseRow({
           higherIsBetter={false}
         />
       </Td>
-      <Td className="align-top text-[11px] tabular-nums">
+      <Td className="align-top text-[12px] tabular-nums">
         <NumericStack
           ordered={ordered}
           baseline={baseline}

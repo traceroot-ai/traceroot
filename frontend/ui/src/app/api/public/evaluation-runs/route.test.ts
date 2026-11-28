@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const auth = vi.hoisted(() => ({ requireApiKeyProject: vi.fn() }));
+const auth = vi.hoisted(() => ({ requireEvalApiKeyProject: vi.fn() }));
 vi.mock("@/lib/eval/auth", () => auth);
 
 // The store is rebuilt per test, so the module mock hands out a late-bound view of it.
@@ -178,7 +178,7 @@ beforeEach(() => {
   db = makeDb();
   holder.prisma = db.client;
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
-  auth.requireApiKeyProject.mockResolvedValue({ projectId: PROJECT_ID });
+  auth.requireEvalApiKeyProject.mockResolvedValue({ projectId: PROJECT_ID });
 
   db.rows.dataset.push({
     id: "ds1",

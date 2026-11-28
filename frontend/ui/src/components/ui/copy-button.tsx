@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Copy, Check } from "lucide-react";
 import { Button, type ButtonProps } from "./button";
+import { Popover, PopoverAnchor, PopoverContent } from "./popover";
 import { cn } from "@/lib/utils";
 
 export interface CopyButtonProps extends Omit<ButtonProps, "onClick"> {
@@ -17,29 +18,71 @@ export interface CopyButtonProps extends Omit<ButtonProps, "onClick"> {
 const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
   ({ value, onCopy, className, iconClassName, variant = "ghost", size = "sm", ...props }, ref) => {
     const [copied, setCopied] = React.useState(false);
+    const [copyError, setCopyError] = React.useState(false);
+    const errorId = React.useId();
+    const resetTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const copyAttempt = React.useRef(0);
+
+    React.useEffect(
+      () => () => {
+        copyAttempt.current += 1;
+        if (resetTimer.current) clearTimeout(resetTimer.current);
+      },
+      [],
+    );
 
     const handleCopy = async () => {
-      await navigator.clipboard.writeText(value);
+      const attempt = ++copyAttempt.current;
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      setCopied(false);
+      setCopyError(false);
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch {
+        if (attempt === copyAttempt.current) setCopyError(true);
+        return;
+      }
+      if (attempt !== copyAttempt.current) return;
       setCopied(true);
+      resetTimer.current = setTimeout(() => setCopied(false), 2000);
       onCopy?.();
-      setTimeout(() => setCopied(false), 2000);
     };
 
     return (
-      <Button
-        ref={ref}
-        variant={variant}
-        size={size}
-        className={cn("h-7 w-7 p-0", className)}
-        onClick={handleCopy}
-        {...props}
-      >
-        {copied ? (
-          <Check className={cn("h-3.5 w-3.5 text-green-600", iconClassName)} />
-        ) : (
-          <Copy className={cn("h-3.5 w-3.5", iconClassName)} />
-        )}
-      </Button>
+      <Popover open={copyError} onOpenChange={setCopyError}>
+        <PopoverAnchor asChild>
+          <Button
+            ref={ref}
+            variant={variant}
+            size={size}
+            className={cn("h-7 w-7 p-0", className)}
+            onClick={handleCopy}
+            {...props}
+            aria-label={props["aria-label"] ?? props.title ?? "Copy"}
+            title={props.title ?? props["aria-label"] ?? "Copy"}
+            aria-describedby={
+              copyError
+                ? [props["aria-describedby"], errorId].filter(Boolean).join(" ")
+                : props["aria-describedby"]
+            }
+          >
+            {copied ? (
+              <Check className={cn("h-3.5 w-3.5 text-success", iconClassName)} />
+            ) : (
+              <Copy className={cn("h-3.5 w-3.5", iconClassName)} />
+            )}
+          </Button>
+        </PopoverAnchor>
+        <PopoverContent
+          id={errorId}
+          role="alert"
+          className="w-auto max-w-[calc(100vw-2rem)] px-3 py-2 text-xs"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          Could not copy to clipboard. Try again.
+        </PopoverContent>
+      </Popover>
     );
   },
 );

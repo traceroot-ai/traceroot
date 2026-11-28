@@ -39,7 +39,7 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: () => ({ id: "m", provider: "anthropic" }),
 }));
 vi.mock("@traceroot/core/llm-providers", () => ({
-  DETECTOR_SYSTEM_DEFAULT_MODEL_ID: "m",
+  DIGEST_SUMMARY_SYSTEM_MODEL_ID: "m",
 }));
 
 import { generateDigestSummary } from "../digest-summary.js";

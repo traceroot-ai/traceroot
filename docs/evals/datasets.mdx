@@ -100,6 +100,10 @@ Publishing into a dataset that already exists asks for confirmation on an intera
 
 You don't need to publish before running an eval — `evaluate()` publishes a local dataset for you and never prompts. See [Running evals](/evals/running-evals).
 
+<Frame caption="Dataset row: Evaluations tab with each run that used the case">
+  <img src="/images/dataset_row_evals_v1.png" alt="Dataset row panel on the Evaluations tab, listing the four runs that used this case" />
+</Frame>
+
 ## Pull a dataset
 
 Pull a published dataset back down as an ordinary local `Dataset` — iterate it, edit it, save it, or evaluate against it.
@@ -129,8 +133,8 @@ To see what's published without pulling it, the [CLI](/evals/cli) lists datasets
 
 ```bash
 traceroot datasets list
-traceroot datasets versions list ds_…
-traceroot datasets versions get dsv_…
+traceroot datasets versions list <dataset-id>
+traceroot datasets versions get <version-id>
 ```
 
 ## Next steps

@@ -21,6 +21,11 @@ const VALID_ROW: AlertRowLike = {
   severity: "ALERT",
   severityChangedAt: CHANGED_AT,
   alertedAt: ALERTED_AT,
+  lastNotifyStatus: "FAILED",
+  lastNotifyError: "no-channel",
+  lastNotifyAt: ALERTED_AT,
+  lastNotifySeverity: "ALERT",
+  slackUpdatedAt: null,
 };
 
 const rowWith = (overrides: Partial<AlertRowLike>): AlertRowLike => ({
@@ -32,12 +37,22 @@ const filtersOf = (value: unknown): unknown =>
   parseAlertRule(rowWith({ filters: [{ field: "status", op: "=", value }] }));
 
 describe("parseAlertRule — a well-formed row", () => {
-  it("returns the rule with every column carried through, the three state ones nested", () => {
-    const { severity, severityChangedAt, alertedAt, ...columns } = VALID_ROW;
+  it("returns the rule with every column carried through, the state and delivery ones nested", () => {
+    const { severity, severityChangedAt, alertedAt, ...rest } = VALID_ROW;
+    const { lastNotifyStatus, lastNotifyError, lastNotifyAt, lastNotifySeverity, ...delivery } =
+      rest;
+    const { slackUpdatedAt, ...columns } = delivery;
 
     expect(parseAlertRule(VALID_ROW)).toEqual({
       ...columns,
       state: { severity, severityChangedAt, alertedAt },
+      lastDelivery: {
+        status: lastNotifyStatus,
+        error: lastNotifyError,
+        at: lastNotifyAt,
+        severity: lastNotifySeverity,
+        slackUpdatedAt,
+      },
     });
   });
 
@@ -178,6 +193,22 @@ describe("parseAlertRule — renotify", () => {
       { mode: "EVERY", intervalMinutes: "soon" },
     ]) {
       expect(parseAlertRule(rowWith({ renotify }))).toBeNull();
+    }
+  });
+});
+
+describe("parseAlertRule — the severity the last notification announced", () => {
+  it("is null rather than a guess when it predates the column or cannot be read", () => {
+    // A replay announces exactly this, so the rule's own severity is no stand-in.
+    for (const stored of [null, "CRITICAL", "alert"]) {
+      expect(parseAlertRule(rowWith({ lastNotifySeverity: stored }))?.lastDelivery.severity).toBe(
+        null,
+      );
+    }
+    for (const severity of ["OK", "ALERT", "NO_DATA"]) {
+      expect(parseAlertRule(rowWith({ lastNotifySeverity: severity }))?.lastDelivery.severity).toBe(
+        severity,
+      );
     }
   });
 });

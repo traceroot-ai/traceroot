@@ -11,9 +11,11 @@
 import type { Prisma } from "@prisma/client";
 import { prisma, Role, hasMinRole } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { userMembershipWhere } from "@/lib/demo-workspace";
 import { writeAudit } from "./audit";
 import type { DeleteResult, EditOutcome, Provenance, ServiceResult, UpdateResult } from "./types";
 import { NO_FIELDS_MESSAGE, diffPatch, validateDeleteReason } from "./update-support";
+import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
 
 export interface WorkspaceCreated {
   id: string;
@@ -76,6 +78,14 @@ export async function createWorkspace(input: {
         data: { id: ws.id, name: ws.name, role: "ADMIN" as const },
       };
     });
+    if (result.ok && result.created) {
+      void notifyWorkspaceMember({
+        userId: input.actorUserId,
+        workspaceId: result.data.id,
+        createdBy: input.actorUserId,
+        via: "created",
+      });
+    }
   } catch (e) {
     if (!isPrismaKnownError(e, "P2002")) throw e;
     // A concurrent identical create won the race on (created_by, name).
@@ -267,7 +277,10 @@ export async function deleteWorkspace(input: {
       // them, so the second counts what the first left. Raw because Prisma
       // has no row-lock API; the table name is the mapped one from the schema.
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${input.actorUserId} FOR UPDATE`;
-      const memberships = await tx.workspaceMember.count({ where: { userId: input.actorUserId } });
+      // The demo workspace is not one of the user's own, so it does not count.
+      const memberships = await tx.workspaceMember.count({
+        where: userMembershipWhere(input.actorUserId, "exclude-demo"),
+      });
       if (memberships <= 1) {
         return { result: { ok: false, status: 409, error: "Cannot delete your only workspace" } };
       }

@@ -21,7 +21,7 @@ from rest.services.filters.translate import (
 from rest.services.widget_registry import registry_schema
 
 PUBLIC_PREFIX = "/api/v1/public/"
-TITLE = "TraceRoot Public API"
+TITLE = "traceroot Public API"
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
@@ -70,8 +70,10 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             responses.setdefault("503", _error_response("Authentication service unavailable"))
 
     # Public ingestion accepts an OTLP protobuf body (read from the raw request)
-    # and documents its runtime error contract: 400 (bad/empty/undecodable body),
-    # 402 (plan limit), 415 (wrong Content-Type), 500 (S3 storage failure).
+    # and documents its runtime error contract: 400 (empty body, invalid gzip, or a
+    # Content-Encoding other than gzip), 402 (plan limit), 413 (body over the size
+    # limits), 415 (wrong Content-Type), 500 (S3 storage failure), and 503 also
+    # when the batch cannot be queued.
     ingest = schema["paths"].get("/api/v1/public/traces", {}).get("post")
     if ingest is not None:
         ingest["requestBody"] = {
@@ -83,8 +85,19 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
         ingest_responses = ingest["responses"]
         ingest_responses.setdefault("400", _error_response("Invalid request body"))
         ingest_responses.setdefault("402", _error_response("Free plan limit exceeded"))
+        ingest_responses.setdefault("413", _error_response("Request body too large"))
         ingest_responses.setdefault("415", _error_response("Unsupported media type"))
         ingest_responses.setdefault("500", _error_response("Storage error"))
+        ingest_responses["503"] = _error_response(
+            "Authentication service unavailable, or the batch could not be queued"
+        )
+        ingest_responses["503"]["headers"] = {
+            "Retry-After": {
+                "description": "Seconds to wait before sending the batch again. "
+                "Sent only when the batch could not be queued.",
+                "schema": {"type": "integer"},
+            }
+        }
 
     # Trace read/export error contract (matches the route code).
     list_op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
@@ -170,6 +183,10 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
     if sessions_list_op is not None:
         sessions_list_op["responses"].setdefault("500", _error_response("Failed to list sessions"))
+    signal_get_op = schema.get("paths", {}).get("/api/v1/public/signals/{signal_id}", {}).get("get")
+    if signal_get_op:
+        signal_get_op["responses"].setdefault("404", _error_response("Signal not found"))
+
     session_get_op = schema["paths"].get("/api/v1/public/sessions/{session_id}", {}).get("get")
     if session_get_op is not None:
         session_get_op["responses"].setdefault("404", _error_response("Session not found"))
@@ -387,6 +404,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     "ingest_traces": {"enabled": False},
+    "write_label": {"enabled": False},
     "run_sql": {
         "name": "run_sql",
         "description": (
@@ -594,6 +612,32 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "filters, window, threshold, renotify and no-data handling, plus its "
             "evaluation state. Resolve the alert id by listing the project's "
             "alerts and matching the name — never guess an id."
+        ),
+        "enabled": True,
+    },
+    "list_signals": {
+        "name": "list_signals",
+        "description": (
+            "List the project's signals, newest first: the recurring problems "
+            "that detector findings are grouped into, with status (open, "
+            "resolved, dismissed), detector, hit count, reopen count and the "
+            "state of the current root cause analysis. Filter by status or "
+            "detector_id. Merged signals are left out. Returns 50 results by default; "
+            "increment page to fetch subsequent pages until all needed signals are found."
+        ),
+        "enabled": True,
+    },
+    "get_signal": {
+        "name": "get_signal",
+        "description": (
+            "Fetch one signal by id, including when it was resolved and the "
+            "traces it hit most recently. recent_hits lists up to 20 hits, latest "
+            "trace start first, each with its trace_id, finding_id and "
+            "trace_start_time; only traces that started inside the plan's "
+            "retention window are listed, so each trace_id can be fetched with "
+            "get_trace. A merged signal names the signal its findings moved to "
+            "in merged_into_id. Resolve the signal id by listing signals — never "
+            "guess an id."
         ),
         "enabled": True,
     },
@@ -869,6 +913,22 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "verdict and cannot be requested; pausing a parked alert is a "
             "conflict, resume it to run it again. Setting the status the alert "
             "already has changes nothing."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "set_signal_status": {
+        "name": "set_signal_status",
+        "description": (
+            "Resolve or reopen a signal. Resolving needs a reason "
+            "(fixed_elsewhere, fixed_by_pr, already_fixed_before, other); "
+            "'other' also needs a note. A resolved signal opens again by itself "
+            "when its detector finds the problem in a trace that started after "
+            "the resolve. Dismissing is not possible here: a dismissed signal "
+            "never reopens, so a person dismisses in the web app. Send "
+            "expected_status to refuse the change when the status changed "
+            "since you read it (a conflict). Setting the current status "
+            "changes nothing."
         ),
         "enabled": True,
         "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
@@ -1185,6 +1245,370 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     _apply_widget_spec_vocabulary(schema)
     _apply_tool_curation(schema)
     return schema
+
+
+#: Base URLs for the docs' API playground. The cloud host serves the public API
+#: under the same origin the SDKs default to; self-hosters point the variable at
+#: their own backend.
+DOCS_SERVERS: list[dict[str, Any]] = [
+    {"url": "https://app.traceroot.ai", "description": "traceroot Cloud"},
+    {
+        "url": "{baseUrl}",
+        "description": "Self-hosted",
+        "variables": {
+            "baseUrl": {
+                "default": "http://localhost:8000",
+                "description": "Your traceroot backend URL",
+            }
+        },
+    },
+]
+
+#: Page summaries used by Mintlify for search snippets, keyed by operation ID.
+_DOCS_DESCRIPTIONS: dict[str, str] = {
+    "write_label": (
+        "Apply an existing project label to a production trace or span with a project API key. "
+        "Use the same idempotency key when retrying the request."
+    ),
+    "whoami": (
+        "Check which traceroot project and workspace an API key belongs to. Useful "
+        "for confirming that a credential is valid and correctly scoped."
+    ),
+    "ingest_traces": (
+        "Send OTLP trace data to traceroot as protobuf, optionally gzip-compressed. "
+        "A 200 response means the batch was stored and queued for decoding."
+    ),
+    "list_traces": (
+        "List recent traces in a traceroot project, newest first. Offline evaluation "
+        "traces are excluded unless you set include_evaluations to true."
+    ),
+    "get_trace": (
+        "Fetch a single trace with its span tree from a traceroot project. The "
+        "default view is lightweight; request full fields for span input and output."
+    ),
+    "export_trace": (
+        "Export a trace, its spans, git context, and a manifest. Span input and output are "
+        "included by default and can be excluded with the fields parameter."
+    ),
+    "list_trace_filter_values": (
+        "List the distinct values currently present for a categorical trace filter "
+        "field, such as model name or environment, in a traceroot project."
+    ),
+    "list_sessions": (
+        "List the sessions in a traceroot project, where a session groups the traces "
+        "that share a session id, with the trace count for each session."
+    ),
+    "get_session": (
+        "Fetch one traceroot session with all of its traces. Traces older than your "
+        "plan's retention window are left out instead of causing an error."
+    ),
+    "run_sql": (
+        "Run one read-only SQL query over the spans and traces of your traceroot "
+        "project and get the rows back. Results are capped and may be truncated."
+    ),
+    "get_sql_schema": (
+        "List the tables and columns, with their types, that a SQL query against "
+        "your traceroot project may reference. Read it before writing a query."
+    ),
+    "list_detectors": (
+        "List the detectors in a traceroot project, newest first, with each "
+        "detector's id, name, template, enabled flag, and creation time."
+    ),
+    "get_detector": (
+        "Fetch one detector's full configuration by id: prompt, output schema, "
+        "sample rate, root cause analysis settings, and trigger conditions."
+    ),
+    "create_detector": (
+        "Create a detector using a template's built-in instructions or your own prompt. "
+        "Creating a detector by name is idempotent within a project."
+    ),
+    "update_detector": (
+        "Edit a traceroot detector's name, prompt, enabled state, sample rate, or "
+        "model settings. Only the fields you send change; the template is fixed."
+    ),
+    "delete_detector": (
+        "Permanently delete a detector from a traceroot project. Findings it already "
+        "produced stay readable, and a repeated delete returns 404."
+    ),
+    "list_findings": (
+        "List recent detector findings for a traceroot project, newest first, "
+        "optionally filtered by detector, trace id, or time range."
+    ),
+    "get_finding": (
+        "Fetch a single detector finding by id from a traceroot project, including "
+        "the full analysis detail the detector produced for the trace."
+    ),
+    "get_finding_by_trace": (
+        "Fetch the detector finding attached to a specific trace in a traceroot "
+        "project. Each trace has at most one finding, so you get one or none."
+    ),
+    "list_signals": (
+        "List the signals in a traceroot project, newest first. Signals group the "
+        "recurring problems that detectors find; merged signals are left out."
+    ),
+    "get_signal": (
+        "Fetch one signal by id from a traceroot project, including when it was "
+        "resolved. A signal that was merged names the signal its findings moved to."
+    ),
+    "set_signal_status": (
+        "Resolve or reopen a signal. After resolution, the detector can reopen the signal only "
+        "for a matching finding on a trace that started after resolution."
+    ),
+    "list_dashboards": (
+        "List the dashboards in a traceroot project, default dashboard first, with "
+        "each one's name, description, creator, widget count, and timestamps."
+    ),
+    "get_dashboard": (
+        "Fetch one traceroot dashboard by id together with its widgets, including "
+        "each widget's title, type, query spec, and creation time."
+    ),
+    "get_dashboard_data": (
+        "Run the query widgets on a traceroot dashboard for one time window and "
+        "return their results, so you can read what the dashboard shows."
+    ),
+    "create_dashboard": (
+        "Create a dashboard in a traceroot project. The call is idempotent on the "
+        "dashboard name, so repeating it does not create a duplicate."
+    ),
+    "update_dashboard": (
+        "Rename a traceroot dashboard or change its description. Fields you leave "
+        "out stay unchanged, and a null description clears the current one."
+    ),
+    "delete_dashboard": (
+        "Permanently delete a traceroot dashboard together with all of its widgets. "
+        "The last remaining dashboard in a project cannot be deleted."
+    ),
+    "get_widget": (
+        "Fetch one saved widget's definition by id, including its title, type, "
+        "stored query spec, display settings, and the dashboard it belongs to."
+    ),
+    "get_widget_data": (
+        "Run one saved traceroot dashboard widget for a time window and return its "
+        "results, without having to send the widget's query spec again."
+    ),
+    "run_widget_query": (
+        "Run a widget query spec for a time window and get its rows back, to answer "
+        "a metric question without saving a widget to a dashboard."
+    ),
+    "create_widget": (
+        "Add a widget to a traceroot dashboard: a query widget that charts a metric, "
+        "or a feed of recent traces. Every call creates a new widget."
+    ),
+    "update_widget": (
+        "Edit a traceroot dashboard widget's title, spec, or display settings. A new "
+        "spec replaces the old one entirely, and the widget type is fixed."
+    ),
+    "delete_widget": (
+        "Permanently delete one widget from a traceroot dashboard. The widget's slot "
+        "in the dashboard layout is removed along with it."
+    ),
+    "list_alerts": (
+        "List the threshold alerts in a traceroot project with each alert's rule "
+        "summary, status, and current severity, plus the project's alert capacity."
+    ),
+    "get_alert": (
+        "Fetch one traceroot alert by id with its full rule: view, measure, "
+        "aggregation, filters, window, threshold, and current evaluation state."
+    ),
+    "create_alert": (
+        "Create a threshold alert in a traceroot project: a span measure aggregated "
+        "over a time window and compared against a threshold you set."
+    ),
+    "update_alert": (
+        "Update a threshold alert in a traceroot project. Changes to evaluated fields reset its "
+        "state, while changing only the alert name preserves it."
+    ),
+    "set_alert_status": (
+        "Pause or resume a traceroot alert without changing its rule. Pausing keeps "
+        "the current severity, and resuming restarts evaluation from a clean state."
+    ),
+    "delete_alert": (
+        "Permanently delete a threshold alert from a traceroot project. An open page "
+        "is discarded rather than resolved, and the response reports it."
+    ),
+    "list_datasets": (
+        "List the evaluation datasets in a traceroot project, newest first, with "
+        "each dataset's current published version and cursor-based paging."
+    ),
+    "get_dataset": (
+        "Read one evaluation dataset by id, including its name, description, key, "
+        "and current published version, which is null until one is published."
+    ),
+    "list_dataset_versions": (
+        "List the published versions of an evaluation dataset, newest first, each "
+        "with its test case count and whether it is the current version."
+    ),
+    "get_dataset_version": (
+        "Read one immutable evaluation dataset version and its test cases, whole or "
+        "one page at a time, with inputs and expected values as JSON."
+    ),
+    "list_evaluations": (
+        "List the evaluations in a traceroot project, newest first, each with its "
+        "run count and latest run, using cursor-based paging."
+    ),
+    "list_evaluation_runs": (
+        "List the evaluation runs in a traceroot project, newest first, optionally "
+        "filtered by evaluation or status, with cursor-based paging."
+    ),
+    "read_run": (
+        "Read an evaluation run's status and counts. Numeric scores are averaged, boolean "
+        "scores are pass rates, and scores without a supported aggregate are null."
+    ),
+    "register_run": (
+        "Register and start an evaluation run in traceroot. The call is idempotent "
+        "on the client run id within an evaluation, so retries are safe."
+    ),
+    "upsert_result": (
+        "Create or update one test case result and its scores in an evaluation run. "
+        "The call is idempotent for each run and test case pair."
+    ),
+    "complete_run": (
+        "Mark an evaluation run as completed or failed in traceroot and report its "
+        "final completeness counts. The traceroot SDKs call this for you."
+    ),
+    "list_workspaces": (
+        "List the traceroot workspaces the signed-in user belongs to. Use it with "
+        "the project list to find the project a later request should target."
+    ),
+    "create_workspace": (
+        "Create a traceroot workspace that you administer. Creating one with a name "
+        "you already administer returns the existing workspace."
+    ),
+    "update_workspace": (
+        "Rename a traceroot workspace that you administer. Requires the ADMIN role, "
+        "and the new name cannot match another workspace you administer."
+    ),
+    "delete_workspace": (
+        "Permanently delete a traceroot workspace and everything in it, including "
+        "projects, access keys, memberships, and invites. Requires the ADMIN role."
+    ),
+    "list_projects": (
+        "List the traceroot projects the signed-in user can access across all "
+        "workspaces, to find the project id that project-scoped requests need."
+    ),
+    "create_project": (
+        "Create a project in a traceroot workspace you can write to. The call is "
+        "idempotent on the project name within the workspace."
+    ),
+    "update_project": (
+        "Edit a traceroot project's name or trace retention period. Setting the "
+        "retention to null returns it to the default for your plan."
+    ),
+    "delete_project": (
+        "Delete a traceroot project. It disappears from lists and reads and its "
+        "access keys stop working, while its data stays for the retention window."
+    ),
+}
+
+#: Caller-facing details that do not fit in the search snippet.
+_DOCS_USAGE_NOTES = {
+    "write_label": "Use a project API key. Create the label in Project Settings before applying it.",
+    "list_alerts": "Alerts are ordered oldest first.",
+    "create_alert": "Each call creates a new alert, even when its name matches an existing one.",
+    "update_alert": (
+        "Changing an evaluated field resets evaluation, clears an open page, and re-arms a "
+        "parked alert. Renaming the alert alone leaves its evaluation state unchanged."
+    ),
+    "set_alert_status": "Setting the current status again returns 200 without changing the alert.",
+    "set_signal_status": (
+        "Resolving requires a reason. For `other`, include a `note`. To guard against a "
+        "concurrent change, send `expected_status`. You cannot dismiss a signal here."
+    ),
+    "create_detector": (
+        "Standard templates use their built-in instructions when you omit `prompt`. "
+        "For the `blank` template, supply your own prompt."
+    ),
+    "read_run": (
+        "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, "
+        "or unobserved scores return null. This endpoint summarizes a single run."
+    ),
+    "get_dashboard_data": (
+        "Each widget has its own result. Feeds are skipped, and query widgets beyond the "
+        "per-request limit return an inline error."
+    ),
+    "get_dataset_version": (
+        "Without `limit`, the response includes all cases. For large versions, pass `limit` "
+        "and follow `next_cursor` until it is null."
+    ),
+    "list_evaluation_runs": "Use the run detail endpoint to read result counts and scores.",
+    "list_workspaces": "Use a user credential. This request does not take a project ID.",
+    "list_projects": "Use a user credential. Each project includes its owning workspace.",
+    "get_trace": "Use `fields=full` or `fields=io,metadata` to include span inputs and outputs.",
+    "export_trace": (
+        "The default projection is `full`. Use `fields` to narrow the export. "
+        "Exports have their own rate limit."
+    ),
+    "ingest_traces": (
+        "The default limits are 16 MiB as sent and 32 MiB after decompression. "
+        "Larger requests return 413."
+    ),
+    "delete_workspace": (
+        "Send the workspace's current name to confirm deletion. You cannot delete your "
+        "only workspace."
+    ),
+    "update_workspace": (
+        "A name that matches another workspace you administer returns 409. "
+        "A workspace outside your memberships returns 403."
+    ),
+}
+
+_SDK_DRIVEN_OPERATIONS = frozenset(
+    {"ingest_traces", "register_run", "upsert_result", "complete_run"}
+)
+_SDK_NOTE = (
+    "<Note>The traceroot SDKs call this endpoint for you; call it directly only "
+    "where no SDK fits. It accepts a project API key only.</Note>"
+)
+_INGEST_NOTE = (
+    "\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, "
+    "optionally gzip-compressed with `Content-Encoding: gzip`."
+)
+
+
+def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return the copy of the public document that the Mintlify API reference reads.
+
+    Mintlify only reads files inside ``docs/``, so the reference needs its own
+    copy. It is the public document plus what only the docs need: ``servers``
+    for the playground, search descriptions, and notes on the SDKs' ingest and
+    evaluation-run writes. ``public.json`` itself stays unchanged, so the tool
+    registry is unaffected.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; not mutated.
+
+    Returns:
+        dict[str, Any]: The docs copy.
+    """
+    docs = copy.deepcopy(schema)
+    docs["servers"] = copy.deepcopy(DOCS_SERVERS)
+    for item in docs["paths"].values():
+        for method, op in item.items():
+            if method not in _HTTP_METHODS:
+                continue
+            op_id = op["operationId"]
+            tool = op["x-tool"]
+            parts = []
+            if op_id in _SDK_DRIVEN_OPERATIONS:
+                parts.append(_SDK_NOTE + (_INGEST_NOTE if op_id == "ingest_traces" else ""))
+            role = tool.get("policy", {}).get("minRole")
+            if role == "MEMBER":
+                parts.append(
+                    "Use a user credential with the `MEMBER` role or higher in the workspace."
+                )
+            elif role == "ADMIN":
+                parts.append("Use a user credential with the `ADMIN` role in the workspace.")
+            if op_id in _DOCS_USAGE_NOTES:
+                parts.append(_DOCS_USAGE_NOTES[op_id])
+
+            page = {}
+            if summary := _DOCS_DESCRIPTIONS.get(op_id):
+                page["metadata"] = {"description": summary}
+            if parts:
+                page["content"] = "\n\n".join(parts)
+            if page:
+                op["x-mint"] = page
+    return docs
 
 
 def render(schema: dict[str, Any]) -> str:

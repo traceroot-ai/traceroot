@@ -65,11 +65,21 @@ const SPEC: WidgetSpec = {
   display: { type: "number" },
 };
 
-function renderPreview(spec: WidgetSpec = SPEC, rangeId = "1d") {
+function renderPreview(
+  spec: WidgetSpec = SPEC,
+  rangeId = "1d",
+  bounds?: { start: string; end: string },
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <WidgetChartPreview projectId="p1" widgetId="w1" spec={spec} rangeId={rangeId} />
+      <WidgetChartPreview
+        projectId="p1"
+        widgetId="w1"
+        spec={spec}
+        rangeId={rangeId}
+        bounds={bounds}
+      />
     </QueryClientProvider>,
   );
 }
@@ -140,6 +150,20 @@ describe("WidgetChartPreview", () => {
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
     const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
     expect(range.end.getTime() - range.start.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("queries a fixed span as its exact bounds, never sliding to now", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview(SPEC, "custom", {
+      start: "2026-09-01T00:00:00.000Z",
+      end: "2026-09-08T00:00:00.000Z",
+    });
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
+    const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
+    expect(range.start.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+    expect(range.end.toISOString()).toBe("2026-09-08T00:00:00.000Z");
   });
 
   it("falls back to the default window for a range id it doesn't know", async () => {
