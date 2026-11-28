@@ -128,14 +128,23 @@ def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
     step wrapper (``agent_step``) spans several calls. Counting every LLM span would count
     those calls twice. Cost follows the same rule: summing every priced span billed nested
     instrumentation twice, so a span's own cost now counts only if it is a counted call or
-    the ancestor one borrows from (below). A span that is not a model call adds no cost.
+    the ancestor one borrows from (below). A cost reported on a span that is not a model
+    call (for example a tool's ``llm.cost.total``) is not counted, which keeps ``cost`` to
+    the model calls it was always meant to sum.
 
-    A counted call that reported no usage takes its tokens from the nearest model-call
-    ancestor in its part, provided that ancestor wraps no other counted call. Streaming
-    often leaves the client span without usage while the framework span around it has it;
-    an ancestor around several calls has a total for all of them, so it is never borrowed
-    from. A counted call's cost is its own, or, when it has none, the cost of the same
-    ancestor it takes its tokens from. A call is priced when it ends up with a cost.
+    A call borrows only from its sole wrapper: the nearest model-call ancestor in its part,
+    provided that ancestor wraps no other counted call. An ancestor around several calls
+    has a total for all of them, so it is never borrowed from. Tokens and cost are borrowed
+    separately:
+
+    - Tokens: a counted call that reported no usage takes its sole wrapper's tokens.
+      Streaming often leaves the client span without usage while the framework span
+      around it has it. A call that reported usage keeps its own.
+    - Cost: a counted call with no cost of its own takes its sole wrapper's cost, whether
+      or not it reported tokens. A framework span priced from its model name can wrap a
+      client span that reported tokens but no model name, and so has no price.
+
+    A call is priced when it ends up with a cost.
 
     The two parts are worked out apart, as if the link from each scorer subtree to its
     parent were cut, so a judge call never hides or borrows from a task span above its
@@ -226,12 +235,16 @@ def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
                 continue
             part = scorer if sid in in_scorer else task
             part["llm_calls"] += 1
-            usage = _call_usage(sid, t["spans"], parents, calls_under)
+            wrapper = _sole_wrapper(sid, t["spans"], parents, calls_under)
+            # Tokens and cost are borrowed separately: a call can report tokens without a
+            # price, or a price without tokens.
+            usage = sp if _has_usage(sp) or wrapper is None else wrapper
             part["prompt_tokens"] += int(usage["input_tokens"] or 0)
             part["completion_tokens"] += int(usage["output_tokens"] or 0)
             part["total_tokens"] += int(usage["total_tokens"] or 0)
-            # The ancestor whose usage stands for this call is the one it borrows cost from.
-            cost = sp["cost"] if sp["cost"] is not None else usage["cost"]
+            cost = sp["cost"]
+            if cost is None and wrapper is not None:
+                cost = wrapper["cost"]
             if cost is not None:
                 part["cost"] += float(cost)
                 part["priced_llm_calls"] += 1
@@ -250,14 +263,10 @@ def _has_usage(span: dict) -> bool:
     return any(span[k] for k in ("input_tokens", "output_tokens", "total_tokens"))
 
 
-def _call_usage(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict:
-    """The span whose token counts, and cost when the call has none, stand for counted
-    call ``sid``: the call itself if it reported usage, else its nearest model-call
-    ancestor when that ancestor wraps only this call. ``parents`` maps each span to its
-    parent in the same part of the trace, so the ancestor is never the other part's."""
-    span = spans[sid]
-    if _has_usage(span):
-        return span
+def _sole_wrapper(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict | None:
+    """The nearest model-call ancestor of counted call ``sid`` when that ancestor wraps
+    only this call, else None. ``parents`` maps each span to its parent in the same part
+    of the trace, so the ancestor is never the other part's."""
     parent = parents.get(sid)
     seen: set[str] = set()
     while parent is not None and parent not in seen and calls_under[parent] == 1:
@@ -267,7 +276,7 @@ def _call_usage(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict
             # The nearest model-call ancestor decides; nothing above it is this call's alone.
             return ancestor
         parent = parents.get(parent)
-    return span
+    return None
 
 
 # The metric columns are Postgres INTEGER. A value outside that range raises inside the

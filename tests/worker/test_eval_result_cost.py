@@ -390,9 +390,10 @@ class TestEachModelCallIsCountedOnce:
 class TestAUsageLessCallBorrowsItsWrappersUsage:
     """Streaming often leaves the client's LLM span without usage while the framework's
     LLM span around it has it. The call is still counted once, at the inner span, but its
-    tokens, and its cost when it has none, come from the nearest LLM ancestor — as long as
-    that ancestor wraps only this call, so a step wrapper's total for several calls is
-    never borrowed."""
+    tokens come from the nearest LLM ancestor — as long as that ancestor wraps only this
+    call, so a step wrapper's total for several calls is never borrowed. Cost is borrowed
+    from the same ancestor on its own terms: whenever the call has no cost, even if it
+    reported tokens."""
 
     def _metrics(self, rows):
         return _eval_metrics_by_trace(rows)[T].task
@@ -465,6 +466,34 @@ class TestAUsageLessCallBorrowsItsWrappersUsage:
         )
         assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
         assert m.cost == pytest.approx(0.003)
+
+    def test_a_call_with_tokens_but_no_price_takes_its_wrappers_cost(self):
+        # The framework span is priced from its model name; the client span under it
+        # reported tokens but no model name, so it has no price of its own.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.004),
+                _row("client", "chain", "LLM", None, tokens=(10, 5, 15)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.004)
+        # Tokens still come from the call itself, which reported them.
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (10, 5, 15)
+
+    def test_a_judge_call_with_tokens_but_no_price_takes_its_wrappers_cost(self):
+        m = _eval_metrics_by_trace(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("scorer", "root", "SCORER", None),
+                _row("chain", "scorer", "LLM", 0.004),
+                _row("client", "chain", "LLM", None, tokens=(10, 5, 15)),
+            ]
+        )[T].scorer
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.004)
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (10, 5, 15)
 
     def test_a_wrapper_around_several_calls_lends_no_cost(self):
         # The step's 0.01 is for both calls, so neither call can take it as its own.
