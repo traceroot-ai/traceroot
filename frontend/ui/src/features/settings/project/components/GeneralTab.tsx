@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { updateProject, deleteProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
+import { isSubmitEnter } from "@/lib/keyboard";
 
 interface GeneralTabProps {
   projectId: string;
@@ -146,7 +147,7 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleDelete()}
+              onKeyDown={(e) => isSubmitEnter(e) && handleDelete()}
               placeholder="Project name"
             />
           </div>

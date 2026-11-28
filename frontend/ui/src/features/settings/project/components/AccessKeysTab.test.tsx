@@ -125,12 +125,56 @@ it.each(["create", "update", "delete"] as const)(
   },
 );
 
-it("associates the API key name field with its visible label", () => {
+const KEY = {
+  id: "key-1",
+  name: "Test key",
+  key_hint: "tr-1234",
+  create_time: new Date().toISOString(),
+  last_use_time: null,
+};
+
+function renderTab() {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <AccessKeysTab projectId="p" />
     </QueryClientProvider>,
   );
+}
+
+it("associates the API key name field with its visible label", () => {
+  renderTab();
   fireEvent.click(screen.getByRole("button", { name: "Create new API key" }));
   expect(within(screen.getByRole("dialog")).getByLabelText("Name (optional)")).toBeTruthy();
+});
+
+it("creates a key on Enter, not on the Enter that confirms an IME candidate", async () => {
+  vi.mocked(getAccessKeys).mockResolvedValue({ access_keys: [] });
+  vi.mocked(createAccessKey).mockResolvedValue({
+    data: { key: "tr-new" },
+  } as unknown as Awaited<ReturnType<typeof createAccessKey>>);
+  renderTab();
+  fireEvent.click(await screen.findByText("Create new API key"));
+  const input = within(screen.getByRole("dialog")).getByRole("textbox");
+  fireEvent.change(input, { target: { value: "Production" } });
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+  expect(createAccessKey).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 13 });
+  await vi.waitFor(() => expect(createAccessKey).toHaveBeenCalledTimes(1));
+});
+
+it("saves a note on Enter, not on the Enter that confirms an IME candidate", async () => {
+  vi.mocked(getAccessKeys).mockResolvedValue({ access_keys: [KEY] } as Awaited<
+    ReturnType<typeof getAccessKeys>
+  >);
+  vi.mocked(updateAccessKey).mockResolvedValue({} as Awaited<ReturnType<typeof updateAccessKey>>);
+  renderTab();
+  fireEvent.click(await screen.findByText("Test key"));
+  const input = within(screen.getByRole("dialog")).getByRole("textbox");
+  fireEvent.change(input, { target: { value: "Production" } });
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+  expect(updateAccessKey).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 13 });
+  await vi.waitFor(() => expect(updateAccessKey).toHaveBeenCalledTimes(1));
 });

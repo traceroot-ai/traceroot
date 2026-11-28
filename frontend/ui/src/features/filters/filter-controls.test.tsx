@@ -100,6 +100,27 @@ describe("TextField", () => {
     render(<TextField ariaLabel="value" placeholder="Enter value" value="" onChange={vi.fn()} />);
     expect(screen.getByLabelText("value").getAttribute("maxLength")).toBe(String(MAX_VALUE_LENGTH));
   });
+
+  it.each([
+    ["while composing", { isComposing: true }],
+    ["for the Safari confirm key", { keyCode: 229 }],
+  ])("does not apply on an IME Enter %s", (_label, init) => {
+    const onEnter = vi.fn();
+    render(
+      <TextField
+        ariaLabel="value"
+        placeholder="Enter value"
+        value="Production"
+        onChange={vi.fn()}
+        onEnter={onEnter}
+      />,
+    );
+    const input = screen.getByLabelText("value");
+    fireEvent.keyDown(input, { key: "Enter", ...init });
+    expect(onEnter).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 13 });
+    expect(onEnter).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ValueDropdown", () => {
