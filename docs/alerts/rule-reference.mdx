@@ -71,6 +71,8 @@ Filters limit which spans are measured. A span must match every filter on the ru
 | `is_root` | Whether the span is the root of its trace (`true` or `false`) | `=` |
 | `metadata` | A metadata value on the span. Requires a key. | `=`, `contains` |
 
+For `=` filters, `status` accepts exactly `OK` or `ERROR`, and `span_kind` accepts exactly `LLM`, `AGENT`, `TOOL`, `SPAN`, `DECISION`, `EVALUATION`, `TASK`, or `SCORER`. Values are case-sensitive. The API rejects unknown values with HTTP 400.
+
 **Unique user ids** and **Unique session ids** work only on rules without filters.
 
 ## When a window has no data

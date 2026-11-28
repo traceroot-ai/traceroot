@@ -7,6 +7,8 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   KEYED_ALERT_FILTER_FIELDS,
   SETTABLE_ALERT_STATUSES,
+  SpanKind,
+  SpanStatus,
   alertThresholdProblem,
   getMeasure,
   isAlertAggregation,
@@ -41,6 +43,12 @@ const filterValueSchema = z.union([
   z.string().min(1).max(FILTER_VALUE_MAX),
   z.number().refine(Number.isFinite, "filter value must be a finite number"),
 ]);
+
+// Sorted so API errors remain stable when the enum map is extended.
+const CLOSED_FILTER_VALUES: Partial<Record<string, readonly string[]>> = {
+  span_kind: [...Object.values(SpanKind)].sort(),
+  status: [...Object.values(SpanStatus)].sort(),
+};
 
 // Strict: a misspelled `key` would otherwise silently store an unkeyed filter.
 // A field, operator or key the engine does not declare is not a filter that
@@ -77,6 +85,17 @@ const filterSchema = z
         path: ["op"],
         message: `Operator "${filter.op}" is not valid for "${filter.field}"`,
       });
+    }
+    if (filter.op === "=") {
+      const allowed = CLOSED_FILTER_VALUES[filter.field];
+      const value = String(filter.value);
+      if (allowed !== undefined && !allowed.includes(value)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["value"],
+          message: `"${value}" is not a valid ${filter.field}; expected one of: ${allowed.join(", ")}`,
+        });
+      }
     }
   });
 

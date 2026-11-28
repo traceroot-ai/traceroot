@@ -4,6 +4,8 @@ import {
   ALERT_NAME_MAX,
   ALERT_RENOTIFY_MAX_MINUTES,
   ALERT_RENOTIFY_MIN_MINUTES,
+  SpanKind,
+  SpanStatus,
 } from "@traceroot/core";
 import {
   ALERT_FILTERS_MAX,
@@ -207,6 +209,62 @@ describe("alertCreateSchema", () => {
       );
 
       expect(firstMessage(result)).toBe('Operator "contains" is not valid for "is_root"');
+    });
+
+    it("validates equality values for span_kind and status", () => {
+      const spanKind = alertCreateSchema.safeParse(
+        createBody({ filters: [{ field: "span_kind", op: "=", value: "GENERATION" }] }),
+      );
+      expect(firstMessage(spanKind)).toBe(
+        '"GENERATION" is not a valid span_kind; expected one of: AGENT, DECISION, EVALUATION, LLM, SCORER, SPAN, TASK, TOOL',
+      );
+
+      const status = alertCreateSchema.safeParse(
+        createBody({ filters: [{ field: "status", op: "=", value: "llm" }] }),
+      );
+      expect(firstMessage(status)).toBe('"llm" is not a valid status; expected one of: ERROR, OK');
+
+      const numeric = alertCreateSchema.safeParse(
+        createBody({ filters: [{ field: "span_kind", op: "=", value: 1 }] }),
+      );
+      expect(firstMessage(numeric)).toBe(
+        '"1" is not a valid span_kind; expected one of: AGENT, DECISION, EVALUATION, LLM, SCORER, SPAN, TASK, TOOL',
+      );
+    });
+
+    it("accepts valid equality values and leaves contains unchecked", () => {
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "span_kind", op: "=", value: "LLM" }] }),
+        ).success,
+      ).toBe(true);
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "status", op: "=", value: "ERROR" }] }),
+        ).success,
+      ).toBe(true);
+      expect(
+        alertCreateSchema.safeParse(
+          createBody({ filters: [{ field: "span_kind", op: "contains", value: "generation" }] }),
+        ).success,
+      ).toBe(true);
+    });
+
+    it("accepts every declared span_kind and status value", () => {
+      for (const value of Object.values(SpanKind)) {
+        expect(
+          alertCreateSchema.safeParse(
+            createBody({ filters: [{ field: "span_kind", op: "=", value }] }),
+          ).success,
+        ).toBe(true);
+      }
+      for (const value of Object.values(SpanStatus)) {
+        expect(
+          alertCreateSchema.safeParse(
+            createBody({ filters: [{ field: "status", op: "=", value }] }),
+          ).success,
+        ).toBe(true);
+      }
     });
 
     it("trims the key, and rejects a key that trims to nothing", () => {

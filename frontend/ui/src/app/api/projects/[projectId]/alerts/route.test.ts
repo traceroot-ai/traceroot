@@ -413,6 +413,31 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
+  it("rejects invalid span_kind equality values without updating the rule", async () => {
+    const res = await patch({
+      filters: [{ field: "span_kind", op: "=", value: "GENERATION" }],
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        '"GENERATION" is not a valid span_kind; expected one of: AGENT, DECISION, EVALUATION, LLM, SCORER, SPAN, TASK, TOOL',
+    });
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid status equality values without updating the rule", async () => {
+    const res = await patch({
+      filters: [{ field: "status", op: "=", value: "ok" }],
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: '"ok" is not a valid status; expected one of: ERROR, OK',
+    });
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
   describe("the merged rule, not the patch alone, is what must be evaluable", () => {
     const spanFilter = [{ field: "span_kind", op: "=", value: "LLM" }];
 
@@ -610,6 +635,27 @@ describe("POST /api/projects/[projectId]/alerts", () => {
 
       expect(res.status).toBe(400);
       if (message !== null) expect(await res.json()).toEqual({ error: message });
+    }
+    expect(alertCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid span_kind and status equality values", async () => {
+    const rejected: [Record<string, unknown>, string][] = [
+      [
+        { field: "span_kind", op: "=", value: "GENERATION" },
+        '"GENERATION" is not a valid span_kind; expected one of: AGENT, DECISION, EVALUATION, LLM, SCORER, SPAN, TASK, TOOL',
+      ],
+      [
+        { field: "status", op: "=", value: "ok" },
+        '"ok" is not a valid status; expected one of: ERROR, OK',
+      ],
+    ];
+
+    for (const [filter, message] of rejected) {
+      const res = await post({ ...validRule, filters: [filter] });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: message });
     }
     expect(alertCreate).not.toHaveBeenCalled();
   });
