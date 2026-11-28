@@ -721,6 +721,41 @@ describe("duplicate scorer rows for the same scorer name (a version bump or a de
     expect(forward.results[0].scorerCells[0].classification).toBe("unchanged");
     expect(forward.results[0].scorerCells[0].candidateValue).toBe(0.9);
   });
+
+  it("reads the version the run declared, even when it sorts lower as a string (v10 vs v9)", () => {
+    const scorers = [{ name: "acc", version: "v10" }];
+    const out = compareRuns(
+      build({
+        candidate: run({ scorers }),
+        baseline: run({ id: "run_base", runNumber: 1, scorers }),
+        candidateResults: [
+          result("a", { scores: [num("acc", 0.2, "v9"), num("acc", 0.9, "v10")] }),
+        ],
+        baselineResults: [result("a", { scores: [num("acc", 0.9, "v10")] })],
+      }),
+    );
+    const cell = out.results[0].scorerCells[0];
+    expect(cell.scorerVersion).toBe("v10");
+    expect(cell.candidateValue).toBe(0.9);
+    expect(cell.classification).toBe("unchanged");
+    expect(out.comparison.scorers[0].pairedCount).toBe(1);
+  });
+
+  it("reads each side by its own run's declaration", () => {
+    const rows = [num("acc", 0.4, "v1"), num("acc", 0.8, "v2")];
+    const out = compareRuns(
+      build({
+        candidate: run({ scorers: [{ name: "acc", version: "v1" }] }),
+        baseline: run({ id: "run_base", runNumber: 1, scorers: [{ name: "acc", version: "v2" }] }),
+        candidateResults: [result("a", { scores: rows })],
+        baselineResults: [result("a", { scores: rows })],
+      }),
+    );
+    const cell = out.results[0].scorerCells[0];
+    expect(cell.candidateValue).toBe(0.4);
+    expect(cell.baselineValue).toBe(0.8);
+    expect(cell.reason).toBe("version_mismatch");
+  });
 });
 
 describe("deriveComparisonState (four-state discriminant)", () => {
