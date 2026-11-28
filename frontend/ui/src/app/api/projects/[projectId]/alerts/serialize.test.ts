@@ -91,6 +91,14 @@ it("uses the public Demo creator for alert list and detail without resolving sta
   });
 });
 
+it("keeps ordinary workspace creator names when a different Demo is configured", async () => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "demo");
+  mockProject.mockResolvedValue(null);
+  mockFindMany.mockResolvedValue([{ id: "user-1", name: "Staff", email: "staff@example.com" }]);
+  expect((await withCreators([summaryRow()], "own-project"))[0].creator).toBe("Staff");
+  expect((await serializeAlert(fullRow(), "own-project")).creator).toBe("Staff");
+});
+
 describe("decimalToNumber", () => {
   it("renders a Decimal as a plain number and passes a number through untouched", () => {
     expect(decimalToNumber(new Prisma.Decimal("500.000"))).toBe(500);

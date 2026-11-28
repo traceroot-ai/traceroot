@@ -7,11 +7,13 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchNextApi } from "@/lib/api/client";
 import { useDemoAccess } from "@/features/workspaces/hooks/use-demo-access";
+import { useSession } from "@/lib/auth-client";
 
 export function DemoEntry() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const demo = useDemoAccess();
+  const { data: session, isPending: sessionPending } = useSession();
   const join = useMutation({
     mutationFn: () => fetchNextApi<{ projectId: string }>("/demo", { method: "POST" }),
     onSuccess: ({ projectId }) => {
@@ -41,7 +43,17 @@ export function DemoEntry() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {demo.isPending && <p className="text-sm text-muted-foreground">Loading demo...</p>}
+          {(sessionPending || (session && demo.isPending)) && (
+            <p className="text-sm text-muted-foreground">Loading demo...</p>
+          )}
+          {!sessionPending && !session && (
+            <Link
+              href="/auth/sign-in?callbackUrl=%2Fdemo"
+              className={buttonVariants({ variant: "outline" })}
+            >
+              Sign in to explore the demo
+            </Link>
+          )}
           {demo.data && !demo.data.available && (
             <p className="text-sm text-muted-foreground">
               The demo is not available on this deployment.

@@ -90,6 +90,12 @@ it("labels a public demo template without inventing a sampling rate or allowing 
   expect(screen.getByText("Not shared in the demo.")).toBeTruthy();
   expect((screen.getByRole("slider") as HTMLInputElement).disabled).toBe(true);
   expect(saveButton().disabled).toBe(true);
+  expect(
+    (screen.getByRole("group", { name: "Detector configuration" }) as HTMLFieldSetElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByDisplayValue(baseDetector.name) as HTMLInputElement).matches(":disabled"),
+  ).toBe(true);
   expect(screen.queryByText("25%")).toBeNull();
 });
 

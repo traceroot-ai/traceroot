@@ -2,11 +2,18 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-const mocks = vi.hoisted(() => ({ api: vi.fn(), push: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  api: vi.fn(),
+  push: vi.fn(),
+  userId: "visitor" as string | null,
+}));
 vi.mock("@/lib/api/client", () => ({ fetchNextApi: mocks.api }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/auth-client", () => ({
-  useSession: () => ({ data: { user: { id: "visitor" } } }),
+  useSession: () => ({
+    data: mocks.userId ? { user: { id: mocks.userId } } : null,
+    isPending: false,
+  }),
 }));
 import { DemoEntry } from "./demo-entry";
 
@@ -23,6 +30,7 @@ function mount() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.userId = "visitor";
   access = { available: true, joined: false, canLeave: false };
   mocks.api.mockImplementation(async (_path: string, options?: RequestInit) => {
     if (options?.method === "POST") {
@@ -37,6 +45,16 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+it("offers sign-in instead of loading forever when the browser session has ended", () => {
+  mocks.userId = null;
+  mount();
+  expect(
+    screen.getByRole("link", { name: "Sign in to explore the demo" }).getAttribute("href"),
+  ).toBe("/auth/sign-in?callbackUrl=%2Fdemo");
+  expect(screen.queryByText("Loading demo...")).toBeNull();
+  expect(mocks.api).not.toHaveBeenCalled();
+});
 
 it("does not join on load, then joins only after the explicit click", async () => {
   mount();

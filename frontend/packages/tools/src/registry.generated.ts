@@ -1027,7 +1027,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "get_detector",
     description:
-      "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+      "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions. Demo visitors receive only published catalog information.",
     method: "get",
     path: "/api/v1/public/detectors/{detector_id}",
     inputSchema: {

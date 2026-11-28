@@ -233,100 +233,106 @@ export function DetectorPanel({
             Public demo template. Working configuration is not shared.
           </p>
         )}
-        {/* Name */}
-        <div className="border border-border">
-          <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Name</span>
-          </div>
-          <div className="p-3">
-            <Input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className="h-8 text-[13px]"
-            />
-          </div>
-        </div>
-
-        {/* Models */}
-        <div className="border border-border">
-          <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Model</span>
-          </div>
-          {/* Detector Model — per-detector, editable */}
-          <div className="p-3">
-            {detector?.sampleRate === null ? (
-              <p className="text-[12px] text-muted-foreground">Not shared in the demo.</p>
-            ) : (
-              <ModelSelector
-                value={editModelSelection}
-                onChange={setEditModelSelection}
-                workspaceId={workspaceId}
-                defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
-                allowDecisionModels
+        <fieldset
+          disabled={detector?.sampleRate === null}
+          aria-label="Detector configuration"
+          className="m-0 min-w-0 space-y-3 border-0 p-0"
+        >
+          {/* Name */}
+          <div className="border border-border">
+            <div className="flex h-9 items-center border-b border-border px-4">
+              <span className="text-[13px] font-medium text-foreground">Name</span>
+            </div>
+            <div className="p-3">
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="h-8 text-[13px]"
               />
-            )}
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              Used to evaluate each trace for this detector.
-            </p>
+            </div>
           </div>
-        </div>
 
-        {/* Prompt */}
-        <div className="border border-border">
-          <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Prompt</span>
+          {/* Models */}
+          <div className="border border-border">
+            <div className="flex h-9 items-center border-b border-border px-4">
+              <span className="text-[13px] font-medium text-foreground">Model</span>
+            </div>
+            {/* Detector Model — per-detector, editable */}
+            <div className="p-3">
+              {detector?.sampleRate === null ? (
+                <p className="text-[12px] text-muted-foreground">Not shared in the demo.</p>
+              ) : (
+                <ModelSelector
+                  value={editModelSelection}
+                  onChange={setEditModelSelection}
+                  workspaceId={workspaceId}
+                  defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+                  allowDecisionModels
+                />
+              )}
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                Used to evaluate each trace for this detector.
+              </p>
+            </div>
           </div>
-          <div className="p-3">
-            <textarea
-              value={editPrompt}
-              onChange={(e) => setEditPrompt(e.target.value)}
-              rows={10}
-              className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
+
+          {/* Prompt */}
+          <div className="border border-border">
+            <div className="flex h-9 items-center border-b border-border px-4">
+              <span className="text-[13px] font-medium text-foreground">Prompt</span>
+            </div>
+            <div className="p-3">
+              <textarea
+                value={editPrompt}
+                onChange={(e) => setEditPrompt(e.target.value)}
+                rows={10}
+                className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          {/* Filter */}
+          <div className="border border-border">
+            <TriggerEditor
+              conditions={editConditions}
+              projectId={projectId}
+              onChange={setEditConditions}
+              asCard
             />
           </div>
-        </div>
 
-        {/* Filter */}
-        <div className="border border-border">
-          <TriggerEditor
-            conditions={editConditions}
+          {/* Sampling */}
+          <div className="border border-border">
+            <div className="flex h-9 items-center border-b border-border px-4">
+              <span className="text-[13px] font-medium text-foreground">Sampling</span>
+            </div>
+            <div className="flex items-center gap-3 p-3">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={editSampleRate}
+                disabled={detector?.sampleRate === null}
+                onChange={(e) => setEditSampleRate(Number(e.target.value))}
+                className="flex-1 cursor-pointer accent-brand"
+              />
+              <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
+                {detector?.sampleRate === null ? "—" : `${editSampleRate}%`}
+              </span>
+            </div>
+          </div>
+
+          <SignalsCard
+            idPrefix="edit-detector"
+            enableSignals={editEnableSignals}
+            onEnableSignalsChange={setEditEnableSignals}
+            enableRca={editEnableRca}
+            onEnableRcaChange={setEditEnableRca}
             projectId={projectId}
-            onChange={setEditConditions}
-            asCard
+            rcaModel={project?.rca_model}
+            workspaceId={workspaceId}
           />
-        </div>
-
-        {/* Sampling */}
-        <div className="border border-border">
-          <div className="flex h-9 items-center border-b border-border px-4">
-            <span className="text-[13px] font-medium text-foreground">Sampling</span>
-          </div>
-          <div className="flex items-center gap-3 p-3">
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={editSampleRate}
-              disabled={detector?.sampleRate === null}
-              onChange={(e) => setEditSampleRate(Number(e.target.value))}
-              className="flex-1 cursor-pointer accent-brand"
-            />
-            <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
-              {detector?.sampleRate === null ? "—" : `${editSampleRate}%`}
-            </span>
-          </div>
-        </div>
-
-        <SignalsCard
-          idPrefix="edit-detector"
-          enableSignals={editEnableSignals}
-          onEnableSignalsChange={setEditEnableSignals}
-          enableRca={editEnableRca}
-          onEnableRcaChange={setEditEnableRca}
-          projectId={projectId}
-          rcaModel={project?.rca_model}
-          workspaceId={workspaceId}
-        />
+        </fieldset>
 
         {/* Save / Cancel */}
         <div className="flex items-center justify-end gap-2 pt-1">

@@ -146,4 +146,10 @@ test("demo membership requires a choice and stays revoked after another login", 
   expect((await membership())?.role).toBe("ADMIN");
   expect((await request.delete(`${base}/api/demo`)).status()).toBe(403);
   expect((await membership())?.role).toBe("ADMIN");
+  await request.post(`${base}/api/auth/sign-out`, { headers: { Origin: base } });
+  await context.addCookies([
+    { name: "better-auth.session_token", value: "expired-test-session", url: base },
+  ]);
+  await page.goto(`${base}/demo`);
+  await expect(page.getByRole("link", { name: "Sign in to explore the demo" })).toBeVisible();
 });

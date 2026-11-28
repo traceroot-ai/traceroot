@@ -149,6 +149,9 @@ it("omits key metadata from both workspace project lists and excludes retired de
     workspaceId: "demo",
     deleteTime: null,
   });
+  expect(db.workspace.findUnique.mock.calls[0][0].include.projects.where).toEqual({
+    deleteTime: null,
+  });
 });
 
 it("publishes the same public template in detector list and detail, not working configuration", async () => {
@@ -161,6 +164,8 @@ it("publishes the same public template in detector list and detail, not working 
     name: "Example failures",
     trigger: null,
     detectionModel: null,
+    enableRca: false,
+    enableSignals: false,
   });
   expect(JSON.stringify(list)).not.toContain("INTERNAL_");
   expect(JSON.stringify(list)).not.toContain("981");
@@ -178,6 +183,21 @@ it("does not turn unknown custom templates into a disclosure path", async () => 
     sampleRate: null,
   });
 });
+
+it.each([false, true])(
+  "does not reveal stored RCA or signal settings when they are %s",
+  async (enabled) => {
+    db.detector.findFirst.mockResolvedValue({
+      ...internalDetector,
+      enableRca: enabled,
+      enableSignals: enabled,
+    });
+    expect((await call(detector)).data.detector).toMatchObject({
+      enableRca: false,
+      enableSignals: false,
+    });
+  },
+);
 
 it("uses a demo creator label in both dashboard reads without resolving staff identities", async () => {
   const list = (await call(dashboards)).data.data as Record<string, unknown>[];
