@@ -3,7 +3,8 @@
 docker-compose.prod.yml passes a container only the variables it lists, so a limit
 left out there keeps its default whatever .env says. Each byte limit is passed to
 both ``rest`` and ``worker`` from the same .env value, so the two can never disagree.
-The budgets on what a batch decodes into are passed to ``worker``, which checks them.
+The budgets on what a batch decodes into are passed to ``worker``, which checks them, and
+so is the limit on redelivering a batch whose worker process died.
 """
 
 from pathlib import Path
@@ -22,6 +23,7 @@ LIMITS = {
 BUDGETS = {
     "INGEST_MAX_SPANS": "max_spans",
     "INGEST_MAX_OBJECTS": "max_objects",
+    "INGEST_MAX_DELIVERIES": "max_deliveries",
 }
 
 
