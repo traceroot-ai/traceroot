@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   makeEvalStore,
   prismaFacade,
@@ -49,6 +49,10 @@ function storedResult(): Row {
   expect(store.evaluationResult.rows).toHaveLength(1);
   return store.evaluationResult.rows[0];
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   store = makeEvalStore();
@@ -306,7 +310,6 @@ describe("POST … /results — the run's counts", () => {
       "Failed to update the counts of evaluation run run-1 (project proj-1)",
       expect.objectContaining({ message: "lock timeout" }),
     );
-    log.mockRestore();
   });
 });
 

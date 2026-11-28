@@ -81,6 +81,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("POST /api/public/evaluation-runs/[runId]/complete", () => {
@@ -236,7 +237,6 @@ describe("POST complete — counts come from the stored results", () => {
       "Failed to update the counts of evaluation run run-1 (project proj-1)",
       expect.objectContaining({ message: "lock timeout" }),
     );
-    log.mockRestore();
     // Finished, and carrying the counts it was sent rather than zeros.
     expect(storedRun()).toMatchObject({
       status: "completed",
