@@ -18,6 +18,8 @@ from tests.test_published_secrets import (
 )
 from tmux_tools.launcher import ensure_env_file, fill_secrets
 
+pytestmark = pytest.mark.usefixtures("isolated_generated_secrets")
+
 
 def test_prod_lite_generates_an_encryption_key_when_none_is_set(tmp_path):
     (tmp_path / ".env.example").write_text("ENCRYPTION_KEY=\n")
@@ -179,3 +181,10 @@ def test_the_reader_does_not_depend_on_gnu_only_sed_features(tmp_path):
     assert result.stdout == _KEY
     code = [ln for ln in _ENV_VALUE.read_text().splitlines() if not ln.lstrip().startswith("#")]
     assert not [ln for ln in code if re.search(r"\bsed\b", ln)]
+
+
+def test_checkout_secrets_are_isolated_from_temporary_env_files():
+    """Root .env values loaded at pytest startup must not leak into Compose probes."""
+    from tmux_tools.launcher import ALL_GENERATED_KEYS
+
+    assert all(key not in os.environ for key in ALL_GENERATED_KEYS)

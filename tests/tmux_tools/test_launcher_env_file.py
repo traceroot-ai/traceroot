@@ -12,6 +12,8 @@ from tests.test_published_secrets import (
 )
 from tmux_tools.launcher import ALL_GENERATED_KEYS, ensure_env_file
 
+pytestmark = pytest.mark.usefixtures("isolated_generated_secrets")
+
 
 def test_launcher_refuses_a_symlinked_env_without_writing_through_it(tmp_path):
     example = tmp_path / ".env.example"

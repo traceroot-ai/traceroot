@@ -44,3 +44,12 @@ def _reset_singletons(monkeypatch):
     # Discovery holds a client AND a short-lived answer cache, so a leaked instance
     # can serve one test's rows to the next.
     monkeypatch.setattr(td_mod, "_service", None)
+
+
+@pytest.fixture
+def isolated_generated_secrets(monkeypatch):
+    """Keep checkout secrets from overriding temporary env files in setup tests."""
+    from tmux_tools.launcher import ALL_GENERATED_KEYS
+
+    for key in ALL_GENERATED_KEYS:
+        monkeypatch.delenv(key, raising=False)
