@@ -144,6 +144,12 @@ def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
       or not it reported tokens. A framework span priced from its model name can wrap a
       client span that reported tokens but no model name, and so has no price.
 
+    A cost of 0 on a span that reported no usage counts as no cost, on the call and on the
+    wrapper alike. Ingest prices a call with no usage and no captured text from zero
+    tokens, so a priced model stores exactly 0 for it, and taking that as the price would
+    turn missing telemetry into $0. Such a call takes its sole wrapper's cost, or, with no
+    wrapper, stays unpriced. A 0 on a span that reported usage is a real, free call.
+
     A call is priced when it ends up with a cost.
 
     The two parts are worked out apart, as if the link from each scorer subtree to its
@@ -242,9 +248,9 @@ def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
             part["prompt_tokens"] += int(usage["input_tokens"] or 0)
             part["completion_tokens"] += int(usage["output_tokens"] or 0)
             part["total_tokens"] += int(usage["total_tokens"] or 0)
-            cost = sp["cost"]
+            cost = _price(sp)
             if cost is None and wrapper is not None:
-                cost = wrapper["cost"]
+                cost = _price(wrapper)
             if cost is not None:
                 part["cost"] += float(cost)
                 part["priced_llm_calls"] += 1
@@ -261,6 +267,19 @@ def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
 
 def _has_usage(span: dict) -> bool:
     return any(span[k] for k in ("input_tokens", "output_tokens", "total_tokens"))
+
+
+def _price(span: dict):
+    """The span's cost if it is a real price, else None.
+
+    A cost of 0 on a span that reported no usage is missing telemetry, not a free call:
+    ingest prices a call with no usage and no captured text from zero tokens, and a priced
+    model then stores exactly 0. A 0 on a span that reported usage is a real price.
+    """
+    cost = span["cost"]
+    if cost is None or (not cost and not _has_usage(span)):
+        return None
+    return cost
 
 
 def _sole_wrapper(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict | None:

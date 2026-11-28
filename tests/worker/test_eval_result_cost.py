@@ -495,6 +495,40 @@ class TestAUsageLessCallBorrowsItsWrappersUsage:
         assert m.cost == pytest.approx(0.004)
         assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (10, 5, 15)
 
+    def test_a_zero_token_zero_cost_call_takes_its_wrappers_cost(self):
+        # Ingest prices a call with no usage and no captured text from zero tokens, so a
+        # priced model stores cost 0.0 for it. That 0 is missing telemetry, not a price.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.003, tokens=(18, 29, 47)),
+                _row("client", "chain", "LLM", 0.0, tokens=(0, 0, 0)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 1)
+        assert m.cost == pytest.approx(0.003)
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (18, 29, 47)
+
+    def test_a_zero_token_zero_cost_call_alone_is_unpriced(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("client", "root", "LLM", 0.0, tokens=(0, 0, 0)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 0)
+
+    def test_a_wrappers_zero_token_zero_cost_is_not_lent(self):
+        # The same missing telemetry on the wrapper side: it must not price the call at $0.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.0, tokens=(0, 0, 0)),
+                _row("client", "chain", "LLM", None, tokens=(10, 5, 15)),
+            ]
+        )
+        assert (m.llm_calls, m.priced_llm_calls) == (1, 0)
+
     def test_a_wrapper_around_several_calls_lends_no_cost(self):
         # The step's 0.01 is for both calls, so neither call can take it as its own.
         m = self._metrics(
@@ -820,18 +854,29 @@ class TestTheScorerColumnsAreWritten:
         return cur
 
     def _writes(self, cur):
-        """``{trace_id: dict(new column -> param)}`` for each metrics UPDATE."""
+        """``{trace_id: {column: param}}`` for each metrics UPDATE, every column in it.
+
+        Columns are paired with params by parsing the SQL, not by position, so a swap of
+        two columns' values fails the test that reads them."""
         out = {}
         for c in cur.execute.call_args_list:
             sql, params = c[0]
             if "NULLIF" not in sql:
                 continue
             for column in self.NEW_COLUMNS:
+                # Real counts and a real sum: none of the four is NULLIF'd.
                 assert re.search(rf"(?<![a-z_]){column} = %s", sql), column
-            # cost, prompt, completion, total, calls, duration, then the four new
-            # columns in order, then project_id + trace_id.
-            out[params[-1]] = dict(zip(self.NEW_COLUMNS, params[6:10], strict=True))
+            columns = re.findall(r"(\w+) = (?:NULLIF\()?%s", sql)
+            write = dict(zip(columns, params, strict=True))
+            out[write["trace_id"]] = write
         return out
+
+    def _new_columns(self, cur):
+        """``{trace_id: {new column: param}}``, the four columns this change adds."""
+        return {
+            trace: {column: write[column] for column in self.NEW_COLUMNS}
+            for trace, write in self._writes(cur).items()
+        }
 
     def test_a_trace_with_spans_writes_all_four_and_one_without_gets_only_the_markers(self):
         cur = self._run(
@@ -845,7 +890,7 @@ class TestTheScorerColumnsAreWritten:
             ],
             [T, "no-spans"],
         )
-        writes = self._writes(cur)
+        writes = self._new_columns(cur)
         assert set(writes) == {T}, "a trace with no spans gets no metrics UPDATE"
         assert writes[T] == {
             "priced_llm_calls": 1,
@@ -866,23 +911,67 @@ class TestTheScorerColumnsAreWritten:
             ],
             [T],
         )
-        assert self._writes(cur)[T] == {
+        assert self._new_columns(cur)[T] == {
             "priced_llm_calls": 0,
             "scorer_cost": None,
             "scorer_llm_calls": 0,
             "scorer_priced_llm_calls": 0,
         }
 
-    def test_a_priced_judge_that_cost_nothing_writes_a_real_zero(self):
+    def test_the_counts_land_in_their_own_columns(self):
+        # Every count differs (task 4 calls, 3 priced; scorers 2 calls, 1 priced), so a
+        # value written to the wrong column cannot pass.
         cur = self._run(
             [
                 _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("a", "task", "LLM", 0.001),
+                _row("b", "task", "LLM", 0.002),
+                _row("c", "task", "LLM", 0.003),
+                _row("d", "task", "LLM", None, tokens=(10, 5, 15)),
                 _row("scorer", "root", "SCORER", None),
-                _row("judge", "scorer", "LLM", 0.0),
+                _row("judge-priced", "scorer", "LLM", 0.004),
+                _row("judge-unpriced", "scorer", "LLM", None, tokens=(10, 5, 15)),
             ],
             [T],
         )
         write = self._writes(cur)[T]
+        assert (write["llm_calls"], write["priced_llm_calls"]) == (4, 3)
+        assert (write["scorer_llm_calls"], write["scorer_priced_llm_calls"]) == (2, 1)
+        assert write["cost"] == pytest.approx(0.006)
+        assert write["scorer_cost"] == pytest.approx(0.004)
+
+    def test_a_judge_that_lands_before_its_scorer_moves_over_on_the_next_batch(self):
+        # Under BatchSpanProcessor the SCORER exports after its judge call. Until the
+        # SCORER lands, the judge reads as a task call; the next batch moves it over.
+        root = _row("root", None, "EVALUATION", None)
+        judge = _row("judge", "scorer", "LLM", 0.001, tokens=(10, 5, 15))
+
+        first = self._writes(self._run([root, judge], [T]))[T]
+        assert (first["llm_calls"], first["priced_llm_calls"]) == (1, 1)
+        assert first["cost"] == pytest.approx(0.001)
+        assert first["scorer_cost"] is None
+        assert (first["scorer_llm_calls"], first["scorer_priced_llm_calls"]) == (0, 0)
+
+        scorer = _row("scorer", "root", "SCORER", None)
+        second = self._writes(self._run([root, scorer, judge], [T]))[T]
+        assert (second["llm_calls"], second["priced_llm_calls"]) == (0, 0)
+        assert second["cost"] == 0.0, "written, so NULLIF clears the task's cost"
+        assert second["scorer_cost"] == pytest.approx(0.001)
+        assert (second["scorer_llm_calls"], second["scorer_priced_llm_calls"]) == (1, 1)
+
+    def test_a_priced_judge_that_cost_nothing_writes_a_real_zero(self):
+        # The judge reported real usage and its model is free, so 0 is its price, not
+        # missing telemetry.
+        cur = self._run(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge", "scorer", "LLM", 0.0, tokens=(12, 4, 16)),
+            ],
+            [T],
+        )
+        write = self._new_columns(cur)[T]
         assert write["scorer_cost"] == 0.0
         assert write["scorer_cost"] is not None
         assert (write["scorer_llm_calls"], write["scorer_priced_llm_calls"]) == (1, 1)
