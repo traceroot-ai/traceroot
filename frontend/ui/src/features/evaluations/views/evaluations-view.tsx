@@ -28,6 +28,7 @@ import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-ev
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
+import { oldestFirst } from "../compare/run-order";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
 
 // The Evaluations page is one flat table of immutable runs. Scorers live in the
@@ -301,9 +302,7 @@ function RunsTab({ projectId }: { projectId: string }) {
   // (earliest started) seeds the baseline; the page lets you re-pick it. Not the lowest
   // run number: numbers restart per evaluation, so they can't order runs across them.
   const compareSelected = () => {
-    const chosen = runs
-      .filter((r) => selectedIds.has(r.id))
-      .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+    const chosen = runs.filter((r) => selectedIds.has(r.id)).sort(oldestFirst);
     if (chosen.length < 2) return;
     // Cross-dataset selections are allowed (no pre-flight refusal): the compare view keys
     // alignment off the stable `datasetId`, lining rows up by dataset-row id within one

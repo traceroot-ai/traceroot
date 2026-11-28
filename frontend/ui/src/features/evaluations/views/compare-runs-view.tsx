@@ -8,22 +8,39 @@ import { Input } from "@/components/ui/input";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { EmptyState } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { pctFraction, changeSentiment, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
+import type { ScorerDirection } from "@/lib/eval/comparison";
 import { cn } from "@/lib/utils";
-import { canonicalInputKey } from "@/lib/eval/json-value";
 import { useEvaluationRunDetails } from "../hooks";
-import type { ResultRow, RunDetail, ScoreRow } from "../types";
+import { Delta, Dot, RunLabel } from "../compare/cells";
+import { scoreRowsOf } from "../compare/cell-state";
+import {
+  formatCost,
+  formatMetricDelta,
+  formatMetricValue,
+  formatMs,
+  signedWith,
+  type MetricFormat,
+} from "../compare/metric-format";
+import {
+  buildCompareModel,
+  comparePairs,
+  countCellsByScorer,
+  inputKeyOf,
+  pairExclusions,
+  type CaseRow,
+  type PairComparison,
+  type RunBundle,
+  type ScorerColumn,
+} from "../compare/model";
+import { MeanSummary, ScorerSummary, type PairedMean } from "../compare/pair-summary";
+import type { ResultRow, ScoreRow } from "../types";
 
-// A run comparison is N runs (2+) lined up case-by-case, anchored on the baseline run.
-// Alignment is decided per run against the baseline's DATASET (compared by `datasetId`,
-// the stable PK — never `datasetName`, which is display-only and freely renamed): a run
-// on the baseline's dataset aligns by `testCaseId` (the dataset-row id, stable across
-// input edits), and a run on a DIFFERENT dataset — whose case ids are dataset-scoped and
-// never match — aligns by shared (canonical) input instead. So a same-dataset pair keeps
-// exact row identity even when other runs in the selection span datasets. Each metric
-// column stacks one value per run, colour-keyed to the baseline picker; against the chosen
-// baseline every other run also shows a green/red improvement/regression delta — à la a
-// side-by-side experiment diff. Row drill-in is postponed (cells expand to full text).
+// A run comparison is N runs (2+) lined up case-by-case, anchored on the baseline run
+// (alignment lives in `../compare/model`). Each metric column stacks one value per run,
+// colour-keyed to the baseline picker; against the chosen baseline every other run also
+// shows a green/red improvement/regression delta — à la a side-by-side experiment diff.
+// The summary row compares each other run with the baseline on the cases both of them
+// scored. Row drill-in is postponed (cells expand to full text).
 
 // Stable per-run colours, keyed by selection order so a baseline change never
 // recolours the table. The baseline picker is the legend.
@@ -39,19 +56,14 @@ const RUN_DOTS = [
 ];
 
 // ── Formatters ────────────────────────────────────────────────────────────
-const isUnitScore = (v: number) => v >= 0 && v <= 1;
-const fmtPlainNumber = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
-/** A [0,1] score reads as a percentage; anything else as a trimmed number. */
-const fmtScoreNumber = (v: number) => (isUnitScore(v) ? pctFraction(v) : fmtPlainNumber(v));
-/** A score change reads in the scale of the two scores it compares: on a 1–5 rubric
- *  4 -> 5 is +1, not +100%, even though the difference itself falls in [0,1]. */
-const fmtScoreDelta = (delta: number, value: number, base: number) =>
-  isUnitScore(value) && isUnitScore(base)
-    ? pctFraction(delta)
-    : // Round off float noise (4.1 - 3.1 = 0.9999999999999996) so a whole point reads "1".
-      fmtPlainNumber(Math.round(delta * 100) / 100);
-const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
-const fmtCost = (n: number) => `$${n.toFixed(4)}`;
+/** A scorer column's value and change formatters, from its one format. */
+const scoreFormatters = (format: MetricFormat) => ({
+  fmt: (v: number) => formatMetricValue(v, format),
+  fmtDelta: (d: number) => formatMetricDelta(d, format),
+});
+/** A run's score row for a scorer: the one the comparison reads. */
+const scoreOf = (r: ResultRow | undefined, scorerName: string): ScoreRow | undefined =>
+  r && scoreRowsOf(r).get(scorerName);
 /** A scorer's value as a comparable number (booleans/pass-fail fold to 1/0). */
 function scoreNumeric(s: ScoreRow | undefined): number | null {
   if (!s || s.error) return null;
@@ -62,83 +74,17 @@ function scoreNumeric(s: ScoreRow | undefined): number | null {
 }
 /** A scorer value as display TEXT — used for categorical (string) scorers, whose
  *  value can't fold to a number and would otherwise render as "—". */
-function scoreText(s: ScoreRow | undefined): string {
+function scoreText(s: ScoreRow | undefined, format: MetricFormat): string {
   if (!s) return "—";
   if (s.error) return "error";
   if (s.stringValue !== null) return s.stringValue;
-  if (s.numericValue !== null) return fmtScoreNumber(s.numericValue);
+  if (s.numericValue !== null) return formatMetricValue(s.numericValue, format);
   if (s.boolValue !== null) return s.boolValue ? "true" : "false";
   if (s.passed !== null) return s.passed ? "pass" : "fail";
   return "—";
 }
-/** True when a scorer carries string values (categorical) rather than numbers. */
-function isCategoricalScore(s: ScoreRow): boolean {
-  return (
-    s.stringValue !== null && s.numericValue === null && s.boolValue === null && s.passed === null
-  );
-}
-function meanNumeric(vals: (number | null)[]): number | null {
-  const nums = vals.filter((v): v is number => v !== null);
-  return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
-}
-
-// A run plus two baseline-INDEPENDENT lookups over its own results:
-//  · byTestCase — keyed by dataset-row id, for a run on the baseline's dataset;
-//  · byInput    — keyed by canonical input, for a run on a different dataset.
-// Both resolve a duplicate key keep-first (the EARLIEST result wins). On `byTestCase` that
-// only dedupes a repeated dataset-row id, which a well-formed run doesn't have. On `byInput`
-// it decides real semantics: a cross-dataset run that measures one input several times
-// contributes only its first such case, and its remaining duplicates are dropped — the same
-// rule that already drops any of its cases the baseline has no row for. (Duplicate inputs on
-// the BASELINE side are unaffected: they keep distinct ids, so they stay distinct rows.)
-// Which lookup a run is read through is decided per baseline, when its `byCase` is built.
-type RunBundle = {
-  run: RunDetail;
-  results: ResultRow[];
-  byTestCase: Map<string, ResultRow>;
-  byInput: Map<string, ResultRow>;
-};
-// A run re-projected against the chosen baseline. `byCase` maps a baseline row key (the
-// baseline's `testCaseId`) to this run's aligned result — by testCaseId when the run is
-// on the baseline's dataset, else by a plain canonical-input lookup. Duplicate-input
-// baseline rows stay distinct rows; a cross-dataset run with a single case for a shared
-// input simply fills every baseline row carrying that input. This is what the table
-// consumes.
-type Bundle = RunBundle & { byCase: Map<string, ResultRow> };
-
-/** Keep-first insertion into a Map — a duplicate key keeps the earliest row. */
-function keepFirst(rows: ResultRow[], keyOf: (r: ResultRow) => string): Map<string, ResultRow> {
-  return rows.reduce(
-    (map, r) => (map.has(keyOf(r)) ? map : map.set(keyOf(r), r)),
-    new Map<string, ResultRow>(),
-  );
-}
 
 // ── Cell primitives ───────────────────────────────────────────────────────
-
-/** One coloured dot for a run. */
-function Dot({ color }: { color: string }) {
-  return <span className={cn("h-2 w-2 shrink-0 rounded-full", color)} aria-hidden />;
-}
-
-/** A signed, direction-aware delta vs the baseline (green = better, red = worse). */
-function Delta({
-  value,
-  fmt,
-  higherIsBetter,
-}: {
-  value: number;
-  fmt: (n: number) => string;
-  higherIsBetter: boolean;
-}) {
-  if (value === 0) return null;
-  return (
-    <span className={cn("ml-1", SENTIMENT_CLASS[changeSentiment(value, higherIsBetter)])}>
-      {value > 0 ? "+" : "−"}
-      {fmt(Math.abs(value))}
-    </span>
-  );
-}
 
 /** Truncated text that reveals its full value on hover (no click, no chrome). */
 function TextValue({ text }: { text: string | null }) {
@@ -160,20 +106,31 @@ function TextValue({ text }: { text: string | null }) {
   );
 }
 
-/** One value per run, stacked and colour-keyed (in baseline-first display order). */
+/** One value per run, stacked and colour-keyed (in baseline-first display order), each
+ *  named by its run for screen readers and on hover. */
 function RunStack({
   values,
   align = "left",
+  tooltipped = false,
 }: {
-  values: { runId: string; dot: string; node: React.ReactNode }[];
+  values: { runId: string; dot: string; label: string; node: React.ReactNode }[];
   align?: "left" | "right";
+  /** The values carry their own tooltip, so the native title would stack a second one. */
+  tooltipped?: boolean;
 }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", align === "right" && "items-end")}>
       {values.map((v) => (
-        <span key={v.runId} className="flex max-w-full items-center gap-1.5">
+        <span
+          key={v.runId}
+          title={tooltipped ? undefined : v.label}
+          className="flex max-w-full items-center gap-1.5"
+        >
           <Dot color={v.dot} />
-          <span className="min-w-0 truncate">{v.node}</span>
+          <span className="min-w-0 truncate">
+            <RunLabel label={v.label} />
+            {v.node}
+          </span>
         </span>
       ))}
     </div>
@@ -188,19 +145,21 @@ function NumericStack({
   ordered,
   baseline,
   dotFor,
+  labelOf,
   get,
   fmt,
   fmtDelta,
-  higherIsBetter,
+  direction,
 }: {
-  ordered: Bundle[];
-  baseline: Bundle;
+  ordered: RunBundle[];
+  baseline: RunBundle;
   dotFor: (runId: string) => string;
-  get: (b: Bundle) => number | null;
+  labelOf: (runId: string) => string;
+  get: (b: RunBundle) => number | null;
   fmt: (n: number) => string;
-  /** Formats a change against the baseline; defaults to `fmt`. */
-  fmtDelta?: (delta: number, value: number, base: number) => string;
-  higherIsBetter: boolean;
+  /** Formats a signed change against the baseline. */
+  fmtDelta: (delta: number) => string;
+  direction: ScorerDirection;
 }) {
   const base = get(baseline);
   return (
@@ -213,15 +172,12 @@ function NumericStack({
         return {
           runId: b.run.id,
           dot: dotFor(b.run.id),
+          label: labelOf(b.run.id),
           node: (
             <span className="whitespace-nowrap">
               {v === null ? "—" : fmt(v)}
               {delta !== null && (
-                <Delta
-                  value={delta}
-                  fmt={fmtDelta ? (d) => fmtDelta(d, v!, base!) : fmt}
-                  higherIsBetter={higherIsBetter}
-                />
+                <Delta value={delta} text={fmtDelta(delta)} direction={direction} />
               )}
             </span>
           ),
@@ -230,6 +186,60 @@ function NumericStack({
     />
   );
 }
+
+/**
+ * A summary cell: one line per run, baseline first, colour-keyed like the cells below. The
+ * baseline's line names it instead of showing a mean: each other run's line reads
+ * "baseline → candidate" for its own pair, and the baseline's mean differs from pair to
+ * pair when they cover different cases.
+ */
+function SummaryStack({
+  ordered,
+  baselineId,
+  dotFor,
+  labelOf,
+  line,
+}: {
+  ordered: RunBundle[];
+  baselineId: string;
+  dotFor: (runId: string) => string;
+  labelOf: (runId: string) => string;
+  /** A candidate's line, against the baseline. */
+  line: (candidateRunId: string) => React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col items-end gap-1">
+      {ordered.map(({ run }) => (
+        <div key={run.id} className="flex items-start gap-1.5">
+          <span className="flex h-[1lh] shrink-0 items-center">
+            <Dot color={dotFor(run.id)} />
+          </span>
+          <span className="min-w-0 text-right">
+            <RunLabel label={labelOf(run.id)} />
+            {run.id === baselineId ? (
+              <span className="text-muted-foreground">Baseline</span>
+            ) : (
+              line(run.id)
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A pair's mean case latency, in the shape the summary reads. */
+const durationOf = (pair: PairComparison | undefined): PairedMean | undefined => {
+  const d = pair?.comparison.duration;
+  return (
+    d && {
+      baselineMean: d.baselineMeanMs,
+      candidateMean: d.candidateMeanMs,
+      delta: d.deltaMs,
+      pairedCount: d.pairedCount,
+    }
+  );
+};
 
 // ── The page ──────────────────────────────────────────────────────────────
 
@@ -256,133 +266,40 @@ export function CompareRunsView({
     [runIds],
   );
 
-  // The loaded run+results, each with its two baseline-INDEPENDENT lookups built once
-  // (keep-first). Which lookup a run is read through is decided later, per baseline, so
-  // re-picking the baseline never rebuilds these maps (no re-canonicalization).
   const loaded = React.useMemo<RunBundle[]>(
-    () =>
-      queries
-        .map((q) => q.data)
-        .filter((d): d is NonNullable<typeof d> => !!d)
-        .map((d) => ({
-          run: d.run,
-          results: d.results,
-          byTestCase: keepFirst(d.results, (r) => r.testCaseId),
-          byInput: keepFirst(d.results, (r) => canonicalInputKey(r.input)),
-        })),
+    () => queries.map((q) => q.data).filter((d): d is NonNullable<typeof d> => !!d),
     [queries],
   );
 
-  // One alignment descriptor, derived from the STABLE `datasetId` (never the mutable,
-  // non-unique `datasetName`). `crossDataset` is true only when the selection genuinely
-  // spans datasets; dataset names are for display copy only. Consumed by the empty-state
-  // copy and (via `byCase` below) the alignment itself.
-  const alignment = React.useMemo(() => {
-    const datasetIds = new Set(loaded.map((b) => b.run.datasetId));
-    return {
-      crossDataset: datasetIds.size > 1,
-      datasetNames: [...new Set(loaded.map((b) => b.run.datasetName ?? "—"))],
-    };
-  }, [loaded]);
-  const { crossDataset, datasetNames } = alignment;
-
-  // The URL's baseline, or the oldest run (earliest started) when it names none of these
-  // runs. Not the lowest run number: numbers restart per evaluation.
-  const effectiveBaselineId = React.useMemo(() => {
-    if (loaded.some((b) => b.run.id === baselineId)) return baselineId;
-    const [oldest] = [...loaded].sort(
-      (a, b) => Date.parse(a.run.startedAt) - Date.parse(b.run.startedAt),
-    );
-    return oldest?.run.id ?? null;
-  }, [loaded, baselineId]);
-
-  // Baseline-first display order (baseline, then by run number). Baseline-independent
-  // maps are carried through unchanged — only the ORDER depends on the baseline.
-  const orderedBundles = React.useMemo<RunBundle[]>(
-    () =>
-      [...loaded].sort((a, b) => {
-        if (a.run.id === effectiveBaselineId) return -1;
-        if (b.run.id === effectiveBaselineId) return 1;
-        return a.run.runNumber - b.run.runNumber;
-      }),
-    [loaded, effectiveBaselineId],
-  );
-
-  const baselineBundle =
-    orderedBundles.find((b) => b.run.id === effectiveBaselineId) ?? orderedBundles[0];
-
-  // Project every run against the baseline: a run on the baseline's dataset aligns by
-  // `testCaseId` (stable across input edits), any other run aligns by canonical input.
-  // Row identity is the baseline row's `testCaseId`, so all runs' `byCase` share one key
-  // space and a same-dataset pair keeps exact row identity even alongside cross-dataset
-  // runs in the same selection.
-  const ordered = React.useMemo<Bundle[]>(() => {
-    if (!baselineBundle) return [];
-    // Baseline rows are ALWAYS one per distinct baseline `testCaseId` (occurrence-distinct) —
-    // never globally collapsed by input. So two dataset rows carrying the same input stay two
-    // rows, and a same-dataset peer can still compare them exactly by id even when another run
-    // in the selection spans datasets. (`crossDataset` no longer picks the baseline row list;
-    // alignment is decided per run, against the baseline's dataset, below.)
-    const baselineRows = [...baselineBundle.byTestCase.values()];
-    return orderedBundles.map((b) => {
-      const sameDataset = b.run.datasetId === baselineBundle.run.datasetId;
-      const byCase = new Map<string, ResultRow>();
-      // A cross-dataset run aligns by canonical input with a PLAIN lookup: a single case for
-      // a shared input fills EVERY baseline row carrying that input (no occurrence pairing).
-      // Duplicate-input baseline rows stay distinct rows either way.
-      for (const br of baselineRows) {
-        if (sameDataset) {
-          const match = b.byTestCase.get(br.testCaseId);
-          if (match) byCase.set(br.testCaseId, match);
-        } else {
-          const match = b.byInput.get(canonicalInputKey(br.input));
-          if (match) byCase.set(br.testCaseId, match);
-        }
-      }
-      return { ...b, byCase };
-    });
-  }, [orderedBundles, baselineBundle]);
-
-  const baseline = ordered.find((b) => b.run.id === effectiveBaselineId) ?? ordered[0];
+  // The URL's baseline, or the oldest run when it names none of these runs; runs in
+  // display order (baseline first); and the union of aligned cases.
+  const model = React.useMemo(() => buildCompareModel(loaded, baselineId), [loaded, baselineId]);
+  const ordered = model.runs;
+  const effectiveBaselineId = model.baselineRunId || null;
+  const baseline = ordered[0];
+  const crossDataset = model.alignment === "canonical_input";
+  const datasetNames = [...new Set(ordered.map((b) => b.run.datasetName ?? "—"))];
 
   const crossExperiment = new Set(ordered.map((b) => b.run.evaluationName)).size > 1;
 
-  // Rows = baseline row keys EVERY run can line up with, in baseline order. A row is in the
-  // compared population iff every run has it in `byCase` (an aligned result). `ordered[0]` is
-  // the baseline, whose `byCase` is every baseline row, so this reads as the intersection
-  // across all runs.
-  const intersection = React.useMemo(() => {
-    if (ordered.length === 0) return [];
-    return [...ordered[0].byCase.keys()].filter((id) => ordered.every((b) => b.byCase.has(id)));
-  }, [ordered]);
+  // Rows = cases EVERY run has, in baseline order.
+  const intersection = React.useMemo(
+    () => model.cases.filter((c) => c.byRun.size === model.runs.length),
+    [model],
+  );
 
-  // Union of scorer names across the compared runs.
-  const scorerNames = React.useMemo(() => {
-    const names = new Set<string>();
-    for (const b of ordered)
-      for (const r of b.results) for (const s of r.scores) names.add(s.scorerName);
-    return [...names].sort();
-  }, [ordered]);
+  const scorers = model.scorers;
 
-  // Per-scorer semantics: its direction (so a lower-is-better scorer colours its
-  // deltas correctly) and whether it's categorical (rendered as text, no delta).
-  // Direction comes from the run's declared scorer aggregate; categorical is detected
-  // from the raw values so runs without a comparison block are still covered.
-  const scorerMeta = React.useMemo(() => {
-    const higher = new Map<string, boolean>();
-    const categorical = new Set<string>();
-    for (const b of ordered) {
-      for (const s of b.run.comparison?.scorers ?? []) {
-        if (!higher.has(s.name)) higher.set(s.name, s.direction !== "lower_is_better");
-        if (s.valueType === "categorical") categorical.add(s.name);
-      }
-      for (const r of b.results)
-        for (const s of r.scores) if (isCategoricalScore(s)) categorical.add(s.scorerName);
-    }
-    return { higher, categorical };
-  }, [ordered]);
-  const higherFor = (name: string) => scorerMeta.higher.get(name) ?? true;
-  const isCategorical = (name: string) => scorerMeta.categorical.has(name);
+  // Each candidate against the baseline, on the cases both of them have.
+  const pairs = React.useMemo(() => comparePairs(model), [model]);
+  const exclusions = React.useMemo(
+    () => new Map([...pairs].map(([runId, pair]) => [runId, pairExclusions(model, pair)])),
+    [model, pairs],
+  );
+  const cellCounts = React.useMemo(
+    () => new Map([...pairs].map(([runId, pair]) => [runId, countCellsByScorer(pair)])),
+    [pairs],
+  );
 
   // A run whose returned results fall short of its declared case count was truncated
   // by the run-detail API cap, so its aggregates/deltas are computed on a partial set.
@@ -391,60 +308,35 @@ export function CompareRunsView({
     [ordered],
   );
 
-  // Per-run aggregates over the intersection (the compared population).
-  const agg = React.useMemo(() => {
-    const scorer = new Map<string, Map<string, number | null>>();
-    for (const name of scorerNames) {
-      const perRun = new Map<string, number | null>();
-      for (const b of ordered) {
-        perRun.set(
-          b.run.id,
-          meanNumeric(
-            intersection.map((id) =>
-              scoreNumeric(b.byCase.get(id)?.scores.find((s) => s.scorerName === name)),
-            ),
-          ),
-        );
-      }
-      scorer.set(name, perRun);
-    }
-    // Duration and Cost aggregate to TOTALS (like the Experiments list's columns),
-    // over the compared population; scorers aggregate to means above.
-    const sumOver = (get: (r: ResultRow | undefined) => number | null) => (b: Bundle) => {
-      const vals = intersection
-        .map((id) => get(b.byCase.get(id)))
-        .filter((v): v is number => v !== null);
-      return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
-    };
-    const duration = new Map<string, number | null>();
-    const cost = new Map<string, number | null>();
-    for (const b of ordered) {
-      duration.set(b.run.id, sumOver((r) => r?.durationMs ?? null)(b));
-      cost.set(b.run.id, sumOver((r) => r?.cost ?? null)(b));
-    }
-    return { scorer, duration, cost };
-  }, [ordered, scorerNames, intersection]);
-
   // Search over any run's input / output / expected for the row.
   const visible = React.useMemo(() => {
     const q = keyword.trim().toLowerCase();
     if (!q) return intersection;
-    return intersection.filter((id) =>
-      ordered.some((b) => {
-        const r = b.byCase.get(id);
-        return (
-          (r?.input ?? "").toLowerCase().includes(q) ||
-          (r?.candidateOutput ?? "").toLowerCase().includes(q) ||
-          (r?.expectedOutput ?? "").toLowerCase().includes(q)
-        );
-      }),
+    return intersection.filter((c) =>
+      [...c.byRun.values()].some(
+        (r) =>
+          r.input.toLowerCase().includes(q) ||
+          (r.candidateOutput ?? "").toLowerCase().includes(q) ||
+          (r.expectedOutput ?? "").toLowerCase().includes(q),
+      ),
     );
-  }, [intersection, keyword, ordered]);
+  }, [intersection, keyword]);
 
-  const runLabel = (b: Bundle) =>
-    `${crossExperiment ? `${b.run.evaluationName} ` : ""}#${b.run.runNumber} · ${b.run.candidateVersion}`;
+  // "#2", or "support-routing #2" when the runs span evaluations (numbers restart per one).
+  const runTag = (b: RunBundle) =>
+    `${crossExperiment ? `${b.run.evaluationName} ` : ""}#${b.run.runNumber}`;
+  const runLabel = (b: RunBundle) => `${runTag(b)} ${b.run.candidateVersion}`;
+  const labelOf = (runId: string) => {
+    const b = ordered.find((x) => x.run.id === runId);
+    return b ? runLabel(b) : "";
+  };
+  const tagOf = (runId: string) => {
+    const b = ordered.find((x) => x.run.id === runId);
+    return b ? runTag(b) : "";
+  };
 
-  const columnCount = 3 + scorerNames.length + 2;
+  const summaryStack = { ordered, baselineId: model.baselineRunId, dotFor, labelOf };
+  const columnCount = 3 + scorers.length + 2;
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -506,7 +398,7 @@ export function CompareRunsView({
           <div className="p-3">
             <EmptyState>Couldn’t load one or more of these runs.</EmptyState>
           </div>
-        ) : intersection.length === 0 ? (
+        ) : model.sharedByAllCount === 0 ? (
           <div className="p-3">
             <EmptyState>
               {crossDataset
@@ -522,7 +414,7 @@ export function CompareRunsView({
               <div className="border-b border-warning-border bg-warning-soft px-3 py-2 text-[12px] text-warning">
                 {truncatedRuns.map((b) => runLabel(b)).join(", ")} returned only the first{" "}
                 {truncatedRuns[0].results.length} of their cases (API limit), so their scores,
-                duration, and cost aggregates and deltas are partial.
+                latency, and cost summaries and deltas are partial.
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
@@ -533,50 +425,59 @@ export function CompareRunsView({
                     <Th className="min-w-[220px]">Input</Th>
                     <Th className="min-w-[220px]">Output</Th>
                     <Th className="min-w-[180px]">Expected</Th>
-                    {scorerNames.map((name) => (
-                      <Th key={name} className="w-[130px] text-right">
-                        {name}
+                    {scorers.map((s) => (
+                      <Th key={s.name} className="w-[130px] text-right">
+                        {s.name}
                       </Th>
                     ))}
-                    <Th className="w-[120px] text-right">Duration</Th>
-                    <Th className="w-[120px] text-right">Cost</Th>
+                    <Th className="w-[120px] text-right">Latency (mean)</Th>
+                    <Th className="w-[120px] text-right">Cost (mean)</Th>
                   </TRHead>
                   {/* Aggregate row — white, styled like the data cells below it. */}
                   <tr className="border-b border-border bg-background">
                     <Td />
                     <Td />
                     <Td />
-                    {scorerNames.map((name) => (
-                      <Td key={name} className="text-[12px] tabular-nums">
-                        <NumericStack
-                          ordered={ordered}
-                          baseline={baseline}
-                          dotFor={dotFor}
-                          get={(b) => agg.scorer.get(name)?.get(b.run.id) ?? null}
-                          fmt={fmtScoreNumber}
-                          fmtDelta={fmtScoreDelta}
-                          higherIsBetter={higherFor(name)}
+                    {scorers.map((s) => (
+                      <Td key={s.name} className="align-top text-[12px] tabular-nums">
+                        <SummaryStack
+                          {...summaryStack}
+                          line={(runId) => (
+                            <ScorerSummary
+                              pair={pairs.get(runId)}
+                              exclusions={exclusions.get(runId)}
+                              counts={cellCounts.get(runId)}
+                              column={s}
+                              tagOf={tagOf}
+                            />
+                          )}
                         />
                       </Td>
                     ))}
-                    <Td className="text-[12px] tabular-nums">
-                      <NumericStack
-                        ordered={ordered}
-                        baseline={baseline}
-                        dotFor={dotFor}
-                        get={(b) => agg.duration.get(b.run.id) ?? null}
-                        fmt={fmtMs}
-                        higherIsBetter={false}
+                    <Td className="align-top text-[12px] tabular-nums">
+                      <SummaryStack
+                        {...summaryStack}
+                        line={(runId) => (
+                          <MeanSummary
+                            mean={durationOf(pairs.get(runId))}
+                            measure="latency"
+                            fmt={formatMs}
+                            fmtDelta={signedWith(formatMs)}
+                          />
+                        )}
                       />
                     </Td>
-                    <Td className="text-[12px] tabular-nums">
-                      <NumericStack
-                        ordered={ordered}
-                        baseline={baseline}
-                        dotFor={dotFor}
-                        get={(b) => agg.cost.get(b.run.id) ?? null}
-                        fmt={fmtCost}
-                        higherIsBetter={false}
+                    <Td className="align-top text-[12px] tabular-nums">
+                      <SummaryStack
+                        {...summaryStack}
+                        line={(runId) => (
+                          <MeanSummary
+                            mean={pairs.get(runId)?.cost}
+                            measure="cost"
+                            fmt={formatCost}
+                            fmtDelta={signedWith(formatCost)}
+                          />
+                        )}
                       />
                     </Td>
                   </tr>
@@ -589,16 +490,15 @@ export function CompareRunsView({
                       </td>
                     </tr>
                   ) : (
-                    visible.map((id) => (
-                      <CaseRow
-                        key={id}
-                        caseId={id}
+                    visible.map((row) => (
+                      <CaseTableRow
+                        key={row.key}
+                        row={row}
                         ordered={ordered}
                         baseline={baseline}
                         dotFor={dotFor}
-                        scorerNames={scorerNames}
-                        higherFor={higherFor}
-                        isCategorical={isCategorical}
+                        labelOf={labelOf}
+                        scorers={scorers}
                       />
                     ))
                   )}
@@ -617,24 +517,22 @@ export function CompareRunsView({
  * value when every run agrees; Output and the metric columns always stack one
  * value per run, with green/red deltas against the baseline on the metrics.
  */
-function CaseRow({
-  caseId,
+function CaseTableRow({
+  row,
   ordered,
   baseline,
   dotFor,
-  scorerNames,
-  higherFor,
-  isCategorical,
+  labelOf,
+  scorers,
 }: {
-  caseId: string;
-  ordered: Bundle[];
-  baseline: Bundle;
+  row: CaseRow;
+  ordered: RunBundle[];
+  baseline: RunBundle;
   dotFor: (runId: string) => string;
-  scorerNames: string[];
-  higherFor: (name: string) => boolean;
-  isCategorical: (name: string) => boolean;
+  labelOf: (runId: string) => string;
+  scorers: ScorerColumn[];
 }) {
-  const rowOf = (b: Bundle) => b.byCase.get(caseId);
+  const rowOf = (b: RunBundle) => row.byRun.get(b.run.id);
 
   // Collapse a per-run string column to one value when the runs agree. `sameOn` decides
   // agreement (default: the raw text); the displayed value is still the raw text.
@@ -651,15 +549,17 @@ function CaseRow({
   // stacked.
   const collapsedInput = collapsed(
     (r) => r?.input ?? null,
-    (r) => (r ? canonicalInputKey(r.input) : "—"),
+    (r) => (r ? inputKeyOf(r) : "—"),
   );
   const collapsedExpected = collapsed((r) => r?.expectedOutput ?? null);
 
   const textStack = (get: (r: ResultRow | undefined) => string | null) => (
     <RunStack
+      tooltipped
       values={ordered.map((b) => ({
         runId: b.run.id,
         dot: dotFor(b.run.id),
+        label: labelOf(b.run.id),
         node: <TextValue text={get(rowOf(b))} />,
       }))}
     />
@@ -682,33 +582,34 @@ function CaseRow({
           textStack((r) => r?.expectedOutput ?? null)
         )}
       </Td>
-      {scorerNames.map((name) =>
-        isCategorical(name) ? (
+      {scorers.map((s) =>
+        s.valueType === "categorical" ? (
           // Categorical scorer — show each run's text value (no numeric delta).
-          <Td key={name} className="align-top text-[12px]">
+          <Td key={s.name} className="align-top text-[12px]">
             <RunStack
               align="right"
               values={ordered.map((b) => ({
                 runId: b.run.id,
                 dot: dotFor(b.run.id),
+                label: labelOf(b.run.id),
                 node: (
                   <span className="whitespace-nowrap">
-                    {scoreText(rowOf(b)?.scores.find((s) => s.scorerName === name))}
+                    {scoreText(scoreOf(rowOf(b), s.name), s.format)}
                   </span>
                 ),
               }))}
             />
           </Td>
         ) : (
-          <Td key={name} className="align-top text-[12px] tabular-nums">
+          <Td key={s.name} className="align-top text-[12px] tabular-nums">
             <NumericStack
               ordered={ordered}
               baseline={baseline}
               dotFor={dotFor}
-              get={(b) => scoreNumeric(rowOf(b)?.scores.find((s) => s.scorerName === name))}
-              fmt={fmtScoreNumber}
-              fmtDelta={fmtScoreDelta}
-              higherIsBetter={higherFor(name)}
+              labelOf={labelOf}
+              get={(b) => scoreNumeric(scoreOf(rowOf(b), s.name))}
+              {...scoreFormatters(s.format)}
+              direction={s.direction}
             />
           </Td>
         ),
@@ -718,9 +619,11 @@ function CaseRow({
           ordered={ordered}
           baseline={baseline}
           dotFor={dotFor}
+          labelOf={labelOf}
           get={(b) => rowOf(b)?.durationMs ?? null}
-          fmt={fmtMs}
-          higherIsBetter={false}
+          fmt={formatMs}
+          fmtDelta={signedWith(formatMs)}
+          direction="lower_is_better"
         />
       </Td>
       <Td className="align-top text-[12px] tabular-nums">
@@ -728,9 +631,11 @@ function CaseRow({
           ordered={ordered}
           baseline={baseline}
           dotFor={dotFor}
+          labelOf={labelOf}
           get={(b) => rowOf(b)?.cost ?? null}
-          fmt={fmtCost}
-          higherIsBetter={false}
+          fmt={formatCost}
+          fmtDelta={signedWith(formatCost)}
+          direction="lower_is_better"
         />
       </Td>
     </TR>
