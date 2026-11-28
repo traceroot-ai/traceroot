@@ -1,5 +1,12 @@
 import { stripOversizedNumericBounds } from "./sanitize.js";
-import type { InputSchema, ParamSchema, RegistryEntry, ToolMethod, ToolPolicy } from "./types.js";
+import type {
+  InputSchema,
+  ParamSchema,
+  RegistryEntry,
+  ToolAnnotations,
+  ToolMethod,
+  ToolPolicy,
+} from "./types.js";
 
 /**
  * Verbs an enabled operation may use. `put` (full replacement: the caller
@@ -44,6 +51,8 @@ interface ToolCuration {
   name?: string;
   description?: string;
   policy?: unknown;
+  /** A POST that only reads (the query travels in the body). */
+  readOnly?: unknown;
   agentHiddenParams?: readonly string[];
 }
 
@@ -352,6 +361,50 @@ function validatePolicy(policy: unknown, route: string): ToolPolicy {
   return { ...(candidate as unknown as ToolPolicy) };
 }
 
+/** "list_traces" -> "List traces" for a tool's human-readable label. */
+export function humanizeName(name: string): string {
+  const words = name.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Derive a tool's behavior hints from its method and policy. A GET reads; a
+ * POST reads only when the curation says `readOnly`, which is legal only on a
+ * POST with `approvalClass: "none"` (the backend schema build enforces the
+ * same rule). A DELETE, or any tool that needs approval, is destructive.
+ */
+function deriveAnnotations(
+  method: ToolMethod,
+  name: string,
+  policy: ToolPolicy | undefined,
+  readOnly: boolean,
+): ToolAnnotations {
+  return {
+    title: humanizeName(name),
+    readOnlyHint: method === "get" || readOnly,
+    destructiveHint: method === "delete" || policy?.approvalClass === "approval",
+    openWorldHint: false,
+  };
+}
+
+/** Reject `readOnly` anywhere but as `true` on a POST whose approvalClass is "none". */
+function validateReadOnly(
+  tool: ToolCuration,
+  method: string,
+  policy: ToolPolicy | undefined,
+  route: string,
+): boolean {
+  if (tool.readOnly === undefined) {
+    return false;
+  }
+  if (tool.readOnly !== true || method !== "post" || policy?.approvalClass !== "none") {
+    throw new Error(
+      `Enabled tool on ${route}: x-tool readOnly is only legal as true on a POST whose policy approvalClass is "none"`,
+    );
+  }
+  return true;
+}
+
 /**
  * Generate the tool registry from the public OpenAPI document: one entry per
  * operation whose x-tool curation is enabled, sorted by tool name. GET, POST,
@@ -387,16 +440,19 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
         if (tool.policy !== undefined) {
           throw new Error(`Enabled read tool on ${route}: x-tool policy is write-only`);
         }
+        validateReadOnly(tool, method, undefined, route);
         entries.push({
           name: tool.name,
           description: tool.description,
           method: "get",
           path,
           inputSchema,
+          annotations: deriveAnnotations("get", tool.name, undefined, false),
         });
         continue;
       }
       const policy = validatePolicy(tool.policy, route);
+      const readOnly = validateReadOnly(tool, method, policy, route);
       let bodyParams: string[] | undefined;
       if (method === "delete") {
         // The public surface keeps DELETE bodies off the wire (the path id
@@ -430,6 +486,7 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
         ...(bodyParams !== undefined && { bodyParams }),
         ...(agentHiddenParams !== undefined && { agentHiddenParams }),
         policy,
+        annotations: deriveAnnotations(method, tool.name, policy, readOnly),
       });
     }
   }

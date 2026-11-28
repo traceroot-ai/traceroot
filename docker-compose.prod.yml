@@ -316,6 +316,11 @@ services:
       AUTH_AGENTID_CLIENT_SECRET: ${AUTH_AGENTID_CLIENT_SECRET:-}
       AUTH_GITHUB_CLIENT_ID: ${AUTH_GITHUB_CLIENT_ID:-}
       AUTH_GITHUB_CLIENT_SECRET: ${AUTH_GITHUB_CLIENT_SECRET:-}
+      # Turns on the OAuth provider that lets an assistant connect to the MCP server
+      # with a sign-in instead of a pasted key. The MCP server's public URL (the
+      # audience of the tokens issued), for example https://mcp.example.com/mcp.
+      # Blank leaves it off.
+      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
       # --- API ---
       # NOTE: NEXT_PUBLIC_* vars are baked at build time in Next.js.
       # For production, rebuild the image with the correct value or use
@@ -385,6 +390,12 @@ services:
       - "8000:8000"
     environment:
       TZ: UTC
+      # OAuth access tokens from the web app's provider (assistant connectors). The
+      # issuer is the web app's auth URL, BETTER_AUTH_URL plus /api/auth, exactly as
+      # it appears in a token's iss; the audience is the MCP server's public URL
+      # (the same value as MCP_RESOURCE_URL on web). Blank accepts no OAuth tokens.
+      TRACEROOT_OAUTH_ISSUER: ${TRACEROOT_OAUTH_ISSUER:-}
+      TRACEROOT_OAUTH_AUDIENCES: ${MCP_RESOURCE_URL:-}
       # --- Internal Docker networking (fixed) ---
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
       CLICKHOUSE_HOST: clickhouse
@@ -631,6 +642,55 @@ services:
         condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
+
+  # MCP server: serves the read-only tool set to MCP clients. It forwards the
+  # caller's API key to rest, which validates it, so it holds no secret and
+  # needs no database: deliberately no INTERNAL_API_SECRET and no DATABASE_URL.
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mcp
+    ports:
+      - "8200:8200"
+    environment:
+      TZ: UTC
+      MCP_SERVICE_URL: http://mcp:8200
+      BACKEND_INTERNAL_URL: http://rest:8000
+      # Hostnames the endpoint answers to (comma-separated); empty answers any.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      # OAuth discovery, so an assistant can sign in instead of using a key. The
+      # public URL of this endpoint and the issuer of the web app's OAuth provider
+      # (BETTER_AUTH_URL plus /api/auth). Both set turns it on; either blank leaves
+      # the endpoint key-only. Tokens are still verified by rest, not here.
+      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
+      MCP_OAUTH_ISSUER: ${TRACEROOT_OAUTH_ISSUER:-}
+      # Domain-verification token from the OpenAI apps dashboard, served as plain
+      # text at /.well-known/openai-apps-challenge; blank serves 404.
+      MCP_OPENAI_APPS_CHALLENGE: ${MCP_OPENAI_APPS_CHALLENGE:-}
+      # Domain-verification token(s) from the Google Connected Console,
+      # comma-separated, served as JSON at /.well-known/google-connected-apps;
+      # blank serves 404.
+      MCP_GOOGLE_CONNECTED_APPS_TOKENS: ${MCP_GOOGLE_CONNECTED_APPS_TOKENS:-}
+      # Longest tool result, in characters; blank keeps the default (80000).
+      MCP_MAX_RESULT_CHARS: ${MCP_MAX_RESULT_CHARS:-}
+      # Per-call telemetry spans over OTLP/HTTP protobuf (no arguments, no
+      # results). For a TraceRoot project: http://rest:8000/api/v1/public/traces
+      # with headers "Authorization=Bearer%20tr-...". Blank endpoint: stdout only.
+      MCP_TELEMETRY_OTLP_ENDPOINT: ${MCP_TELEMETRY_OTLP_ENDPOINT:-}
+      MCP_TELEMETRY_OTLP_HEADERS: ${MCP_TELEMETRY_OTLP_HEADERS:-}
+      MCP_TELEMETRY_SERVICE_NAME: ${MCP_TELEMETRY_SERVICE_NAME:-}
+      # Where the web app answers inside this network. With OAuth on, the server
+      # checks at startup that the web app's issuer is MCP_OAUTH_ISSUER exactly,
+      # and exits if not.
+      TRACEROOT_UI_URL: http://web:3000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      rest:
+        condition: service_started
 
 volumes:
   postgres_data:

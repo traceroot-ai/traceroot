@@ -23,6 +23,12 @@ const serverSchema = z.object({
     z.enum(["production", "staging"]).optional(),
   ),
   INTERNAL_API_SECRET: authSecret(),
+  // The MCP server's URL, as assistants address it (for example
+  // https://mcp.example.com/mcp). Setting it turns on the OAuth provider that lets
+  // an assistant connect to a project; unset leaves the provider off. It is the
+  // audience of the tokens issued, so it must match what the MCP server serves.
+  // A blank value (what compose passes when it is unset) means off, like unset.
+  MCP_RESOURCE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
   // Comma-separated CIDRs of proxies in front of this app, used to resolve the
   // real client address from x-forwarded-for. Blank means no trusted proxies
   // (better-auth's own default): only a single-entry header is trusted. See

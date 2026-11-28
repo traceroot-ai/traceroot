@@ -1,0 +1,409 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`every exposed tool > is a snapshot of the surface, so a change to it is a decision 1`] = `
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get dashboard",
+    },
+    "name": "get_dashboard",
+    "params": [
+      "dashboard_id",
+    ],
+    "required": [
+      "dashboard_id",
+    ],
+    "title": "Get dashboard",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get dashboard data",
+    },
+    "name": "get_dashboard_data",
+    "params": [
+      "dashboard_id",
+      "range",
+      "start_time",
+      "end_time",
+    ],
+    "required": [
+      "dashboard_id",
+    ],
+    "title": "Get dashboard data",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get dataset",
+    },
+    "name": "get_dataset",
+    "params": [
+      "dataset_id",
+    ],
+    "required": [
+      "dataset_id",
+    ],
+    "title": "Get dataset",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get dataset version",
+    },
+    "name": "get_dataset_version",
+    "params": [
+      "version_id",
+      "limit",
+      "cursor",
+    ],
+    "required": [
+      "version_id",
+    ],
+    "title": "Get dataset version",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get detector",
+    },
+    "name": "get_detector",
+    "params": [
+      "detector_id",
+    ],
+    "required": [
+      "detector_id",
+    ],
+    "title": "Get detector",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get evaluation run",
+    },
+    "name": "get_evaluation_run",
+    "params": [
+      "run_id",
+    ],
+    "required": [
+      "run_id",
+    ],
+    "title": "Get evaluation run",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get finding",
+    },
+    "name": "get_finding",
+    "params": [
+      "finding_id",
+    ],
+    "required": [
+      "finding_id",
+    ],
+    "title": "Get finding",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get finding by trace",
+    },
+    "name": "get_finding_by_trace",
+    "params": [
+      "trace_id",
+    ],
+    "required": [
+      "trace_id",
+    ],
+    "title": "Get finding by trace",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get session",
+    },
+    "name": "get_session",
+    "params": [
+      "session_id",
+      "start_after",
+      "end_before",
+    ],
+    "required": [
+      "session_id",
+    ],
+    "title": "Get session",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get sql schema",
+    },
+    "name": "get_sql_schema",
+    "params": [],
+    "required": [],
+    "title": "Get sql schema",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get trace",
+    },
+    "name": "get_trace",
+    "params": [
+      "trace_id",
+      "fields",
+    ],
+    "required": [
+      "trace_id",
+    ],
+    "title": "Get trace",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get widget",
+    },
+    "name": "get_widget",
+    "params": [
+      "widget_id",
+    ],
+    "required": [
+      "widget_id",
+    ],
+    "title": "Get widget",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get widget data",
+    },
+    "name": "get_widget_data",
+    "params": [
+      "widget_id",
+      "range",
+      "start_time",
+      "end_time",
+    ],
+    "required": [
+      "widget_id",
+    ],
+    "title": "Get widget data",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get alert",
+    },
+    "name": "get_alert",
+    "params": [
+      "alert_id",
+    ],
+    "required": [
+      "alert_id",
+    ],
+    "title": "Get alert",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List alerts",
+    },
+    "name": "list_alerts",
+    "params": [
+      "limit",
+      "page",
+      "search_query",
+    ],
+    "required": [],
+    "title": "List alerts",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List dashboards",
+    },
+    "name": "list_dashboards",
+    "params": [],
+    "required": [],
+    "title": "List dashboards",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List dataset versions",
+    },
+    "name": "list_dataset_versions",
+    "params": [
+      "dataset_id",
+      "limit",
+      "cursor",
+    ],
+    "required": [
+      "dataset_id",
+    ],
+    "title": "List dataset versions",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List datasets",
+    },
+    "name": "list_datasets",
+    "params": [
+      "limit",
+      "cursor",
+      "name",
+    ],
+    "required": [],
+    "title": "List datasets",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List detectors",
+    },
+    "name": "list_detectors",
+    "params": [
+      "limit",
+      "start_after",
+      "end_before",
+    ],
+    "required": [],
+    "title": "List detectors",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List findings",
+    },
+    "name": "list_findings",
+    "params": [
+      "limit",
+      "start_after",
+      "end_before",
+      "detector",
+      "trace_id",
+    ],
+    "required": [],
+    "title": "List findings",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List sessions",
+    },
+    "name": "list_sessions",
+    "params": [
+      "limit",
+      "search_query",
+      "start_after",
+      "end_before",
+    ],
+    "required": [],
+    "title": "List sessions",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List traces",
+    },
+    "name": "list_traces",
+    "params": [
+      "limit",
+      "start_after",
+      "end_before",
+      "include_evaluations",
+      "name",
+      "user_id",
+      "search_query",
+      "filters",
+    ],
+    "required": [],
+    "title": "List traces",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Run sql",
+    },
+    "name": "run_sql",
+    "params": [
+      "max_rows",
+      "parameters",
+      "query",
+    ],
+    "required": [
+      "query",
+    ],
+    "title": "Run sql",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Run widget query",
+    },
+    "name": "run_widget_query",
+    "params": [
+      "bucket_seconds",
+      "end_time",
+      "range",
+      "spec",
+      "start_time",
+    ],
+    "required": [
+      "spec",
+    ],
+    "title": "Run widget query",
+  },
+]
+`;

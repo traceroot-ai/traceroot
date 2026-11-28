@@ -9,6 +9,7 @@ import {
   CreditCard,
   Key,
   ArrowLeftRight,
+  Plug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -53,6 +54,7 @@ export const PROJECT_SETTINGS_TABS: SettingsTab<ProjectSettingsTab>[] = [
 // per-account concept, so this tab set lives outside both of the above.
 export const ACCOUNT_SETTINGS_TABS: SettingsTab[] = [
   { id: "sessions", label: "Active sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
+  { id: "connections", label: "Connected assistants", icon: Plug, href: "connections" },
 ];
 
 interface CrossLink {

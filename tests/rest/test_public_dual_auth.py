@@ -78,13 +78,30 @@ def test_user_token_with_project_id_reads_like_key_path(monkeypatch):
     assert reader.list_traces.call_args.kwargs["project_id"] == "proj-A"
 
 
+@respx.mock
 def test_user_token_without_project_id_is_400_naming_list_projects():
     """A user credential is only meaningful scoped to a project: absent
     project_id is a 400 that points the caller at list_projects."""
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(200, json={"valid": True, "userId": "u1"})
+    )
     client = TestClient(app, raise_server_exceptions=False)
     resp = client.get("/api/v1/public/traces", headers=USER_HEADER)
     assert resp.status_code == 400
     assert "list_projects" in resp.json()["detail"]
+
+
+@respx.mock
+def test_unknown_bearer_without_project_id_is_401():
+    """A bearer no validator accepts (here an opaque value that is neither a key
+    nor a live session) is a 401, so a client signs in again rather than being
+    told to pick a project."""
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(401, json={"valid": False, "error": "Invalid token"})
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/traces", headers={"Authorization": "Bearer opaque123"})
+    assert resp.status_code == 401
 
 
 @respx.mock

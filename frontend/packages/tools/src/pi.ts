@@ -1,5 +1,6 @@
 import type { ApiClient } from "./client.js";
 import { dispatch } from "./dispatch.js";
+import { humanizeName } from "./generate.js";
 import { stripOversizedNumericBounds } from "./sanitize.js";
 import type { ParamSchema, RegistryEntry } from "./types.js";
 
@@ -70,12 +71,6 @@ export interface ToPiAgentToolOptions {
    * named. Read on every call because the window changes per message.
    */
   defaults?: (supplied: Readonly<Record<string, unknown>>) => Record<string, unknown>;
-}
-
-/** "list_traces" -> "List traces" for the tool's human-readable label. */
-function humanizeName(name: string): string {
-  const words = name.replace(/_/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /**

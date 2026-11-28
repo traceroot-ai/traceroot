@@ -24,6 +24,7 @@ import stat
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from db.clickhouse.migrate import run_goose
 from tmux_tools import schema
@@ -31,6 +32,7 @@ from tmux_tools import schema
 REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
+MCP_PORT = 8200
 ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / ".env"
 ENV_EXAMPLE_PATH = ROOT / ".env.example"
@@ -299,7 +301,11 @@ def ensure_python_deps():
 
 def ensure_frontend_deps():
     """Install frontend deps if node_modules missing."""
-    if not os.path.exists("frontend/node_modules"):
+    # A checkout installed before frontend/mcp joined the workspace has
+    # frontend/node_modules but not frontend/mcp/node_modules.
+    if not os.path.exists("frontend/node_modules") or not os.path.exists(
+        "frontend/mcp/node_modules"
+    ):
         print("Installing frontend dependencies...")
         _run(["pnpm", "install"], cwd="frontend")
     else:
@@ -319,6 +325,25 @@ def ensure_frontend_deps():
         ["pnpm", "build"],
         cwd="frontend/packages/tools",
     )
+
+
+def mcp_port(env_path: Path = ENV_PATH) -> int:
+    """The port the dev MCP server listens on: MCP_SERVICE_URL's, as the server reads it.
+
+    The server takes MCP_SERVICE_URL from the environment first, then from .env,
+    and listens on its port, or on MCP_PORT when it names none.
+    """
+    url = os.environ.get("MCP_SERVICE_URL")
+    if not url and env_path.is_file():
+        try:
+            url = _env_value("get", "MCP_SERVICE_URL", str(env_path))
+        except (SystemExit, OSError):
+            url = None
+    try:
+        port = urlsplit(url).port if url else None
+    except ValueError:
+        port = None
+    return port or MCP_PORT
 
 
 def ensure_migrations():
@@ -378,7 +403,7 @@ def _start_prod_services():
     # services here causes Compose to run migrate/migrate-clickhouse first and
     # only bring up each app container after its migration dependency exits 0.
     print("Starting application services (migrations run automatically before app services)...")
-    _run(f"{PROD_COMPOSE} up -d web rest worker billing detector agent")
+    _run(f"{PROD_COMPOSE} up -d web rest worker billing detector agent mcp")
 
     print("\nAll containers started. Launching log viewer...\n")
 
@@ -545,6 +570,8 @@ def infra_services():
 def make_driver(autoreload=False):
     """Full stack: Frontend + REST API + Celery Worker + Infra logs."""
 
+    mcp_listen_port = mcp_port()
+
     # TZ=UTC ensures all Python processes use UTC as local time, so
     # naive datetimes from otel_transform and clickhouse-connect are consistent.
     tz_prefix = "TZ=UTC "
@@ -612,11 +639,23 @@ def make_driver(autoreload=False):
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
                 ],
             ),
+            schema.Service(
+                title="MCP",
+                command="cd frontend/mcp && pnpm dev",
+                web_urls=[
+                    ("MCP endpoint", f"http://localhost:{mcp_listen_port}/mcp"),
+                ],
+            ),
         ]
         + infra_services(),
         prerequisites=(
             tool_prerequisites()
-            + [port_available(REST_PORT), port_available(FRONTEND_PORT), port_available(AGENT_PORT)]
+            + [
+                port_available(REST_PORT),
+                port_available(FRONTEND_PORT),
+                port_available(AGENT_PORT),
+                port_available(mcp_listen_port),
+            ]
         ),
     )
 
@@ -690,6 +729,13 @@ def make_prod_driver():
                 command=f"{PROD_COMPOSE} logs -f --tail=50 agent",
                 web_urls=[
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
+                ],
+            ),
+            schema.Service(
+                title="MCP",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 mcp",
+                web_urls=[
+                    ("MCP endpoint", f"http://localhost:{MCP_PORT}/mcp"),
                 ],
             ),
         ]
