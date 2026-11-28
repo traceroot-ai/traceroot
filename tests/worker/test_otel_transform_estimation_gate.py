@@ -25,6 +25,7 @@ offline `len(text) // 4`, so the tests never depend on tiktoken downloads or pri
 import json
 from unittest.mock import patch
 
+from tests.fixtures.audio import make_wav
 from tests.fixtures.images import b64, data_url, make_png
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import transform_otel_to_clickhouse
@@ -694,3 +695,59 @@ def test_a_base64_image_block_adds_no_estimated_tokens():
 def test_an_image_data_url_adds_no_estimated_tokens():
     with_image = _estimated_input_tokens([_openai_image(data_url(PNG, "image/png"))])
     assert with_image == _estimated_input_tokens([_openai_image("")])
+
+
+# ---------------------------------------------------------------------------
+# Inline audio is billed by duration: its base64 must not be estimated as text
+# ---------------------------------------------------------------------------
+
+WAV = make_wav(2.0)
+
+
+def _gemini_audio(data: str) -> dict:
+    return {"inline_data": {"mime_type": "audio/wav", "data": data}}
+
+
+def _openai_audio(data: str) -> dict:
+    return {"type": "input_audio", "input_audio": {"data": data, "format": "wav"}}
+
+
+def test_a_gemini_inline_audio_part_adds_no_estimated_tokens():
+    with_audio = _estimated_input_tokens([_gemini_audio(b64(WAV))])
+    assert with_audio == _estimated_input_tokens([_gemini_audio("")])
+
+
+def test_an_openai_input_audio_part_adds_no_estimated_tokens():
+    with_audio = _estimated_input_tokens([_openai_audio(b64(WAV))])
+    assert with_audio == _estimated_input_tokens([_openai_audio("")])
+
+
+def test_an_audio_data_url_adds_no_estimated_tokens():
+    with_audio = _estimated_input_tokens([_openai_image(data_url(WAV, "audio/wav"))])
+    assert with_audio == _estimated_input_tokens([_openai_image("")])
+
+
+def test_a_marker_in_an_audio_shape_is_still_estimated():
+    # "REDACTED" is not base64 audio, so it is text the model was sent.
+    redacted = _estimated_input_tokens([_gemini_audio("REDACTED")])
+    assert redacted > _estimated_input_tokens([_gemini_audio("")])
+
+
+def test_a_data_field_without_an_audio_type_is_still_estimated():
+    # Base64-looking text under a non-audio type is not dropped.
+    blob = {"inline_data": {"mime_type": "text/plain", "data": b64(WAV)}}
+    empty = {"inline_data": {"mime_type": "text/plain", "data": ""}}
+    assert _estimated_input_tokens([blob]) > _estimated_input_tokens([empty])
+
+
+def test_audio_stays_in_the_stored_span_input():
+    # Only the estimate skips the audio; the viewer still plays it from the input.
+    request = {"messages": [{"role": "user", "content": [_gemini_audio(b64(WAV))]}]}
+    attrs = [
+        make_attr("openinference.span.kind", "LLM"),
+        make_attr("llm.model_name", MODEL),
+        make_attr("input.value", json.dumps(request)),
+        make_attr("output.value", OUTPUT_TEXT),
+    ]
+    span = _transform([_span_with(attrs)])[0]
+    assert b64(WAV) in span["input"]

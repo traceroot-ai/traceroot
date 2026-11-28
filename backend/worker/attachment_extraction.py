@@ -332,6 +332,103 @@ def without_inline_images(text: str) -> str:
     return _ImageDropper().rewrite(text)
 
 
+# Audio is billed by duration, not by its base64 characters, and it stays in the span
+# text (the trace viewer plays it inline), so it is only dropped for token estimation.
+_AUDIO_DATA_URL_RE = re.compile(
+    r"data:audio/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}", re.ASCII | re.IGNORECASE
+)
+_AUDIO_TYPE_RE = re.compile(r"audio/", re.ASCII | re.IGNORECASE)
+
+_MIN_AUDIO_BYTES = 12
+"""The shortest bytes treated as audio: a WAV file's RIFF header.
+
+A ``data`` value that decodes to fewer bytes is a marker such as ``"REDACTED"``,
+not audio, and is left in the text.
+"""
+
+
+def without_inline_media(text: str) -> str:
+    """``text`` with inline images and base64 audio removed, for token estimation.
+
+    Audio is found in three shapes: a ``data:audio/...;base64,`` URL, a JSON object
+    whose ``media_type`` / ``mime_type`` / ``mimeType`` is an ``audio/`` type (a
+    Gemini ``inline_data`` part, say), and an OpenAI ``input_audio`` part
+    (``{"data": ..., "format": ...}``).
+    """
+    text = without_inline_images(text)
+    has_input_audio = '"input_audio"' in text
+    if not has_input_audio and _AUDIO_TYPE_RE.search(text) is None:
+        return text
+    text = _AUDIO_DATA_URL_RE.sub("", text)
+    if '"data"' in text and (has_input_audio or any(key in text for key in _JSON_SHAPE_KEYS)):
+        text = _drop_json_audio(text)
+    return text
+
+
+def _drop_json_audio(text: str) -> str:
+    """``text`` with the base64 of every known JSON audio shape removed."""
+    # The same bound on the parsed tree as _Extractor._replace_json_shapes.
+    if len(text) > _MAX_JSON_VALUES and (
+        text.count(",") + text.count(":") + text.count("[") > _MAX_JSON_VALUES
+    ):
+        return text
+    try:
+        parsed = json.loads(text)
+    except (ValueError, RecursionError):
+        return text
+
+    audio: set[str] = set()
+    stack = [parsed]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            found = _known_shape_audio(node)
+            if found is not None:
+                audio.add(found)
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+
+    if not audio:
+        return text
+    # As with images, base64 is written unescaped, so each value appears in the
+    # text as a quoted string, and one pass over the text finds them all.
+    pieces: list[str] = []
+    end = 0
+    for match in _QUOTED_BASE64_RE.finditer(text):
+        if match.group(1) in audio:
+            pieces.append(text[end : match.start(1)])
+            end = match.end(1)
+    if not pieces:
+        return text
+    pieces.append(text[end:])
+    return "".join(pieces)
+
+
+def _known_shape_audio(node: dict) -> str | None:
+    """The base64 ``data`` when ``node`` is one of the known audio shapes, else None."""
+    data = node.get("data")
+    if not isinstance(data, str) or not _could_be_audio(data):
+        return None
+    declared = node.get("media_type", node.get("mime_type", node.get("mimeType")))
+    if isinstance(declared, str) and declared.strip().lower().startswith("audio/"):
+        return data
+    # OpenAI's input_audio part: {"type": "input_audio", "input_audio": {"data", "format"}}.
+    # The format names the encoding ("wav", "mp3"), so the data is audio.
+    if isinstance(node.get("format"), str) and set(node) <= {"data", "format"}:
+        return data
+    return None
+
+
+def _could_be_audio(data: str) -> bool:
+    """Whether ``data`` is strict base64 of at least ``_MIN_AUDIO_BYTES``, without decoding it."""
+    return (
+        len(data) % 4 == 0
+        and _decoded_size(data) >= _MIN_AUDIO_BYTES
+        and _BASE64_RE.fullmatch(data) is not None
+    )
+
+
 def _known_shape_image(node: dict) -> str | None:
     """The base64 ``data`` when ``node`` is one of the known image shapes, else None."""
     data = node.get("data")
