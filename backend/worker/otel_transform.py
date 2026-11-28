@@ -140,7 +140,7 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "user.id",
     "input.value",
     "output.value",
-    "gen_ai.",
+    "gen_ai.usage.",
     "llm.token_count.",
     "decision.token_count.",
     "llm.model_name",
@@ -164,6 +164,17 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # -> cost column (OpenInference caller-reported total). Consumed on any
         # non-wrapper span, with or without a model name.
         "llm.cost.total",
+        # GenAI semconv keys ingest reads. The rest of gen_ai.* (request
+        # parameters, finish reasons, response model/id, conversation and agent
+        # IDs) has no column and must flow to metadata.
+        "gen_ai.operation.name",  # -> span kind
+        "gen_ai.system",  # -> span kind
+        "gen_ai.request.model",  # -> model_name column
+        "gen_ai.input.messages",  # -> input column
+        "gen_ai.output.messages",  # -> output column
+        "gen_ai.tool.call.arguments",  # -> input column + span kind
+        "gen_ai.tool.call.result",  # -> output column + span kind
+        "gen_ai.tool.name",  # -> tool span name
     }
 )
 

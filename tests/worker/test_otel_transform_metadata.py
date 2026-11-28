@@ -100,7 +100,7 @@ def test_extra_attributes_become_metadata():
 
 
 def test_known_attributes_excluded_from_metadata():
-    """Known attributes (traceroot.span.input, gen_ai.*, etc.) do NOT leak into metadata."""
+    """Known attributes (traceroot.span.input, gen_ai.system, etc.) do NOT leak into metadata."""
     payload = _otel_payload(
         [
             _attr("traceroot.span.input", "some input"),
@@ -136,6 +136,56 @@ def test_known_attributes_excluded_from_metadata():
         "llm.input_messages.0.message.content",
         "llm.output_messages.0.message.role",
         "llm.output_messages.0.message.content",
+    ):
+        assert key not in meta, f"{key} should not appear in metadata"
+
+
+def test_unextracted_gen_ai_attributes_kept_in_metadata():
+    """gen_ai.* keys ingest doesn't map to a column stay in metadata.
+
+    A blanket "gen_ai." prefix used to hide every GenAI semconv attribute, so
+    request parameters, finish reasons, the serving model and the conversation
+    and agent IDs were neither stored in a column nor kept as metadata.
+    """
+    payload = _otel_payload(
+        [
+            _attr("gen_ai.operation.name", "chat"),
+            _attr("gen_ai.system", "openai"),
+            _attr("gen_ai.request.model", "gpt-4o"),
+            _attr("gen_ai.response.model", "gpt-4o-2024-08-06"),
+            _attr("gen_ai.request.temperature", 0.2),
+            _attr("gen_ai.request.max_tokens", 256),
+            _array_attr("gen_ai.response.finish_reasons", ["length"]),
+            _attr("gen_ai.response.id", "chatcmpl-123"),
+            _attr("gen_ai.conversation.id", "conv-42"),
+            _attr("gen_ai.agent.name", "support-bot"),
+            _attr("gen_ai.usage.input_tokens", 10),
+            _attr("gen_ai.usage.output_tokens", 256),
+            _attr("gen_ai.input.messages", json.dumps([{"role": "user", "content": "hi"}])),
+            _attr("gen_ai.output.messages", json.dumps([{"role": "assistant", "content": "yo"}])),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["model_name"] == "gpt-4o"
+    meta = json.loads(spans[0]["metadata"])
+    assert meta["gen_ai.response.model"] == "gpt-4o-2024-08-06"
+    assert meta["gen_ai.request.temperature"] == 0.2
+    assert meta["gen_ai.request.max_tokens"] == 256
+    assert meta["gen_ai.response.finish_reasons"] == ["length"]
+    assert meta["gen_ai.response.id"] == "chatcmpl-123"
+    assert meta["gen_ai.conversation.id"] == "conv-42"
+    assert meta["gen_ai.agent.name"] == "support-bot"
+    # Keys ingest extracts into columns stay out of metadata.
+    for key in (
+        "gen_ai.operation.name",
+        "gen_ai.system",
+        "gen_ai.request.model",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.input.messages",
+        "gen_ai.output.messages",
     ):
         assert key not in meta, f"{key} should not appear in metadata"
 
