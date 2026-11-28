@@ -47,7 +47,9 @@ def _parse_data(raw: str) -> Any:
         return {}
     try:
         return json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
+        # RecursionError: a payload nested past the parser's depth limit. Its
+        # depth comes from client trace data, so treat it as unparseable text.
         return raw
 
 
