@@ -18,7 +18,9 @@ vi.mock("@/components/github/GitHubConnectButton", () => ({
 vi.mock("@/components/slack/SlackConnectButton", () => ({
   SlackConnectButton: () => <div data-testid="slack-connect" />,
 }));
-vi.mock("@/features/workspaces/hooks", () => ({ useWorkspaces: () => ({ data: [] }) }));
+vi.mock("@/features/workspaces/hooks/use-demo-access", () => ({
+  useDemoAccess: () => ({ data: { available: false } }),
+}));
 
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
 vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));

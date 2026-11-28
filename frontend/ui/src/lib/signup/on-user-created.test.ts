@@ -95,17 +95,16 @@ it("does nothing for a user created through the admin plugin", async () => {
   for (const fn of everything) expect(fn).not.toHaveBeenCalled();
 });
 
-it("sends an AgentID sign-up no welcome email and no Slack post, but keeps demo access", async () => {
+it("sends an AgentID sign-up no welcome email and no Slack post, and does not grant demo access", async () => {
   await onUserCreated(user, { path: "/callback/:id", provider: "agentid" });
   for (const fn of everything) expect(fn).not.toHaveBeenCalled();
-  expect(ensureDemoMembership).toHaveBeenCalledWith("u1");
+  expect(ensureDemoMembership).not.toHaveBeenCalled();
 });
 
-it("adds every new account to the demo workspace, admin-created ones too", async () => {
+it("does not automatically join either self-signups or admin-created accounts to the demo", async () => {
   await onUserCreated(user, { path: "/sign-up/email" });
   await onUserCreated(user, { path: "/admin/create-user" });
-  expect(ensureDemoMembership).toHaveBeenCalledTimes(2);
-  expect(ensureDemoMembership).toHaveBeenCalledWith("u1");
+  expect(ensureDemoMembership).not.toHaveBeenCalled();
 });
 
 it("runs only the welcome when Slack is unset, and only Slack when mail is unconfigured", async () => {
@@ -193,7 +192,7 @@ it("logs a failed sign-up event and still runs the other follow-ups", async () =
   await expect(onUserCreated(user, { path: "/sign-up/email" })).resolves.toBeUndefined();
   expect(console.error).toHaveBeenCalledWith("[signup] signup webhook failed for user u1:", error);
   expect(sendWelcomeEmail).toHaveBeenCalled();
-  expect(ensureDemoMembership).toHaveBeenCalledWith("u1");
+  expect(ensureDemoMembership).not.toHaveBeenCalled();
 });
 
 it("skips the welcome when the contact was not recorded; Slack still posts", async () => {

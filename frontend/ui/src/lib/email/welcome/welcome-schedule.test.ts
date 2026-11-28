@@ -119,7 +119,7 @@ vi.mock("@/env.client", () => ({
   },
 }));
 vi.mock("../demo-link", () => ({
-  demoProjectUrl: async (appUrl: string) => `${appUrl}/projects/demo/traces`,
+  demoProjectUrl: async (appUrl: string) => `${appUrl}/demo`,
 }));
 
 import {

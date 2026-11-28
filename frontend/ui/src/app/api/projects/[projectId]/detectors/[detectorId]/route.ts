@@ -1,6 +1,8 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
+import { isDemoViewer } from "@/lib/demo-workspace";
+import { demoDetector } from "@/lib/demo-read";
 import { readDeleteReason } from "@/lib/route-helpers";
 import { deleteDetector, updateDetector, type DetectorPatch } from "@/lib/write-services/detectors";
 import {
@@ -31,7 +33,8 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
     return errorResponse("Detector not found", 404);
   }
 
-  return successResponse({ detector });
+  const demo = isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role);
+  return successResponse({ detector: demo ? demoDetector(detector) : detector });
 }
 
 // PATCH /api/projects/[projectId]/detectors/[detectorId] - Partially update a detector.

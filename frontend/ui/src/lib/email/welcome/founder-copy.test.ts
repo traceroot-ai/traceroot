@@ -5,7 +5,7 @@ import { founderWelcomeCopy, type FounderWelcomeInput } from "./founder-copy";
 const BASE: FounderWelcomeInput = {
   variant: "generic",
   appUrl: "https://staging.example.test",
-  demoUrl: "https://app.traceroot.ai/projects/demo/traces",
+  demoUrl: "https://app.traceroot.ai/demo",
   bookingUrl: "https://cal.com/traceroot/30min",
   githubUrl: "https://github.com/traceroot-ai/traceroot",
   followUpLine: true,

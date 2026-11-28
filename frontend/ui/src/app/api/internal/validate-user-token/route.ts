@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { resolveSessionFromToken } from "@/lib/internal-session";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 const validateUserTokenSchema = z.object({
   token: z.string().min(1, "Token is required"),
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
     valid: true,
     userId: user.id,
     role: membership.role,
+    demoViewer: isDemoViewer(project.workspaceId, membership.role),
     workspaceId: project.workspaceId,
     billingPlan: project.workspace?.billingPlan || PlanType.FREE,
     projectId: project.id,

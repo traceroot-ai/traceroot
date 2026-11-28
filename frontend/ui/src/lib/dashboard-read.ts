@@ -1,4 +1,18 @@
 import { prisma } from "@traceroot/core";
+import { demoWorkspaceId } from "@/lib/demo-workspace";
+
+export const DEMO_CREATOR = "Demo";
+
+export async function isDemoProject(projectId: string): Promise<boolean> {
+  const workspaceId = demoWorkspaceId();
+  return !!(
+    workspaceId &&
+    (await prisma.project.findFirst({
+      where: { id: projectId, workspaceId, deleteTime: null },
+      select: { id: true },
+    }))
+  );
+}
 
 /**
  * Resolve dashboard creator ids to display names for the dashboard read
@@ -7,7 +21,13 @@ import { prisma } from "@traceroot/core";
  * bare user id (no relation on the model); resolve display names in one
  * batch — a deleted account resolves to null.
  */
-export async function resolveCreatorNames(ids: string[]): Promise<Map<string, string>> {
+export async function resolveCreatorNames(
+  ids: string[],
+  projectId: string,
+): Promise<Map<string, string>> {
+  if (await isDemoProject(projectId)) {
+    return new Map(ids.map((id) => [id, DEMO_CREATOR]));
+  }
   const users = await prisma.user.findMany({
     where: { id: { in: [...new Set(ids)] } },
     select: { id: true, name: true, email: true },

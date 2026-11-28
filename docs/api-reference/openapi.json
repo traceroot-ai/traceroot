@@ -10784,7 +10784,7 @@
         }
       },
       "get": {
-        "description": "Get one detector's full configuration for the key's project.",
+        "description": "Get a detector, excluding working configuration from demo visitors.",
         "operationId": "get_detector",
         "parameters": [
           {

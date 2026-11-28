@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("next/server", () => ({
   NextRequest: class {},
@@ -22,6 +22,7 @@ vi.mock("@traceroot/core", () => ({
     },
   },
   PlanType: { FREE: "free" },
+  Role: { ADMIN: "ADMIN", MEMBER: "MEMBER", VIEWER: "VIEWER" },
 }));
 
 const verifyInternalSecretMock = vi.fn();
@@ -41,12 +42,15 @@ function makeRequest(body: unknown) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
   projectFindUniqueMock.mockReset();
   memberFindUniqueMock.mockReset();
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
   resolveTokenMock.mockReset();
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("POST /api/internal/validate-user-token", () => {
   it("rejects an unauthorized caller before touching auth or the database", async () => {
@@ -131,6 +135,7 @@ describe("POST /api/internal/validate-user-token", () => {
       valid: true,
       userId: "user-1",
       role: "admin",
+      demoViewer: false,
       workspaceId: "ws-456",
       billingPlan: "pro",
       projectId: "proj-123",
@@ -150,6 +155,26 @@ describe("POST /api/internal/validate-user-token", () => {
     const body = await res.json();
 
     expect(body.billingPlan).toBe("free");
+    expect(body.demoViewer).toBe(false);
+  });
+
+  it.each([
+    ["VIEWER", true],
+    ["MEMBER", true],
+    ["ADMIN", false],
+  ])("marks demo %s visibility from the resolved membership", async (role, demoViewer) => {
+    resolveTokenMock.mockResolvedValue({ user: { id: "user-1" } });
+    projectFindUniqueMock.mockResolvedValue({
+      id: "proj-123",
+      workspaceId: "ws-demo",
+      workspace: { billingPlan: "enterprise" },
+    });
+    memberFindUniqueMock.mockResolvedValue({ role });
+
+    const res = await POST(makeRequest({ token: "tok", projectId: "proj-123", demoViewer: false }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ role, demoViewer });
   });
 
   it("project-scope: project not found returns valid:true, hasAccess:false at 403", async () => {

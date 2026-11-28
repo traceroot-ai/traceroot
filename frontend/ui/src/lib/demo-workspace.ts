@@ -1,6 +1,5 @@
-// The public demo workspace. Every user joins it as a VIEWER, so new users can
-// look at a live project before they send their own traces. DEMO_WORKSPACE_ID
-// names it; unset (self-hosted) turns all of this off.
+// The public demo workspace. Users explicitly join it as a VIEWER to explore
+// sample traces. DEMO_WORKSPACE_ID names it; unset (self-hosted) turns this off.
 //
 // The demo workspace is an ordinary workspace on the enterprise plan, so its
 // quotas, seats and billing need no special code. What does need it: every
@@ -66,25 +65,16 @@ export function sortDemoLast<T>(items: T[], workspaceIdOf: (item: T) => string):
 
 type MemberClient = Pick<typeof prisma, "workspaceMember">;
 
-/**
- * Add the user to the demo workspace as a VIEWER. An existing membership is
- * left as it is, so a team admin is never lowered to VIEWER. Runs after
- * sign-up and at each login; it logs and never throws, so a demo problem can
- * never break sign-in.
- */
+/** Explicitly join the demo as a VIEWER, preserving any existing role. */
 export async function ensureDemoMembership(
   userId: string,
   client: MemberClient = prisma,
 ): Promise<void> {
   const workspaceId = demoWorkspaceId();
   if (workspaceId === null) return;
-  try {
-    await client.workspaceMember.upsert({
-      where: { workspaceId_userId: { workspaceId, userId } },
-      update: {},
-      create: { id: crypto.randomUUID(), workspaceId, userId, role: Role.VIEWER },
-    });
-  } catch (error) {
-    console.error(`[demo-workspace] could not add user ${userId} to the demo workspace:`, error);
-  }
+  await client.workspaceMember.upsert({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    update: {},
+    create: { id: crypto.randomUUID(), workspaceId, userId, role: Role.VIEWER },
+  });
 }

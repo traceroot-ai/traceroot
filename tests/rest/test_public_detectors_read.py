@@ -4,10 +4,13 @@ Auth is overridden and the reader service is replaced with a fake, so these run
 with no live databases.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import respx
 from fastapi.testclient import TestClient
+from httpx import Response
 
 from rest.main import app
 from rest.routers.public.deps import AuthResult, authenticate_public_caller
@@ -359,6 +362,88 @@ def _detector_detail() -> DetectorDetail:
 
 
 class TestGetDetector:
+    @pytest.mark.parametrize("role", ["VIEWER", "MEMBER"])
+    def test_demo_visitor_receives_only_catalog_fields(self, client, reader, role):
+        reader.detector = _detector_detail()
+        app.dependency_overrides[authenticate_public_caller] = lambda: replace(
+            make_auth(), kind="user", role=role, demo_viewer=True
+        )
+
+        resp = client.get("/api/v1/public/detectors/det-1")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == {
+            "detector_id": "det-1",
+            "name": "Error spike",
+            "template": "failure",
+            "enabled": True,
+            "created_at": "2026-08-01T12:00:00",
+            "prompt": "",
+            "output_schema": None,
+            "sample_rate": 100,
+            "enable_rca": False,
+            "detection_model": None,
+            "detection_provider": None,
+            "detection_source": None,
+            "updated_at": "2026-08-01T12:00:00",
+            "trigger_conditions": None,
+        }
+
+    @pytest.mark.parametrize("role", ["VIEWER", "ADMIN"])
+    def test_non_demo_member_and_demo_admin_keep_configuration(self, client, reader, role):
+        reader.detector = _detector_detail()
+        app.dependency_overrides[authenticate_public_caller] = lambda: replace(
+            make_auth(), kind="user", role=role, demo_viewer=False
+        )
+
+        resp = client.get("/api/v1/public/detectors/det-1")
+
+        assert resp.status_code == 200
+        assert resp.json()["prompt"] == reader.detector.prompt
+        assert resp.json()["output_schema"] == reader.detector.output_schema
+        assert resp.json()["trigger_conditions"] == reader.detector.trigger_conditions
+
+    @pytest.mark.parametrize(
+        ("flag", "restricted"),
+        [
+            (True, True),
+            (False, False),
+            ("missing", True),
+            (None, True),
+            ("false", True),
+            (0, True),
+        ],
+    )
+    @respx.mock
+    def test_session_introspection_visibility_end_to_end(self, client, reader, flag, restricted):
+        app.dependency_overrides.pop(authenticate_public_caller)
+        reader.detector = _detector_detail()
+        body = {
+            "valid": True,
+            "userId": "user-1",
+            "role": "ADMIN",
+            "workspaceId": "ws-1",
+            "billingPlan": "enterprise",
+            "projectId": "proj-A",
+        }
+        if flag != "missing":
+            body["demoViewer"] = flag
+        respx.post("http://localhost:3000/api/internal/validate-user-token").mock(
+            return_value=Response(200, json=body)
+        )
+
+        resp = client.get(
+            "/api/v1/public/detectors/det-1?project_id=proj-A",
+            headers={"Authorization": "Bearer session-token"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["prompt"] == ("" if restricted else reader.detector.prompt)
+        assert resp.json()["trigger_conditions"] == (
+            None if restricted else reader.detector.trigger_conditions
+        )
+
     def test_200_returns_full_config(self, client, reader):
         reader.detector = _detector_detail()
         resp = client.get("/api/v1/public/detectors/det-1")

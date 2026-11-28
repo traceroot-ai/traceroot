@@ -81,6 +81,7 @@ def _mock_project_access(respx_mock):
                 "hasAccess": True,
                 "userId": "user-1",
                 "role": "ADMIN",
+                "demoViewer": False,
                 "workspaceId": "ws-456",
                 "billingPlan": "pro",
                 "projectId": "proj-123",
@@ -121,6 +122,35 @@ class TestJwtHappyPath:
         assert result.billing_plan == "pro"
         assert result.project_id == "proj-123"
         assert result.ingestion_blocked is True
+        assert result.demo_viewer is False
+
+    @pytest.mark.parametrize(
+        ("flag", "restricted"),
+        [(True, True), (False, False), (None, True), ("false", True), (0, True)],
+    )
+    async def test_demo_visibility_requires_an_explicit_false(self, signer, flag, restricted):
+        route = _mock_project_access(signer.respx)
+        body = route.return_value.json()
+        body["demoViewer"] = flag
+        route.mock(return_value=Response(200, json=body))
+
+        result = await authenticate_public_caller(
+            authorization=f"Bearer {_mint(signer.priv)}", project_id="proj-123"
+        )
+
+        assert result.demo_viewer is restricted
+
+    async def test_old_ui_without_demo_visibility_is_restricted(self, signer):
+        route = _mock_project_access(signer.respx)
+        body = route.return_value.json()
+        body.pop("demoViewer")
+        route.mock(return_value=Response(200, json=body))
+
+        result = await authenticate_public_caller(
+            authorization=f"Bearer {_mint(signer.priv)}", project_id="proj-123"
+        )
+
+        assert result.demo_viewer is True
 
     async def test_account_scope_needs_no_introspection(self, signer):
         token = _mint(signer.priv)

@@ -57,6 +57,7 @@ def _mock_valid_user_token(project_id: str = "proj-123"):
                 "valid": True,
                 "userId": "user-789",
                 "role": "ADMIN",
+                "demoViewer": False,
                 "workspaceId": "ws-456",
                 "billingPlan": "pro",
                 "projectId": project_id,
@@ -403,8 +404,35 @@ class TestAuthenticateUserToken:
         assert result.billing_plan == "pro"
         assert result.role == "ADMIN"
         assert result.user_id == "user-789"
+        assert result.demo_viewer is False
         # A user session token must never be usable to ingest.
         assert result.ingestion_blocked is True
+
+    @pytest.mark.parametrize(
+        ("flag", "restricted"),
+        [(True, True), (False, False), (None, True), ("false", True), (0, True)],
+    )
+    @respx.mock
+    async def test_demo_visibility_requires_an_explicit_false(self, flag, restricted):
+        route = _mock_valid_user_token()
+        body = route.return_value.json()
+        body["demoViewer"] = flag
+        route.mock(return_value=Response(200, json=body))
+
+        result = await authenticate_user_token("sess-token", "proj-123")
+
+        assert result.demo_viewer is restricted
+
+    @respx.mock
+    async def test_old_ui_without_demo_visibility_is_restricted(self):
+        route = _mock_valid_user_token()
+        body = route.return_value.json()
+        body.pop("demoViewer")
+        route.mock(return_value=Response(200, json=body))
+
+        result = await authenticate_user_token("sess-token", "proj-123")
+
+        assert result.demo_viewer is True
 
     @respx.mock
     async def test_401_returns_401(self):

@@ -75,12 +75,9 @@ describe("demo workspace on", () => {
     expect(args.create).toMatchObject({ workspaceId: "ws-demo", userId: "u1", role: "VIEWER" });
   });
 
-  it("logs and does not throw when the database fails, so sign-in never breaks", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("reports a failed explicit join to the caller", async () => {
     upsertMock.mockRejectedValue(new Error("foreign key: workspace not found"));
 
-    await expect(ensureDemoMembership("u1")).resolves.toBeUndefined();
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    await expect(ensureDemoMembership("u1")).rejects.toThrow("workspace not found");
   });
 });

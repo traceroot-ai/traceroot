@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 const userProjectAccessSchema = z.object({
   userId: z.string().min(1, "userId is required"),
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
     hasAccess: true,
     userId,
     role: membership.role,
+    demoViewer: isDemoViewer(project.workspaceId, membership.role),
     workspaceId: project.workspaceId,
     billingPlan: project.workspace?.billingPlan || PlanType.FREE,
     projectId: project.id,

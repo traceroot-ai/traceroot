@@ -28,8 +28,11 @@ const listArgs = (projectId: string) => ({
 
 // Dashboards are shared across a project's members, so the list shows who
 // created each one; a deleted account resolves to null and renders as "—".
-async function withCreators<T extends { createdBy: string }>(dashboards: T[]) {
-  const byId = await resolveCreatorNames(dashboards.map((d) => d.createdBy));
+async function withCreators<T extends { createdBy: string }>(dashboards: T[], projectId: string) {
+  const byId = await resolveCreatorNames(
+    dashboards.map((d) => d.createdBy),
+    projectId,
+  );
   return dashboards.map(({ createdBy, ...d }) => ({
     ...d,
     creator: byId.get(createdBy) ?? null,
@@ -57,7 +60,7 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
     dashboards = await prisma.dashboard.findMany(listArgs(projectId));
   }
 
-  return successResponse({ data: await withCreators(dashboards) });
+  return successResponse({ data: await withCreators(dashboards, projectId) });
 }
 
 // POST /api/projects/[projectId]/dashboards — create a named dashboard

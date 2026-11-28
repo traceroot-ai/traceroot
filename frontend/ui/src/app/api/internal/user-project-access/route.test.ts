@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("next/server", () => ({
   NextRequest: class {},
@@ -18,6 +18,7 @@ vi.mock("@traceroot/core", () => ({
     workspaceMember: { findUnique: (...args: unknown[]) => memberFindUniqueMock(...args) },
   },
   PlanType: { FREE: "free" },
+  Role: { ADMIN: "ADMIN", MEMBER: "MEMBER", VIEWER: "VIEWER" },
 }));
 
 const verifyInternalSecretMock = vi.fn();
@@ -32,11 +33,14 @@ function makeRequest(body: unknown) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
   projectFindUniqueMock.mockReset();
   memberFindUniqueMock.mockReset();
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("POST /api/internal/user-project-access", () => {
   it("rejects an unauthorized caller before any lookup", async () => {
@@ -73,6 +77,7 @@ describe("POST /api/internal/user-project-access", () => {
       hasAccess: true,
       userId: "user-1",
       role: "admin",
+      demoViewer: false,
       workspaceId: "ws-456",
       billingPlan: "pro",
       projectId: "proj-123",
@@ -97,6 +102,27 @@ describe("POST /api/internal/user-project-access", () => {
     const body = await res.json();
 
     expect(body.billingPlan).toBe("free");
+    expect(body.demoViewer).toBe(false);
+  });
+
+  it.each([
+    ["VIEWER", true],
+    ["MEMBER", true],
+    ["ADMIN", false],
+  ])("marks demo %s visibility from the resolved membership", async (role, demoViewer) => {
+    projectFindUniqueMock.mockResolvedValue({
+      id: "proj-123",
+      workspaceId: "ws-demo",
+      workspace: { billingPlan: "enterprise" },
+    });
+    memberFindUniqueMock.mockResolvedValue({ role });
+
+    const res = await POST(
+      makeRequest({ userId: "user-1", projectId: "proj-123", demoViewer: false }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ role, demoViewer });
   });
 
   it("returns 403 hasAccess:false when the project is not found", async () => {

@@ -39,11 +39,11 @@ vi.mock("@/components/slack/SlackConnectButton", () => ({
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
 vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 
-// The account's workspaces; a deployment with a demo workspace lists it for everyone.
-const { workspacesQuery } = vi.hoisted(() => ({
-  workspacesQuery: { data: [] as { id: string; is_demo?: boolean }[] },
+// Demo availability is independent of whether this account has joined.
+const { demoQuery } = vi.hoisted(() => ({
+  demoQuery: { data: { available: false } },
 }));
-vi.mock("@/features/workspaces/hooks", () => ({ useWorkspaces: () => workspacesQuery }));
+vi.mock("@/features/workspaces/hooks/use-demo-access", () => ({ useDemoAccess: () => demoQuery }));
 
 import { AITab } from "./AITab";
 
@@ -80,7 +80,7 @@ afterEach(() => {
   vi.resetModules();
   projectQuery.data = { workspace_id: "ws_1" };
   projectQuery.isLoading = false;
-  workspacesQuery.data = [];
+  demoQuery.data = { available: false };
   capture.mockReset();
   Reflect.deleteProperty(navigator, "clipboard");
 });
@@ -256,15 +256,15 @@ describe("AITab, after the command", () => {
   });
 
   it("opens the demo workspace where the deployment has one", () => {
-    workspacesQuery.data = [{ id: "ws_1" }, { id: "ws_demo", is_demo: true }];
+    demoQuery.data = { available: true };
     render(<AITab {...PROJECT} />);
     expect(screen.getByRole("link", { name: "See the demo project" }).getAttribute("href")).toBe(
-      "/workspaces/ws_demo/projects",
+      "/demo",
     );
   });
 
   it("offers no demo where the deployment has none", () => {
-    workspacesQuery.data = [{ id: "ws_1" }];
+    demoQuery.data = { available: false };
     render(<AITab {...PROJECT} />);
     expect(screen.queryByRole("link", { name: "See the demo project" })).toBeNull();
   });

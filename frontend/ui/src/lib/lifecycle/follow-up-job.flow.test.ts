@@ -309,14 +309,12 @@ describe("a run that sends", () => {
     expect(run).toMatchObject({ sent: 0, failed: 1, skipped: 1 });
   });
 
-  it("links the demo project for Last note", async () => {
+  it("links the explicit demo entry page for Last note", async () => {
     person("late", 7);
     db.sends.push({ userId: "late", campaign: "setup_help", sentAt: ago(4), claimedAt: ago(4) });
     await runFollowUps({ environment, now: NOW });
     const email = (mail.sendOnce.mock.calls[0][2] as () => { text: string })();
-    expect(email.text).toContain(
-      "Open the demo project: https://app.example/projects/p_demo/traces",
-    );
+    expect(email.text).toContain("Open the demo project: https://app.example/demo");
   });
 
   it("does not send while product mail is not configured", async () => {

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
-import { useWorkspaces } from "@/features/workspaces/hooks";
+import { useDemoAccess } from "@/features/workspaces/hooks/use-demo-access";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./CodeBlock";
 import { setupCommand } from "./commands";
@@ -94,8 +94,9 @@ interface AITabProps {
 export function AITab({ projectId, surface, copy, actions }: AITabProps) {
   const setup = setupCommand({ projectId });
   const onCommandCopied = useSetupCommandCopied(projectId, surface);
-  const demoWorkspace = useDemoWorkspace();
-  const hasActions = !!demoWorkspace || !!actions;
+  const { data: demo } = useDemoAccess();
+  const demoAvailable = demo?.available ?? false;
+  const hasActions = demoAvailable || !!actions;
 
   return (
     <div className="space-y-6">
@@ -141,10 +142,10 @@ export function AITab({ projectId, surface, copy, actions }: AITabProps) {
             surface === "onboarding" && "justify-center",
           )}
         >
-          {/* Only where a demo workspace is set up; it is in every account's list there. */}
-          {demoWorkspace && (
+          {/* Opening the entry page does not grant membership. */}
+          {demoAvailable && (
             <Link
-              href={`/workspaces/${demoWorkspace.id}/projects`}
+              href="/demo"
               className={cn(
                 buttonVariants({ variant: "outline", size: "sm" }),
                 "h-7 px-4 text-[12px]",
@@ -158,10 +159,4 @@ export function AITab({ projectId, surface, copy, actions }: AITabProps) {
       )}
     </div>
   );
-}
-
-/** The demo workspace, when this deployment has one: it is in every account's list. */
-function useDemoWorkspace() {
-  const { data: workspaces } = useWorkspaces();
-  return workspaces?.find((workspace) => workspace.is_demo);
 }

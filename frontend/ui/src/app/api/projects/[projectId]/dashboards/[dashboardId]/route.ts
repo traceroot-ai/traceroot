@@ -4,6 +4,7 @@ import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, readDeleteReason, requireProjectAuth } from "@/lib/route-helpers";
 import { deleteDashboard, updateDashboard } from "@/lib/write-services/dashboards";
+import { DEMO_CREATOR, isDemoProject } from "@/lib/dashboard-read";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
@@ -17,7 +18,9 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
     include: { widgets: { orderBy: { createTime: "asc" } } },
   });
   if (!dashboard) return errorResponse("Dashboard not found", 404);
-  return successResponse({ dashboard });
+  if (!(await isDemoProject(projectId))) return successResponse({ dashboard });
+  const { createdBy: _createdBy, ...details } = dashboard;
+  return successResponse({ dashboard: { ...details, creator: DEMO_CREATOR } });
 }
 
 // Thin adapters over the write service, which owns the validation (layout

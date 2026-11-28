@@ -141,5 +141,25 @@ async def get_detector(
     detector_id: str,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
-    """Get one detector's full configuration for the key's project."""
-    return await require_detector(lambda: service.get_detector(auth.project_id, detector_id))
+    """Get a detector, excluding working configuration from demo visitors."""
+    detector = await require_detector(lambda: service.get_detector(auth.project_id, detector_id))
+    if auth.kind == "user" and auth.demo_viewer:
+        # Rebuild from the published catalog fields rather than copying the
+        # stored object: newly added configuration must not leak by default.
+        return DetectorDetail(
+            detector_id=detector.detector_id,
+            name=detector.name,
+            template=detector.template,
+            enabled=detector.enabled,
+            created_at=detector.created_at,
+            prompt="",
+            output_schema=None,
+            sample_rate=100,
+            enable_rca=False,
+            detection_model=None,
+            detection_provider=None,
+            detection_source=None,
+            updated_at=detector.created_at,
+            trigger_conditions=None,
+        )
+    return detector

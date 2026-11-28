@@ -25,7 +25,7 @@ const deployment = vi.hoisted(() => ({ cloud: false, mode: "off" }));
 vi.mock("@/lib/server/cloud", () => ({ isCloud: () => deployment.cloud }));
 vi.mock("@/lib/lifecycle/follow-up-job", () => ({ followUpMode: () => deployment.mode }));
 vi.mock("../demo-link", () => ({
-  demoProjectUrl: async (appUrl: string) => `${appUrl}/projects/demo/traces`,
+  demoProjectUrl: async (appUrl: string) => `${appUrl}/demo`,
 }));
 
 import { sendWelcomeEmail } from "./send-welcome-email";
@@ -94,9 +94,7 @@ describe("on the cloud service", () => {
     await sendWelcomeEmail({ ...input, variant: "exploring" });
     const email = core.sendOnce.mock.calls[0][2]();
     expect(email.subject).toBe("A trace you can explore");
-    expect(email.text).toContain(
-      "Open the demo project: https://app.example.com/projects/demo/traces",
-    );
+    expect(email.text).toContain("Open the demo project: https://app.example.com/demo");
   });
 
   it.each([

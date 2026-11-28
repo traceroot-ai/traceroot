@@ -35,7 +35,8 @@ vi.mock("@traceroot/core", () => ({ prisma: {} }));
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: vi.fn() }));
 const onUserCreated = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
 vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated }));
-vi.mock("@/lib/demo-workspace", () => ({ ensureDemoMembership: vi.fn(async () => undefined) }));
+const ensureDemoMembership = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/demo-workspace", () => ({ ensureDemoMembership }));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "local-test-secret-012345678901234567890123",
@@ -105,9 +106,12 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Unexpected network request")));
   for (const rows of Object.values(database)) rows.length = 0;
   onUserCreated.mockClear();
+  ensureDemoMembership.mockClear();
 });
 
 afterEach(() => {
+  // Signing in must never grant access to the shared demo workspace.
+  expect(ensureDemoMembership).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
 
