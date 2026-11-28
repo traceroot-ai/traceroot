@@ -1,5 +1,6 @@
 """Session query endpoints (user-authenticated, not public API)."""
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -46,7 +47,8 @@ async def list_sessions(
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
-        result = service.list_sessions(
+        result = await asyncio.to_thread(
+            service.list_sessions,
             project_id=project_id,
             page=page,
             limit=limit,
@@ -86,7 +88,8 @@ async def get_session(
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
-        result = service.get_session(
+        result = await asyncio.to_thread(
+            service.get_session,
             project_id=project_id,
             session_id=session_id,
             start_after=start_after,

@@ -1,5 +1,6 @@
 """User query endpoints (user-authenticated, not public API)."""
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -46,7 +47,8 @@ async def list_users(
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
-        result = service.list_users(
+        result = await asyncio.to_thread(
+            service.list_users,
             project_id=project_id,
             page=page,
             limit=limit,
