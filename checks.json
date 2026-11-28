@@ -165,6 +165,24 @@
     },
     {
       "label": "after",
+      "state": "demo-signedout",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-signedout",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-signedout",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
       "state": "detector-list",
       "width": 1024,
       "overflow": 0

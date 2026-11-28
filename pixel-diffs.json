@@ -6,8 +6,8 @@
   },
   {
     "name": "before-detector-list-390-drawer.png",
-    "pixels": 477,
-    "percent": "0.136"
+    "pixels": 576,
+    "percent": "0.164"
   },
   {
     "name": "before-detector-list-390.png",
@@ -31,33 +31,33 @@
   },
   {
     "name": "before-detector-panel-1024.png",
-    "pixels": 40125,
-    "percent": "4.354"
+    "pixels": 38320,
+    "percent": "4.158"
   },
   {
     "name": "before-detector-panel-390-drawer.png",
-    "pixels": 3286,
-    "percent": "0.936"
+    "pixels": 3339,
+    "percent": "0.951"
   },
   {
     "name": "before-detector-panel-390.png",
-    "pixels": 17934,
-    "percent": "5.109"
+    "pixels": 17460,
+    "percent": "4.974"
   },
   {
     "name": "before-detector-panel-768.png",
-    "pixels": 31289,
-    "percent": "4.527"
+    "pixels": 29852,
+    "percent": "4.319"
   },
   {
     "name": "before-detector-panel-dark.png",
-    "pixels": 60459,
-    "percent": "4.665"
+    "pixels": 58101,
+    "percent": "4.483"
   },
   {
     "name": "before-detector-panel-light.png",
-    "pixels": 54049,
-    "percent": "4.170"
+    "pixels": 51677,
+    "percent": "3.987"
   },
   {
     "name": "before-onboarding-entry-1024.png",
@@ -91,8 +91,8 @@
   },
   {
     "name": "before-trace-entry-390-drawer.png",
-    "pixels": 157,
-    "percent": "0.045"
+    "pixels": 256,
+    "percent": "0.073"
   },
   {
     "name": "before-trace-entry-390.png",

@@ -1,6 +1,6 @@
 # Demo opt-in — fixture-backed visual evidence
 
-Before: `b8a7cd195`; after: `2da695702e09a1ec712162ab47aaf7ae2f9d2c24`. Running local Next builds, fixed synthetic API fixtures, Chrome, light/dark themes. These captures prove layout and interaction presentation only. The real Postgres-backed consent/revocation test is reported separately in the PR. Production content and deployment were not tested.
+Before: `b8a7cd195`; after: `6fc2cd7885ccee966f97ceb66ad110db9a959f1b`. Running local Next builds, fixed synthetic API fixtures, Chrome, light/dark themes. These captures prove layout and interaction presentation only. The real Postgres-backed consent/revocation test is reported separately in the PR. Production content and deployment were not tested.
 
 The new `/demo` page has no corresponding page on main. Before/after pairs cover existing tracing/onboarding entry surfaces and the Detector list/panel. Detector fixtures model the API's before/after projection (the same sample becomes a public template with redacted model/sampling values). Local command examples use port 3110 before and 3109 after. Browser dev indicators are hidden only in the capture harness.
 
@@ -9,8 +9,8 @@ The new `/demo` page has no corresponding page on main. Before/after pairs cover
 | Check | Result |
 |---|---|
 | Before/after pages, light/dark, 1440×900 | Captured with pixel diffs |
-| New Join/Open/Leave/error states | Captured |
-| Widths 1024, 768, 390 | 33 checks, all 0 px document overflow |
+| New Join/Open/Leave/error/sign-in states | Captured |
+| Widths 1024, 768, 390 | 36 checks, all 0 px document overflow |
 | Mobile navigation drawer | Captured at 390 px |
 | Browser page errors / unknown API fixture routes | None |
 | Videos | Before/after, 1280×720, each below 30 seconds |
@@ -30,7 +30,7 @@ The new `/demo` page has no corresponding page on main. Before/after pairs cover
 
 **Before:** 0.0s trace-entry, 1.7s onboarding-entry, 3.3s detector-list, 5.0s detector-panel.
 
-**After:** 0.0s trace-entry, 1.6s onboarding-entry, 3.2s demo-join, 4.8s demo-joined, 7.1s detector-list, 8.8s detector-panel, 10.5s leave-demo.
+**After:** 0.0s trace-entry, 1.6s onboarding-entry, 3.3s demo-join, 4.8s demo-joined, 7.1s detector-list, 8.8s detector-panel, 10.6s leave-demo.
 
 ## Before and after
 
@@ -102,6 +102,12 @@ The new `/demo` page has no corresponding page on main. Before/after pairs cover
 |---|---|
 | ![Light](after-demo-error-light.png) | ![Dark](after-demo-error-dark.png) |
 
+### demo-signedout
+
+| Light | Dark |
+|---|---|
+| ![Light](after-demo-signedout-light.png) | ![Dark](after-demo-signedout-dark.png) |
+
 ## Narrow viewports
 
 ### trace-entry
@@ -157,5 +163,13 @@ The new `/demo` page has no corresponding page on main. Before/after pairs cover
 | ![1024](after-demo-error-1024.png) | ![768](after-demo-error-768.png) | ![390](after-demo-error-390.png) |
 
 ![Navigation drawer](after-demo-error-390-drawer.png)
+
+### demo-signedout
+
+| 1024 | 768 | 390 |
+|---|---|---|
+| ![1024](after-demo-signedout-1024.png) | ![768](after-demo-signedout-768.png) | ![390](after-demo-signedout-390.png) |
+
+![Navigation drawer](after-demo-signedout-390-drawer.png)
 
 [Overflow/console checks](checks.json) · [Changed pixel counts](pixel-diffs.json)

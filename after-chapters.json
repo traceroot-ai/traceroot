@@ -8,7 +8,7 @@
     "name": "onboarding-entry"
   },
   {
-    "atSeconds": "3.2",
+    "atSeconds": "3.3",
     "name": "demo-join"
   },
   {
@@ -24,7 +24,7 @@
     "name": "detector-panel"
   },
   {
-    "atSeconds": "10.5",
+    "atSeconds": "10.6",
     "name": "leave-demo"
   }
 ]
