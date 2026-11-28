@@ -4,7 +4,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import { writeDetectorRun, writeDetectorFinding } from "../clickhouse-writer.js";
+import {
+  INTERNAL_WRITE_TIMEOUT_MS,
+  writeDetectorRun,
+  writeDetectorFinding,
+} from "../clickhouse-writer.js";
 
 describe("writeDetectorRun", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -129,6 +133,29 @@ describe("writeDetectorRun", () => {
 
     expect(JSON.parse(mockFetch.mock.calls[0][1].body).source).toBe("loop");
     expect("source" in JSON.parse(mockFetch.mock.calls[1][1].body)).toBe(false);
+  });
+
+  it("bounds each write with a timeout, so a hung request fails", async () => {
+    const aborted = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(aborted.signal);
+    mockFetch.mockImplementationOnce(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) =>
+          init.signal!.addEventListener("abort", () => reject(init.signal!.reason)),
+        ),
+    );
+    const write = writeDetectorRun({
+      runId: "r",
+      detectorId: "d",
+      projectId: "p",
+      traceId: "t",
+      findingId: null,
+      status: "completed",
+    });
+    expect(timeout).toHaveBeenCalledWith(INTERNAL_WRITE_TIMEOUT_MS);
+    aborted.abort(new DOMException("timed out", "TimeoutError"));
+    await expect(write).rejects.toMatchObject({ name: "TimeoutError" });
+    timeout.mockRestore();
   });
 
   it("omits usedInference when absent so the server default applies", async () => {

@@ -16,6 +16,13 @@ const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
  */
 export type DetectorRowSource = "detector" | "loop";
 
+/**
+ * How long one write may take, response included. Each write is a single row,
+ * so this only cuts off a request that hung; it then fails like any other
+ * failed write.
+ */
+export const INTERNAL_WRITE_TIMEOUT_MS = 30_000;
+
 async function internalPost(path: string, body: unknown): Promise<void> {
   const response = await fetch(`${BACKEND_URL}${path}`, {
     method: "POST",
@@ -24,6 +31,7 @@ async function internalPost(path: string, body: unknown): Promise<void> {
       "X-Internal-Secret": INTERNAL_API_SECRET,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(INTERNAL_WRITE_TIMEOUT_MS),
   });
   if (!response.ok) {
     const text = await response.text();
