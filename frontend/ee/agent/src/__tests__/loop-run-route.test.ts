@@ -4,6 +4,8 @@ import { AUTH } from "./internal-auth-support.js";
 
 const mocks = vi.hoisted(() => ({
   findRun: vi.fn(),
+  findRuns: vi.fn(),
+  findSignals: vi.fn(),
   getSession: vi.fn(),
   updateSessionTitle: vi.fn(),
   getOrCreateAgent: vi.fn(),
@@ -13,7 +15,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@traceroot/core", () => ({
-  prisma: { loopRun: { findUnique: mocks.findRun } },
+  prisma: {
+    loopRun: { findUnique: mocks.findRun, findMany: mocks.findRuns },
+    signal: { findMany: mocks.findSignals },
+  },
   syncStandardPrices: vi.fn(async () => {}),
   calculateCost: vi.fn(async () => 0),
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
@@ -57,6 +62,7 @@ const RUN = {
   sessionId: "sess-1",
   loop: {
     name: "Errors",
+    detectorId: "det-1",
     instructions: "Look for timeouts.",
     lookbackHours: 24,
     dryRun: true,
@@ -117,6 +123,33 @@ beforeEach(() => {
   agent = { abort: vi.fn(), state: { model: { id: "m1", provider: "openai" } } };
   config = undefined;
   mocks.findRun.mockResolvedValue(RUN);
+  mocks.findRuns.mockResolvedValue([]);
+  mocks.findSignals.mockResolvedValue([
+    {
+      id: "sig-1",
+      groupKey: "loop:known-timeouts",
+      title: "Known timeouts",
+      status: "open",
+      mergedIntoId: null,
+      statusEvents: [],
+    },
+    {
+      id: "sig-2",
+      groupKey: "loop:known-timeouts",
+      title: "Older copy",
+      status: "open",
+      mergedIntoId: null,
+      statusEvents: [],
+    },
+    {
+      id: "sig-3",
+      groupKey: "loop:",
+      title: "No key",
+      status: "open",
+      mergedIntoId: null,
+      statusEvents: [],
+    },
+  ]);
   mocks.getSession.mockResolvedValue({
     id: "sess-1",
     userId: null,
@@ -243,6 +276,7 @@ describe("POST loop-runs/:runId — the turn", () => {
       costUsd: 0.0123,
       error: null,
       modelUsed: { model: "m1", provider: "openai", source: "byok" },
+      findings: [],
     });
     // The kickoff row and every row the persister writes carry loop_execution.
     expect(mocks.appendMessage).toHaveBeenCalledWith("user", expect.any(String), {
@@ -282,6 +316,7 @@ describe("POST loop-runs/:runId — the turn", () => {
       costUsd: null,
       error: null,
       modelUsed: { model: "m1", provider: "openai", source: "byok" },
+      findings: [],
     });
   });
 
@@ -310,10 +345,210 @@ describe("POST loop-runs/:runId — the turn", () => {
     expect(body.modelUsed).toEqual({ model: "m1", provider: "my-openai", source: "byok" });
   });
 
+  it("answers with the run's findings, and offers the loop's existing keys", async () => {
+    mocks.findRun.mockResolvedValue({ ...RUN, loop: { ...RUN.loop, dryRun: false } });
+    // get_session reads both of the session's traces.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ traces: [{ trace_id: "t1" }, { trace_id: "t2" }] })),
+      ),
+    );
+    runs(async () => {
+      await call("get_session", { session_id: "s1" });
+      await call("loop_record_finding", {
+        key: "known-timeouts",
+        title: "Timeouts",
+        covers: "Calls that time out.",
+        summary: "2 of 10 traces.",
+        traceIds: ["t1", "t2"],
+      });
+      await call("loop_submit_summary", { summary: "One known problem." });
+    });
+    const body = await (await post(BODY)).json();
+    vi.unstubAllGlobals();
+    expect(body.findings).toEqual([
+      {
+        key: "known-timeouts",
+        title: "Timeouts",
+        covers: "Calls that time out.",
+        summary: "2 of 10 traces.",
+        traceIds: ["t1", "t2"],
+      },
+    ]);
+    expect(mocks.findSignals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { projectId: "p1", detectorId: "det-1", groupKey: { startsWith: "loop:" } },
+      }),
+    );
+    expect(config!.systemPrompt).toContain("This loop's signals (1)");
+    expect(config!.systemPrompt).toContain('- known-timeouts · "Known timeouts" · open\n');
+  });
+
+  it("gives the run each signal's title, status and the reason people gave for it", async () => {
+    mocks.findSignals.mockResolvedValue([
+      {
+        id: "sig-1",
+        groupKey: "loop:empty-answers",
+        title: "Empty answers",
+        status: "dismissed",
+        mergedIntoId: null,
+        statusEvents: [{ toStatus: "dismissed", reason: "expected_behavior", note: "On purpose." }],
+      },
+      {
+        id: "sig-2",
+        groupKey: "loop:slow-search",
+        title: "Slow search",
+        status: "open",
+        mergedIntoId: null,
+        // Resolved, then reopened by a new hit: the old reason no longer applies.
+        statusEvents: [{ toStatus: "resolved", reason: "fixed_by_pr", note: null }],
+      },
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              signals: [{ id: "sig-2", status: "open", title: "Slow search", hitCount: 3 }],
+            }),
+          ),
+      ),
+    );
+    let listed = "";
+    runs(async () => {
+      listed = textOf(await call("list_signals"));
+    });
+    await post(BODY);
+    vi.unstubAllGlobals();
+    expect(mocks.findSignals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          statusEvents: expect.objectContaining({
+            where: { toStatus: { in: ["resolved", "dismissed"] } },
+            take: 1,
+          }),
+        }),
+      }),
+    );
+    expect(config!.systemPrompt).toContain(
+      '- empty-answers · "Empty answers" · dismissed · reason: expected_behavior · ' +
+        'note: "On purpose."',
+    );
+    expect(config!.systemPrompt).toContain('- slow-search · "Slow search" · open\n');
+    expect(listed).toContain(
+      "sig-2 | open | Slow search | detector | this loop's key slow-search |",
+    );
+  });
+
+  it("holds new keys to the plan cap in the prompt, the tool and the record cap", async () => {
+    mocks.findRun.mockResolvedValue({
+      ...RUN,
+      loop: { ...RUN.loop, dryRun: false },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ trace_id: "t1" }))),
+    );
+    const replies: string[] = [];
+    let recordCalls = 0;
+    runs(async () => {
+      await call("get_trace", { trace_id: "t1" });
+      for (const key of ["new-a", "new-b", "new-c"]) {
+        const result = await call("loop_record_finding", {
+          key,
+          title: "t",
+          covers: "c",
+          summary: "s",
+          traceIds: ["t1"],
+        });
+        replies.push(JSON.stringify(result.content));
+      }
+      recordCalls = replies.length;
+      while (!textOf(await call("loop_record_finding")).startsWith("Not performed")) {
+        recordCalls += 1;
+      }
+    });
+    const body = await (await post(BODY)).json();
+    vi.unstubAllGlobals();
+    expect(config!.systemPrompt).toContain("New finding keys allowed this run: 2.");
+    expect(replies[2]).toContain("already recorded 2 new keys");
+    expect(body.findings.map((f: { key: string }) => f.key)).toEqual(["new-a", "new-b"]);
+    // 3 per key it may record: 2 new plus the 1 existing.
+    expect(recordCalls).toBe(9);
+  });
+
+  it("counts keys earlier runs recorded as existing, before their signal exists", async () => {
+    mocks.findRun.mockResolvedValue({ ...RUN, loop: { ...RUN.loop, dryRun: false } });
+    // The previous run recorded recorded-only; the signals round has not grouped it yet.
+    mocks.findRuns.mockResolvedValue([{ findingKeys: ["recorded-only", "known-timeouts"] }]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ trace_id: "t1" }))),
+    );
+    const replies: string[] = [];
+    runs(async () => {
+      await call("get_trace", { trace_id: "t1" });
+      for (const key of ["recorded-only", "new-a", "new-b"]) {
+        const result = await call("loop_record_finding", {
+          key,
+          title: "t",
+          covers: "c",
+          summary: "s",
+          traceIds: ["t1"],
+        });
+        replies.push(textOf(result));
+      }
+    });
+    const body = await (await post(BODY)).json();
+    vi.unstubAllGlobals();
+    expect(mocks.findRuns).toHaveBeenCalledWith({
+      where: { loopId: "loop-1", id: { not: "run-1" }, findingKeys: { isEmpty: false } },
+      orderBy: { seq: "desc" },
+      take: 20,
+      select: { findingKeys: true },
+    });
+    expect(replies).toEqual([
+      'Finding "recorded-only" recorded (existing key) with 1 traces.',
+      'Finding "new-a" recorded (new key) with 1 traces.',
+      'Finding "new-b" recorded (new key) with 1 traces.',
+    ]);
+    expect(body.findings.map((f: { key: string }) => f.key)).toEqual([
+      "recorded-only",
+      "new-a",
+      "new-b",
+    ]);
+  });
+
+  it("answers no findings on a dry run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ trace_id: "t1" }))),
+    );
+    let reply = "";
+    runs(async () => {
+      await call("get_trace", { trace_id: "t1" });
+      const result = await call("loop_record_finding", {
+        key: "x-y",
+        title: "t",
+        covers: "c",
+        summary: "s",
+        traceIds: ["t1"],
+      });
+      reply = JSON.stringify(result.content);
+    });
+    const body = await (await post(BODY)).json();
+    vi.unstubAllGlobals();
+    expect(reply).toContain("Dry run: this finding is not recorded");
+    expect(body.findings).toEqual([]);
+  });
+
   it("answers budget_exhausted when a cap stopped the run before a summary", async () => {
     runs(async () => {
       for (let i = 0; i < 80; i++) await call("list_traces");
-      expect(textOf(await call("list_traces"))).toContain("Call loop_submit_summary now");
+      expect(textOf(await call("list_traces"))).toContain("then call loop_submit_summary");
     });
     const body = await (await post(BODY)).json();
     expect(body).toMatchObject({ status: "budget_exhausted", toolCalls: 80, summary: null });
@@ -420,9 +655,34 @@ describe("POST loop-runs/:runId — the turn", () => {
     expect((await (await post(BODY)).json()).status).toBe("no_summary");
   });
 
+  it("answers error (200), without building the agent, when the loop's signals cannot be read", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.findSignals.mockRejectedValueOnce(new Error("connection lost"));
+    const res = await post(BODY);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "error",
+      error: "connection lost",
+      findings: [],
+      modelUsed: null,
+    });
+    expect(mocks.getOrCreateAgent).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledWith(
+      "[Agent] Loop run run-1 could not read its signals:",
+      expect.any(Error),
+    );
+    errors.mockRestore();
+    // The claim was released: a second call can run.
+    runs(() => undefined);
+    expect((await (await post(BODY)).json()).status).toBe("no_summary");
+  });
+
   it("never writes the run's status", async () => {
     runs(() => undefined);
     await post(BODY);
-    expect(Object.keys((await import("@traceroot/core")).prisma.loopRun)).toEqual(["findUnique"]);
+    expect(Object.keys((await import("@traceroot/core")).prisma.loopRun)).toEqual([
+      "findUnique",
+      "findMany",
+    ]);
   });
 });

@@ -168,7 +168,9 @@ async def get_usage_details(
     # used_inference to true so a billed call is never forgotten), the outer
     # query windows on that collapsed timestamp — latest row wins, then filter
     # — and counts each qualifying run exactly once. Same construct as the
-    # digest window-summary.
+    # digest window-summary. Only detectors' runs count: a Loop's findings are
+    # written as runs of its hidden detector (source 'loop') so signals group
+    # them, and Loops are metered by their loop runs.
     detector_runs_result = ch.query(
         """
         SELECT count() as total
@@ -179,6 +181,7 @@ async def get_usage_details(
                 max(timestamp) AS ts
             FROM detector_runs
             WHERE project_id IN {project_ids:Array(String)}
+              AND source = 'detector'
             GROUP BY project_id, detector_id, run_id
         )
         WHERE ts >= {start:String}

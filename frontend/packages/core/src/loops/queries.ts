@@ -3,6 +3,7 @@ import type { Loop, LoopRun, Prisma } from "@prisma/client";
 import {
   COUNTED_RUN_STATUSES,
   LOOP_REPLIED_MESSAGE_WHERE,
+  type ExistingLoopSignal,
   type LoopDto,
   type LoopMemoryDto,
   type LoopRunDto,
@@ -12,7 +13,7 @@ import {
   type LoopSummaryDto,
   type Paged,
 } from "./contracts.ts";
-import { findingKeyOfGroupKey } from "./keys.ts";
+import { LOOP_GROUP_KEY_PREFIX, findingKeyOfGroupKey } from "./keys.ts";
 import { scheduleFromColumns } from "./schedule.ts";
 
 type Db = Prisma.TransactionClient;
@@ -288,4 +289,53 @@ export async function listMemory(
       updateTime: row.updateTime.toISOString(),
     }))
     .filter((memory) => input.includeExpired || !memory.expired);
+}
+
+/**
+ * The signals a Loop already has, one per finding key: its hidden detector's
+ * signals under a Loop group key, merged ones included (their key stays theirs),
+ * most recently seen first. Each carries the reason and note people gave for
+ * its current status when it is resolved or dismissed.
+ */
+export async function existingLoopSignals(
+  db: Db,
+  projectId: string,
+  detectorId: string,
+): Promise<ExistingLoopSignal[]> {
+  const signals = await db.signal.findMany({
+    where: { projectId, detectorId, groupKey: { startsWith: LOOP_GROUP_KEY_PREFIX } },
+    orderBy: { lastSeenAt: "desc" },
+    select: {
+      id: true,
+      groupKey: true,
+      title: true,
+      status: true,
+      mergedIntoId: true,
+      statusEvents: {
+        where: { toStatus: { in: ["resolved", "dismissed"] } },
+        orderBy: { createTime: "desc" },
+        take: 1,
+        select: { toStatus: true, reason: true, note: true },
+      },
+    },
+  });
+  const seen = new Set<string>();
+  const result: ExistingLoopSignal[] = [];
+  for (const signal of signals) {
+    const key = findingKeyOfGroupKey(signal.groupKey);
+    if (key === null || seen.has(key)) continue;
+    seen.add(key);
+    // A reason counts only while the signal still has the status it was given for.
+    const decision = signal.statusEvents.find((event) => event.toStatus === signal.status);
+    result.push({
+      key,
+      signalId: signal.id,
+      title: signal.title,
+      status: signal.status,
+      reason: decision?.reason ?? null,
+      note: decision?.note ?? null,
+      mergedIntoId: signal.mergedIntoId,
+    });
+  }
+  return result;
 }

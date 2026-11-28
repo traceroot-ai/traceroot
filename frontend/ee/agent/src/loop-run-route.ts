@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { prisma, ModelSource } from "@traceroot/core";
+import { existingLoopSignals } from "@traceroot/core/loops";
 import {
   LOOP_LIMITS,
+  type ExistingLoopSignal,
   type LoopAgentOutcome,
   type LoopAgentResult,
   type LoopRunModel,
@@ -80,6 +82,38 @@ function parseRequest(body: unknown): LoopRunRequest | string {
   };
 }
 
+/** How many of a loop's latest runs lend their recorded keys to the new-key check. */
+export const RECENT_RUNS_FOR_KEYS = 20;
+
+/**
+ * The keys this loop's latest runs recorded. A run saves its keys when it
+ * finishes, before the signals round groups them, so a key can be recorded
+ * with no signal yet; it is still not a new key.
+ */
+async function recentRunFindingKeys(loopId: string, runId: string): Promise<string[]> {
+  const runs = await prisma.loopRun.findMany({
+    where: { loopId, id: { not: runId }, findingKeys: { isEmpty: false } },
+    orderBy: { seq: "desc" },
+    take: RECENT_RUNS_FOR_KEYS,
+    select: { findingKeys: true },
+  });
+  return runs.flatMap((r) => r.findingKeys);
+}
+
+/** The answer for a turn that never ran. */
+function errorResult(error: unknown): LoopAgentResult {
+  return {
+    status: "error",
+    summary: null,
+    tracesRead: 0,
+    toolCalls: 0,
+    costUsd: null,
+    error: publicErrorMessage(error),
+    modelUsed: null,
+    findings: [],
+  };
+}
+
 /**
  * The model the agent was built with. A run that names none gets the agent
  * service's default, which only the built agent knows.
@@ -147,8 +181,10 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
       loop: {
         select: {
           name: true,
+          detectorId: true,
           instructions: true,
           lookbackHours: true,
+          dryRun: true,
         },
       },
     },
@@ -170,8 +206,23 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
     return c.json({ error: "a run is already in progress for this session" }, 409);
   }
 
+  let loopSignals: ExistingLoopSignal[];
+  let recordedKeys: string[];
+  try {
+    [loopSignals, recordedKeys] = await Promise.all([
+      existingLoopSignals(prisma, projectId, run.loop.detectorId),
+      recentRunFindingKeys(run.loopId, run.id),
+    ]);
+  } catch (error) {
+    releaseRun(body.sessionId);
+    console.error(`[Agent] Loop run ${runId} could not read its signals:`, error);
+    return c.json(errorResult(error));
+  }
+  const findingKeys = [...new Set([...loopSignals.map((s) => s.key), ...recordedKeys])];
+
   const now = new Date();
   const window = loopWindow({ lookbackHours: run.loop.lookbackHours, now });
+  const maxNewFindingKeys = LOOP_LIMITS.newFindingKeysPerRun;
   const state = newLoopRunState();
   const attribution = { turnKind: "loop_execution" as const };
   let agent: Agent | undefined;
@@ -185,6 +236,9 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
     ),
     window,
     limits: { toolCalls: LOOP_LIMITS.toolCalls, traceReads: LOOP_LIMITS.traceReads },
+    dryRun: run.loop.dryRun,
+    maxNewFindingKeys,
+    existingSignals: loopSignals,
   });
   const message = kickoffMessage(run.loop.name, window);
 
@@ -201,6 +255,10 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
       state,
       // The model keeps calling past its cap: stop paying for calls that cannot run.
       onRunaway: () => agent?.abort(),
+      existingFindingKeys: findingKeys,
+      findingKeysBySignal: new Map(loopSignals.map((s) => [s.signalId, s.key])),
+      maxNewFindingKeys,
+      dryRun: run.loop.dryRun,
     });
     ({ agent, sessionManager } = await getOrCreateAgent({
       sessionId: body.sessionId,
@@ -219,15 +277,7 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
     releaseRun(body.sessionId);
     removeAgent(body.sessionId);
     console.error(`[Agent] Loop run ${runId} could not start:`, error);
-    return c.json({
-      status: "error",
-      summary: null,
-      tracesRead: 0,
-      toolCalls: 0,
-      costUsd: null,
-      error: publicErrorMessage(error),
-      modelUsed: null,
-    } satisfies LoopAgentResult);
+    return c.json(errorResult(error));
   }
 
   const trace: AgentTraceMeta = {
@@ -301,5 +351,7 @@ loopRunRoute.post("/api/v1/projects/:projectId/loop-runs/:runId", async (c) => {
     costUsd: result.usage?.cost ?? null,
     error: status === "timed_out" ? TIMED_OUT_ERROR : status === "error" ? runError : null,
     modelUsed: modelUsed(agent, body),
+    // The one dry-run gate: a dry run's findings are checked but never handed to the worker.
+    findings: run.loop.dryRun ? [] : [...state.findings.values()],
   } satisfies LoopAgentResult);
 });

@@ -1,6 +1,7 @@
 /**
  * The Loop tick: claim due Loops into scheduled runs, enqueue every pending run,
- * and reclaim runs left "running" by a worker that died. Started from
+ * reclaim runs left "running" by a worker that died, and republish findings a
+ * run accepted but did not finish publishing. Started from
  * detector-main.ts on the same cron tick as the alert scheduler (one tick at a time).
  * Every step is safe to run from two ticks or replicas at once.
  */
@@ -8,6 +9,7 @@ import type { Queue } from "bullmq";
 import { prisma, Prisma } from "@traceroot/core";
 import { createRun, hasActiveRun, nextRunAt, scheduleFromColumns } from "@traceroot/core/loops";
 import { finishLoopRun } from "./finish.js";
+import { republishPendingFindings } from "./publish.js";
 import { startCronTick, type CronTickHandle } from "../scheduling/cron-tick.js";
 import {
   LOOP_RECLAIM_GRACE_MS,
@@ -202,6 +204,14 @@ export async function runLoopTick(now: Date, target: LoopQueue = getLoopRunQueue
     await enqueuePendingRuns(target);
   } catch (error) {
     logError("pending read failed", error);
+  }
+  // Last: a slow backend delays only this step, after the runs were queued.
+  try {
+    const { published, gave_up } = await republishPendingFindings(now);
+    if (published > 0) log(`republished the findings of ${published} run(s)`);
+    if (gave_up > 0) log(`gave up publishing the findings of ${gave_up} run(s)`);
+  } catch (error) {
+    logError("pending findings read failed", error);
   }
 }
 

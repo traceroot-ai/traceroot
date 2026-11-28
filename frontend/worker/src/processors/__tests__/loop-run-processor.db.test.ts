@@ -1,8 +1,9 @@
 /**
  * processLoopRun against a real Postgres with the migrations applied: the
- * start's gates and daily cap, the run's finish and the Loop's failure streak.
- * The agent service (fetch), the model resolver and the window's trace check
- * are faked. Skipped unless
+ * start's gates and daily cap, the run's finish, its findings and the Loop's
+ * failure streak. The agent service (fetch), the model resolver, the window's
+ * trace check and the ClickHouse writes and signal enqueue of findings are
+ * faked. Skipped unless
  * TEST_DATABASE_URL is set:
  *   TEST_DATABASE_URL=postgresql://... pnpm --filter traceroot-worker test db.test
  *
@@ -25,6 +26,14 @@ import {
   LOOP_PLAN_SKIP,
   startLoopRun,
 } from "../../loops/start.js";
+import { loopFindingRunId } from "../../loops/findings.js";
+import {
+  LOOP_FINDINGS_FAILED,
+  LOOP_PUBLISH_MAX_TRIES,
+  PENDING_FINDINGS_KEY,
+  publishLoopFindings,
+  recoverPendingFindings,
+} from "../../loops/publish.js";
 import {
   LOOP_SESSION_TIMEOUT_ERROR,
   LOOP_SESSION_TIMEOUT_MS,
@@ -42,11 +51,35 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     : actual;
 });
 
-const mocks = vi.hoisted(() => ({ resolveProjectModel: vi.fn(), windowHasTraces: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  resolveProjectModel: vi.fn(),
+  writeDetectorFinding: vi.fn(),
+  writeDetectorRun: vi.fn(),
+  enqueueSignalHits: vi.fn(),
+  windowHasTraces: vi.fn(),
+  /** Set by a test to stop the worker right after its finish accepted the findings. */
+  crashBeforePublish: false,
+}));
 vi.mock("../../agent/resolve-model.js", () => ({
   resolveProjectModel: mocks.resolveProjectModel,
 }));
+vi.mock("../../detection/clickhouse-writer.js", () => ({
+  writeDetectorFinding: mocks.writeDetectorFinding,
+  writeDetectorRun: mocks.writeDetectorRun,
+}));
+vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mocks.enqueueSignalHits }));
 vi.mock("../../loops/window-traces.js", () => ({ windowHasTraces: mocks.windowHasTraces }));
+vi.mock("../../loops/publish.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../loops/publish.js")>();
+  return {
+    ...actual,
+    // Only the worker's own call: the tick's recovery calls the module's publish.
+    publishLoopFindings: (runId: string, tries: number) =>
+      mocks.crashBeforePublish
+        ? Promise.reject(new Error("worker stopped"))
+        : actual.publishLoopFindings(runId, tries),
+  };
+});
 
 const url = process.env.TEST_DATABASE_URL;
 const billingAtLoad = process.env.ENABLE_BILLING;
@@ -100,6 +133,7 @@ function agentAnswers(result: Partial<LoopAgentResult>) {
       costUsd: 0.42,
       error: null,
       modelUsed: { model: "claude-sonnet", provider: "anthropic", source: "system" },
+      findings: [],
       ...result,
     });
   });
@@ -241,7 +275,11 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       providerName: "anthropic",
       source: "system",
     });
+    mocks.writeDetectorFinding.mockReset().mockResolvedValue(undefined);
+    mocks.writeDetectorRun.mockReset().mockResolvedValue(undefined);
+    mocks.enqueueSignalHits.mockReset().mockResolvedValue(1);
     mocks.windowHasTraces.mockReset().mockResolvedValue(true);
+    mocks.crashBeforePublish = false;
     agentAnswers({});
   });
   afterEach(() => {
@@ -657,6 +695,251 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       agentAnswers({ status: "error", summary: null, error: "Provider refused\nstack..." });
       await runJob(run.id);
       expect(await runRow(run.id)).toMatchObject({ status: "failed", error: "Provider refused" });
+    });
+  });
+
+  describe("findings", () => {
+    const findings = [
+      {
+        key: "tool-timeouts",
+        title: "Tool calls time out",
+        covers: "Traces where a tool call times out and the agent carries on.",
+        summary: "Three traces hit the 30s tool timeout.",
+        traceIds: ["t1", "t2"],
+      },
+      {
+        key: "wrong-city",
+        title: "Wrong city booked",
+        covers: "Bookings for a different city than asked.",
+        summary: "One booking went to Paris, Texas.",
+        traceIds: ["t1"],
+      },
+    ];
+
+    /** The findings a run accepted and has not published yet, if any. */
+    async function pendingOf(runId: string) {
+      const { metadata } = await runRow(runId);
+      return (metadata as Record<string, unknown> | null)?.[PENDING_FINDINGS_KEY] as
+        | { tries: number; findings: unknown[] }
+        | undefined;
+    }
+
+    it("accepts the findings, publishes them as hits of the loop's detector, and clears them", async () => {
+      const ids = await setup();
+      const { detectorId } = await loopRow(ids.loopId);
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      await runJob(run.id);
+      const row = await runRow(run.id);
+      expect(row).toMatchObject({
+        status: "succeeded",
+        findingKeys: ["tool-timeouts", "wrong-city"],
+        summary: "Nothing recurring in the last 24 hours.",
+        error: null,
+      });
+      expect(row.metadata).toMatchObject({ model: "claude-sonnet", toolCalls: 12 });
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.writeDetectorFinding).toHaveBeenCalledTimes(3);
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      for (const [row] of mocks.writeDetectorRun.mock.calls) {
+        expect(row).toMatchObject({ detectorId, projectId: ids.projectId });
+      }
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+    });
+
+    it("stays quiet without findings", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings: [] });
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({ status: "quiet", findingKeys: [] });
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+    });
+
+    it("keeps the findings pending when some writes fail, until the tick republishes them", async () => {
+      const ids = await setup();
+      const { detectorId } = await loopRow(ids.loopId);
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      // t2 of tool-timeouts and t1 of wrong-city fail; t1 of tool-timeouts lands.
+      const lands = loopFindingRunId(ids.projectId, "t1", detectorId, "tool-timeouts");
+      mocks.writeDetectorRun.mockImplementation(async (row: { runId: string }) => {
+        if (row.runId !== lands) throw new Error("Backend API error 500");
+      });
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "succeeded",
+        findingKeys: ["tool-timeouts", "wrong-city"],
+        error: null,
+      });
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 1 });
+      // The hit that landed is enqueued now.
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+
+      mocks.writeDetectorRun.mockReset().mockResolvedValue(undefined);
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("published");
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails a run whose agent answer does not match the contract", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings: [{ ...findings[0]!, key: "Not Kebab" }] });
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "failed",
+        error: "The agent service answered with a result this worker cannot read.",
+      });
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+    });
+
+    it("loses nothing when the backend times out after the accept: the tick publishes later", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      mocks.writeDetectorFinding.mockRejectedValue(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+      );
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "succeeded",
+        findingKeys: ["tool-timeouts", "wrong-city"],
+        error: null,
+        summary: "Nothing recurring in the last 24 hours.",
+      });
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 1, findings });
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+
+      mocks.writeDetectorFinding.mockReset().mockResolvedValue(undefined);
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("published");
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+    });
+
+    it("publishes after a crash between the accept and the publish", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      mocks.crashBeforePublish = true;
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "succeeded",
+        findingKeys: ["tool-timeouts", "wrong-city"],
+      });
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 1 });
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("published");
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not let an earlier publish try publish or clear a later try's claim", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      mocks.crashBeforePublish = true;
+      await runJob(run.id);
+      mocks.crashBeforePublish = false;
+      // The tick took the payload over as try 2 and failed to write it.
+      mocks.writeDetectorFinding.mockRejectedValue(new Error("Backend API error 500"));
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("retry");
+      mocks.writeDetectorFinding.mockReset().mockResolvedValue(undefined);
+
+      expect(await publishLoopFindings(run.id, 1)).toBe("not_pending");
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 2 });
+    });
+
+    it("gives up after its last publish try, keeping the run succeeded with an error", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      mocks.writeDetectorRun.mockRejectedValue(new Error("Backend API error 500: secret detail"));
+      await runJob(run.id);
+      for (let tries = 1; tries < LOOP_PUBLISH_MAX_TRIES - 1; tries++) {
+        expect(await recoverPendingFindings({ id: run.id, tries }, new Date())).toBe("retry");
+      }
+      expect(
+        await recoverPendingFindings({ id: run.id, tries: LOOP_PUBLISH_MAX_TRIES - 1 }, new Date()),
+      ).toBe("gave_up");
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3 * LOOP_PUBLISH_MAX_TRIES);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "succeeded",
+        error: LOOP_FINDINGS_FAILED,
+        findingKeys: ["tool-timeouts", "wrong-city"],
+        summary: "Nothing recurring in the last 24 hours.",
+      });
+      expect(await pendingOf(run.id)).toBeUndefined();
+    });
+
+    it("accepts and publishes nothing when the run is reclaimed while the agent works", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      const answer = fetchMock.getMockImplementation()!;
+      // The tick reclaims the run mid-call and its retry is already running.
+      fetchMock.mockImplementation(async (target: string, init: RequestInit) => {
+        if (!target.endsWith("/sessions")) {
+          await prisma.loopRun.update({
+            where: { id: run.id },
+            data: { attempts: { increment: 1 } },
+          });
+        }
+        return answer(target, init);
+      });
+      await runJob(run.id);
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+      expect(await runRow(run.id)).toMatchObject({
+        status: "running",
+        attempts: 2,
+        finishedAt: null,
+        findingKeys: [],
+        metadata: null,
+      });
+    });
+
+    it("accepts and publishes nothing when the run already finished while the agent works", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      const answer = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation(async (target: string, init: RequestInit) => {
+        if (!target.endsWith("/sessions")) {
+          await prisma.loopRun.update({
+            where: { id: run.id },
+            data: { status: "timed_out", error: "reclaimed", finishedAt: new Date() },
+          });
+        }
+        return answer(target, init);
+      });
+      await runJob(run.id);
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+      expect(await runRow(run.id)).toMatchObject({
+        status: "timed_out",
+        error: "reclaimed",
+        findingKeys: [],
+        metadata: null,
+      });
+    });
+
+    it("records nothing for a run that failed", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ status: "no_summary", summary: null, findings });
+      await runJob(run.id);
+      expect((await runRow(run.id)).status).toBe("failed");
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
     });
   });
 

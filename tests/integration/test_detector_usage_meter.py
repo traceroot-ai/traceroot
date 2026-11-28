@@ -55,20 +55,31 @@ RETRIES = [
     ("billed-stale-unbilled-latest", "failed", False, LATER),  # latest supersedes → no
 ]
 EXPECTED = 4
-ROWS_BEFORE_MERGE = len(RUNS) + len(RETRIES)
-DISTINCT_RUNS = len(RUNS)
+LOOP_DETECTOR = "loop-d"
+LOOP_RUNS = 3
+ROWS_BEFORE_MERGE = len(RUNS) + len(RETRIES) + LOOP_RUNS
+DISTINCT_RUNS = len(RUNS) + LOOP_RUNS
 
 
-def _run_row(run_id: str, status: str, used_inference: bool, ts: datetime, project: str) -> dict:
+def _run_row(
+    run_id: str,
+    status: str,
+    used_inference: bool,
+    ts: datetime,
+    project: str,
+    detector_id: str = "d1",
+    source: str = "detector",
+) -> dict:
     return {
         "run_id": run_id,
-        "detector_id": "d1",
+        "detector_id": detector_id,
         "project_id": project,
         "trace_id": f"trace-{run_id}",
         "finding_id": None,
         "status": status,
         "timestamp": ts,
         "used_inference": used_inference,
+        "source": source,
     }
 
 
@@ -89,6 +100,15 @@ def seeded(gateway: Gateway) -> Gateway:
         gateway.admin,
         "detector_runs",
         [_run_row("other-failed-billed", "failed", True, AT, OTHER_PROJECT)],
+    )
+    # A Loop's findings: completed runs of its hidden detector, metered as loop runs.
+    _insert(
+        gateway.admin,
+        "detector_runs",
+        [
+            _run_row(f"loop-{i}", "completed", False, AT, PROJECT, LOOP_DETECTOR, "loop")
+            for i in range(LOOP_RUNS)
+        ],
     )
     return gateway
 
@@ -116,4 +136,14 @@ def test_the_count_is_unchanged_by_a_physical_merge(seeded, monkeypatch):
     """After OPTIMIZE FINAL the versions physically collapse; the count must not move."""
     seeded.admin.command("OPTIMIZE TABLE detector_runs FINAL")
     assert _physical_rows(seeded) == DISTINCT_RUNS, "the merge did not collapse the versions"
+    assert _meter_count(seeded, monkeypatch) == EXPECTED
+
+
+def test_a_loops_runs_are_not_counted(seeded, monkeypatch):
+    """The Loop's completed runs are in the table, under source 'loop', and not metered."""
+    loop_rows = seeded.admin.query(
+        "SELECT count() FROM detector_runs WHERE project_id = {p:String} AND source = 'loop'",
+        parameters={"p": PROJECT},
+    ).result_rows[0][0]
+    assert loop_rows == LOOP_RUNS
     assert _meter_count(seeded, monkeypatch) == EXPECTED

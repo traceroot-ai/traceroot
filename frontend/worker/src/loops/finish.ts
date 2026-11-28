@@ -1,6 +1,9 @@
 /**
  * The writes that end a Loop run: the run row, the Loop's lastRunAt, and the
- * failure streak that pauses a Loop whose scheduled runs keep failing.
+ * failure streak that pauses a Loop whose scheduled runs keep failing. Each
+ * finish lands only while the run is still the try's, so a run with findings
+ * stores them in the same write and only the try that owns the run accepts
+ * them (see publish.ts).
  */
 import { prisma, type Prisma } from "@traceroot/core";
 import { LOOP_LIMITS, type LoopRunStatus } from "@traceroot/core/loops";
@@ -11,13 +14,15 @@ import { LOOP_LIMITS, type LoopRunStatus } from "@traceroot/core/loops";
  */
 export type LoopRunOutcome = Extract<
   LoopRunStatus,
-  "quiet" | "failed" | "timed_out" | "skipped_no_traces"
+  "succeeded" | "quiet" | "failed" | "timed_out" | "skipped_no_traces"
 >;
 
 export interface LoopRunFinish {
   status: LoopRunOutcome;
   summary?: string | null;
   error?: string | null;
+  /** The finding keys the run accepted, each once; set only when it succeeded. */
+  findingKeys?: string[];
   tracesRead?: number;
   costUsd?: number | null;
   /** Merged into the run's metadata. */
@@ -38,44 +43,56 @@ interface FinishTarget {
   metadata?: Prisma.JsonValue | null;
 }
 
+/** The run is still this try's: it has `fromStatus` and was not reclaimed since. */
+function ownedBy(run: Pick<FinishTarget, "id" | "fromStatus" | "attempts">) {
+  return { id: run.id, status: run.fromStatus, attempts: run.attempts };
+}
+
 /**
- * Finish a run once: the update only lands while the run still has
- * `fromStatus` and is on the same try, so a reclaim and a late worker cannot
- * both finish it. Returns false when someone else already did.
+ * Finish a run once: the update only lands while the run is still this try's
+ * (see ownedBy), so a reclaim and a late worker cannot both finish it. Returns
+ * false when someone else already did.
  */
 export async function finishLoopRun(
   run: FinishTarget,
   finish: LoopRunFinish,
   now: Date = new Date(),
 ): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const metadata =
-      finish.metadata === undefined
-        ? undefined
-        : ({
-            ...((run.metadata as Record<string, unknown> | null) ?? {}),
-            ...finish.metadata,
-          } as Prisma.InputJsonObject);
-    const written = await tx.loopRun.updateMany({
-      where: { id: run.id, status: run.fromStatus, attempts: run.attempts },
-      data: {
-        status: finish.status,
-        finishedAt: now,
-        summary: finish.summary ?? null,
-        error: finish.error ?? null,
-        // A run records no findings.
-        findingKeys: [],
-        ...(finish.tracesRead !== undefined && { tracesRead: finish.tracesRead }),
-        ...(finish.costUsd !== undefined && { costUsd: finish.costUsd }),
-        ...(metadata !== undefined && { metadata }),
-      },
-    });
-    if (written.count === 0) return false;
+  return prisma.$transaction((tx) => writeFinish(tx, run, finish, now));
+}
 
-    // A skipped run did not run: the Loop's lastRunAt and streak stay as they were.
-    if (finish.status !== "skipped_no_traces") await settleLoop(tx, run, finish.status, now);
-    return true;
+/** The run's outcome and the Loop's settle, on the caller's transaction. */
+async function writeFinish(
+  tx: Prisma.TransactionClient,
+  run: FinishTarget,
+  finish: LoopRunFinish,
+  now: Date,
+): Promise<boolean> {
+  const metadata =
+    finish.metadata === undefined
+      ? undefined
+      : ({
+          ...((run.metadata as Record<string, unknown> | null) ?? {}),
+          ...finish.metadata,
+        } as Prisma.InputJsonObject);
+  const written = await tx.loopRun.updateMany({
+    where: ownedBy(run),
+    data: {
+      status: finish.status,
+      finishedAt: now,
+      summary: finish.summary ?? null,
+      error: finish.error ?? null,
+      findingKeys: finish.findingKeys ?? [],
+      ...(finish.tracesRead !== undefined && { tracesRead: finish.tracesRead }),
+      ...(finish.costUsd !== undefined && { costUsd: finish.costUsd }),
+      ...(metadata !== undefined && { metadata }),
+    },
   });
+  if (written.count === 0) return false;
+
+  // A skipped run did not run: the Loop's lastRunAt and streak stay as they were.
+  if (finish.status !== "skipped_no_traces") await settleLoop(tx, run, finish.status, now);
+  return true;
 }
 
 /**

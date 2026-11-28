@@ -1,17 +1,29 @@
 /**
  * Executes one Loop run: its start (every gate, under one lock), the check that
  * its window has traces, its model, then the agent service's loop-run route on
- * a fresh system session. The agent reads traces and answers with a summary;
- * this processor owns the run's lifecycle (loop_runs.status) from pending to
- * its end state. A run records its summary and memory notes; no finding or signal.
+ * a fresh system session. The agent reads traces and answers with a summary and
+ * its findings; this processor owns the run's lifecycle (loop_runs.status) from
+ * pending to its end state. A run with findings is accepted by its finish:
+ * succeeded with their keys, and the findings stored on the row, in one write
+ * that lands only while the run is still this try's. They are then published
+ * as hits of the Loop's hidden detector, which the signals round groups into
+ * signals; a publish that does not complete is finished by the Loop tick (see
+ * loops/publish.ts). A try that lost the run accepts nothing and publishes
+ * nothing. A dry run's answer has none (the agent route drops them).
  */
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@traceroot/core";
 import { agentRequestHeaders } from "@traceroot/core/agent-service";
 import { publicErrorMessage } from "@traceroot/core/public-error";
-import type { LoopAgentResult, LoopRunModel } from "@traceroot/core/loops";
+import {
+  loopAgentResultSchema,
+  type LoopAgentResult,
+  type LoopFinding,
+  type LoopRunModel,
+} from "@traceroot/core/loops";
 import { resolveProjectModel, type ResolvedModel } from "../agent/resolve-model.js";
 import { finishLoopRun, type LoopRunFinish } from "../loops/finish.js";
+import { PENDING_FINDINGS_KEY, pendingFindingsOf, publishLoopFindings } from "../loops/publish.js";
 import { startLoopRun } from "../loops/start.js";
 import { windowHasTraces } from "../loops/window-traces.js";
 import {
@@ -66,7 +78,7 @@ export function outcomeOf(result: LoopAgentResult, timeoutMs: number): LoopRunFi
   switch (result.status) {
     case "submitted":
     case "budget_exhausted":
-      // A run records no findings, so one that produced its summary is quiet.
+      // Quiet, unless it has findings to accept (see processLoopRun).
       return summary
         ? { status: "quiet", ...usage }
         : { status: "failed", ...usage, error: LOOP_NO_SUMMARY };
@@ -124,6 +136,8 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
   // What the agent says it ran on; it alone knows its default when we sent none.
   let ranOn: LoopRunModel | null = null;
   let finish: LoopRunFinish;
+  // The findings the finish accepts.
+  let findings: LoopFinding[] = [];
   try {
     if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
       // Nothing for the agent to read, checked before the model so that an
@@ -157,6 +171,7 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
         });
         ranOn = result.modelUsed;
         finish = outcomeOf(result, timeoutMs);
+        if (finish.status === "quiet") findings = result.findings;
       }
     }
   } catch (error) {
@@ -174,15 +189,44 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
       provider: resolved.providerName,
       source: resolved.source,
     });
-  await finishLoopRun(running, {
-    ...finish,
+  const withModel = (outcome: LoopRunFinish): LoopRunFinish => ({
+    ...outcome,
     metadata: {
       model: model?.model ?? null,
       provider: model?.provider ?? null,
       source: model?.source ?? null,
-      ...finish.metadata,
+      ...outcome.metadata,
     },
   });
+  if (findings.length === 0) {
+    await finishLoopRun(running, withModel(finish));
+    return;
+  }
+
+  // Accepted in the finish's one write: a try that outlived its reclaim, or
+  // whose run already finished, accepts nothing and so publishes nothing.
+  const now = new Date();
+  const pending = pendingFindingsOf(findings, now.getTime());
+  const accepted = await finishLoopRun(
+    running,
+    withModel({
+      ...finish,
+      status: "succeeded",
+      findingKeys: pending.findings.map((f) => f.key),
+      metadata: { ...finish.metadata, [PENDING_FINDINGS_KEY]: pending },
+    }),
+    now,
+  );
+  if (!accepted) {
+    console.log(
+      `[Loops] run=${run.id} attempt ${run.attempts} is stale; its findings are not accepted.`,
+    );
+    return;
+  }
+  // The tick republishes whatever this leaves pending.
+  await publishLoopFindings(run.id, pending.tries).catch((error: unknown) =>
+    console.error(`[Loops] run=${run.id} could not publish its findings:`, error),
+  );
 }
 
 async function callAgent(params: {
@@ -242,7 +286,12 @@ async function callAgent(params: {
     console.error(`[Loops] run=${params.runId} agent HTTP ${res.status}: ${body.slice(0, 500)}`);
     throw new Error(`The agent service failed to run this loop (HTTP ${res.status}).`);
   }
-  return (await res.json()) as LoopAgentResult;
+  const parsed = loopAgentResultSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    console.error(`[Loops] run=${params.runId} unreadable agent answer:`, parsed.error.issues);
+    throw new Error("The agent service answered with a result this worker cannot read.");
+  }
+  return parsed.data;
 }
 
 export function startLoopRunWorker(): Worker<LoopRunJob> {

@@ -30,6 +30,7 @@ function answer(result: Partial<LoopAgentResult>): LoopAgentResult {
     costUsd: 0.42,
     error: null,
     modelUsed: null,
+    findings: [],
     ...result,
   };
 }

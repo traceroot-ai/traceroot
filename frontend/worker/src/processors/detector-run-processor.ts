@@ -1,5 +1,4 @@
 import { Worker, DelayedError, type Job } from "bullmq";
-import { createHash } from "crypto";
 import { prisma, PlanType, calculateCost } from "@traceroot/core";
 import type { DetectorRunJob, DetectorRunResult } from "../queues/detector-run-queue.js";
 import {
@@ -10,6 +9,7 @@ import {
 import { runDetectionForTrace, SAFETY_TRUNCATE_CHARS } from "../detection/sandbox-eval.js";
 import { buildJudgeInput, type JudgeInput } from "../detection/judge-input.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
+import { hash32, hashToUuid } from "../detection/ids.js";
 import { downloadSpansJsonl } from "../detection/spans-download.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
@@ -37,16 +37,6 @@ async function fetchTimeSinceLastSpanMs(projectId: string, traceId: string): Pro
   }
   const body = (await response.json()) as { time_since_last_span_ms: number };
   return body.time_since_last_span_ms;
-}
-
-/** Hash a string to 32 lowercase hex chars (first 128 bits of sha256). */
-function hash32(input: string): string {
-  return createHash("sha256").update(input).digest("hex").slice(0, 32);
-}
-
-/** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
-function hashToUuid(input: string): string {
-  return hash32(input).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 }
 
 /**

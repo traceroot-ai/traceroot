@@ -7,9 +7,12 @@ import {
   fauxToolCall,
   type Context,
 } from "@earendil-works/pi-ai";
+import { LOOP_LIMITS } from "@traceroot/core/loops/pure";
 import {
   BLOCKED_CALLS_BEFORE_STOP,
+  RECORD_FINDING_TOOL,
   SUBMIT_SUMMARY_TOOL,
+  findingRecordCap,
   newLoopRunState,
   withBudget,
   type LoopBudgetLimits,
@@ -33,9 +36,15 @@ function fakeTool(name: string): AgentTool<typeof schema> & { execute: ReturnTyp
   };
 }
 
+const LIMITS: LoopBudgetLimits = {
+  toolCalls: LOOP_LIMITS.toolCalls,
+  traceReads: LOOP_LIMITS.traceReads,
+  findingRecords: 6,
+};
+
 function budgeted(
   state: LoopRunState,
-  limits?: LoopBudgetLimits,
+  limits: LoopBudgetLimits = LIMITS,
   onRunaway: () => void = () => {},
 ) {
   const tools = new Map<string, ReturnType<typeof fakeTool>>();
@@ -80,17 +89,51 @@ describe("withBudget", () => {
 
   it("never refuses the summary, even over budget", async () => {
     const state = newLoopRunState();
-    const { call, ran } = budgeted(state, { toolCalls: 1, traceReads: 1 });
+    const { call, ran } = budgeted(state, { ...LIMITS, toolCalls: 1, traceReads: 1 });
     await call("list_traces");
     expect(textOf(await call("list_traces"))).toContain("Budget reached");
     await call(SUBMIT_SUMMARY_TOOL);
     expect(ran(SUBMIT_SUMMARY_TOOL)).toBe(1);
   });
 
+  it("never refuses recording a finding over the tool-call cap, so a run can still hand it over", async () => {
+    const state = newLoopRunState();
+    const { call, ran } = budgeted(state, { ...LIMITS, toolCalls: 1, traceReads: 1 });
+    await call("list_traces");
+    expect(textOf(await call("list_traces"))).toContain(RECORD_FINDING_TOOL);
+    expect(textOf(await call(RECORD_FINDING_TOOL))).toBe(`${RECORD_FINDING_TOOL} ran`);
+    expect(ran(RECORD_FINDING_TOOL)).toBe(1);
+  });
+
+  it("allows three record calls per key the run may record, up to the findings cap", () => {
+    expect(findingRecordCap(2, 0)).toBe(6);
+    expect(findingRecordCap(1, 3)).toBe(12);
+    // However many keys the Loop has, a run records at most findingsPerRun of them.
+    expect(findingRecordCap(2, 500)).toBe(3 * LOOP_LIMITS.findingsPerRun);
+  });
+
+  it("refuses loop_record_finding past its own cap and stops a run that spins on it", async () => {
+    const onRunaway = vi.fn();
+    const state = newLoopRunState();
+    const { call, ran } = budgeted(state, { ...LIMITS, findingRecords: 2 }, onRunaway);
+    await call(RECORD_FINDING_TOOL);
+    await call(RECORD_FINDING_TOOL);
+    const refused = textOf(await call(RECORD_FINDING_TOOL));
+    expect(refused).toContain(`all 2 of its ${RECORD_FINDING_TOOL} calls`);
+    expect(refused).toContain(SUBMIT_SUMMARY_TOOL);
+    expect(ran(RECORD_FINDING_TOOL)).toBe(2);
+    expect(state.findingRecords).toBe(2);
+    // Other tools still run, and the summary is never refused.
+    expect(textOf(await call("list_traces"))).toBe("list_traces ran");
+    expect(textOf(await call(SUBMIT_SUMMARY_TOOL))).toBe(`${SUBMIT_SUMMARY_TOOL} ran`);
+    for (let i = 1; i < BLOCKED_CALLS_BEFORE_STOP; i++) await call(RECORD_FINDING_TOOL);
+    expect(onRunaway).toHaveBeenCalledTimes(1);
+  });
+
   it("asks the caller to stop the run once, when the model keeps calling past the cap", async () => {
     const onRunaway = vi.fn();
     const state = newLoopRunState();
-    const { call } = budgeted(state, { toolCalls: 0, traceReads: 0 }, onRunaway);
+    const { call } = budgeted(state, { ...LIMITS, toolCalls: 0, traceReads: 0 }, onRunaway);
     for (let i = 0; i < BLOCKED_CALLS_BEFORE_STOP - 1; i++) await call("list_traces");
     expect(onRunaway).not.toHaveBeenCalled();
     await call("list_traces");
@@ -100,7 +143,7 @@ describe("withBudget", () => {
 
   it("counts before awaiting, so calls started together cannot all pass the cap", async () => {
     const state = newLoopRunState();
-    const { call, ran } = budgeted(state, { toolCalls: 2, traceReads: 2 });
+    const { call, ran } = budgeted(state, { ...LIMITS, toolCalls: 2, traceReads: 2 });
     await Promise.all([call("get_trace"), call("get_trace"), call("get_trace")]);
     expect(ran("get_trace")).toBe(2);
     expect(state.blockedCalls).toBe(1);
@@ -126,7 +169,7 @@ describe("withBudget", () => {
       initialState: {
         model: faux.getModel(),
         systemPrompt: "",
-        tools: [withBudget(inner, state, () => {}, { toolCalls: 10, traceReads: 1 })],
+        tools: [withBudget(inner, state, () => {}, { ...LIMITS, toolCalls: 10, traceReads: 1 })],
       },
       streamFn: faux.streamSimple,
     });
@@ -137,7 +180,7 @@ describe("withBudget", () => {
     expect(results).toHaveLength(2);
     const texts = results.map((m) => (m.content[0].type === "text" ? m.content[0].text : ""));
     expect(texts).toContain("get_trace ran");
-    expect(texts.find((t) => t !== "get_trace ran")).toContain(`Call ${SUBMIT_SUMMARY_TOOL} now`);
+    expect(texts.find((t) => t !== "get_trace ran")).toContain(`then call ${SUBMIT_SUMMARY_TOOL}`);
     expect(inner.execute).toHaveBeenCalledTimes(1);
   });
 });
