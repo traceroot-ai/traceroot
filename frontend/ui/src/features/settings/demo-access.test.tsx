@@ -9,7 +9,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/workspaces/hooks", () => ({
-  useWorkspace: () => ({ data: state.workspace, isError: state.workspaceError }),
+  useWorkspace: () => ({
+    data: state.workspace,
+    error: state.workspaceError ? new Error("Workspace request failed") : null,
+    isError: state.workspaceError,
+    refetch: vi.fn(),
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: state.project, isError: false }),
@@ -172,9 +177,16 @@ describe("the settings layouts for a demo viewer", () => {
 });
 
 describe("the settings layouts when the workspace cannot be read", () => {
-  it("show the page as before", () => {
+  it("offers a retry and hides the workspace tab controls", () => {
     state.workspaceError = true;
     renderWorkspacePage("members");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByText("Page content")).toBeNull();
+  });
+
+  it("lets project settings handle a workspace lookup failure as before", () => {
+    state.workspaceError = true;
+    renderProjectPage("general");
     expect(screen.getByText("Page content")).toBeTruthy();
     expect(screen.queryByTestId("settings-read-only")).toBeNull();
   });

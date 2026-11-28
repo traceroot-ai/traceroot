@@ -471,9 +471,9 @@ function Consent({
       <CodeConfirm code={code} />
 
       <p className="text-[12px] text-muted-foreground">
-        Approving signs {clientName} in to your traceroot account. It stays signed in while you use
-        it and signs out within seven days of its last use. Signing out in this browser doesn&apos;t
-        sign {clientName} out, but you can revoke it from{" "}
+        Approving signs this application in to your traceroot account. It stays signed in while you
+        use it and signs out within seven days of its last use. Signing out in this browser
+        doesn&apos;t sign it out, but you can revoke its access from{" "}
         <Link href="/account/settings/sessions" className="underline hover:text-foreground">
           Active Sessions
         </Link>{" "}
@@ -544,8 +544,8 @@ function SetupRequired({
         {needsWorkspace
           ? "This account has no workspace yet, so there is nowhere for traces to go."
           : "This account has no project yet, so there is nowhere for traces to go."}{" "}
-        Finish setting up first — {clientName} asks for a project the moment it is signed in, and
-        the terminal is waiting on this page.
+        Finish setting up first. The application needs a project when it signs in, and the terminal
+        is waiting on this page.
       </p>
 
       <p className="border border-warning-border bg-warning-soft p-2 text-[12px] text-warning">
