@@ -22,6 +22,7 @@ import {
 } from "@traceroot/core";
 import {
   alertCreateSchema,
+  alertFilterVocabularyProblem,
   alertPauseSchema,
   alertUpdateSchema,
   firstIssueMessage,
@@ -375,6 +376,18 @@ export async function updateAlert(input: {
     const measure = patch.measure ?? existing.measure;
     const aggregation = patch.aggregation ?? existing.aggregation;
     const filters = patch.filters ?? (existing.filters as unknown as AlertFilter[]);
+    // #2550: the vocabulary check runs on the merged filters, on every PATCH,
+    // not just when the patch carries filters — a name-only rename of a rule
+    // stored with a dead span_kind/status would otherwise save it again
+    // untouched. A stored dead value blocks any edit until the filter is fixed.
+    if (Array.isArray(filters)) {
+      for (const filter of filters) {
+        const problem = alertFilterVocabularyProblem(filter);
+        if (problem !== null) {
+          return { result: { ok: false, status: 400, error: problem } };
+        }
+      }
+    }
     const rewritesQuery =
       patch.view !== undefined ||
       patch.measure !== undefined ||

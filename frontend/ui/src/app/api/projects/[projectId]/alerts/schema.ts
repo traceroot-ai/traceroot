@@ -7,6 +7,8 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   KEYED_ALERT_FILTER_FIELDS,
   SETTABLE_ALERT_STATUSES,
+  SpanKind,
+  SpanStatus,
   alertThresholdProblem,
   getMeasure,
   isAlertAggregation,
@@ -42,6 +44,31 @@ const filterValueSchema = z.union([
   z.number().refine(Number.isFinite, "filter value must be a finite number"),
 ]);
 
+// Equality on span_kind/status is a match against values ingest writes, so
+// anything outside the vocabulary matches nothing and the rule sits on No
+// Data forever. `contains` is a substring match and stays unchecked, and
+// lowercase is rejected rather than normalised: ingest stores uppercase.
+// Shared with the PATCH path, which re-checks the merged filters: a rule
+// stored with a dead value before this check must not survive any edit.
+export function alertFilterVocabularyProblem(filter: AlertFilter): string | null {
+  if (filter.op !== "=") return null;
+  // A plain string array: the two vocabularies are disjoint literal
+  // unions, so `.includes` on their union would take `never`.
+  const allowed: readonly string[] | undefined =
+    filter.field === "span_kind"
+      ? Object.values(SpanKind)
+      : filter.field === "status"
+        ? Object.values(SpanStatus)
+        : undefined;
+  if (
+    allowed !== undefined &&
+    (typeof filter.value !== "string" || !allowed.includes(filter.value))
+  ) {
+    return `"${filter.field}" must be one of ${allowed.join(", ")}`;
+  }
+  return null;
+}
+
 // Strict: a misspelled `key` would otherwise silently store an unkeyed filter.
 // A field, operator or key the engine does not declare is not a filter that
 // matches nothing, it is a rule that raises on every tick while it is stored.
@@ -76,6 +103,14 @@ const filterSchema = z
         code: "custom",
         path: ["op"],
         message: `Operator "${filter.op}" is not valid for "${filter.field}"`,
+      });
+    }
+    const problem = alertFilterVocabularyProblem(filter);
+    if (problem !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: problem,
       });
     }
   });
