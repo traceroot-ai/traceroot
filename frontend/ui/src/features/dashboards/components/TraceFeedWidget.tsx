@@ -7,7 +7,7 @@ import type { WidgetDataRefetchOptions } from "../hooks/use-widget-data";
 import { getTraces } from "@/lib/api/traces";
 import type { Predicate, TraceListItem } from "@/types/api";
 import { canonicalizeFilters, isValidPredicate } from "@/features/filters/predicate";
-import { formatCost, formatDuration } from "@/lib/utils";
+import { formatCost, formatDuration, parseAsUTC } from "@/lib/utils";
 import type { TimeRange } from "../types";
 
 interface TraceFeedWidgetProps {
@@ -35,7 +35,7 @@ function ErrorCount({ errorCount }: { errorCount: number }) {
 }
 
 function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
+  return parseAsUTC(iso).toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
