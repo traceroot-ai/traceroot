@@ -445,7 +445,7 @@ async function shutdown(signal: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log("[Agent] TraceRoot Agent Service starting...");
+  console.log("[Agent] traceroot Agent Service starting...");
   assertInternalSecretConfigured();
 
   // First, before anything slow: under `vite-node --watch` this module is

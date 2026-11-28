@@ -32,6 +32,7 @@ export const FIELD_ICONS: Record<string, LucideIcon> = {
   errors: DOMAIN_ICONS.error,
   model_name: DOMAIN_ICONS.model,
   environment: DOMAIN_ICONS.environment,
+  label: DOMAIN_ICONS.label,
   metadata: DOMAIN_ICONS.metadata,
 };
 

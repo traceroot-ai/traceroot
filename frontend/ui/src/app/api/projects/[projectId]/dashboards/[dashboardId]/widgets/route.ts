@@ -4,13 +4,8 @@ import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { createWidgetWithPlacement } from "@/lib/dashboard-layout";
-import {
-  isWidgetType,
-  WIDGET_TITLE_MAX,
-  WIDGET_TYPES,
-  WidgetSpecSchema,
-} from "@/features/dashboards/types";
-import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
+import { isWidgetType, WIDGET_TITLE_MAX, WIDGET_TYPES } from "@/features/dashboards/types";
+import { parseWidgetSpec } from "@/lib/write-services/dashboards";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
@@ -47,17 +42,15 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
   ) {
     return errorResponse("displayConfig must be a JSON object", 400);
   }
-  // A query spec that names fields the registry doesn't know stores fine and
-  // then fails at query time forever, with no UI path to repair it — the same
-  // vocabulary check the API/agent write path runs, so the guarantee holds on
-  // both. Only specs that parse as query specs can be checked; anything the
-  // schema can't read is still left to the query engine, as before.
+  // A query spec the schema can't read, or that names fields the registry
+  // doesn't know, stores fine and then fails at query time forever, with no UI
+  // path to repair it. Refuse both and store the parsed spec (defaults filled,
+  // undeclared keys dropped), through the same check the API/agent path uses.
+  let storedSpec = spec as object;
   if (type === "query") {
-    const parsedSpec = WidgetSpecSchema.safeParse(spec);
-    if (parsedSpec.success) {
-      const vocabulary = validateWidgetSpecVocabulary(parsedSpec.data);
-      if (!vocabulary.ok) return errorResponse(vocabulary.error, 400);
-    }
+    const parsedSpec = parseWidgetSpec(type, spec as Record<string, unknown>);
+    if (!parsedSpec.ok) return errorResponse(parsedSpec.error, 400);
+    storedSpec = parsedSpec.spec;
   }
 
   // The widget row and its grid placement land together — a widget with no
@@ -70,7 +63,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
           dashboardId,
           title: title.trim(),
           type,
-          spec: spec as object,
+          spec: storedSpec,
           displayConfig: (displayConfig as object) ?? {},
         },
       }),

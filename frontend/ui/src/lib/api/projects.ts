@@ -11,8 +11,17 @@ export async function getProjects(workspaceId: string): Promise<Project[]> {
   return response.projects;
 }
 
-export async function getProject(projectId: string): Promise<Project & { workspace_id: string }> {
-  return fetchNextApi<Project & { workspace_id: string }>(`/projects/${projectId}`);
+export function getProject(projectId: string) {
+  return fetchNextApi<Project & { workspace_id: string; read_at?: string }>(
+    `/projects/${projectId}`,
+  );
+}
+
+export async function getProjectFirstTraceTime(projectId: string) {
+  const result = await fetchNextApi<{ first_trace_receive_time: string | null }>(
+    `/projects/${encodeURIComponent(projectId)}/first-trace`,
+  );
+  return result.first_trace_receive_time;
 }
 
 export async function createProject(
@@ -49,4 +58,16 @@ export async function deleteProject(workspaceId: string, projectId: string): Pro
   return fetchNextApi<void>(`/workspaces/${workspaceId}/projects/${projectId}`, {
     method: "DELETE",
   });
+}
+
+/** Which of the project home's next steps the project has done. */
+export interface ProjectNextSteps {
+  first_trace: boolean;
+  detector: boolean;
+  signal: boolean;
+  eval_run: boolean;
+}
+
+export async function getProjectNextSteps(projectId: string): Promise<ProjectNextSteps> {
+  return fetchNextApi<ProjectNextSteps>(`/projects/${projectId}/next-steps`);
 }

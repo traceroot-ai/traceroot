@@ -9,6 +9,8 @@ import {
   DIGEST_SUMMARY_SYSTEM_MODEL_ID,
   defaultAdapterModel,
   defaultApiProtocol,
+  decisionModelAlias,
+  DECISION_MODEL_ALIASES,
   isDecisionModelId,
   ADAPTER_CONFIG,
 } from "../llm-providers.ts";
@@ -36,6 +38,40 @@ describe("isDecisionModelId", () => {
     expect(isDecisionModelId("jev-latest")).toBe(false);
     expect(isDecisionModelId("jev-custom")).toBe(false);
     expect(isDecisionModelId("gpt-4o")).toBe(false);
+  });
+
+  it("owns the detector-only alias but not the chat model it calls", () => {
+    expect(isDecisionModelId("gpt-6-luna-decisions")).toBe(true);
+    expect(isDecisionModelId("gpt-6-luna")).toBe(false);
+    expect(isDecisionModelId(DETECTOR_SYSTEM_DEFAULT_MODEL_ID)).toBe(false);
+  });
+});
+
+describe("decisionModelAlias", () => {
+  it("maps the alias to the OpenAI model it calls, and is in the OpenAI catalog", () => {
+    expect(decisionModelAlias("gpt-6-luna-decisions")).toEqual({
+      adapter: "openai",
+      model: "gpt-6-luna",
+    });
+    expect(ADAPTER_MODELS.openai?.map((m) => m.id)).toContain("gpt-6-luna-decisions");
+  });
+
+  it("has exactly the catalog entries that set decisionModel, and no others", () => {
+    const fromCatalog = Object.entries(ADAPTER_MODELS).flatMap(([adapter, models]) =>
+      (models ?? [])
+        .filter((m) => m.decisionModel)
+        .map((m) => [m.id, { adapter, model: m.decisionModel }]),
+    );
+    expect(fromCatalog).toEqual([
+      ["gpt-6-luna-decisions", { adapter: "openai", model: "gpt-6-luna" }],
+    ]);
+    expect(Object.entries(DECISION_MODEL_ALIASES)).toEqual(fromCatalog);
+  });
+
+  it("returns null for chat ids, Jev ids, inherited keys and empty input", () => {
+    for (const id of ["gpt-6-luna", "jev-1.13.0", "toString", "constructor", "", null, undefined]) {
+      expect(decisionModelAlias(id), String(id)).toBeNull();
+    }
   });
 });
 

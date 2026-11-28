@@ -1,4 +1,4 @@
-"""FastAPI REST API server for TraceRoot.
+"""FastAPI REST API server for traceroot.
 
 This server handles:
 - OTEL trace ingestion (public API with API key auth)
@@ -42,6 +42,7 @@ from rest.routers.public.api_keys import router as public_api_keys_router
 from rest.routers.public.dashboards_read import router as public_dashboards_read_router
 from rest.routers.public.detectors_read import router as public_detectors_read_router
 from rest.routers.public.eval import router as public_eval_router
+from rest.routers.public.labels import router as public_labels_router
 from rest.routers.public.project_write import router as public_project_write_router
 from rest.routers.public.projects import router as public_projects_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
@@ -156,6 +157,7 @@ app.include_router(live_router, prefix="/api/v1")
 
 # Public API for SDK ingestion (API key auth)
 app.include_router(public_traces_router, prefix="/api/v1")
+app.include_router(public_labels_router, prefix="/api/v1")
 
 # Public read API for API-key clients (e.g. the CLI)
 app.include_router(public_whoami_router, prefix="/api/v1")

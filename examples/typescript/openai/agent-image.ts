@@ -1,5 +1,5 @@
 /**
- * OpenAI Image Agent — TraceRoot Observability
+ * OpenAI Image Agent — traceroot Observability
  *
  * A two-step multi-modal flow that tests how the platform tracks images as both
  * output AND input:
@@ -8,7 +8,7 @@
  * In step 2 the generated image 1 is fed back in as an `input_image`, so the trace
  * carries an image on the input side too.
  *
- * Uses the Responses API with the built-in `image_generation` tool. TraceRoot's
+ * Uses the Responses API with the built-in `image_generation` tool. traceroot's
  * instrumentModules auto-instruments the OpenAI call, and observe() adds an
  * explicit span hierarchy.
  *
@@ -24,13 +24,13 @@ import { join } from 'node:path';
 import OpenAI from 'openai';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
+// ── traceroot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
   instrumentModules: { openAI: OpenAI },
 });
 
 const openai = new OpenAI();
-console.log('[Observability: TraceRoot]');
+console.log('[Observability: traceroot]');
 
 const MODEL = 'gpt-4.1';
 const OUTPUT_DIR = join(process.cwd(), 'generated-images');
@@ -89,7 +89,7 @@ async function main() {
       },
       () => observe({ name: 'image_demo_session' }, async () => {
         console.log('='.repeat(60));
-        console.log('OpenAI Image Agent — Demo (TraceRoot)');
+        console.log('OpenAI Image Agent — Demo (traceroot)');
         console.log('='.repeat(60));
 
         // Step 1: text → image 1

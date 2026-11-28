@@ -9,12 +9,14 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useAiChatContext } from "@/features/ai-assistant/components/ai-chat-context";
 import {
+  chatModels,
   flattenAvailableModels,
   pickDefaultModel,
 } from "@/features/ai-assistant/lib/resolve-model";
 import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
 import { DEMO_AGENT_SEND_DENIED } from "@/features/ai-assistant/constants";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { NextStepsChecklist } from "@/features/onboarding/components/next-steps-checklist";
 
 // Starter prompts shown while the current session has no messages. Clicking
 // one sends it immediately through the same send path as the message input;
@@ -77,7 +79,8 @@ export default function HomePage() {
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId && !readOnly && !accessLoading,
   });
-  const defaultModel = pickDefaultModel(flattenAvailableModels(llmModels, false));
+  // Chat models only: a detector-only decision model would be rejected.
+  const defaultModel = pickDefaultModel(chatModels(flattenAvailableModels(llmModels, false)));
 
   // Rendered by the panel, vertically centered in the empty message region
   // (between the toolbar and the input). Suppressed during a session handoff
@@ -136,6 +139,14 @@ export default function HomePage() {
           variant="page"
           onClose={() => {}}
           emptyState={greeting}
+          // Above the assistant, whatever it shows: also when no model is set up,
+          // which replaces the greeting. Goes away once every step is done, and
+          // never shows to a demo visitor.
+          pageTop={
+            accessLoading ? undefined : (
+              <NextStepsChecklist projectId={projectId} readOnly={readOnly} />
+            )
+          }
         />
       </div>
     </div>

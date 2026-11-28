@@ -6,9 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { isDecisionAdapter } from "@traceroot/core";
 import { getAvailableLLMModels } from "@/lib/api";
-import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
+import { flattenAvailableModels, isChatModel, pickDefaultModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
@@ -31,7 +30,7 @@ interface ModelSelectorProps {
   defaultModelId?: string;
   /** Whether to infer a provider for a saved selection that only has a model ID. */
   allowModelOnlyMatch?: boolean;
-  /** List decision models (TypeSafe); only detector pickers set it. */
+  /** List decision models (TypeSafe, OpenAI Decisions); only detector pickers set it. */
   allowDecisionModels?: boolean;
   /** Render the trigger as a full-width form field instead of the inline chip. */
   field?: boolean;
@@ -62,7 +61,7 @@ export function ModelSelector({
   // compiled-in fallback list while the query is still pending — once settled,
   // an empty response means the workspace genuinely has no models.
   const models = flattenAvailableModels(data, isPending).filter(
-    (m) => allowDecisionModels || !isDecisionAdapter(m.adapter),
+    (m) => allowDecisionModels || isChatModel(m),
   );
 
   // Reconcile the incoming selection against the catalog:
