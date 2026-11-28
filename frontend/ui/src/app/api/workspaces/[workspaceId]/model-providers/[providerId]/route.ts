@@ -143,9 +143,19 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     data.keyPreview = maskKey(apiKey);
   }
 
+  if (baseUrl !== undefined && baseUrl !== existing.baseUrl && data.keyCipher === undefined) {
+    return errorResponse("Re-enter credentials when changing the Base URL.", 400);
+  }
+
   try {
     const updated = await prisma.modelProvider.update({
-      where: { id: providerId },
+      // A concurrent destination change must not receive a key rotation intended for the old URL.
+      where: {
+        id: providerId,
+        workspaceId,
+        baseUrl: existing.baseUrl,
+        keyCipher: existing.keyCipher,
+      },
       data,
       select: {
         id: true,
@@ -168,6 +178,9 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
 
     return successResponse(updated);
   } catch (error) {
+    if (isPrismaKnownError(error, "P2025")) {
+      return errorResponse("Model provider changed. Reload and try again.", 409);
+    }
     if (isPrismaKnownError(error, "P2002")) {
       return errorResponse("A provider with this name already exists in this workspace", 409);
     }

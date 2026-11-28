@@ -69,6 +69,8 @@ beforeEach(() => {
     adapter: "anthropic",
     provider: "Claude",
     config: null,
+    baseUrl: null,
+    keyCipher: "old-cipher",
   });
   modelProviderDuplicateMock.mockResolvedValue(null);
   modelProviderUpdateMock.mockImplementation(async (args: { data: unknown }) => args.data);
@@ -137,5 +139,153 @@ describe("PATCH model-providers/[providerId]", () => {
     const body = await res.json();
     expect(body.error).toBe("A provider with this name already exists in this workspace");
     expect(modelProviderUpdateMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PATCH model-providers/[providerId] - credential destination binding", () => {
+  it.each(["https://collector.example/v1", null])(
+    "requires a replacement key when changing the destination to %j",
+    async (baseUrl) => {
+      modelProviderFindFirstMock.mockResolvedValue({
+        id: "mp-1",
+        workspaceId: "ws-1",
+        adapter: "openai",
+        provider: "OpenAI",
+        baseUrl: "https://original.example/v1",
+        keyCipher: "old-cipher",
+        config: null,
+      });
+      const res = await PATCH(makeRequest({ baseUrl }), makeParams());
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "Re-enter credentials when changing the Base URL.",
+      });
+      expect(modelProviderUpdateMock).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows an unchanged destination without replacing the key", async () => {
+    const res = await PATCH(makeRequest({ baseUrl: null, enabled: false }), makeParams());
+    expect(res.status).toBe(200);
+    expect(modelProviderUpdateMock.mock.calls[0][0].data).toMatchObject({
+      baseUrl: null,
+      enabled: false,
+    });
+  });
+
+  it("replaces the destination and credential together", async () => {
+    const res = await PATCH(
+      makeRequest({ baseUrl: "https://new.example/v1", apiKey: "new-key" }),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+    expect(modelProviderUpdateMock).toHaveBeenCalledWith({
+      where: { id: "mp-1", workspaceId: "ws-1", baseUrl: null, keyCipher: "old-cipher" },
+      data: {
+        baseUrl: "https://new.example/v1",
+        keyCipher: "enc(new-key)",
+        keyPreview: "mask(new-key)",
+      },
+      select: {
+        id: true,
+        adapter: true,
+        provider: true,
+        keyPreview: true,
+        baseUrl: true,
+        customModels: true,
+        withDefaultModels: true,
+        config: true,
+        enabled: true,
+        createdBy: true,
+        createTime: true,
+        updateTime: true,
+      },
+    });
+  });
+
+  it("keeps the credential ciphertext out of the update response", async () => {
+    modelProviderUpdateMock.mockImplementation(
+      async ({
+        data,
+        select,
+      }: {
+        data: Record<string, unknown>;
+        select?: Record<string, boolean>;
+      }) => {
+        const row = { id: "mp-1", ...data };
+        return select
+          ? Object.fromEntries(Object.entries(row).filter(([field]) => select[field]))
+          : row;
+      },
+    );
+    const res = await PATCH(makeRequest({ apiKey: "new-key" }), makeParams());
+    expect(await res.json()).toEqual({ id: "mp-1", keyPreview: "mask(new-key)" });
+  });
+
+  it.each([{}, { apiKey: "not-an-aws-replacement" }, { awsAccessKeyId: "AKIAEXAMPLE" }])(
+    "cannot redirect saved Bedrock credentials without replacing them (%j)",
+    async (credentials) => {
+      modelProviderFindFirstMock.mockResolvedValue({
+        id: "mp-1",
+        workspaceId: "ws-1",
+        adapter: "amazon-bedrock",
+        provider: "Bedrock",
+        baseUrl: null,
+        keyCipher: "old-aws-cipher",
+        config: null,
+      });
+      const res = await PATCH(
+        makeRequest({ baseUrl: "https://collector.example", ...credentials }),
+        makeParams(),
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "Re-enter credentials when changing the Base URL.",
+      });
+      expect(modelProviderUpdateMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { awsAccessKeyId: "AKIAEXAMPLE", awsSecretAccessKey: "new-secret" },
+    { useDefaultCredentials: true },
+  ])("can replace Bedrock credentials together with a destination (%j)", async (credentials) => {
+    modelProviderFindFirstMock.mockResolvedValue({
+      id: "mp-1",
+      workspaceId: "ws-1",
+      adapter: "amazon-bedrock",
+      provider: "Bedrock",
+      baseUrl: null,
+      keyCipher: "old-aws-cipher",
+      config: null,
+    });
+    const res = await PATCH(
+      makeRequest({ baseUrl: "https://new.example", ...credentials }),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+    const { data } = modelProviderUpdateMock.mock.calls[0][0];
+    expect(data.baseUrl).toBe("https://new.example");
+    expect(data.keyCipher).toBe(
+      "useDefaultCredentials" in credentials
+        ? "enc(__BEDROCK_DEFAULT_CREDENTIALS__)"
+        : 'enc({"awsAccessKeyId":"AKIAEXAMPLE","awsSecretAccessKey":"new-secret"})',
+    );
+  });
+
+  it("rejects a stale key rotation after a concurrent destination change", async () => {
+    modelProviderUpdateMock.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) => {
+        if (where.keyCipher === "old-cipher" && where.baseUrl === null) {
+          throw Object.assign(new Error("Record changed"), { code: "P2025" });
+        }
+        return { baseUrl: "https://collector.example/v1", keyCipher: "enc(new-key)" };
+      },
+    );
+    const res = await PATCH(makeRequest({ apiKey: "new-key" }), makeParams());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "Model provider changed. Reload and try again." });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
