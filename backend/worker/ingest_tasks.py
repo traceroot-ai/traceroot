@@ -78,6 +78,10 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
         logger.warning("Failed to publish live spans to Redis", exc_info=True)
 
 
+# The span kinds that are model calls. Ingest prices both: it sets the model, tokens and cost.
+_MODEL_CALL_KINDS = frozenset({SpanKind.LLM, SpanKind.DECISION})
+
+
 @dataclass(frozen=True)
 class TaskMetrics:
     """One evaluation trace's CANDIDATE-TASK totals, scorer subtree already excluded."""
@@ -105,11 +109,12 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
     different number from the system under test's. Summing the trace naively would
     silently bill the candidate for grading itself.
 
-    Calls, tokens and LLM time come from LLM spans with no LLM-kind descendant, so each
-    model call is counted once. Two instrumentors on one call (LangChain's ChatOpenAI span
-    around the OpenAI client's span) nest one LLM span in another with the same tokens, and
-    an LLM-kind step wrapper (``agent_step``) spans several calls. Counting every LLM span
-    would count both of those twice. Cost is summed as before.
+    Calls, tokens and LLM time come from model-call spans (LLM or DECISION) with no
+    model-call descendant, so each model call is counted once. Two instrumentors on one
+    call (LangChain's ChatOpenAI span around the OpenAI client's span) nest one LLM span in
+    another with the same tokens, and an LLM-kind step wrapper (``agent_step``) spans
+    several calls. Counting every LLM span would count both of those twice. Cost is summed
+    as before.
 
     A counted call that reported no usage takes its tokens from the nearest LLM ancestor
     that did, provided that ancestor wraps no other counted call. Streaming often leaves
@@ -160,11 +165,11 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
             excluded.add(sid)
             stack.extend(t["children"].get(sid, ()))
 
-        # Every span with a counted LLM span somewhere beneath it. An LLM span in this set
-        # wraps a call that is already counted, so it is not a call of its own.
+        # Every span with a counted model-call span somewhere beneath it. A model-call span
+        # in this set wraps a call that is already counted, so it is not a call of its own.
         wraps_llm: set[str] = set()
         for sid, sp in t["spans"].items():
-            if sid in excluded or sp["kind"] != SpanKind.LLM:
+            if sid in excluded or sp["kind"] not in _MODEL_CALL_KINDS:
                 continue
             parent = t["parents"].get(sid)
             while parent is not None and parent not in wraps_llm:
@@ -175,7 +180,7 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
         # an ancestor whose usage is that call's alone.
         calls_under: dict[str, int] = defaultdict(int)
         for sid, sp in t["spans"].items():
-            if sid in excluded or sp["kind"] != SpanKind.LLM or sid in wraps_llm:
+            if sid in excluded or sp["kind"] not in _MODEL_CALL_KINDS or sid in wraps_llm:
                 continue
             parent = t["parents"].get(sid)
             seen: set[str] = set()
@@ -193,10 +198,10 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
                 continue
             if sp["cost"] is not None:
                 cost += float(sp["cost"])
-            # Token counts and call/latency accounting are LLM-span facts. Keying them on
-            # span_kind rather than "has tokens" keeps llm_calls honest for a model call
-            # whose provider reported no usage.
-            if sp["kind"] != SpanKind.LLM or sid in wraps_llm:
+            # Token counts and call/latency accounting are model-call-span facts. Keying
+            # them on span_kind rather than "has tokens" keeps llm_calls honest for a model
+            # call whose provider reported no usage.
+            if sp["kind"] not in _MODEL_CALL_KINDS or sid in wraps_llm:
                 continue
             llm_calls += 1
             usage = _call_usage(sid, t["spans"], t["parents"], calls_under)
@@ -225,7 +230,8 @@ def _has_usage(span: dict) -> bool:
 
 def _call_usage(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict:
     """The span whose token counts stand for counted call ``sid``: the call itself if it
-    reported usage, else its nearest LLM ancestor when that ancestor wraps only this call."""
+    reported usage, else its nearest model-call ancestor when that ancestor wraps only
+    this call."""
     span = spans[sid]
     if _has_usage(span):
         return span
@@ -234,8 +240,8 @@ def _call_usage(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict
     while parent is not None and parent not in seen and calls_under[parent] == 1:
         seen.add(parent)
         ancestor = spans.get(parent)
-        if ancestor is not None and ancestor["kind"] == SpanKind.LLM:
-            # The nearest LLM ancestor decides; nothing above it is this one call's alone.
+        if ancestor is not None and ancestor["kind"] in _MODEL_CALL_KINDS:
+            # The nearest model-call ancestor decides; nothing above it is this call's alone.
             return ancestor
         parent = parents.get(parent)
     return span

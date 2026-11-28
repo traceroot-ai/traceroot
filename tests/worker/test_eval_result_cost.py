@@ -462,6 +462,54 @@ class TestAUsageLessCallBorrowsItsWrappersUsage:
         assert m.cost == pytest.approx(0.10)
 
 
+class TestDecisionSpansAreModelCalls:
+    """Ingest prices a DECISION span like an LLM span: it carries the model, the tokens and
+    the cost. Its calls, tokens and time must count too, or a task whose model calls are
+    DECISION spans stores a cost with NULL calls and tokens."""
+
+    def _metrics(self, rows):
+        return _task_metrics_by_trace(rows)[T]
+
+    def test_a_priced_decision_span_under_the_task_is_one_call(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("decide", "task", "DECISION", 0.03, tokens=(12, 4, 16), ms=300),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (12, 4, 16)
+        assert m.llm_duration_ms == 300
+        assert m.cost == pytest.approx(0.03)
+
+    def test_a_decision_wrapping_an_llm_span_for_the_same_call_counts_once(self):
+        # Same shape as two instrumentors on one call: the inner span is the call.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("decide", "task", "DECISION", None, tokens=(12, 4, 16), ms=320),
+                _row("client", "decide", "LLM", None, tokens=(12, 4, 16), ms=300),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (12, 4, 16)
+        assert m.llm_duration_ms == 300
+
+    def test_a_usage_less_llm_call_borrows_its_decision_wrappers_usage(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("decide", "task", "DECISION", None, tokens=(12, 4, 16), ms=320),
+                _row("client", "decide", "LLM", None, ms=300),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (12, 4, 16)
+
+
 class TestWriteIsUnconditional:
     """`if cost <= 0: continue` froze an over-report permanently. Under
     BatchSpanProcessor a parent exports after its children, so a scorer's LLM child can
