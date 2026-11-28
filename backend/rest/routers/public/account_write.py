@@ -4,10 +4,9 @@ Thin authenticated proxies to the Next.js internal write routes, which own the
 Postgres/Prisma control-plane data and the actual authorization/validation
 decisions (role gates, field rules, idempotency, the update diff). Like the
 account reads, these run on :data:`AccountStampedAuth` — user-credential-only,
-no ``project_id`` query — and additionally on :func:`require_live_session`, so
-a JWT whose minting session was revoked is blocked before any write. The
-handler forwards only the resolved ``user_id`` (as ``actorUserId``) plus the
-payload — never the raw credential — and stamps ``transport: "public-api"``
+no ``project_id`` query. Shared JWT authentication rejects revoked sessions
+before any write. The handler forwards only the resolved ``user_id``
+(as ``actorUserId``) plus the payload — never the raw credential — and stamps ``transport: "public-api"``
 for the audit trail.
 
 Updates are PATCH: the handler forwards exactly the fields the caller sent
@@ -26,7 +25,7 @@ from typing import Annotated, Any
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import AfterValidator, BaseModel, ValidationError
 
 from rest.rate_limit import (
@@ -36,7 +35,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.public.deps import AccountStampedAuth, AuthResult, require_live_session
+from rest.routers.public.deps import AccountStampedAuth, AuthResult
 from rest.schemas.eval import ErrorResponse
 from rest.schemas.public_write import (
     CreateProjectRequest,
@@ -58,12 +57,6 @@ from shared.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public", tags=["Account"])
-
-# The liveness gate every public write depends on: a no-op for session-token
-# credentials (introspection already proved the session live), an instant
-# revocation check for JWT credentials. It shares the inner account-auth
-# dependency with AccountStampedAuth, so the credential resolves once.
-LiveSession = Annotated[None, Depends(require_live_session)]
 
 # Generic per-status fallbacks for a passthrough status whose upstream body
 # carries no usable ``error`` string — the raw body is never surfaced.
@@ -367,7 +360,6 @@ async def create_workspace(
     response: Response,
     auth: AccountStampedAuth,
     payload: CreateWorkspaceRequest,
-    _live: LiveSession,
 ) -> CreateWorkspaceResponse:
     """Create a workspace administered by the authenticated user.
 
@@ -380,7 +372,6 @@ async def create_workspace(
         auth (AccountStampedAuth): Account-scope user auth (session token or
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         payload (CreateWorkspaceRequest): The workspace to create.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         CreateWorkspaceResponse: The created (or matched) workspace.
@@ -411,7 +402,6 @@ async def create_project(
     response: Response,
     auth: AccountStampedAuth,
     payload: CreateProjectRequest,
-    _live: LiveSession,
 ) -> CreateProjectResponse:
     """Create a project in a workspace the authenticated user can write to.
 
@@ -424,7 +414,6 @@ async def create_project(
         auth (AccountStampedAuth): Account-scope user auth (session token or
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         payload (CreateProjectRequest): The project to create.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         CreateProjectResponse: The created (or matched) project.
@@ -457,7 +446,6 @@ async def update_workspace(
     auth: AccountStampedAuth,
     workspace_id: str,
     payload: UpdateWorkspaceRequest,
-    _live: LiveSession,
 ) -> UpdateWorkspaceResponse:
     """Rename a workspace the authenticated user administers.
 
@@ -474,7 +462,6 @@ async def update_workspace(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         workspace_id (str): The workspace to edit.
         payload (UpdateWorkspaceRequest): The fields to change.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         UpdateWorkspaceResponse: The updated workspace and the changed fields.
@@ -512,7 +499,6 @@ async def update_project(
     auth: AccountStampedAuth,
     project_id: str,
     payload: UpdateProjectRequest,
-    _live: LiveSession,
 ) -> UpdateProjectResponse:
     """Edit a project's name or trace retention.
 
@@ -526,7 +512,6 @@ async def update_project(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         project_id (str): The project to edit.
         payload (UpdateProjectRequest): The fields to change.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         UpdateProjectResponse: The updated project and the changed fields.
@@ -571,7 +556,6 @@ async def delete_workspace(
     workspace_id: str,
     name: Annotated[str, Query(description="The workspace's current name, typed as confirmation")],
     reason: DeleteReason,
-    _live: LiveSession,
 ) -> DeleteWorkspaceResponse:
     """Hard-delete a workspace and everything in it.
 
@@ -589,7 +573,6 @@ async def delete_workspace(
         workspace_id (str): The workspace to delete.
         name (str): The workspace's current name, as a typed confirmation.
         reason (str): Why it is being deleted; recorded on the audit row.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         DeleteWorkspaceResponse: The removed workspace and the cascade counts.
@@ -630,7 +613,6 @@ async def delete_project(
     auth: AccountStampedAuth,
     project_id: str,
     reason: DeleteReason,
-    _live: LiveSession,
 ) -> DeleteProjectResponse:
     """Soft-delete a project.
 
@@ -645,7 +627,6 @@ async def delete_project(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         project_id (str): The project to delete.
         reason (str): Why it is being deleted; recorded on the audit row.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         DeleteProjectResponse: The removed project.

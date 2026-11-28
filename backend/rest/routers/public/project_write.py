@@ -3,9 +3,9 @@
 The project-scoped siblings of the account writes: the target ``project_id``
 travels in the request body (or the query, on a delete) and the write service
 resolves the actor's membership/role from it, so these run on the same
-account-scope credential (:data:`AccountStampedAuth` +
-:func:`require_live_session`) and share the account-write module's proxy
-helper, body builders, error mapping, and passthrough semantics.
+account-scope credential (:data:`AccountStampedAuth`) and share the
+account-write module's proxy helper, body builders, error mapping, and
+passthrough semantics.
 """
 
 from typing import Any
@@ -25,7 +25,6 @@ from rest.routers.public.account_write import (
     _WRITE_ERROR_RESPONSES,
     DeleteProjectId,
     DeleteReason,
-    LiveSession,
     _deleted,
     _envelope,
     _patch_body,
@@ -140,7 +139,6 @@ async def create_detector(
     response: Response,
     auth: AccountStampedAuth,
     payload: CreateDetectorRequest,
-    _live: LiveSession,
 ) -> CreateDetectorResponse:
     """Create a detector in a project the authenticated user can write to.
 
@@ -153,7 +151,6 @@ async def create_detector(
         auth (AccountStampedAuth): Account-scope user auth (session token or
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         payload (CreateDetectorRequest): The detector to create.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         CreateDetectorResponse: The created (or matched) detector.
@@ -200,7 +197,6 @@ async def create_dashboard(
     response: Response,
     auth: AccountStampedAuth,
     payload: CreateDashboardRequest,
-    _live: LiveSession,
 ) -> CreateDashboardResponse:
     """Create a dashboard in a project the authenticated user can write to.
 
@@ -213,7 +209,6 @@ async def create_dashboard(
         auth (AccountStampedAuth): Account-scope user auth (session token or
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         payload (CreateDashboardRequest): The dashboard to create.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         CreateDashboardResponse: The created (or matched) dashboard.
@@ -246,7 +241,6 @@ async def create_widget(
     response: Response,
     auth: AccountStampedAuth,
     payload: CreateWidgetRequest,
-    _live: LiveSession,
 ) -> CreateWidgetResponse:
     """Create a widget on a dashboard the authenticated user can write to.
 
@@ -260,7 +254,6 @@ async def create_widget(
         auth (AccountStampedAuth): Account-scope user auth (session token or
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         payload (CreateWidgetRequest): The widget to create.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         CreateWidgetResponse: The created widget.
@@ -305,7 +298,6 @@ async def update_detector(
     auth: AccountStampedAuth,
     detector_id: str,
     payload: UpdateDetectorRequest,
-    _live: LiveSession,
 ) -> UpdateDetectorResponse:
     """Edit a detector in a project the authenticated user can write to.
 
@@ -319,7 +311,6 @@ async def update_detector(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         detector_id (str): The detector to edit.
         payload (UpdateDetectorRequest): The project and the fields to change.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         UpdateDetectorResponse: The updated detector and the changed fields.
@@ -358,7 +349,6 @@ async def update_dashboard(
     auth: AccountStampedAuth,
     dashboard_id: str,
     payload: UpdateDashboardRequest,
-    _live: LiveSession,
 ) -> UpdateDashboardResponse:
     """Edit a dashboard's name or description.
 
@@ -372,7 +362,6 @@ async def update_dashboard(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         dashboard_id (str): The dashboard to edit.
         payload (UpdateDashboardRequest): The project and the fields to change.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         UpdateDashboardResponse: The updated dashboard and the changed fields.
@@ -411,7 +400,6 @@ async def update_widget(
     auth: AccountStampedAuth,
     widget_id: str,
     payload: UpdateWidgetRequest,
-    _live: LiveSession,
 ) -> UpdateWidgetResponse:
     """Edit a widget's title, spec, or display config.
 
@@ -426,7 +414,6 @@ async def update_widget(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         widget_id (str): The widget to edit.
         payload (UpdateWidgetRequest): The project and the fields to change.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         UpdateWidgetResponse: The updated widget and the changed fields.
@@ -469,7 +456,6 @@ async def delete_detector(
     detector_id: str,
     project_id: DeleteProjectId,
     reason: DeleteReason,
-    _live: LiveSession,
 ) -> DeleteDetectorResponse:
     """Hard-delete a detector; its existing findings stay readable.
 
@@ -484,7 +470,6 @@ async def delete_detector(
         detector_id (str): The detector to delete.
         project_id (str): The project the detector belongs to.
         reason (str): Why it is being deleted; recorded on the audit row.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         DeleteDetectorResponse: The removed detector.
@@ -527,7 +512,6 @@ async def delete_dashboard(
     dashboard_id: str,
     project_id: DeleteProjectId,
     reason: DeleteReason,
-    _live: LiveSession,
 ) -> DeleteDashboardResponse:
     """Hard-delete a dashboard together with its widgets.
 
@@ -542,7 +526,6 @@ async def delete_dashboard(
         dashboard_id (str): The dashboard to delete.
         project_id (str): The project the dashboard belongs to.
         reason (str): Why it is being deleted; recorded on the audit row.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         DeleteDashboardResponse: The removed dashboard and its widget count.
@@ -585,7 +568,6 @@ async def delete_widget(
     widget_id: str,
     project_id: DeleteProjectId,
     reason: DeleteReason,
-    _live: LiveSession,
 ) -> DeleteWidgetResponse:
     """Hard-delete a widget and its entry in the dashboard's layout.
 
@@ -600,7 +582,6 @@ async def delete_widget(
         widget_id (str): The widget to delete.
         project_id (str): The project the widget's dashboard belongs to.
         reason (str): Why it is being deleted; recorded on the audit row.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         DeleteWidgetResponse: The removed widget.

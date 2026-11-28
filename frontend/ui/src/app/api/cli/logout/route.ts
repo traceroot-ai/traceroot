@@ -13,10 +13,8 @@ import { checkMintRateLimit, rateLimitClientKey } from "@/lib/mint-rate-limit";
 // same path the mint route uses) and deletes that one session row. The delete is
 // scoped to the caller's own token; it can never revoke another session.
 //
-// An access JWT already minted from this session stays valid until its ~10-min
-// exp (the backend verifies offline against the JWKS, no per-request lookup), so
-// revocation stops FUTURE mints, not the already-issued JWT — the logout UX
-// should say the short-lived token lapses within ~10 minutes rather than instantly.
+// The product API checks the minting session on every access-JWT request, so
+// deleting the session also rejects its issued tokens on subsequent reads and writes.
 export async function POST(request: NextRequest) {
   // Same in-memory limiter as the mint route, keyed per client IP — the two
   // share one budget, so a client hammering /api/cli/token could throttle its

@@ -1,9 +1,10 @@
 """Tests for the CLI access-JWT authentication path in public/deps.py.
 
-Covers offline verification (real Ed25519 signing), the account- and
-project-scope AuthResult construction, and the security rejections (alg pinning,
-audience/issuer/expiry, unknown kid, JWKS fail-closed). The session-token and
-API-key paths are covered by test_auth_deps.py / test_public_dual_auth.py.
+Covers signature verification (real Ed25519 signing), live-session validation,
+account- and project-scope authentication, and the security rejections (alg
+pinning, audience/issuer/expiry, unknown kid, auth-service fail-closed). The
+session-token and API-key paths are covered by test_auth_deps.py /
+test_public_dual_auth.py.
 """
 
 import base64
@@ -11,6 +12,7 @@ import json
 import time
 from types import SimpleNamespace
 
+import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -29,6 +31,7 @@ from rest.routers.public.jwks_cache import JwksCache, JwksUnavailableError
 BASE_URL = "http://localhost:3000"
 JWKS_URL = f"{BASE_URL}/api/auth/jwks"
 UPA_URL = f"{BASE_URL}/api/internal/user-project-access"
+LIVE_URL = f"{BASE_URL}/api/internal/validate-session-live"
 KID = "kid-1"
 
 
@@ -39,8 +42,10 @@ def signer(respx_mock, monkeypatch):
     jwk = OKPAlgorithm.to_jwk(priv.public_key(), as_dict=True)
     jwk.update(kid=KID, alg="EdDSA", use="sig")
     respx_mock.get(JWKS_URL).mock(return_value=Response(200, json={"keys": [jwk]}))
-    monkeypatch.setattr(deps, "get_jwks_cache", lambda: JwksCache(JWKS_URL))
-    return SimpleNamespace(priv=priv, respx=respx_mock)
+    live = respx_mock.post(LIVE_URL).mock(return_value=Response(200, json={"live": True}))
+    cache = JwksCache(JWKS_URL)
+    monkeypatch.setattr(deps, "get_jwks_cache", lambda: cache)
+    return SimpleNamespace(priv=priv, respx=respx_mock, live=live)
 
 
 def _mint(
@@ -122,7 +127,7 @@ class TestJwtHappyPath:
         assert result.project_id == "proj-123"
         assert result.ingestion_blocked is True
 
-    async def test_account_scope_needs_no_introspection(self, signer):
+    async def test_account_scope_checks_live_session(self, signer):
         token = _mint(signer.priv)
 
         result = await authenticate_account_caller(authorization=f"Bearer {token}")
@@ -132,6 +137,11 @@ class TestJwtHappyPath:
         assert result.project_id == ""
         assert result.workspace_id == ""
         assert result.ingestion_blocked is True
+        assert signer.live.call_count == 1
+        assert json.loads(signer.live.calls.last.request.content) == {
+            "sessionId": "sess-1",
+            "userId": "user-1",
+        }
 
     async def test_project_scope_no_access_is_403(self, signer):
         signer.respx.post(UPA_URL).mock(return_value=Response(403, json={"hasAccess": False}))
@@ -165,7 +175,80 @@ class TestJwtHappyPath:
         assert exc.value.status_code == 403
 
 
+class TestJwtSessionRevocation:
+    @pytest.mark.parametrize("project_id", [None, "proj-123"])
+    async def test_same_token_is_rejected_after_session_revocation(self, signer, project_id):
+        token = _mint(signer.priv)
+        authorization = f"Bearer {token}"
+        if project_id is None:
+            caller = authenticate_account_caller
+            kwargs = {"authorization": authorization}
+        else:
+            _mock_project_access(signer.respx)
+            caller = authenticate_public_caller
+            kwargs = {"authorization": authorization, "project_id": project_id}
+
+        assert (await caller(**kwargs)).user_id == "user-1"
+        assert signer.live.call_count == 1
+        assert json.loads(signer.live.calls.last.request.content) == {
+            "sessionId": "sess-1",
+            "userId": "user-1",
+        }
+
+        signer.live.mock(return_value=Response(200, json={"live": False}))
+
+        with pytest.raises(HTTPException) as exc:
+            await caller(**kwargs)
+
+        assert exc.value.status_code == 401
+        assert exc.value.detail == "Session revoked or expired"
+        assert signer.live.call_count == 2
+
+    async def test_session_lookup_network_error_fails_closed(self, signer):
+        signer.live.mock(side_effect=httpx.ConnectError("Connection refused"))
+
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {_mint(signer.priv)}")
+
+        assert exc.value.status_code == 503
+        assert signer.live.call_count == 1
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            Response(500, json={"error": "database unavailable"}),
+            Response(200, content=b"<html>not json</html>"),
+            Response(200, json=["not", "a", "dict"]),
+            Response(200, json={}),
+            Response(200, json={"live": "yes"}),
+        ],
+    )
+    async def test_invalid_session_lookup_response_fails_closed(self, signer, response):
+        signer.live.mock(return_value=response)
+
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {_mint(signer.priv)}")
+
+        assert exc.value.status_code == 503
+        assert signer.live.call_count == 1
+
+
 class TestJwtRejections:
+    @pytest.mark.parametrize(
+        "claims",
+        [{"sid": None}, {"sid": 123}, {"sid": ""}, {}],
+    )
+    async def test_missing_or_malformed_sid_rejected(self, signer, claims):
+        token = _mint(signer.priv, drop=("sid",))
+        if "sid" in claims:
+            token = _mint(signer.priv, sid=claims["sid"])
+
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {token}")
+
+        assert exc.value.status_code == 401
+        assert signer.live.call_count == 0
+
     async def test_hs256_alg_confusion_rejected(self, signer):
         # A token signed HS256 (the classic public-key-as-HMAC-secret attack)
         # must be rejected by the EdDSA pin, before any key is applied.
@@ -189,6 +272,7 @@ class TestJwtRejections:
         with pytest.raises(HTTPException) as exc:
             await authenticate_account_caller(authorization=f"Bearer {token}")
         assert exc.value.status_code == 401
+        assert signer.live.call_count == 0
 
     async def test_wrong_audience_rejected(self, signer):
         token = _mint(signer.priv, aud="some-other-api")
@@ -246,7 +330,7 @@ class TestJwtRejections:
         # The mint host stamps iat from its own clock; if it runs ahead of this
         # backend, iat is future-dated and pyjwt rejects with ImmatureSignature
         # at leeway 0. A token issued 30s in the "future" must still verify
-        # (account scope needs no introspection).
+        # when the minting session remains live.
         token = _mint(signer.priv, iat_delta=30)
         result = await authenticate_account_caller(authorization=f"Bearer {token}")
         assert result.user_id == "user-1"

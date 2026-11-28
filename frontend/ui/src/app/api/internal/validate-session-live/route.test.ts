@@ -75,7 +75,7 @@ describe("POST /api/internal/validate-session-live", () => {
 
     expect(findUniqueMock).toHaveBeenCalledWith({
       where: { id: "s1" },
-      select: { expiresAt: true, impersonatedBy: true },
+      select: { expiresAt: true, impersonatedBy: true, userId: true },
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ live: true });
@@ -106,5 +106,27 @@ describe("POST /api/internal/validate-session-live", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ live: false });
+  });
+
+  it.each([
+    ["u1", true],
+    ["another-user", false],
+  ])("checks session ownership for %s", async (userId, expected) => {
+    findUniqueMock.mockResolvedValue({
+      userId: "u1",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const res = await POST(makeRequest({ sessionId: "s1", userId }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ live: expected });
+  });
+
+  it.each(["", null, 123])("rejects invalid userId %s before querying", async (userId) => {
+    const res = await POST(makeRequest({ sessionId: "s1", userId }));
+
+    expect(res.status).toBe(400);
+    expect(findUniqueMock).not.toHaveBeenCalled();
   });
 });

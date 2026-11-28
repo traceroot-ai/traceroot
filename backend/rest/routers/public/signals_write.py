@@ -2,10 +2,10 @@
 
 A sibling of the alert status route: the target ``project_id`` travels in the
 body and the write service resolves the actor's membership and role from it,
-so this runs on the account-scope credential (:data:`AccountStampedAuth` +
-:func:`require_live_session`) and shares the account-write proxy helper, body
-builder, error mapping and passthrough semantics. A project API key cannot
-change a signal: those keys live in customer applications and can leak.
+so this runs on the account-scope credential (:data:`AccountStampedAuth`) and
+shares the account-write proxy helper, body builder, error mapping and
+passthrough semantics. A project API key cannot change a signal: those keys
+live in customer applications and can leak.
 
 Only ``resolved`` and ``open`` are settable. A dismissed signal never reopens
 on a new finding, so dismissing stays a web-app decision a person makes. The
@@ -26,7 +26,6 @@ from rest.rate_limit import (
 )
 from rest.routers.public.account_write import (
     _WRITE_ERROR_RESPONSES,
-    LiveSession,
     _envelope,
     _resource_path,
     _send_internal_write,
@@ -78,7 +77,6 @@ async def set_signal_status(
     auth: AccountStampedAuth,
     signal_id: str,
     payload: SignalStatusRequest,
-    _live: LiveSession,
 ) -> SignalStatusResponse:
     """Resolve or reopen a signal. Dismissing is not possible here.
 
@@ -97,7 +95,6 @@ async def set_signal_status(
         signal_id (str): The signal to change.
         payload (SignalStatusRequest): The project, the target status, and
             the reason, note and expected status.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         SignalStatusResponse: The signal with its new status.

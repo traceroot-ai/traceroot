@@ -299,7 +299,7 @@ def test_a_live_session_mints_and_is_actually_checked(monkeypatch):
     # And it checked THIS token's session, not some other one: the `sid` claim is
     # the whole of what makes the gate mean anything, and a regression that sent an
     # empty or wrong session id would still have produced one call.
-    assert json.loads(live.calls.last.request.content) == {"sessionId": "sess-1"}
+    assert json.loads(live.calls.last.request.content) == {"sessionId": "sess-1", "userId": "u1"}
     assert internal.called
 
 
@@ -361,7 +361,7 @@ REVOKED = {"deleted": True}
 
 
 def test_the_revoke_route_is_wired_like_the_mint():
-    """Hidden, on the write bucket, and behind the same two dependencies."""
+    """Hidden, on the write bucket, and behind shared account authentication."""
     routes = [
         r
         for r in app.routes
@@ -375,7 +375,6 @@ def test_the_revoke_route_is_wired_like_the_mint():
 
     calls = [d.call for d in route.dependant.dependencies]
     assert deps.authenticate_and_stamp_account_caller in calls
-    assert deps.require_live_session in calls
 
     (group,) = limiter._dynamic_route_limits["rest.routers.public.projects.revoke_project_api_key"]
     assert group.key_function is key_write

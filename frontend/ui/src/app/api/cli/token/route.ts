@@ -12,8 +12,9 @@ import { SESSION_EXPIRES_IN_SECONDS, SESSION_UPDATE_AGE_SECONDS } from "@/lib/se
 // validated by a direct database lookup (never via bearer() on /api/auth), so
 // the session credential stays off the better-auth surface; only a 10-minute
 // JWT carrying identity goes on the wire, and the Python backend verifies it
-// offline against /api/auth/jwks. The CLI calls this again to refresh before
-// expiry. Public endpoint — rate-limited, and 401 without a valid session.
+// against /api/auth/jwks and checks the minting session. The CLI calls this
+// again to refresh before expiry. Public endpoint — rate-limited, and 401
+// without a valid session.
 
 // Must track the jwt() plugin's `expirationTime` in auth.ts (10m). Advisory only
 // (the JWT's own `exp` is authoritative); returned so the CLI can schedule refresh.
@@ -74,8 +75,8 @@ export async function POST(request: NextRequest) {
       payload: {
         sub: session.user.id,
         email: session.user.email,
-        // The session row id (not the token). Lets the backend's future
-        // write-path revocation check confirm this session is still live.
+        // The session row id (not the token), checked by the backend on
+        // every request so revoking it also invalidates issued access tokens.
         sid: session.sessionId,
         iss: ACCESS_TOKEN_ISSUER,
         aud: ACCESS_TOKEN_AUDIENCE,
