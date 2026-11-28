@@ -40,6 +40,111 @@ Open your project in [traceroot Cloud](https://app.traceroot.ai), select **Detec
 6. **Signals**: leave **Generate signals** on to group findings into signals. Set **Root cause analysis** as described [below](#root-cause-analysis).
 7. Click **Create Detector**. The detector checks traces that arrive from then on.
 
+## Template output fields
+
+For detectors judged by a chat model (such as models from OpenAI, Anthropic, or Gemini), every template except **Blank** defines the fields the judge fills in when it reports a finding. They are the finding's structured output, next to its one-sentence summary, and the judge supplies them through tool calling only when `identified` is true.
+
+| Template | ID | Output fields |
+|---|---|---|
+| Failure | `failure` | `category` |
+| Hallucination | `hallucination` | `type`, `hallucinated_claim` |
+| Logic Error | `logic` | `severity`, `error_description` |
+| Task Completion | `task` | `success`, `what_was_missed` |
+| Safety | `safety` | `risk_level`, `issue_type` |
+| Blank | `blank` | none |
+
+On this chat-model path, each of these template fields holds a string. On clean traces (`identified` is false), the judge omits these fields.
+
+<Note>
+  Decision models such as TypeSafe Jev bypass template output schemas and return a distinct structured shape (`category`, `probabilities`, `confidence`, `gate`) on every run — see [Judge with TypeSafe AI](#judge-with-typesafe-ai).
+</Note>
+
+<Warning>
+  **Task Completion** inverts `identified`: a finding means the task was **not** completed, in part or at all. A trace where the agent did complete the task answers `identified` false and records no finding.
+</Warning>
+
+## Filter fields
+
+A filter is a list of conditions, and a trace has to satisfy every one of them to be checked. A condition names one of these fields.
+
+| Field | Label | Operators | Value |
+|---|---|---|---|
+| `model_name` | Model | `=`, `!=` | A model the trace called |
+| `environment` | Environment | `=`, `!=` | An environment the trace's spans carry |
+| `cost` | Cost | `>`, `>=`, `<`, `<=`, `=` | Total cost of the trace, in USD |
+| `total_tokens` | Tokens | `>`, `>=`, `<`, `<=`, `=` | Total tokens across the trace's spans |
+| `duration_ms` | Latency | `>`, `>=`, `<`, `<=`, `=` | Milliseconds from the first span's start to the last span's end |
+| `errors` | Errors | `>`, `>=`, `<`, `<=`, `=` | Number of spans in the trace with an error status |
+| `metadata` | Metadata | `=`, `contains` | A value stored under the metadata key you name |
+
+**Model**, **Environment** and **Metadata** are matched across the whole trace: `=` passes when some span carries the value, and `!=` passes when no span does. `contains` matches a substring and ignores case. A metadata condition reads the key whether it was attached to the trace or to a single span.
+
+## Judge with TypeSafe AI
+
+[TypeSafe AI](/ai-agent/byok) offers `jev-1.13.0` and `jev-1.14.0`, decision models you can pick as a detector's judge once the provider key is in place. They answer with probabilities over a fixed set of options instead of writing text, so they judge detectors only and are kept out of the chat and root cause analysis model pickers.
+
+Jev answers two questions about each trace: whether the trace shows the problem your prompt describes, and which category of that problem it is. The trace becomes a finding when the answer to the first question reaches `0.5`.
+
+The categories are the template's failure modes, not its name.
+
+| Template | Categories |
+|---|---|
+| Failure | `tool_error`, `silent_failure`, `loop`, `timeout`, `swallowed_error` |
+| Hallucination | `ungrounded_claim`, `contradicted_claim` |
+| Logic Error | `circular_reasoning`, `wrong_conclusion`, `missed_step`, `contradictory_actions` |
+| Task Completion | `partial_completion`, `task_failed` |
+| Safety | `pii_exposure`, `prompt_injection`, `harmful_content` |
+| Blank | `problem` |
+
+Every template except **Blank** also offers `other`, for a real problem that none of its categories fits. It reads as *unlisted problem* in the summary.
+
+### Jev output shape
+
+Because Jev is a decision model rather than a conversational LLM, it bypasses the template's `outputSchema` and always returns a structured object with numeric scores on every run — both when a finding is identified and on clean traces:
+
+```json
+{
+  "gate": 0.82,
+  "category": "ungrounded_claim",
+  "probabilities": {
+    "ungrounded_claim": 0.82,
+    "contradicted_claim": 0.12,
+    "other": 0.04,
+    "none": 0.02
+  },
+  "confidence": 0.82
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `gate` | `number` | The probability (between `0.0` and `1.0`) that the trace exhibits the problem described by the detector prompt. When `gate >= 0.5`, `identified` is true and a finding is recorded. |
+| `category` | `string \| null` | The most likely failure mode category from the template. Set to `null` if the gate triggered but the label choice was `none` (category unclear). |
+| `probabilities` | `object` | Key-value mapping of all candidate categories to their individual numeric probabilities (`0.0` to `1.0`). |
+| `confidence` | `number` | The classification confidence score for the selected category. |
+
+On clean runs where `gate < 0.5` (`identified` is false), Jev still returns this full object with the measured gate probability and category distribution.
+
+### Summaries
+
+Jev writes no rationale, so its summaries follow a fixed shape. A finding names its most likely category and the runner-up:
+
+```text
+Ungrounded claim (82% likely); runner-up: contradicted claim (12%); no written rationale.
+```
+
+A trace that shows no problem reports the chance that it does:
+
+```text
+No problem found (18% chance of one).
+```
+
+A trace that shows a problem Jev cannot place in a category names none:
+
+```text
+Problem found (76% likely), category unclear; no written rationale.
+```
+
 ## Create detectors with AI
 
 Select **Agent** from the left nav to open the traceroot Agent, then describe the detector you want, or ask it to suggest one from your project. For example:
