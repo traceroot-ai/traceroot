@@ -64,6 +64,7 @@ async function handlePATCH(request: NextRequest, { params }: RouteParams) {
     id: accessKey.id,
     key_hint: accessKey.keyHint,
     name: accessKey.name,
+    scope: accessKey.scope,
     expire_time: accessKey.expireTime,
     last_use_time: accessKey.lastUseTime,
     create_time: accessKey.createTime,

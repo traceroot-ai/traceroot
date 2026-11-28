@@ -9,6 +9,7 @@ import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -308,6 +309,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               <tr className="border-b text-left">
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Name</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Key</th>
+                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Scope</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Created</th>
                 <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
                   Last Used
@@ -333,6 +335,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                     <code className="bg-muted px-1.5 py-0.5 font-mono text-[12px]">
                       {formatKeyHint(key.key_hint)}
                     </code>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Badge>{key.scope}</Badge>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {formatRelativeTime(key.create_time)}
