@@ -1,5 +1,6 @@
 "use client";
 
+import { ChangePassword } from "./ChangePassword";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { formatRelativeTime } from "@/lib/utils";
@@ -9,6 +10,7 @@ import { formatSessionAgent } from "./utils/session-label";
 export function ActiveSessions() {
   const {
     sessions,
+    refresh,
     isLoading,
     isError,
     currentSessionPending,
@@ -32,7 +34,7 @@ export function ActiveSessions() {
       <div className="-mx-4 -mt-4 flex h-11 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-3">
           <h2 className="text-[15px] font-medium">Active sessions</h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="hidden text-sm text-muted-foreground lg:block">
             Browser and CLI sessions currently signed in to your account.
           </p>
         </div>
@@ -92,6 +94,7 @@ export function ActiveSessions() {
           </table>
         )}
       </div>
+      <ChangePassword onChanged={() => void refresh()} />
     </div>
   );
 }

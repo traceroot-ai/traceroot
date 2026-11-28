@@ -1,4 +1,9 @@
 import { betterAuth } from "better-auth";
+import { createAuthMiddleware } from "better-auth/api";
+import {
+  revokeSessionsOnPasswordChange,
+  reportPasswordChangeSessions,
+} from "@/lib/auth-password-change";
 import { after } from "next/server";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
@@ -38,6 +43,7 @@ const emailPolicy = signupEmailPolicyHook(isCloud());
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
+    transaction: true,
   }),
 
   secret: env.BETTER_AUTH_SECRET,
@@ -65,7 +71,13 @@ export const auth = betterAuth({
 
   // A reset link does not recover an account with a sign-in identity that
   // never proved the mailbox; see lib/auth-recovery.ts. Read-only.
-  hooks: { before: refuseResetWithUnprovenIdentities },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/change-password") return revokeSessionsOnPasswordChange(ctx);
+      await refuseResetWithUnprovenIdentities(ctx);
+    }),
+    after: reportPasswordChangeSessions,
+  },
 
   databaseHooks: {
     user: {
