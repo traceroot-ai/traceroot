@@ -497,6 +497,39 @@ class RunMetricItem(BaseModel):
     )
 
 
+RunUsageState = Literal["processing", "unavailable", "no_calls", "unpriced", "partial", "complete"]
+
+
+class RunUsageBucket(BaseModel):
+    """LLM spend for one part of a run: the task, the scorers, or both.
+
+    ``cost`` is the sum of the priced calls' costs in USD, and null when no call was
+    priced: a missing price is never reported as $0. ``state`` says how far to trust it.
+    """
+
+    cost: JsonNonNegativeFloat | None
+    llm_calls: JsonNonNegativeInt
+    priced_llm_calls: JsonNonNegativeInt
+    state: RunUsageState
+
+
+class RunUsage(BaseModel):
+    """Totals over the run's results whose traces TraceRoot has processed. The scorers'
+    cost is never part of ``metrics`` (cost), which stays the task-only mean."""
+
+    currency: Literal["USD"]
+    # Results whose trace TraceRoot has processed and found spans for.
+    results_processed: JsonNonNegativeInt
+    # Results with a trace not processed yet (within the backfill window).
+    results_pending: JsonNonNegativeInt
+    # No trace linked, no spans found, or too old to be processed.
+    results_without_trace: JsonNonNegativeInt
+    task: RunUsageBucket
+    scorers: RunUsageBucket
+    # The task plus the scorers.
+    combined: RunUsageBucket
+
+
 class ReadRunResponse(BaseModel):
     """A run's SUMMARY — deliberately no per-case rows, so the payload is bounded by
     scorer count rather than case count and needs no truncation flag."""
@@ -535,6 +568,7 @@ class ReadRunResponse(BaseModel):
     not_scored_count: JsonNonNegativeInt
     scores: list[RunMetricItem] = Field(default_factory=list)
     metrics: list[RunMetricItem] = Field(default_factory=list)
+    usage: RunUsage
 
 
 # --- (b) Upsert one test-case result with scores ----------------------------

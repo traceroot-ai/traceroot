@@ -73,6 +73,15 @@ SUMMARY = {
             "observed_count": 2,
         }
     ],
+    "usage": {
+        "currency": "USD",
+        "results_processed": 2,
+        "results_pending": 0,
+        "results_without_trace": 0,
+        "task": {"cost": 0.003, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
+        "scorers": {"cost": None, "llm_calls": 0, "priced_llm_calls": 0, "state": "no_calls"},
+        "combined": {"cost": 0.003, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
+    },
 }
 
 
@@ -235,6 +244,22 @@ def test_read_run_is_503_on_a_body_outside_the_contract():
         {**SUMMARY, "run_number": "14"},
         {**SUMMARY, "run_number": True},
         {**SUMMARY, "scores": [{"name": "acc", "direction": "sideways"}]},
+        {k: v for k, v in SUMMARY.items() if k != "usage"},
+        {**SUMMARY, "usage": {**SUMMARY["usage"], "currency": "EUR"}},
+        {
+            **SUMMARY,
+            "usage": {
+                **SUMMARY["usage"],
+                "task": {**SUMMARY["usage"]["task"], "state": "mostly"},
+            },
+        },
+        {
+            **SUMMARY,
+            "usage": {
+                **SUMMARY["usage"],
+                "scorers": {**SUMMARY["usage"]["scorers"], "cost": -1},
+            },
+        },
     ):
         _mock_internal(body)
         resp = client.get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)

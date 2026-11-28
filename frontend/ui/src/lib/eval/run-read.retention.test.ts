@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findFirst: vi.fn() },
-  evaluationResult: { groupBy: vi.fn(), aggregate: vi.fn() },
+  evaluationResult: { groupBy: vi.fn(), aggregate: vi.fn(), count: vi.fn() },
   $queryRaw: vi.fn(),
   dataset: { findFirst: vi.fn() },
   project: { findUnique: vi.fn() },
@@ -74,8 +74,11 @@ beforeEach(() => {
   prismaMock.evaluationResult.aggregate.mockReset();
   prismaMock.evaluationResult.aggregate.mockResolvedValue({
     _avg: Object.fromEntries(Object.keys(RUN_METRIC_SELECT).map((f) => [f, null])),
-    _count: Object.fromEntries(Object.keys(RUN_METRIC_SELECT).map((f) => [f, 0])),
+    _count: { _all: 0, ...Object.fromEntries(Object.keys(RUN_METRIC_SELECT).map((f) => [f, 0])) },
+    _sum: {},
   });
+  prismaMock.evaluationResult.count.mockReset();
+  prismaMock.evaluationResult.count.mockResolvedValue(0);
   prismaMock.$queryRaw.mockReset();
   prismaMock.$queryRaw.mockResolvedValue([]);
   prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1", clientDatasetId: null });

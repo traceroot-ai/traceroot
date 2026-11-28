@@ -465,6 +465,51 @@ export const ListEvaluationRunsResponseSchema = z.object({
   next_cursor: z.string().nullable(),
 });
 
+/**
+ * How far a bucket's totals can be trusted. The first rule that matches wins:
+ * `processing` (some result's trace is still being read), `unavailable` (no result was
+ * processed), `no_calls` (no LLM call was made), `unpriced` (calls, none priced),
+ * `partial` (some calls unpriced, or some results never processed), `complete`.
+ */
+export const RunUsageStateSchema = z.enum([
+  "processing",
+  "unavailable",
+  "no_calls",
+  "unpriced",
+  "partial",
+  "complete",
+]);
+
+/** LLM spend for one part of a run: the task, the scorers, or both. */
+export const RunUsageBucketSchema = z.object({
+  /**
+   * Sum of the priced calls' costs in USD. Null when no call was priced: missing prices
+   * are never reported as $0.
+   */
+  cost: z.number().nonnegative().nullable(),
+  llm_calls: z.number().int().nonnegative(),
+  priced_llm_calls: z.number().int().nonnegative(),
+  state: RunUsageStateSchema,
+});
+
+/**
+ * Totals over the run's results whose traces TraceRoot has processed. The scorers' cost is
+ * never part of `metrics` (cost), which stays the task-only mean.
+ */
+export const RunUsageSchema = z.object({
+  currency: z.literal("USD"),
+  /** Results whose trace TraceRoot has processed and found spans for. */
+  results_processed: z.number().int().nonnegative(),
+  /** Results with a trace not processed yet (within the backfill window). */
+  results_pending: z.number().int().nonnegative(),
+  /** No trace linked, no spans found, or too old to be processed. */
+  results_without_trace: z.number().int().nonnegative(),
+  task: RunUsageBucketSchema,
+  scorers: RunUsageBucketSchema,
+  /** The task plus the scorers. */
+  combined: RunUsageBucketSchema,
+});
+
 export const ReadRunResponseSchema = z.object({
   evaluation_run_id: z.string(),
   evaluation_id: z.string(),
@@ -510,7 +555,10 @@ export const ReadRunResponseSchema = z.object({
   not_scored_count: z.number().int().nonnegative(),
   scores: z.array(RunMetricItemSchema).default([]),
   metrics: z.array(RunMetricItemSchema).default([]),
+  usage: RunUsageSchema,
 });
+export type RunUsage = z.infer<typeof RunUsageSchema>;
+export type RunUsageState = z.infer<typeof RunUsageStateSchema>;
 export type PublicEvaluation = z.infer<typeof PublicEvaluationSchema>;
 export type ListEvaluationsResponse = z.infer<typeof ListEvaluationsResponseSchema>;
 export type PublicEvaluationRun = z.infer<typeof PublicEvaluationRunSchema>;

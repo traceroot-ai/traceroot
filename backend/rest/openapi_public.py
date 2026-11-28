@@ -1520,7 +1520,9 @@ _DOCS_USAGE_NOTES = {
     ),
     "read_run": (
         "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, "
-        "or unobserved scores return null. This endpoint summarizes a single run."
+        "or unobserved scores return null. `usage` totals the run's LLM calls and cost "
+        "(USD) for the task, the scorers and both, with a `state` for how complete each "
+        "total is. This endpoint summarizes a single run."
     ),
     "get_dashboard_data": (
         "Each widget has its own result. Feeds are skipped, and query widgets beyond the "
