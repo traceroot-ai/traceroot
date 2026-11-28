@@ -50,6 +50,7 @@ export async function sendWelcomeEmail(
         ? renderFounderEmail(
             founderWelcomeCopy({
               variant: input.variant ?? "generic",
+              appUrl: env.NEXT_PUBLIC_APP_URL,
               demoUrl,
               bookingUrl: clientEnv.NEXT_PUBLIC_FOUNDERS_CAL_URL,
               githubUrl: clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL,

@@ -46,6 +46,13 @@ export type SourceId = Ids<typeof SOURCE_OPTIONS> | "other";
 const ids = <T extends readonly { id: string }[]>(options: T) =>
   options.map((option) => option.id) as [Ids<T>, ...Ids<T>[]];
 
+const detail = z
+  .string()
+  .trim()
+  .max(200)
+  .nullable()
+  .transform((value) => value || null);
+
 /**
  * One save: the answers given so far, each saved as it is given. A field left
  * out is left as it is; `null` (or `[]`) clears it, which is what going back
@@ -54,20 +61,25 @@ const ids = <T extends readonly { id: string }[]>(options: T) =>
 export const answersPatchSchema = z
   .object({
     role: z.enum(ids(ROLE_OPTIONS)).nullable(),
+    roleOther: detail,
     company: z.string().trim().max(200).nullable(),
     uses: z.array(z.enum(ids(USE_OPTIONS))).max(MAX_USES),
+    usesOther: detail,
     source: z.enum([...ids(SOURCE_OPTIONS), "other"]).nullable(),
     sourceOther: z.string().trim().max(200).nullable(),
   })
   .partial()
-  .strict();
+  .strict()
+  .refine((patch) => patch.roleOther === undefined || patch.role === "other", {
+    message: "Choose Something else to describe your role.",
+  })
+  .refine((patch) => patch.usesOther === undefined || patch.uses?.includes("other"), {
+    message: "Choose Something else to describe your use case.",
+  });
 
 export type AnswersPatch = z.infer<typeof answersPatchSchema>;
 
-/**
- * The largest answers body accepted: every answer at its longest (two 200
- * character texts and a handful of ids) fits several times over.
- */
+/** Maximum request size for a submitted question. */
 export const MAX_ANSWERS_BODY_BYTES = 4 * 1024;
 
 /** Names the account a save is for; see app/api/onboarding/questions. */
@@ -78,8 +90,10 @@ export interface OnboardingAnswers {
   /** The account these answers belong to; saves name it. */
   userId: string;
   role: RoleId | null;
+  roleOther: string | null;
   company: string | null;
   uses: UseId[];
+  usesOther: string | null;
   source: SourceId | null;
   sourceOther: string | null;
   /** The company question is asked only of a personal-email sign-up. */

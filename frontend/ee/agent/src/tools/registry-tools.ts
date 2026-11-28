@@ -1,6 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
   ApiClient,
+  ApiError,
   INTERNAL_BINDINGS,
   REGISTRY,
   internalAuth,
@@ -62,6 +63,8 @@ export interface BindOptions {
   pinned?: Record<string, unknown>;
   /** Rewrites the registry's description where this surface pins a param it names. */
   describe?: (registryText: string) => string;
+  /** Custom handler for API errors; return a string to override error rendering as a plain result. */
+  formatError?: (error: ApiError) => string | undefined;
 }
 
 export type RegistryBinder = (
@@ -85,7 +88,7 @@ export function createRegistryBinder(
     headers: internalAuth(agentInternalSecret(), userId),
   });
   return (name, formatResult, options = {}) => {
-    const { defaults, details, pinned = {}, describe } = options;
+    const { defaults, details, pinned = {}, describe, formatError } = options;
     const entry = requireEntry(name);
     // A pin for a param the registry no longer has would silently hand the renamed param
     // back to the model, so a stale pin fails loudly; every tool is built in the tests.
@@ -119,6 +122,7 @@ export function createRegistryBinder(
       fixedArgs: { ...pinned, project_id: projectId },
       formatResult,
       details,
+      formatError,
       ...(describe !== undefined && { description: described }),
       ...(defaults !== undefined && {
         defaults,
@@ -169,7 +173,14 @@ export function createRegistryReadTools(
     bind("get_detector", formatDetectorDetail),
     bind("list_findings", formatFindingList),
     bind("get_finding", formatFindingDetail),
-    bind("get_finding_by_trace", formatFindingDetail),
+    bind("get_finding_by_trace", formatFindingDetail, {
+      formatError: (error) => {
+        if (error.status === 404) {
+          return "No detector finding is attached to trace.";
+        }
+        return undefined;
+      },
+    }),
     bind("list_dashboards", formatDashboardList),
     // The widget and dashboard reads are drawn in the chat: the definition
     // and the window ride beside the text, and the panel runs each widget

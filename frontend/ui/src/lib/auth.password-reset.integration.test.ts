@@ -76,6 +76,32 @@ async function forgotPassword(email: string) {
   return { status: response.status, body: await response.text() };
 }
 
+it("validates the reset page link without consuming it", async () => {
+  const { default: ResetPasswordPage } = await import("@/app/auth/reset-password/page");
+  const { RequestNewLink, ResetPasswordClient } =
+    await import("@/app/auth/reset-password/reset-password-client");
+  const page = async (token: string) =>
+    (await ResetPasswordPage({ searchParams: Promise.resolve({ token }) })).type;
+  expect(await page("unknown")).toBe(RequestNewLink);
+  const token = await resetToken("ada@example.co");
+  expect(await page(token)).toBe(ResetPasswordClient);
+  expect(await page(token)).toBe(ResetPasswordClient);
+  expect((await resetPassword(token, "fresh-password-2")).status).toBe(200);
+  expect(await page(token)).toBe(RequestNewLink);
+});
+
+it("hides the reset form for an expired token", async () => {
+  const { default: ResetPasswordPage } = await import("@/app/auth/reset-password/page");
+  const { RequestNewLink } = await import("@/app/auth/reset-password/reset-password-client");
+  const token = await resetToken("ada@example.co");
+  const record = database.verification!.find(
+    (row) => row.identifier === `reset-password:${token}`,
+  )!;
+  record.expiresAt = new Date(Date.now() - 1000);
+  const page = await ResetPasswordPage({ searchParams: Promise.resolve({ token }) });
+  expect(page.type).toBe(RequestNewLink);
+});
+
 beforeEach(async () => {
   for (const rows of Object.values(database)) rows.length = 0;
   afterResponse.length = 0;
