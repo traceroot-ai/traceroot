@@ -14209,16 +14209,6 @@
             },
             "description": "Validation Error"
           },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Storage error"
-          },
           "503": {
             "content": {
               "application/json": {
@@ -14227,10 +14217,10 @@
                 }
               }
             },
-            "description": "Authentication service unavailable, or the batch could not be queued",
+            "description": "Authentication service unavailable, or the batch could not be stored or queued",
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before sending the batch again. Sent only when the batch could not be queued.",
+                "description": "Seconds to wait before sending the batch again. Sent only when the batch could not be stored or queued.",
                 "schema": {
                   "type": "integer"
                 }
