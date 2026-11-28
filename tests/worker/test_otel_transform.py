@@ -156,6 +156,24 @@ class TestExtractAttributeValue:
         )
         assert result == {"k1": "v1"}
 
+    def test_kvlist_value_unset_value(self):
+        result = extract_attribute_value(
+            {"kvlistValue": {"values": [{"key": "k1"}]}}
+        )
+        assert result == {"k1": None}
+
+    def test_kvlist_value_empty_key(self):
+        result = extract_attribute_value(
+            {"kvlistValue": {"values": [{"value": {"stringValue": "v1"}}]}}
+        )
+        assert result == {"": "v1"}
+
+    def test_kvlist_value_unset_key_and_value(self):
+        result = extract_attribute_value(
+            {"kvlistValue": {"values": [{}]}}
+        )
+        assert result == {"": None}
+
     def test_unknown_returns_none(self):
         assert extract_attribute_value({}) is None
 
