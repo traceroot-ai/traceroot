@@ -234,6 +234,7 @@
               "integrations/microsoft-agent-framework",
               "integrations/openai-agents-sdk",
               "integrations/pi",
+              "integrations/pi-agent-core",
               "integrations/pydantic-ai",
               "integrations/vercel-ai"
             ]
@@ -242,7 +243,11 @@
             "group": "Model Providers",
             "pages": [
               "integrations/anthropic",
+              "integrations/azure-openai",
+              "integrations/bedrock",
+              "integrations/deepseek",
               "integrations/gemini",
+              "integrations/groq",
               "integrations/mistral",
               "integrations/openai",
               "integrations/openai-compatible",
