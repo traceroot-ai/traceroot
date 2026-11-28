@@ -286,6 +286,30 @@
     }
   },
   {
+    "id": "tr-groq-openai-gpt-oss-120b",
+    "modelName": "groq/openai/gpt-oss-120b",
+    "matchPattern": "(?i)^groq\\/openai\\/gpt-oss-120b$",
+    "provider": "groq",
+    "prices": {
+      "input": 1.5e-7,
+      "output": 6e-7,
+      "cacheRead": 7.5e-8,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-groq-openai-gpt-oss-20b",
+    "modelName": "groq/openai/gpt-oss-20b",
+    "matchPattern": "(?i)^groq\\/openai\\/gpt-oss-20b$",
+    "provider": "groq",
+    "prices": {
+      "input": 7.5e-8,
+      "output": 3e-7,
+      "cacheRead": 3.75e-8,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gpt-6-1-sol",
     "modelName": "gpt-6.1-sol",
     "matchPattern": "(?i)^(openai\\/|azure\\/|global\\.openai\\.)?(gpt-6\\.1-sol)(-[\\d-]+)?$",

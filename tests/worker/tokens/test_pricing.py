@@ -469,6 +469,63 @@ class TestOpenAIModelIds:
         assert result["cost"] > 0
 
 
+class TestGroqGptOssPricing:
+    @pytest.mark.parametrize(
+        "model_id,expected_name,input_price,output_price,cache_read_price",
+        [
+            (
+                "openai/gpt-oss-120b",
+                "groq/openai/gpt-oss-120b",
+                1.5e-7,
+                6e-7,
+                7.5e-8,
+            ),
+            (
+                "openai/gpt-oss-20b",
+                "groq/openai/gpt-oss-20b",
+                7.5e-8,
+                3e-7,
+                3.75e-8,
+            ),
+        ],
+    )
+    def test_groq_provider_selects_the_groq_host_price(
+        self, real_cache, model_id, expected_name, input_price, output_price, cache_read_price
+    ):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id, provider=" Groq ")
+
+        assert price is not None
+        assert price[MATCHED_MODEL_NAME] == expected_name
+        assert price["input"] == pytest.approx(input_price)
+        assert price["output"] == pytest.approx(output_price)
+        assert price["cacheRead"] == pytest.approx(cache_read_price)
+        assert price["cacheWrite"] is None
+
+    @pytest.mark.parametrize("provider", [None, "openrouter", "openai"])
+    def test_gpt_oss_does_not_take_groqs_price_on_another_or_unknown_host(
+        self, real_cache, provider
+    ):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price("openai/gpt-oss-120b", provider=provider) is None
+
+    def test_an_already_host_qualified_gpt_oss_id_is_explicit_enough(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price("groq/openai/gpt-oss-120b")
+
+        assert price is not None
+        assert price[MATCHED_MODEL_NAME] == "groq/openai/gpt-oss-120b"
+
+    def test_calculate_cost_passes_the_reported_host_through(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost(
+                "openai/gpt-oss-120b", "Hello world", "Hi there", provider="groq"
+            )
+
+        assert result["cost"] is not None
+        assert result["cost"] > 0
+
+
 # (pattern owner, id it must not absorb): dash spellings of later gpt-5 point releases.
 GPT_5_NON_MATCHES = [
     ("gpt-5", "gpt-5-1"),

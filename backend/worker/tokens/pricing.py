@@ -77,30 +77,53 @@ def _load_cache() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Public API (unchanged signatures)
+# Public API
 # ---------------------------------------------------------------------------
 
 
-def get_model_price(model: str) -> dict[str, float] | None:
+def _lookup_candidates(model: str, provider: str | None = None) -> list[str]:
+    """Model spellings to price, with the host-qualified spelling first.
+
+    Host-specific rows are namespaced under ``host/model`` so the same model ID can
+    carry different prices on different hosts. They are considered only when the
+    instrumentation reports that host; the unqualified lookup is unchanged.
+    """
+    candidates = [model]
+    if provider:
+        host = str(provider).strip().lower()
+        if host:
+            qualified = f"{host}/{model}"
+            if qualified.lower() != model.lower():
+                candidates.insert(0, qualified)
+    return candidates
+
+
+def get_model_price(model: str, provider: str | None = None) -> dict[str, float] | None:
     """Lookup price for model. Tries exact match, then regex fallback.
+
+    When ``provider`` is the host instrumentation reported (``groq``, for example),
+    a host-qualified ``provider/model`` row is considered before the unqualified
+    spelling. Host-specific rows therefore cannot price traffic from another host,
+    or traffic whose host is unknown.
 
     Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
     (values in USD per token), or None if not found.
     """
     cache = _load_cache()
+    candidates = _lookup_candidates(model, provider)
 
-    # Exact match on model_name
-    for entry in cache:
-        if entry["model_name"] == model:
-            return entry["prices"]
-
-    # Regex fallback using match_pattern
-    for entry in cache:
-        try:
-            if re.search(entry["match_pattern"], model, re.IGNORECASE):
+    for candidate in candidates:
+        for entry in cache:
+            if entry["model_name"] == candidate:
                 return entry["prices"]
-        except re.error:
-            continue
+
+    for candidate in candidates:
+        for entry in cache:
+            try:
+                if re.search(entry["match_pattern"], candidate, re.IGNORECASE):
+                    return entry["prices"]
+            except re.error:
+                continue
 
     return None
 
@@ -198,6 +221,7 @@ def calculate_cost(
     model: str,
     input_text: str | None,
     output_text: str | None,
+    provider: str | None = None,
 ) -> dict[str, int | float | None]:
     """Calculate token usage and cost.
 
@@ -223,7 +247,7 @@ def calculate_cost(
     result["output_tokens"] = output_tokens
     result["total_tokens"] = total_tokens
 
-    prices = get_model_price(model)
+    prices = get_model_price(model, provider=provider) if provider else get_model_price(model)
     if prices:
         # Text estimation has no cache visibility, so cache buckets are zero.
         # Routing through cost_from_buckets keeps one cost formula across paths.

@@ -195,6 +195,50 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
   });
 });
 
+describe("getModelPricing — host-specific rows", () => {
+  const GROQ_ROW = {
+    modelName: "groq/openai/gpt-oss-120b",
+    matchPattern: "(?i)^groq\\/openai\\/gpt-oss-120b$",
+    prices: [
+      { usageType: "input", price: 0.00000015 },
+      { usageType: "output", price: 0.0000006 },
+      { usageType: "cacheRead", price: 0.000000075 },
+    ],
+  };
+
+  it("resolves the bare model ID only when Groq is the reported host", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([GROQ_ROW]);
+
+    const pricing = await lookup("openai/gpt-oss-120b", " Groq ");
+    expect(pricing).not.toBeNull();
+    expect(pricing!.input).toBe(0.00000015);
+    expect(pricing!.cacheRead).toBe(0.000000075);
+  });
+
+  it("does not price the same model as Groq on another or unknown host", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([GROQ_ROW]);
+
+    expect(await lookup("openai/gpt-oss-120b")).toBeNull();
+    expect(await lookup("openai/gpt-oss-120b", "openrouter")).toBeNull();
+    expect(await lookup("openai/gpt-oss-120b", "openai")).toBeNull();
+  });
+
+  it("treats an already host-qualified model ID as explicit", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([GROQ_ROW]);
+
+    expect(await lookup("groq/openai/gpt-oss-120b")).not.toBeNull();
+  });
+
+  it("passes the host through cost calculation", async () => {
+    const { calculateCost: cost } = await loadWithCatalogue([GROQ_ROW]);
+
+    expect(await cost("openai/gpt-oss-120b", 100, 50, 0, 0, 0, "groq")).toBeCloseTo(
+      100 * 0.00000015 + 50 * 0.0000006,
+      12,
+    );
+  });
+});
+
 describe("getModelPricing — uncompilable pattern", () => {
   it("reports the catalogue defect instead of failing silently", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
