@@ -193,8 +193,13 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
   const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
 
-  const results = React.useMemo(() => data?.results ?? [], [data]);
-  const run = data?.run;
+  const loadError = runLoadError(error);
+  // A refused request (404/401/403) replaces the cached run; only a temporary
+  // failure keeps the last good data on screen.
+  const showData = !!data && loadError !== "not_found" && loadError !== "no_access";
+
+  const results = React.useMemo(() => (showData ? (data?.results ?? []) : []), [data, showData]);
+  const run = showData ? data?.run : undefined;
 
   const openResult = openResultId ? (results.find((r) => r.id === openResultId) ?? null) : null;
 
@@ -238,8 +243,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
     if (next >= 0 && next < results.length) setOpenResultId(results[next].id);
   };
 
-  const loadError = runLoadError(error);
-
   return (
     <>
       {/* The experiment name rides in the top breadcrumb bar (Workspace / Project /
@@ -248,14 +251,14 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
       <PageBackHeader
         backHref={runsListHref}
         backLabel="Evaluations"
-        title={data?.run.evaluationName ?? "Run"}
+        title={run?.evaluationName ?? "Run"}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
             <p className="text-[13px] text-muted-foreground">Loading run...</p>
           </div>
-        ) : !data ? (
+        ) : !showData ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2">
             {loadError === "failed" ? (
               <>
