@@ -1,7 +1,12 @@
 import { Worker, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
 import { prisma, PlanType, calculateCost } from "@traceroot/core";
-import type { DetectorRunJob, DetectorRunResult } from "../queues/detector-run-queue.js";
+import type {
+  DetectorFindingResult,
+  DetectorRunJob,
+  DetectorRunOutcome,
+  DetectorRunResult,
+} from "../queues/detector-run-queue.js";
 import {
   DETECTOR_RUN_QUEUE,
   EVALUATOR_DELAY,
@@ -147,24 +152,15 @@ function recordedInferenceUsage(usage: ScanUsage): boolean {
   return usage.inferenceInputTokens + usage.inferenceOutputTokens > 0;
 }
 
-interface SingleDetectorOutcome {
-  triggered: TriggeredResult | null;
+type SingleDetectorOutcome = {
   /** null when the eval threw before pi-ai was called (cost/source unknown). */
   usage: ScanUsage | null;
-}
+} & ({ triggered: TriggeredResult; run?: never } | { triggered?: never; run: DetectorRunOutcome });
 
 /**
- * Run one detector against a trace. Writes the run record immediately for
- * non-triggered and failed cases (finding_id = null). For triggered cases,
- * returns the result WITHOUT writing anything — processTrace handles the
- * finding write and the run write so all triggered runs share the same
- * finding_id.
- *
- * The eval runs inside withSelfTrace, which records it live as the run's
- * self-trace (the traced pi-ai call becomes a real LLM child span). The
- * failed/not-triggered writes here stamp the resulting selfTraced flag
- * directly; the triggered write in evaluateTrace reads it from the returned
- * TriggeredResult.
+ * Run one detector against a trace and return its outcome for checkpointing.
+ * withSelfTrace records the evaluation as a live trace with the model call
+ * as a child span.
  */
 async function runSingleDetector(params: {
   detector: {
@@ -248,19 +244,10 @@ async function runSingleDetector(params: {
       `[Detector] Run failed for detector ${detector.id} on trace ${traceId}:`,
       run.error,
     );
-    await writeDetectorRun({
-      runId,
-      detectorId: detector.id,
-      projectId,
-      traceId,
-      findingId: null,
-      status: "failed",
-      // The eval threw before it returned a usage record: nothing here proves
-      // a model call was billed, so the run stays out of the usage meter.
-      usedInference: false,
-      selfTraced,
-    }).catch((err) => console.error("[Detector] Failed to write run:", err));
-    return { triggered: null, usage: null };
+    return {
+      run: { detectorId: detector.id, status: "failed", usedInference: false, selfTraced },
+      usage: null,
+    };
   }
   const result = run.value;
 
@@ -280,22 +267,17 @@ async function runSingleDetector(params: {
         `[Detector] Eval failed for detector ${detector.name} (${detector.id}) on trace ${traceId}: ${result.error}`,
       );
     }
-    // Not triggered — write run immediately (no finding_id)
-    await writeDetectorRun({
-      runId,
-      detectorId: detector.id,
-      projectId,
-      traceId,
-      findingId: null,
-      status: result.error ? "failed" : "completed",
-      usedInference: recordedInferenceUsage(usage),
-      selfTraced,
-    }).catch((err) => console.error("[Detector] Failed to write run:", err));
-    return { triggered: null, usage };
+    return {
+      run: {
+        detectorId: detector.id,
+        status: result.error ? "failed" : "completed",
+        usedInference: recordedInferenceUsage(usage),
+        selfTraced,
+      },
+      usage,
+    };
   }
 
-  // Triggered — return result without writing anything.
-  // flushTrace will generate the shared finding_id, write the finding, then write this run.
   console.log(
     `[Detector] Detector ${detector.name} triggered on trace ${traceId}: ${result.summary.slice(0, 80)}`,
   );
@@ -446,48 +428,34 @@ async function evaluateTrace(
     }
   }
 
-  const triggered = fulfilled
-    .map((o) => o.triggered)
-    .filter((t): t is TriggeredResult => t !== null);
+  const triggered = fulfilled.flatMap((outcome) => (outcome.triggered ? [outcome.triggered] : []));
+  const runs = fulfilled.flatMap((outcome) => (outcome.run ? [outcome.run] : []));
+  if (triggered.length === 0 && runs.length === 0) return;
 
-  if (triggered.length === 0) return;
-
-  // ONE finding per trace — aggregate all triggered detector summaries.
-  // findingId is a deterministic hash of (projectId, traceId) so a job retry
-  // lands on the same finding/RCA row instead of creating
-  // a duplicate. ClickHouse-level dedup of finding rows is a follow-up
-  // (ReplacingMergeTree on finding_id), but Postgres DetectorRca + the RCA
-  // queue jobId are now both keyed by this stable id.
-  const findingId = traceFindingId(projectId, traceId);
-  const combinedSummary = triggered.map((r) => `[${r.detectorName}] ${r.summary}`).join("\n");
-  const payload = JSON.stringify(
-    triggered.map((r) => ({
-      detectorId: r.detectorId,
-      detectorName: r.detectorName,
-      summary: r.summary,
-      data: r.data,
-    })),
-  );
-
-  // Single capture time for this finding. Stamped onto the finding row AND every
-  // triggered run below (timestampMs), and keys the per-finding digest flush
-  // scheduled below. Because the same value is both the row timestamp the flush
-  // counts and the window key, a finding always falls in exactly the window its
-  // flush covers — no boundary skew between the worker and server clocks.
-  const findingTimestamp = Date.now();
-
-  const result: DetectorRunResult = {
-    findingId,
-    summary: combinedSummary,
-    payload,
-    timestampMs: findingTimestamp,
-    detectors: detectors.map((d) => ({ id: d.id, enableSignals: d.enableSignals })),
-    triggered: triggered.map(({ detectorId, usedInference, selfTraced }) => ({
-      detectorId,
-      usedInference,
-      selfTraced,
-    })),
-  };
+  // Pin the version of every replayed row and the finding's digest window.
+  const timestampMs = Date.now();
+  const result: DetectorRunResult = triggered.length
+    ? {
+        findingId: traceFindingId(projectId, traceId),
+        summary: triggered.map((r) => `[${r.detectorName}] ${r.summary}`).join("\n"),
+        payload: JSON.stringify(
+          triggered.map(({ detectorId, detectorName, summary, data }) => ({
+            detectorId,
+            detectorName,
+            summary,
+            data,
+          })),
+        ),
+        timestampMs,
+        ...(runs.length ? { runs } : {}),
+        detectors: detectors.map((d) => ({ id: d.id, enableSignals: d.enableSignals })),
+        triggered: triggered.map(({ detectorId, usedInference, selfTraced }) => ({
+          detectorId,
+          usedInference,
+          selfTraced,
+        })),
+      }
+    : { timestampMs, runs };
   // Acknowledged before any result writes: subsequent attempts can finish
   // persistence without repeating inference or its usage records.
   await saveResult?.(result);
@@ -498,6 +466,28 @@ async function persistTraceResult(
   traceId: string,
   projectId: string,
   result: DetectorRunResult,
+): Promise<void> {
+  const writes = (result.runs ?? []).map((run) =>
+    writeDetectorRun({
+      ...run,
+      runId: deterministicRunId(projectId, traceId, run.detectorId),
+      projectId,
+      traceId,
+      findingId: null,
+      timestampMs: result.timestampMs,
+    }),
+  );
+  if (result.findingId !== undefined) {
+    writes.push(persistTraceFinding(traceId, projectId, result));
+  }
+  const failed = (await Promise.allSettled(writes)).find((write) => write.status === "rejected");
+  if (failed) throw failed.reason;
+}
+
+async function persistTraceFinding(
+  traceId: string,
+  projectId: string,
+  result: DetectorFindingResult,
 ): Promise<void> {
   const { findingId, summary, payload, timestampMs, detectors, triggered } = result;
   await writeDetectorFinding({
@@ -562,8 +552,9 @@ export async function handleDetectorRunJob(
   token?: string,
 ): Promise<void> {
   const { traceId, detectorIds, projectId } = job.data;
-  if (job.data.result) {
-    await persistTraceResult(traceId, projectId, job.data.result);
+  const checkpoint = job.data.result ?? job.data.runResult;
+  if (checkpoint) {
+    await persistTraceResult(traceId, projectId, checkpoint);
     return;
   }
   if (!detectorIds || detectorIds.length === 0) return;
@@ -574,7 +565,13 @@ export async function handleDetectorRunJob(
 
   if (timeSinceLastSpanMs >= EVALUATOR_DELAY) {
     await processTrace(traceId, projectId, detectorIds, (result) =>
-      job.updateData({ ...job.data, result }),
+      job.updateData(
+        result.findingId === undefined
+          ? // A worker from before runResult ignores it; empty detectorIds make
+            // that worker skip the job instead of running inference again.
+            { ...job.data, detectorIds: [], runResult: result }
+          : { ...job.data, result },
+      ),
     );
     return;
   }
