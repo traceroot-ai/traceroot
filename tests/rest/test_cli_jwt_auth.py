@@ -357,3 +357,32 @@ class TestJwtRejections:
             )
         assert exc.value.status_code == 503
         assert exc.value.detail == "Authentication service error"
+
+
+class TestJwtWithoutProject:
+    """A project-scoped read without project_id checks the JWT before asking for one."""
+
+    async def test_valid_token_is_told_to_pick_a_project(self, signer):
+        route = _mock_project_access(signer.respx)
+        with pytest.raises(HTTPException) as e:
+            await authenticate_public_caller(
+                authorization=f"Bearer {_mint(signer.priv)}", project_id=None
+            )
+        assert e.value.status_code == 400
+        assert "list_projects" in e.value.detail
+        # Verified offline: no membership lookup without a project.
+        assert route.call_count == 0
+
+    async def test_token_from_an_unknown_signer_is_401(self, signer):
+        with pytest.raises(HTTPException) as e:
+            await authenticate_public_caller(
+                authorization=f"Bearer {_mint(Ed25519PrivateKey.generate())}", project_id=None
+            )
+        assert e.value.status_code == 401
+
+    async def test_expired_token_is_401(self, signer):
+        with pytest.raises(HTTPException) as e:
+            await authenticate_public_caller(
+                authorization=f"Bearer {_mint(signer.priv, exp_delta=-600)}", project_id=None
+            )
+        assert e.value.status_code == 401

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { createApp } from "../app.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApp, parseVerificationTokens } from "../app.js";
 import {
   challenge,
   isExpiredJwt,
@@ -63,16 +63,30 @@ describe("challenge", () => {
     expect(challenge(undefined)).toBe("Bearer");
   });
 
-  it("points at the metadata when OAuth is on", () => {
+  it("points at the metadata and names the scopes when OAuth is on", () => {
     expect(challenge(OAUTH)).toBe(
-      'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"',
+      'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp", ' +
+        'scope="mcp:read offline_access"',
     );
   });
 
-  it("says why an expired token was refused", () => {
-    const value = challenge(OAUTH, { code: "invalid_token", description: "expired" });
-    expect(value).toContain('error="invalid_token"');
-    expect(value).toContain("resource_metadata=");
+  it("says why a token was refused, without asking for scopes", () => {
+    expect(challenge(OAUTH, { code: "invalid_token", description: "expired" })).toBe(
+      'Bearer error="invalid_token", error_description="expired", ' +
+        'resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"',
+    );
+  });
+
+  it("says why a key was refused when OAuth is off", () => {
+    expect(challenge(undefined, { code: "invalid_token", description: "Invalid API key" })).toBe(
+      'Bearer error="invalid_token", error_description="Invalid API key"',
+    );
+  });
+
+  it("keeps a description that could break out of its quotes inside them", () => {
+    expect(
+      challenge(undefined, { code: "invalid_token", description: 'bad "token"\\\n, x="y"' }),
+    ).toBe('Bearer error="invalid_token", error_description="bad token, x=y"');
   });
 });
 
@@ -94,7 +108,15 @@ describe("isExpiredJwt", () => {
 });
 
 describe("the endpoint", () => {
-  const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+  let backendStatus = 200;
+  const fetchImpl = vi.fn(async () => {
+    if (backendStatus === 0) throw new TypeError("fetch failed");
+    return new Response(JSON.stringify({ detail: "Invalid token" }), { status: backendStatus });
+  });
+  beforeEach(() => {
+    backendStatus = 200;
+    fetchImpl.mockClear();
+  });
   const make = (oauth?: typeof OAUTH) =>
     createApp({
       backendUrl: "http://rest:8000",
@@ -161,5 +183,76 @@ describe("the endpoint", () => {
       401,
     );
     expect((await post(app, "Bearer tr-key")).status).not.toBe(401);
+  });
+
+  it("answers a token the backend refuses with invalid_token and the metadata pointer", async () => {
+    backendStatus = 401;
+    const response = await post(make(OAUTH), `Bearer ${jwt({ exp: Date.now() / 1000 + 600 })}`);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe(
+      challenge(OAUTH, { code: "invalid_token", description: "Invalid token" }),
+    );
+  });
+
+  it("lets a genuine token with no access through, so the tools can say why", async () => {
+    backendStatus = 403;
+    const response = await post(make(OAUTH), "Bearer tr-key");
+    expect(response.status).toBe(200);
+  });
+
+  it.each([
+    ["is down", 0],
+    ["fails", 502],
+    ["rate limits", 429],
+  ])("does not send the client to sign in again when the backend %s", async (_name, status) => {
+    backendStatus = status;
+    const response = await post(make(OAUTH), "Bearer tr-key");
+    expect(response.status).toBe(200);
+  });
+});
+
+describe("the OpenAI apps domain challenge", () => {
+  const make = (openaiAppsChallenge?: string) =>
+    createApp({ backendUrl: "http://rest:8000", openaiAppsChallenge, oauth: OAUTH });
+
+  it("serves the configured token as plain text, without a credential", async () => {
+    const response = await make("token-123").fetch(
+      new Request("https://mcp.example.com/.well-known/openai-apps-challenge"),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^text\/plain/);
+    expect(await response.text()).toBe("token-123");
+  });
+
+  it("is not found when unset", async () => {
+    const response = await make().fetch(
+      new Request("https://mcp.example.com/.well-known/openai-apps-challenge"),
+    );
+    expect(response.status).toBe(404);
+  });
+});
+
+describe("the Google connected apps domain proof", () => {
+  const make = (googleConnectedAppsTokens?: string[]) =>
+    createApp({ backendUrl: "http://rest:8000", googleConnectedAppsTokens, oauth: OAUTH });
+  const get = (app: ReturnType<typeof make>) =>
+    app.fetch(new Request("https://mcp.example.com/.well-known/google-connected-apps"));
+
+  it("serves the configured tokens as JSON, directly and without a credential", async () => {
+    const response = await get(make(["tok-a", "tok-b"]));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^application\/json/);
+    expect(await response.json()).toEqual({ verification_tokens: ["tok-a", "tok-b"] });
+  });
+
+  it("is not found when unset", async () => {
+    expect((await get(make())).status).toBe(404);
+    expect((await get(make([]))).status).toBe(404);
+  });
+
+  it("reads the tokens from a comma-separated value", () => {
+    expect(parseVerificationTokens(" tok-a , ,tok-b ")).toEqual(["tok-a", "tok-b"]);
+    expect(parseVerificationTokens("  ")).toBeUndefined();
+    expect(parseVerificationTokens(undefined)).toBeUndefined();
   });
 });

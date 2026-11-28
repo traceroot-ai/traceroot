@@ -1,7 +1,8 @@
 import { serve } from "@hono/node-server";
-import { createApp, parseAllowedHosts, parseListenPort } from "./app.js";
+import { createApp, parseAllowedHosts, parseVerificationTokens, parseListenPort } from "./app.js";
 import { shouldServeAfterIssuerCheck } from "./issuer-check.js";
 import { parseOAuthConfig } from "./oauth.js";
+import { parseMaxResultChars } from "./server.js";
 
 const MCP_SERVICE_URL = process.env.MCP_SERVICE_URL || "http://localhost:8200";
 const PORT = parseListenPort(MCP_SERVICE_URL);
@@ -24,6 +25,9 @@ const app = createApp({
   timeoutMs: 60_000,
   allowedHosts: parseAllowedHosts(process.env.MCP_ALLOWED_HOSTS),
   oauth,
+  maxResultChars: parseMaxResultChars(process.env.MCP_MAX_RESULT_CHARS),
+  openaiAppsChallenge: process.env.MCP_OPENAI_APPS_CHALLENGE?.trim() || undefined,
+  googleConnectedAppsTokens: parseVerificationTokens(process.env.MCP_GOOGLE_CONNECTED_APPS_TOKENS),
 });
 
 serve({ fetch: app.fetch, port: PORT });
