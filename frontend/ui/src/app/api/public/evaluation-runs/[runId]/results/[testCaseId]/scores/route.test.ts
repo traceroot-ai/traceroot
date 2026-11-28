@@ -149,11 +149,17 @@ describe("POST … /results/[testCaseId]/scores", () => {
   it("answers a JSON 500 when counting a finished run fails, with the score stored", async () => {
     store.evaluationRun.rows.push({ id: "run-1", projectId: "proj-1", status: "completed" });
     vi.spyOn(store.evaluationResult, "count").mockRejectedValueOnce(new Error("lock timeout"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await POST(makeRequest(judgeScore), params);
 
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Failed to update the run's counts" });
     expect(store.score.rows).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith(
+      "Failed to update the counts of evaluation run run-1 (project proj-1)",
+      expect.objectContaining({ message: "lock timeout" }),
+    );
+    log.mockRestore();
   });
 });

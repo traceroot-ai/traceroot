@@ -156,7 +156,11 @@ export async function POST(request: Request, { params }: RouteParams) {
   // A result stored after its run finished changes the run's counts.
   try {
     await syncFinishedRunCounts(runId, projectId);
-  } catch {
+  } catch (err) {
+    console.error(
+      `Failed to update the counts of evaluation run ${runId} (project ${projectId})`,
+      err,
+    );
     return NextResponse.json({ error: "Failed to update the run's counts" }, { status: 500 });
   }
 

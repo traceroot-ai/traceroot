@@ -226,11 +226,17 @@ describe("POST complete — counts come from the stored results", () => {
   it("keeps the counts sent when the count fails on the call that finishes the run", async () => {
     storeResult("case-1", { scores: [valued("accuracy")] });
     vi.spyOn(store.evaluationResult, "count").mockRejectedValueOnce(new Error("lock timeout"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await POST(makeRequest(FINISHED), params);
 
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Failed to update the run's counts" });
+    expect(log).toHaveBeenCalledWith(
+      "Failed to update the counts of evaluation run run-1 (project proj-1)",
+      expect.objectContaining({ message: "lock timeout" }),
+    );
+    log.mockRestore();
     // Finished, and carrying the counts it was sent rather than zeros.
     expect(storedRun()).toMatchObject({
       status: "completed",

@@ -96,8 +96,12 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (terminal) {
     try {
       await syncFinishedRunCounts(runId, projectId);
-    } catch {
+    } catch (err) {
       // The status is saved; a retried completion counts again.
+      console.error(
+        `Failed to update the counts of evaluation run ${runId} (project ${projectId})`,
+        err,
+      );
       return NextResponse.json({ error: "Failed to update the run's counts" }, { status: 500 });
     }
   }
