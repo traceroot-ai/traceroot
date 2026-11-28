@@ -138,6 +138,11 @@ describe("auth options", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
   });
 
+  it("caps client registration and token requests high enough for an assistant's shared egress", () => {
+    expect(options.rateLimit.customRules["/oauth2/register"]).toEqual({ window: 60, max: 60 });
+    expect(options.rateLimit.customRules["/oauth2/token"]).toEqual({ window: 60, max: 120 });
+  });
+
   it("registers only the social providers whose credentials are configured", () => {
     // Both providers are blank in the env mock above, so better-auth must be
     // handed an empty set rather than a provider with an empty clientId — that

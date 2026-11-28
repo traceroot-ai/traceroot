@@ -7,7 +7,9 @@ import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
+import { oauthDefaultResource } from "@/lib/oauth/default-resource";
 import { oauthImpersonationGuard } from "@/lib/oauth/impersonation-guard";
+import { oauthRefreshReuseLog } from "@/lib/oauth/refresh-reuse-log";
 import { mcpOAuthProviderOptions } from "@/lib/oauth/provider-options";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import { createAccessControl } from "better-auth/plugins/access";
@@ -163,9 +165,16 @@ export const auth = betterAuth({
     // the unforgeable per-address bound lives at the edge WAF.
     customRules: {
       "/device/code": { window: 60, max: 10 },
-      // Unauthenticated, and inserts an oauth_clients row on every call; same
-      // reasoning and same coarse bound as /device/code above.
-      "/oauth2/register": { window: 60, max: 10 },
+      // Unauthenticated, and inserts an oauth_clients row on every call, so it
+      // is capped like /device/code above, but higher: a hosted assistant
+      // registers a new client on every fresh connection, and many users of one
+      // assistant reach us from the same few egress addresses.
+      "/oauth2/register": { window: 60, max: 60 },
+      // Code exchanges and refreshes. The provider's own default is 20 a minute
+      // per address, and an assistant's users all refresh from its few egress
+      // addresses, so one busy assistant would be throttled as a whole. A first
+      // value to tune from the logs.
+      "/oauth2/token": { window: 60, max: 120 },
     },
   },
 
@@ -212,7 +221,12 @@ export const auth = betterAuth({
     // pasted key. Off unless MCP_RESOURCE_URL is set. Its tokens are signed with
     // the key set above, so the backend verifies them offline the same way.
     ...(env.MCP_RESOURCE_URL
-      ? [oauthImpersonationGuard(), oauthProvider(mcpOAuthProviderOptions(env.MCP_RESOURCE_URL))]
+      ? [
+          oauthImpersonationGuard(),
+          oauthDefaultResource(env.MCP_RESOURCE_URL),
+          oauthRefreshReuseLog(),
+          oauthProvider(mcpOAuthProviderOptions(env.MCP_RESOURCE_URL)),
+        ]
       : []),
   ],
 });
