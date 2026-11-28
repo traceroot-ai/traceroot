@@ -242,6 +242,7 @@
             "group": "Model Providers",
             "pages": [
               "integrations/anthropic",
+              "integrations/claude-platform",
               "integrations/gemini",
               "integrations/mistral",
               "integrations/openai",
