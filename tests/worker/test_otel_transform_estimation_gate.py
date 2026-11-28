@@ -751,3 +751,25 @@ def test_audio_stays_in_the_stored_span_input():
     ]
     span = _transform([_span_with(attrs)])[0]
     assert b64(WAV) in span["input"]
+
+
+def test_an_audio_data_url_with_a_marker_is_still_estimated():
+    redacted = _estimated_input_tokens([_openai_image("data:audio/wav;base64,REDACTED")])
+    assert redacted > _estimated_input_tokens([_openai_image("")])
+
+
+def test_a_data_format_pair_outside_input_audio_is_still_estimated():
+    # Only the object under an "input_audio" key is OpenAI audio.
+    # A real input_audio part is present too, so the audio pass runs over the text.
+    other = {"type": "file", "file": {"data": b64(make_wav(1.0)), "format": "wav"}}
+    empty = {"type": "file", "file": {"data": "", "format": "wav"}}
+    audio = _openai_audio(b64(WAV))
+    assert _estimated_input_tokens([audio, other]) > _estimated_input_tokens([audio, empty])
+
+
+def test_audio_copied_under_a_non_audio_type_is_still_estimated():
+    # The same base64 under a non-audio type is text the model was sent.
+    copy = {"inline_data": {"mime_type": "text/plain", "data": b64(WAV)}}
+    empty = {"inline_data": {"mime_type": "text/plain", "data": ""}}
+    with_copy = _estimated_input_tokens([_gemini_audio(b64(WAV)), copy])
+    assert with_copy > _estimated_input_tokens([_gemini_audio(b64(WAV)), empty])

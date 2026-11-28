@@ -335,7 +335,8 @@ def without_inline_images(text: str) -> str:
 # Audio is billed by duration, not by its base64 characters, and it stays in the span
 # text (the trace viewer plays it inline), so it is only dropped for token estimation.
 _AUDIO_DATA_URL_RE = re.compile(
-    r"data:audio/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}", re.ASCII | re.IGNORECASE
+    r"data:audio/[A-Za-z0-9.+-]+;base64,(?P<data>[A-Za-z0-9+/]+={0,2})",
+    re.ASCII | re.IGNORECASE,
 )
 _AUDIO_TYPE_RE = re.compile(r"audio/", re.ASCII | re.IGNORECASE)
 
@@ -352,17 +353,23 @@ def without_inline_media(text: str) -> str:
 
     Audio is found in three shapes: a ``data:audio/...;base64,`` URL, a JSON object
     whose ``media_type`` / ``mime_type`` / ``mimeType`` is an ``audio/`` type (a
-    Gemini ``inline_data`` part, say), and an OpenAI ``input_audio`` part
-    (``{"data": ..., "format": ...}``).
+    Gemini ``inline_data`` part, say), and the ``{"data": ..., "format": ...}``
+    object under an OpenAI part's ``input_audio`` key.
     """
     text = without_inline_images(text)
     has_input_audio = '"input_audio"' in text
     if not has_input_audio and _AUDIO_TYPE_RE.search(text) is None:
         return text
-    text = _AUDIO_DATA_URL_RE.sub("", text)
+    text = _AUDIO_DATA_URL_RE.sub(_drop_audio_data_url, text)
     if '"data"' in text and (has_input_audio or any(key in text for key in _JSON_SHAPE_KEYS)):
         text = _drop_json_audio(text)
     return text
+
+
+def _drop_audio_data_url(match: re.Match[str]) -> str:
+    # A URL whose data is not audio (data:audio/wav;base64,REDACTED) is text the
+    # model was sent, so it stays.
+    return "" if _could_be_audio(match.group("data")) else match.group(0)
 
 
 def _drop_json_audio(text: str) -> str:
@@ -377,18 +384,26 @@ def _drop_json_audio(text: str) -> str:
     except (ValueError, RecursionError):
         return text
 
-    audio: set[str] = set()
+    # Each audio value, with how many audio shapes hold it, and how many string
+    # values in the whole tree are equal to it.
+    in_audio: dict[str, int] = {}
+    everywhere: dict[str, int] = {}
     stack = [parsed]
     while stack:
         node = stack.pop()
         if isinstance(node, dict):
-            found = _known_shape_audio(node)
-            if found is not None:
-                audio.add(found)
+            for found in _known_shape_audio(node):
+                in_audio[found] = in_audio.get(found, 0) + 1
             stack.extend(node.values())
         elif isinstance(node, list):
             stack.extend(node)
+        elif isinstance(node, str):
+            everywhere[node] = everywhere.get(node, 0) + 1
 
+    # The text is matched by value, not by position, so a value is dropped only when
+    # every string equal to it is audio. The same base64 under a non-audio type is
+    # text the model was sent, and dropping it there would undercount.
+    audio = {data for data, count in in_audio.items() if everywhere.get(data) == count}
     if not audio:
         return text
     # As with images, base64 is written unescaped, so each value appears in the
@@ -405,19 +420,27 @@ def _drop_json_audio(text: str) -> str:
     return "".join(pieces)
 
 
-def _known_shape_audio(node: dict) -> str | None:
-    """The base64 ``data`` when ``node`` is one of the known audio shapes, else None."""
+def _known_shape_audio(node: dict) -> list[str]:
+    """The base64 audio ``node`` holds as one of the known audio shapes."""
+    found: list[str] = []
     data = node.get("data")
-    if not isinstance(data, str) or not _could_be_audio(data):
-        return None
     declared = node.get("media_type", node.get("mime_type", node.get("mimeType")))
-    if isinstance(declared, str) and declared.strip().lower().startswith("audio/"):
-        return data
-    # OpenAI's input_audio part: {"type": "input_audio", "input_audio": {"data", "format"}}.
-    # The format names the encoding ("wav", "mp3"), so the data is audio.
-    if isinstance(node.get("format"), str) and set(node) <= {"data", "format"}:
-        return data
-    return None
+    if (
+        isinstance(declared, str)
+        and declared.strip().lower().startswith("audio/")
+        and isinstance(data, str)
+        and _could_be_audio(data)
+    ):
+        found.append(data)
+    # OpenAI's part: {"type": "input_audio", "input_audio": {"data": ..., "format": ...}}.
+    # Only the object under the input_audio key is audio; a {data, format} pair
+    # anywhere else is not.
+    part = node.get("input_audio")
+    if isinstance(part, dict) and isinstance(part.get("format"), str):
+        part_data = part.get("data")
+        if isinstance(part_data, str) and _could_be_audio(part_data):
+            found.append(part_data)
+    return found
 
 
 def _could_be_audio(data: str) -> bool:
