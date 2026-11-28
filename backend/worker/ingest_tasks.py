@@ -127,10 +127,10 @@ def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
     nest one LLM span in another with the same tokens and the same price, and an LLM-kind
     step wrapper (``agent_step``) spans several calls. Counting every LLM span would count
     those calls twice. Cost follows the same rule: summing every priced span billed nested
-    instrumentation twice, so a span's own cost now counts only if it is a counted call or
+    instrumentation twice, so a span's own cost counts only if it is a counted call or
     the ancestor one borrows from (below). A cost reported on a span that is not a model
-    call (for example a tool's ``llm.cost.total``) is not counted, which keeps ``cost`` to
-    the model calls it was always meant to sum.
+    call (for example a tool's ``llm.cost.total``) is not counted, so cost is the sum of
+    model calls only.
 
     A call borrows only from its sole wrapper: the nearest model-call ancestor in its part,
     provided that ancestor wraps no other counted call. An ancestor around several calls
@@ -410,9 +410,9 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     ``scorer_cost`` is NULL when no scorer call was priced, else the real sum (0 allowed).
 
     These columns add no marker of their own: they ride on ``metrics_derived_at``, so the
-    backfill that fills the LLM metrics fills them too. #2452 and this change must reach
-    production in the same deploy; a worker with only #2452 would stamp rows without
-    these columns, and nothing would come back for them.
+    backfill that fills the LLM metrics fills them too. A worker without the scorer split
+    stamps rows without these columns and nothing would come back for them, so this split
+    must be deployed with the LLM metrics derivation.
 
     Idempotent + self-healing: recomputed on every batch, so late-arriving spans
     correct the total in BOTH directions. That two-way property is the point — under
@@ -475,7 +475,7 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                     task, scorer = m.task, m.scorer
                     # Written unconditionally — see the docstring. NULLIF keeps a genuinely
                     # cost-less (or model-call-less) trace at NULL rather than a misleading
-                    # 0, while still letting a previously over-reported total be corrected
+                    # 0, while still letting an over-reported total be corrected
                     # back down. Every metric here shares that property, so they are written
                     # in one statement. The counts and scorer_cost take no NULLIF: their 0
                     # is real, and scorer_cost is NULL only when no scorer call was priced.

@@ -13,8 +13,7 @@
 --
 -- No new marker: these columns ride on `metrics_derived_at` from
 -- 20261127000000_eval_result_llm_metrics, so the backfill that fills those metrics fills
--- these too. That migration's worker and this one must reach production in the same
--- deploy. Only rows stamped after this migration ran, by a worker without the scorer
+-- these too. That migration's worker and this one must be deployed together. Only rows stamped after this migration ran, by a worker without the scorer
 -- split during the rollout overlap, would never be revisited.
 --
 -- Additive and nullable with no DEFAULT, so this deploys ahead of the worker that fills

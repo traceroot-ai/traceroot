@@ -10,7 +10,7 @@
 -- "nothing to report" stays distinguishable from "measured, and it was zero".
 --
 -- `metrics_derived_at` is the metrics' own backfill marker, kept apart from
--- `cost_derived_at`. A worker from before this change still writes `cost` and stamps
+-- `cost_derived_at`. A worker without the metrics still writes `cost` and stamps
 -- `cost_derived_at` during a rolling deploy; it never touches this column, so any row it
 -- handles (and every row that predates the migration) reads NULL here and the backfill
 -- derives its metrics later, whichever order the services deploy in. No data is rewritten.
