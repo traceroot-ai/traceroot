@@ -248,9 +248,17 @@ const WIDGET_ROW_CAP = 25;
 /** Bytes one dashboard's answer may occupy in the transcript. */
 const DASHBOARD_DATA_BUDGET_BYTES = 16 * 1024;
 
+/**
+ * Values below 1 keep three significant digits rather than two decimals: a cost is
+ * routinely a fraction of a cent, and two decimals printed every such reading as 0, so
+ * the model was told a measured cost was nothing. The rule the Slack alert text uses.
+ */
+const SMALL_NUMBER_FORMAT = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 3 });
+
 function formatNumber(value: unknown): string {
   if (typeof value === "number") {
     if (Number.isInteger(value)) return value.toLocaleString("en-US");
+    if (Math.abs(value) < 1) return SMALL_NUMBER_FORMAT.format(value);
     return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
   }
   if (typeof value === "string") {
