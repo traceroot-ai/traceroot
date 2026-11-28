@@ -219,6 +219,45 @@ export async function countFreeLoopRunsUsed(db: Db, workspaceId: string): Promis
   return repliedSessions.size + notYetReplied.length;
 }
 
+/**
+ * Loop runs a project started since `since`, for its daily cap, counted from
+ * records that outlive a deleted Loop (deleting a Loop deletes its runs, not
+ * their sessions). A run counts once the agent service started its turn: that
+ * turn's first row, the kickoff, is a Loop row in the run's own session, so
+ * each session with a Loop row since then is one run. A run that failed before
+ * that (its model could not be resolved, or the agent service refused it) has
+ * no Loop row and does not count. Each running run whose session has no Loop
+ * row yet counts too, so a run is counted from the start to its kickoff.
+ *
+ * Both parts are read in one statement, so they share one snapshot: a kickoff
+ * the agent service commits meanwhile is seen by both parts or by neither, and
+ * its run is counted exactly once.
+ */
+export async function countProjectLoopRunsSince(
+  db: Db,
+  projectId: string,
+  since: Date,
+): Promise<number> {
+  // create_time holds UTC without a zone: since_utc is `since` read as UTC too.
+  const [row] = await db.$queryRaw<{ runs: bigint }[]>`
+    WITH bound AS (SELECT ${since.toISOString()}::timestamptz AT TIME ZONE 'UTC' AS since_utc)
+    SELECT
+      (SELECT count(*) FROM ai_sessions s
+        WHERE s.project_id = ${projectId}
+          AND EXISTS (SELECT 1 FROM ai_messages m
+            WHERE m.session_id = s.id AND m.kind = 'loop' AND m.create_time >= bound.since_utc))
+      +
+      (SELECT count(*) FROM loop_runs r
+        WHERE r.project_id = ${projectId}
+          AND r.status = 'running'
+          AND r.create_time >= bound.since_utc
+          AND (r.session_id IS NULL OR NOT EXISTS (SELECT 1 FROM ai_messages m
+            WHERE m.session_id = r.session_id AND m.kind = 'loop' AND m.create_time >= bound.since_utc)))
+      AS runs
+    FROM bound`;
+  return Number(row?.runs ?? 0);
+}
+
 export function isExpired(memory: { expiresAt: Date | null }, now: Date): boolean {
   return memory.expiresAt !== null && memory.expiresAt.getTime() <= now.getTime();
 }

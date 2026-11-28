@@ -9,6 +9,7 @@ import {
   shortZoneName,
   pauseDetail,
   runOutcomeLabel,
+  runStatusShort,
 } from "./loop-display";
 
 const daily: LoopSchedule = { kind: "daily", hour: 9, timezone: "Europe/Berlin" };
@@ -94,5 +95,9 @@ describe("status and outcome wording", () => {
     expect(runOutcomeLabel("succeeded", 0)).toBe("Succeeded");
     expect(runOutcomeLabel("pending", 0)).toBe("Queued");
     expect(runOutcomeLabel("skipped_blocked", 0)).toBe("Skipped (plan limit)");
+    expect(runOutcomeLabel("skipped_paused", 0)).toBe("Skipped (loop paused)");
+    expect(runStatusShort("skipped_paused")).toBe("Skipped");
+    expect(runOutcomeLabel("skipped_no_traces", 0)).toBe("Skipped (no new traces)");
+    expect(runStatusShort("skipped_no_traces")).toBe("Skipped");
   });
 });

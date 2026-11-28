@@ -42,7 +42,7 @@ import { publicUiUrl } from "./origins.js";
 import { type QueryWindow, windowDefaults } from "./query-window.js";
 import { agentInternalSecret } from "../internal-secret.js";
 
-function requireEntry(name: string) {
+export function requireEntry(name: string) {
   const entry = REGISTRY.find((e) => e.name === name);
   if (entry === undefined) {
     throw new Error(`registry entry missing: ${name}`);
@@ -53,36 +53,41 @@ function requireEntry(name: string) {
 /** A read's first page: no cursor is ever sent, and the model is never offered one. */
 const FIRST_PAGE = { cursor: undefined };
 
+/** Options for one bound registry read (see createRegistryBinder). */
+export interface BindOptions {
+  /** Values for params the model omits — the page window for the data reads. */
+  defaults?: (supplied: Readonly<Record<string, unknown>>) => Record<string, unknown>;
+  /** Structured details the chat panel cards, beside the text the model reads. */
+  details?: (data: unknown) => unknown;
+  /** Params set on every call and hidden from the model, beside the project id. */
+  pinned?: Record<string, unknown>;
+  /** Rewrites the registry's description where this surface pins a param it names. */
+  describe?: (registryText: string) => string;
+  /** Custom handler for API errors; return a string to override error rendering as a plain result. */
+  formatError?: (error: ApiError) => string | undefined;
+}
+
+export type RegistryBinder = (
+  name: string,
+  formatResult: (data: unknown) => string,
+  options?: BindOptions,
+) => AgentTool<any>;
+
 /**
- * The agent's read tools, generated from the shared registry and bound to the
- * internal project-scoped routes with service auth. Presentation (the text the
- * model sees) stays here — it's surface-local by design.
+ * Binds one registry read to its internal project-scoped route with service
+ * auth, the project id pinned and hidden from the model. Shared by the chat
+ * agent's read set and by surfaces that offer a subset of it (the Loop agent).
  */
-export function createRegistryReadTools(
+export function createRegistryBinder(
   projectId: string,
   userId: string,
   window?: QueryWindow,
-): AgentTool<any>[] {
+): RegistryBinder {
   const client = new ApiClient({
     baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
     headers: internalAuth(agentInternalSecret(), userId),
   });
-  const bind = (
-    name: string,
-    formatResult: (data: unknown) => string,
-    options: {
-      /** Values for params the model omits — the page window for the data reads. */
-      defaults?: ReturnType<typeof windowDefaults>;
-      /** Structured details the chat panel cards, beside the text the model reads. */
-      details?: (data: unknown) => unknown;
-      /** Params set on every call and hidden from the model, beside the project id. */
-      pinned?: Record<string, unknown>;
-      /** Rewrites the registry's description where this surface pins a param it names. */
-      describe?: (registryText: string) => string;
-      /** Custom handler for API errors; return a string to override error rendering as a plain result. */
-      formatError?: (error: ApiError) => string | undefined;
-    } = {},
-  ) => {
+  return (name, formatResult, options = {}) => {
     const { defaults, details, pinned = {}, describe, formatError } = options;
     const entry = requireEntry(name);
     // A pin for a param the registry no longer has would silently hand the renamed param
@@ -140,6 +145,19 @@ export function createRegistryReadTools(
     }
     return tool;
   };
+}
+
+/**
+ * The agent's read tools, generated from the shared registry and bound to the
+ * internal project-scoped routes with service auth. Presentation (the text the
+ * model sees) stays here — it's surface-local by design.
+ */
+export function createRegistryReadTools(
+  projectId: string,
+  userId: string,
+  window?: QueryWindow,
+): AgentTool<any>[] {
+  const bind = createRegistryBinder(projectId, userId, window);
   // The data reads default to the window the page is showing, so the agent's
   // numbers match the dashboard beside it unless the user named a window of
   // their own.

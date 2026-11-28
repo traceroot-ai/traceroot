@@ -67,6 +67,7 @@ describe("requests without the internal credential", () => {
     ["DELETE", `${P}/sessions/s1`],
     ["POST", `${P}/sessions/s1/messages`],
     ["POST", `${P}/sessions/s1/decisions`],
+    ["POST", `${P}/loop-runs/r1`],
     ["POST", "/api/v1/cache/invalidate-provider"],
   ];
 
@@ -75,7 +76,11 @@ describe("requests without the internal credential", () => {
       .map((r) => `${r.method} ${r.path}`)
       .filter((r) => !r.endsWith(" /*") && r !== "GET /health" && !r.startsWith("ALL "));
     const covered = routes.map(
-      ([m, p]) => `${m} ${p.replace("/p1/", "/:projectId/").replace("/s1", "/:sessionId")}`,
+      ([m, p]) =>
+        `${m} ${p
+          .replace("/p1/", "/:projectId/")
+          .replace("/s1", "/:sessionId")
+          .replace("/r1", "/:runId")}`,
     );
     expect(registered.sort()).toEqual(covered.sort());
   });

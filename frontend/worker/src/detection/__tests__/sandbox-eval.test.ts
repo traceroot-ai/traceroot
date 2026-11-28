@@ -40,7 +40,10 @@ vi.mock("../openai-decision-eval.js", async (importOriginal) => ({
   runOpenAIDecisionDetection: mockRunOpenAIDecisionDetection,
 }));
 
-vi.mock("@traceroot/core/model-resolver", () => ({
+vi.mock("@traceroot/core/model-resolver", async (importOriginal) => ({
+  byokProviderMissingMessage: (
+    await importOriginal<typeof import("@traceroot/core/model-resolver")>()
+  ).byokProviderMissingMessage,
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
   findByokKeyForPiProvider: mockFindByokKey,

@@ -32,6 +32,8 @@ export const LOOP_RUN_STATUSES = [
   "failed",
   "timed_out",
   "skipped_blocked",
+  "skipped_paused",
+  "skipped_no_traces",
 ] as const;
 export type LoopRunStatus = (typeof LOOP_RUN_STATUSES)[number];
 
@@ -42,8 +44,9 @@ export type LoopRunTrigger = (typeof LOOP_RUN_TRIGGERS)[number];
 export const ACTIVE_RUN_STATUSES: readonly LoopRunStatus[] = ["pending", "running"];
 
 /**
- * Runs that called the agent count against the plan; a plan-limit skip did
- * not, and a pending run has not yet.
+ * The statuses of a run that started: a plan-limit skip or a paused-loop skip
+ * never did, and a pending run has not yet. An empty window's skip
+ * (skipped_no_traces) started but never called the agent.
  */
 export const COUNTED_RUN_STATUSES: readonly LoopRunStatus[] = [
   "running",
@@ -153,6 +156,38 @@ export type UpdateLoopInput = z.input<typeof updateLoopSchema>;
 export const loopStatusActionSchema = z.object({
   action: z.enum(["pause", "resume"], 'action must be "pause" or "resume"'),
 });
+
+export const LOOP_AGENT_OUTCOMES = [
+  "submitted",
+  "no_summary",
+  "budget_exhausted",
+  "timed_out",
+  "error",
+] as const;
+export type LoopAgentOutcome = (typeof LOOP_AGENT_OUTCOMES)[number];
+
+/**
+ * The model a Loop run's turn ran on, as the agent built it: the run's own
+ * choice, or the agent service's default when the run named none. `provider`
+ * is a BYOK model's saved provider label, else the model's provider.
+ */
+export interface LoopRunModel {
+  model: string;
+  provider: string;
+  source: "system" | "byok";
+}
+
+/** The agent service's answer to one Loop run. */
+export interface LoopAgentResult {
+  status: LoopAgentOutcome;
+  summary: string | null;
+  tracesRead: number;
+  toolCalls: number;
+  costUsd: number | null;
+  error: string | null;
+  /** Null when the turn never started. */
+  modelUsed: LoopRunModel | null;
+}
 
 // ---------------------------------------------------------------------------
 // Responses (dates as ISO strings)

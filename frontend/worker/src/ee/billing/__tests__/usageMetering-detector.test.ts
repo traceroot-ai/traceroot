@@ -32,7 +32,11 @@ vi.mock("./clickhouse.js", () => ({
   }), // unused
 }));
 
-import { reportDetectorOverageToStripe } from "../usageMetering.js";
+import {
+  hostedOverageUnits,
+  reportDetectorOverageToStripe,
+  reportHostedDelta,
+} from "../usageMetering.js";
 
 function makeStripe() {
   const create = vi.fn().mockResolvedValue({});
@@ -204,5 +208,87 @@ describe("detector included-threshold math (first 100 free on paid plans)", () =
 
   it("0 scans guards against divide-by-zero", () => {
     expect(billableUnits(0, 0)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The code the detector (5d) and Loop (5e) paths share, against the examples
+// the mirrors above pin down.
+// ---------------------------------------------------------------------------
+describe("hostedOverageUnits", () => {
+  it("bills the overage share of the hosted cost at 1.05x, in $0.01 units", () => {
+    expect(hostedOverageUnits(50, 0.05, 100)).toBe(0);
+    expect(hostedOverageUnits(100, 0.1, 100)).toBe(0);
+    expect(hostedOverageUnits(200, 0.2, 100)).toBe(11);
+    expect(hostedOverageUnits(1000, 1.3, 100)).toBe(123);
+    expect(hostedOverageUnits(0, 0, 100)).toBe(0);
+  });
+});
+
+describe("reportHostedDelta", () => {
+  const PERIOD = "2026-05-01T00:00:00Z";
+  const report = (
+    client: import("stripe").default,
+    totalUnits: number,
+    previous: { lastReportedUnits?: number; lastReportedPeriodStart?: string | null },
+  ) =>
+    reportHostedDelta({
+      source: "detector",
+      totalUnits,
+      previous,
+      periodStart: PERIOD,
+      workspaceId: "ws-1",
+      customerId: "cus_x",
+      stripeClient: client,
+      detail: "test",
+    });
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("reports only the units new this period and moves the baseline to the total", async () => {
+    const { client, create } = makeStripe();
+    const baseline = await report(client, 158, {
+      lastReportedUnits: 105,
+      lastReportedPeriodStart: PERIOD,
+    });
+    expect(create.mock.calls[0][0].payload.value).toBe("53");
+    expect(baseline).toEqual({ lastReportedUnits: 158, lastReportedPeriodStart: PERIOD });
+  });
+
+  it("resets the baseline when the period rolled over", async () => {
+    const { client, create } = makeStripe();
+    await report(client, 53, {
+      lastReportedUnits: 105,
+      lastReportedPeriodStart: "2026-04-01T00:00:00Z",
+    });
+    expect(create.mock.calls[0][0].payload.value).toBe("53");
+  });
+
+  it("reports nothing when nothing is new, rolling the baseline to this period", async () => {
+    const { client, create } = makeStripe();
+    const baseline = await report(client, 105, {
+      lastReportedUnits: 105,
+      lastReportedPeriodStart: PERIOD,
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(baseline).toEqual({ lastReportedUnits: 105, lastReportedPeriodStart: PERIOD });
+  });
+
+  it("reports the whole total when this period has no reported units yet", async () => {
+    const { client, create } = makeStripe();
+    const baseline = await report(client, 40, { lastReportedPeriodStart: PERIOD });
+    expect(create.mock.calls[0][0].payload.value).toBe("40");
+    expect(baseline).toEqual({ lastReportedUnits: 40, lastReportedPeriodStart: PERIOD });
+  });
+
+  it("leaves the baseline as it was when Stripe refuses, so the next run retries", async () => {
+    const { client, create } = makeStripe();
+    create.mockRejectedValueOnce(new Error("stripe 503"));
+    expect(
+      await report(client, 158, { lastReportedUnits: 105, lastReportedPeriodStart: PERIOD }),
+    ).toEqual({});
   });
 });
