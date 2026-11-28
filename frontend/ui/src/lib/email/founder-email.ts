@@ -18,8 +18,8 @@ import {
 } from "@traceroot/core";
 import { greeting, LINK_STYLE } from "./welcome/copy";
 
-/** "Best," and Xinwei's signature, written as in his own email. */
-export const FOUNDER_SIGNOFF = ["Best,", "Xinwei He", "TraceRoot.AI | CEO"];
+/** Shared founder signature for onboarding emails. */
+export const FOUNDER_SIGNOFF = ["Best,", "Xinwei He", "traceroot | CEO"];
 
 /** The opt-out under the signature, linked to the unsubscribe page. */
 export const PRODUCT_OPT_OUT_LABEL = "Unsubscribe from product emails";

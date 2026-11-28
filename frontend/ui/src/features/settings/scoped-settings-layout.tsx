@@ -4,6 +4,8 @@
 // and the demo-viewer access for the tab (see demo-access.tsx). A page only
 // names its id and tab.
 import { type ReactNode } from "react";
+import Link from "next/link";
+import { ApiError } from "@/lib/api/errors";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useProject } from "@/features/projects/hooks";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
@@ -17,9 +19,6 @@ import {
   type WorkspaceSettingsTab,
 } from "./settings-layout";
 
-// If the membership cannot be read, both layouts show the page as before and
-// let the page and its API calls deal with the error, rather than an empty screen.
-
 export function WorkspaceSettingsLayout({
   workspaceId,
   tab,
@@ -29,8 +28,27 @@ export function WorkspaceSettingsLayout({
   tab: WorkspaceSettingsTab;
   children: ReactNode;
 }) {
-  const { data: workspace, isError } = useWorkspace(workspaceId);
-  const access = isError ? { mode: "full" as const } : workspaceSettingsAccess(tab, workspace);
+  const { data: workspace, error, refetch } = useWorkspace(workspaceId);
+  if (error) {
+    const unavailable = error instanceof ApiError && (error.status === 403 || error.status === 404);
+    return (
+      <div className="flex flex-col items-center gap-3 p-8 text-center">
+        <h1 className="text-base font-medium">
+          {unavailable ? "Workspace unavailable" : "Could not load workspace settings"}
+        </h1>
+        {unavailable ? (
+          <Link href="/workspaces" className="text-[13px] text-brand hover:underline">
+            Go to your workspaces
+          </Link>
+        ) : (
+          <button onClick={() => void refetch()} className="text-[13px] text-brand hover:underline">
+            Try again
+          </button>
+        )}
+      </div>
+    );
+  }
+  const access = workspaceSettingsAccess(tab, workspace);
 
   return (
     <div className="flex h-full">

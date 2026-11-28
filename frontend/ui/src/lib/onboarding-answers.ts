@@ -33,8 +33,10 @@ export async function readOnboardingAnswers(
   return {
     userId,
     role: (row?.role as RoleId | null) ?? null,
+    roleOther: row?.roleOther ?? null,
     company: row?.companyInput ?? null,
     uses: (row?.uses as UseId[] | undefined) ?? [],
+    usesOther: row?.usesOther ?? null,
     source: (row?.source as SourceId | null) ?? null,
     sourceOther: row?.sourceOther ?? null,
     companyAsked: isPersonalEmail(email),
@@ -48,12 +50,18 @@ export async function readOnboardingAnswers(
  */
 export async function saveOnboardingAnswers(userId: string, patch: AnswersPatch): Promise<void> {
   const data = {
-    ...(patch.role !== undefined && { role: patch.role }),
+    ...(patch.role !== undefined && {
+      role: patch.role,
+      roleOther: patch.role === "other" ? patch.roleOther : null,
+    }),
     ...(patch.company !== undefined && {
       companyInput: patch.company || null,
       companyDomain: patch.company ? companyDomainFrom(patch.company) : null,
     }),
-    ...(patch.uses !== undefined && { uses: [...new Set(patch.uses)] }),
+    ...(patch.uses !== undefined && {
+      uses: [...new Set(patch.uses)],
+      usesOther: patch.uses.includes("other") ? patch.usesOther : null,
+    }),
     ...(patch.source !== undefined && { source: patch.source }),
     ...(patch.sourceOther !== undefined && { sourceOther: patch.sourceOther || null }),
   };

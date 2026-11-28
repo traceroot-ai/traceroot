@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import type { TraceApiUser } from "@/lib/api/client";
+import { getProjectFirstTraceTime } from "@/lib/api/projects";
 import {
   captureTraceBaseline,
   findFirstTrace,
@@ -55,6 +56,7 @@ export function useProjectTraceWait(
   /** The project this page created. Null until it exists. */
   projectId: string | null,
   user: TraceApiUser | undefined,
+  projectReadAt?: string,
 ): TraceWait {
   // Read through refs so a re-render with an equivalent-but-new session object
   // does not restart the wait, and with it the baseline.
@@ -63,10 +65,14 @@ export function useProjectTraceWait(
   const userRef = useRef(user);
   userRef.current = user;
 
+  const readAtRef = useRef(projectReadAt);
+  readAtRef.current = projectReadAt;
+
   const beginWait = useCallback((isCancelled: () => boolean) => {
     const watched = projectIdRef.current;
     const fallbackUrl = fallbackUrlFor(watched);
     let baseline: TraceBaseline | null = null;
+    const readAt = readAtRef.current;
     let unreadableRounds = 0;
 
     /** A round that could not read the project, which ends the wait at the limit. */
@@ -81,23 +87,32 @@ export function useProjectTraceWait(
       if (!watched) {
         return { kind: "stop", fallbackUrl };
       }
-      if (baseline === null) {
-        // Drawn before anything can match, because the project may turn out
-        // not to be new.
-        baseline = await captureTraceBaseline([watched], userRef.current);
-        // A tab that left part-way through a round does not go on to fetch the
-        // rest of it.
-        return isCancelled() ? null : { kind: "again", fallbackUrl };
-      }
-      // A baseline read that failed gets another go: until it settles nothing
-      // in the project can match, and there is no second project to fall back
-      // on.
-      baseline = await retryUnknownBaseline(baseline, userRef.current);
-      if (isCancelled()) {
-        return null;
-      }
+      const firstRead = baseline === null;
+      baseline =
+        baseline === null
+          ? await captureTraceBaseline([watched], userRef.current)
+          : await retryUnknownBaseline(baseline, userRef.current);
+      if (isCancelled()) return null;
+      const entry = baseline.get(watched);
+      if (entry?.kind === "newest") {
+        // A list read can race with the command on screen. Compare ingestion
+        // against the server's project read, independent of the SDK's clock.
+        let receivedAt: string | null = null;
+        if (readAt) {
+          try {
+            receivedAt = await getProjectFirstTraceTime(watched);
+          } catch {
+            return unreadable();
+          }
+          if (isCancelled()) return null;
+        }
+        if (!receivedAt || !readAt || Date.parse(receivedAt) < Date.parse(readAt)) {
+          return { kind: "already-received", fallbackUrl };
+        }
+        baseline = new Map([[watched, { kind: "empty" }]]);
+      } else if (firstRead) return { kind: "again", fallbackUrl };
 
-      if (baseline.get(watched)?.kind === "unknown") {
+      if (entry?.kind === "unknown") {
         // Still no line, so there is nothing a search could match against and
         // nothing to gain by making one. Counted rather than acted on at once,
         // because one failed read is a blip and three in a row is a tab that
