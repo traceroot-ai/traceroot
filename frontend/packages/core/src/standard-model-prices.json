@@ -1435,7 +1435,7 @@
   {
     "id": "tr-glm-5",
     "modelName": "glm-5",
-    "matchPattern": "(?i)^(zai\\/)?glm-5(-\\d{4})?$",
+    "matchPattern": "(?i)^(zai\\/|z-ai\\/)?glm-5(-\\d{4})?$",
     "provider": "zai",
     "prices": {
       "input": 0.000001,
