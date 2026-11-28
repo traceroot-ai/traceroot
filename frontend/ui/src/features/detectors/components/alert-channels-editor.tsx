@@ -28,7 +28,7 @@ export function AlertChannelsEditor({ emailAddresses, onChange }: AlertChannelsE
           <button
             type="button"
             onClick={() => remove(i)}
-            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+            className="shrink-0 text-muted-foreground transition-colors enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Remove recipient"
           >
             <X className="h-3.5 w-3.5" />
@@ -38,7 +38,7 @@ export function AlertChannelsEditor({ emailAddresses, onChange }: AlertChannelsE
       <button
         type="button"
         onClick={add}
-        className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+        className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Plus className="h-3 w-3" />
         Add recipient

@@ -20,6 +20,7 @@ import {
   type AlertWindow,
 } from "@traceroot/core";
 import { updateProject } from "@/lib/api";
+import { ApiError, ImpersonationError } from "@/lib/api/errors";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
 import {
@@ -30,6 +31,12 @@ import { AlertChannelsEditor } from "@/features/detectors/components/alert-chann
 
 interface DetectorsTabProps {
   projectId: string;
+}
+
+function isRoleDenied(error: unknown): boolean {
+  return (
+    error instanceof ApiError && !(error instanceof ImpersonationError) && error.status === 403
+  );
 }
 
 export function DetectorsTab({ projectId }: DetectorsTabProps) {
@@ -68,6 +75,17 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         rca_source: selection.source === "byok" ? "byok" : "system",
       });
     },
+    onError: (error) => {
+      if (isRoleDenied(error)) {
+        setAgentModelSelection({
+          model: project?.rca_model ?? "",
+          provider: project?.rca_provider ?? "",
+          source: (project?.rca_source as "system" | "byok") ?? "system",
+          adapter: "",
+        });
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -80,6 +98,12 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         alert_emails: emails.map((e) => e.trim()).filter((e) => e.length > 0),
       });
     },
+    onError: (error) => {
+      if (isRoleDenied(error)) {
+        setEmailAddresses(project?.alert_emails ?? []);
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -89,6 +113,12 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     mutationFn: (w: AlertWindow) => {
       if (!project) throw new Error("Project not found");
       return updateProject(project.workspace_id!, projectId, { alert_window: w });
+    },
+    onError: (error) => {
+      if (isRoleDenied(error)) {
+        setAlertWindow((project?.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
+        queryClient.invalidateQueries({ queryKey: ["workspace", project?.workspace_id] });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -139,6 +169,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           <p className="mt-2 text-[12px] text-muted-foreground">
             Used for deep analysis when a finding is triggered. Shared across all detectors.
           </p>
+          {modelMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save agent model: {modelMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 min-w-[5.5rem]"
@@ -167,6 +202,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           <p className="mt-2 text-[12px] text-muted-foreground">
             New and reopened signals are batched into one email per alert window.
           </p>
+          {emailsMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save email recipients: {emailsMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 min-w-[5.5rem]"
@@ -226,6 +266,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           <p className="mt-2 text-[12px] text-muted-foreground">
             New and reopened signals in each window are sent as one notification.
           </p>
+          {windowMutation.isError && (
+            <p role="alert" className="mt-2 text-[12px] text-destructive">
+              Failed to save alert window: {windowMutation.error.message}
+            </p>
+          )}
           <Button
             size="sm"
             className="mt-3 min-w-[5.5rem]"

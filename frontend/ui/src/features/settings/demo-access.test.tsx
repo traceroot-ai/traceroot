@@ -82,13 +82,16 @@ describe("settings access", () => {
     });
   });
 
-  it("gives full access to demo admins and to every role in other workspaces", () => {
+  it("preserves full access outside the restricted tabs", () => {
     for (const ws of [DEMO_ADMIN, OTHER_VIEWER, { is_demo: false, role: "MEMBER" }, {}]) {
       for (const tab of ["general", ...DENIED_WORKSPACE_TABS] as WorkspaceSettingsTab[]) {
         expect(workspaceSettingsAccess(tab, ws)).toMatchObject({ mode: "full" });
       }
       for (const tab of ["general", ...DENIED_PROJECT_TABS] as ProjectSettingsTab[]) {
-        expect(projectSettingsAccess(tab, ws)).toMatchObject({ mode: "full" });
+        expect(projectSettingsAccess(tab, ws)).toMatchObject({
+          mode:
+            tab === "detectors" && (!("role" in ws) || ws.role !== "ADMIN") ? "read-only" : "full",
+        });
       }
     }
   });
@@ -189,6 +192,36 @@ describe("the settings layouts when the workspace cannot be read", () => {
     renderProjectPage("general");
     expect(screen.getByText("Page content")).toBeTruthy();
     expect(screen.queryByTestId("settings-read-only")).toBeNull();
+  });
+
+  it("keeps detector controls available when the workspace request fails", () => {
+    state.workspaceError = true;
+    renderProjectPage("detectors");
+    expect(screen.getByText("Page content")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(false);
+    expect(screen.queryByTestId("settings-read-only")).toBeNull();
+  });
+});
+
+describe("detector settings access", () => {
+  it.each(["VIEWER", "MEMBER"])("makes the page read-only for a %s", (role) => {
+    state.workspace = { is_demo: false, role };
+    renderProjectPage("detectors");
+    expect(screen.getByText("Only workspace admins can change these settings.")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Name" }).matches(":disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(true);
+  });
+
+  it.each([false, true])("allows admins to edit (demo: %s)", (is_demo) => {
+    state.workspace = { is_demo, role: "ADMIN" };
+    renderProjectPage("detectors");
+    expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(false);
+    expect(screen.queryByText(/only workspace admins/i)).toBeNull();
+  });
+
+  it("waits for membership before displaying detector settings", () => {
+    renderProjectPage("detectors");
+    expect(screen.queryByText("Page content")).toBeNull();
   });
 });
 
