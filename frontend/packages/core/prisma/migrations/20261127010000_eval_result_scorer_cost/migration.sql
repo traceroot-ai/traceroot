@@ -14,10 +14,12 @@
 -- No new marker: these columns ride on `metrics_derived_at` from
 -- 20261127000000_eval_result_llm_metrics, so the backfill that fills those metrics fills
 -- these too. That migration's worker and this one must reach production in the same
--- deploy; rows stamped by a worker without these columns would never be revisited.
+-- deploy. Only rows stamped after this migration ran, by a worker without the scorer
+-- split during the rollout overlap, would never be revisited.
 --
 -- Additive and nullable with no DEFAULT, so this deploys ahead of the worker that fills
--- it and rolls back by dropping the columns. Idempotent: every statement is IF NOT EXISTS.
+-- it and rolls back by dropping the columns. Re-runnable: the ADD COLUMNs are IF NOT EXISTS,
+-- and re-running the guard UPDATE is harmless.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
