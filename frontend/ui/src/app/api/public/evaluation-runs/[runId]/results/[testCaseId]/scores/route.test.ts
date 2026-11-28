@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   makeEvalStore,
   prismaFacade,
@@ -32,6 +32,10 @@ const judgeScore = {
   numeric_value: 0.8,
   explanation: "close enough",
 };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   store = makeEvalStore();
@@ -121,5 +125,44 @@ describe("POST … /results/[testCaseId]/scores", () => {
 
     expect(res.status).toBe(404);
     expect(store.score.rows).toHaveLength(0);
+  });
+
+  it("counts a score that arrives after the run completed", async () => {
+    store.evaluationRun.rows.push({
+      id: "run-1",
+      projectId: "proj-1",
+      status: "completed",
+      scoredCount: 0,
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+    });
+
+    await POST(makeRequest(judgeScore), params);
+    await POST(
+      makeRequest({ scorer_name: "tone", scorer_version: "1", error: "judge timed out" }),
+      params,
+    );
+
+    expect(store.evaluationRun.rows[0]).toMatchObject({
+      scoredCount: 1,
+      taskErrorCount: 0,
+      scorerErrorCount: 1,
+    });
+  });
+
+  it("answers a JSON 500 when counting a finished run fails, with the score stored", async () => {
+    store.evaluationRun.rows.push({ id: "run-1", projectId: "proj-1", status: "completed" });
+    vi.spyOn(store.evaluationResult, "count").mockRejectedValueOnce(new Error("lock timeout"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await POST(makeRequest(judgeScore), params);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Failed to update the run's counts" });
+    expect(store.score.rows).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith(
+      "Failed to update the counts of evaluation run run-1 (project proj-1)",
+      expect.objectContaining({ message: "lock timeout" }),
+    );
   });
 });

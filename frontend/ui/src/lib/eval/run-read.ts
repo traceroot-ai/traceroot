@@ -194,8 +194,8 @@ export async function readRunSummary(input: {
     }),
   ]);
 
-  // The SDK reports these three counts when the run completes; until then the row holds
-  // their default 0, which a client would read as a real count.
+  // These three counts are taken from the run's stored results when it finishes; until
+  // then the row holds their default 0, which a client would read as a real count.
   const reported = run.status !== "running";
   const statusRows = byStatus.map((g) => ({ status: g.status, count: g._count._all }));
   const statusCounts = countResultStatuses(statusRows);

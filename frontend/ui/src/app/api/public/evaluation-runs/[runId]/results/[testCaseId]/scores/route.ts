@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma, ScoreInputSchema } from "@traceroot/core";
 import { requireEvalApiKeyProject } from "@/lib/eval/auth";
+import { syncFinishedRunCounts } from "@/lib/eval/run-counts";
 
 type RouteParams = { params: Promise<{ runId: string; testCaseId: string }> };
 
@@ -84,6 +85,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     } catch {
       return NextResponse.json({ error: "Failed to record score" }, { status: 500 });
     }
+  }
+
+  // A score that arrives after the run finished changes the run's counts.
+  try {
+    await syncFinishedRunCounts(runId, projectId);
+  } catch (err) {
+    console.error(
+      `Failed to update the counts of evaluation run ${runId} (project ${projectId})`,
+      err,
+    );
+    return NextResponse.json({ error: "Failed to update the run's counts" }, { status: 500 });
   }
 
   return NextResponse.json({ score_id: scoreId }, { status: 200 });

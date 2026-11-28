@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   makeEvalStore,
   prismaFacade,
@@ -49,6 +49,10 @@ function storedResult(): Row {
   expect(store.evaluationResult.rows).toHaveLength(1);
   return store.evaluationResult.rows[0];
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   store = makeEvalStore();
@@ -253,6 +257,59 @@ describe("POST … /results — concurrency and failure", () => {
 
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Failed to record result" });
+  });
+});
+
+describe("POST … /results — the run's counts", () => {
+  it("counts a result stored after its run completed", async () => {
+    Object.assign(store.evaluationRun.rows[0], {
+      status: "completed",
+      scoredCount: 0,
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+    });
+
+    const res = await POST(
+      makeRequest({
+        ...firstReport(),
+        scores: [
+          { scorer_name: "exact_match", scorer_version: "1", numeric_value: 1 },
+          { scorer_name: "judge", scorer_version: "1", error: "judge timed out" },
+        ],
+      }),
+      params,
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.evaluationRun.rows[0]).toMatchObject({
+      scoredCount: 1,
+      taskErrorCount: 0,
+      scorerErrorCount: 1,
+    });
+  });
+
+  it("leaves a running run's counts to its completion", async () => {
+    Object.assign(store.evaluationRun.rows[0], { scoredCount: 0 });
+
+    await POST(makeRequest(firstReport()), params);
+
+    expect(store.evaluationRun.rows[0]).toMatchObject({ status: "running", scoredCount: 0 });
+  });
+
+  it("answers a JSON 500 when counting a finished run fails, with the result stored", async () => {
+    Object.assign(store.evaluationRun.rows[0], { status: "completed" });
+    vi.spyOn(store.evaluationResult, "count").mockRejectedValueOnce(new Error("lock timeout"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await POST(makeRequest(firstReport()), params);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Failed to update the run's counts" });
+    expect(storedResult()).toMatchObject({ testCaseId: "case-1" });
+    expect(log).toHaveBeenCalledWith(
+      "Failed to update the counts of evaluation run run-1 (project proj-1)",
+      expect.objectContaining({ message: "lock timeout" }),
+    );
   });
 });
 
