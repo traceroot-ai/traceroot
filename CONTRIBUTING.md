@@ -5,6 +5,7 @@ Thanks for your interest in contributing! This guide will help you get started.
 ## Development Requirements
 
 - Docker desktop app
+- make: runs the commands below (not included with Windows, see the note under Quick Start)
 - uv: Python package manager
 - pnpm: Node.js package manager
 - tmux: terminal multiplexer
@@ -20,6 +21,11 @@ make dev
 ```
 
 On Windows or in environments without tmux, use `make dev-lite` instead.
+
+On Windows, set up two things before running `make dev-lite`:
+
+- Install `make`, which Windows does not include, for example with `winget install ezwinports.make`. Open a new terminal afterwards so it is on your `PATH`.
+- Run the command from Git Bash (installed with Git for Windows), not PowerShell or Command Prompt. The Makefile recipes use POSIX shell syntax such as `test -d` and `VAR=value command`, which those shells do not understand.
 
 ## Before You Start
 
