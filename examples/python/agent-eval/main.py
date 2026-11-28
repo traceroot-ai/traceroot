@@ -12,7 +12,7 @@ from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv())
 
-# Initialize TraceRoot BEFORE importing the agent so pydantic-ai is instrumented.
+# Initialize traceroot BEFORE importing the agent so pydantic-ai is instrumented.
 import traceroot
 from traceroot import Integration, Scorer, evaluate
 
@@ -56,7 +56,7 @@ def reports_expected_facts(ctx):
 
 answer_is_grounded = Scorer.llm_judge(
     name="answer_is_grounded",
-    model="gpt-4o-mini",
+    model="gpt-6-luna",
     messages=[
         {
             "role": "system",
@@ -78,8 +78,8 @@ answer_is_grounded = Scorer.llm_judge(
 
 
 def main() -> None:
-    # No TraceRoot key? Run locally — execute every case in full but report
-    # nowhere — so a fresh clone works without a TraceRoot credential. The
+    # No traceroot key? Run locally — execute every case in full but report
+    # nowhere — so a fresh clone works without a traceroot credential. The
     # unedited .env.example placeholder counts as "no key" too.
     api_key = (os.getenv("TRACEROOT_API_KEY") or "").strip()
     local = api_key in ("", "your_traceroot_api_key_here")
@@ -88,7 +88,7 @@ def main() -> None:
         dataset=dataset(),
         task=run_agent,
         scorers=[calls_expected_tools, reports_expected_facts, answer_is_grounded],
-        candidate_version="gpt-4o-mini",
+        candidate_version="gpt-6-luna",
         evaluation_key="agent-tool-eval",
         local=local,
     )

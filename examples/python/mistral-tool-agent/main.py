@@ -1,8 +1,8 @@
 """
-Mistral AI Tool Agent — TraceRoot Observability
+Mistral AI Tool Agent — traceroot Observability
 
 A ReAct-style agent built with the Mistral AI SDK, instrumented
-with TraceRoot via traceroot.initialize(integrations=[Integration.MISTRAL]).
+with traceroot via traceroot.initialize(integrations=[Integration.MISTRAL]).
 
 Env vars required: MISTRAL_API_KEY, TRACEROOT_API_KEY
 
@@ -25,7 +25,7 @@ if dotenv_path:
 else:
     print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 import traceroot
 from traceroot import Integration, observe, using_attributes

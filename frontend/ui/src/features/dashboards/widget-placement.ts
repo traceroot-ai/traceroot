@@ -105,3 +105,36 @@ export function removeWidgetPlacement(layout: unknown, widgetId: string): Widget
     .map(asPlacement)
     .filter((entry): entry is WidgetPlacement => entry !== null && entry.i !== widgetId);
 }
+
+// The size the grid gives a widget its stored layout never placed, stacked
+// down the left edge below everything that has a placement.
+const UNPLACED_SIZE = { w: 4, h: 4 };
+
+/**
+ * Every widget's place on the grid, the way the dashboard page lays it out:
+ * a widget with a stored placement keeps it; one without is stacked at the
+ * left edge below the lowest placed tile, in widget order. Entries for
+ * widgets that are no longer on the dashboard still count toward that
+ * bottom edge (the page's own reading) but get no tile.
+ *
+ * Args:
+ *   layout: The stored placements.
+ *   widgetIds: The dashboard's widgets, in the order they are drawn.
+ *
+ * Returns:
+ *   One placement per widget id, in widget order.
+ */
+export function placeWidgets(
+  layout: readonly WidgetPlacement[],
+  widgetIds: readonly string[],
+): WidgetPlacement[] {
+  const known = new Map(layout.map((entry) => [entry.i, entry]));
+  let maxY = Math.max(0, ...layout.map((entry) => entry.y + entry.h));
+  return widgetIds.map((i) => {
+    const entry = known.get(i);
+    if (entry !== undefined) return { i, x: entry.x, y: entry.y, w: entry.w, h: entry.h };
+    const fresh = { i, x: 0, y: maxY, ...UNPLACED_SIZE };
+    maxY += UNPLACED_SIZE.h;
+    return fresh;
+  });
+}

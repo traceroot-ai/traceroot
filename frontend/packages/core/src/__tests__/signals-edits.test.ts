@@ -648,6 +648,7 @@ describe("reads", () => {
         where: {
           signalId: "a",
           traceStartTime: {
+            not: null,
             gte: new Date("2026-09-01T00:00:00Z"),
             lt: new Date("2026-10-01T00:00:00Z"),
           },

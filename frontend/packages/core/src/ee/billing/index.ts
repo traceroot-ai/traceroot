@@ -44,6 +44,9 @@ export {
   isDetectorRunBlocked,
 } from "./plans.ts";
 
+// Locating the plan price among a subscription's metered items
+export { METERED_PRICE_ENV_VARS, getMeteredPriceIds, findPlanItem } from "./subscriptionItems.ts";
+
 // Free-plan usage-quota notification decision (pure helper + types)
 export {
   USAGE_WARNING_RATIO,
@@ -52,3 +55,6 @@ export {
   type UsageNotificationState,
   type UsageNotificationDecision,
 } from "./usageNotifications.ts";
+
+// Promo codes: plan-bound Stripe promotion codes (entered on hosted Checkout)
+export { discountsToKeepForPlan } from "./promoCodes.ts";

@@ -6,7 +6,7 @@ process.env.TZ = "America/Los_Angeles";
 
 import { describe, it, expect } from "vitest";
 
-import { parseAsUTC } from "./utils";
+import { formatCost, formatDuration, parseAsUTC } from "./utils";
 
 // The intended UTC instant for a "2026-06-04T06:37:30" backend timestamp.
 const UTC_063730 = Date.UTC(2026, 5, 4, 6, 37, 30);
@@ -57,5 +57,58 @@ describe("parseAsUTC", () => {
   it("returns a Date instance unchanged", () => {
     const d = new Date("2026-06-04T06:37:30Z");
     expect(parseAsUTC(d)).toBe(d);
+  });
+});
+
+describe("formatDuration", () => {
+  it("renders a dash for a missing duration", () => {
+    expect(formatDuration(null)).toBe("-");
+    expect(formatDuration(undefined)).toBe("-");
+  });
+
+  it("formats each unit range", () => {
+    expect(formatDuration(0)).toBe("0ms");
+    expect(formatDuration(150)).toBe("150ms");
+    expect(formatDuration(1500)).toBe("1.5s");
+    expect(formatDuration(65000)).toBe("1m 5s");
+    expect(formatDuration(3600000)).toBe("1h");
+    expect(formatDuration(3700000)).toBe("1h 2m");
+  });
+
+  it("carries into the next unit instead of rendering a full smaller unit", () => {
+    // Each of these sits just under a unit boundary, where rounding the
+    // remainder on its own used to produce "1000ms", "60.0s", "1m 60s",
+    // "59m 60s" and "1h 60m".
+    expect(formatDuration(999.6)).toBe("1.0s");
+    expect(formatDuration(59960)).toBe("1m 0s");
+    expect(formatDuration(119600)).toBe("2m 0s");
+    expect(formatDuration(3599600)).toBe("1h");
+    expect(formatDuration(7199000)).toBe("2h");
+  });
+
+  it("keeps values just below a boundary in the smaller unit", () => {
+    expect(formatDuration(999)).toBe("999ms");
+    expect(formatDuration(59940)).toBe("59.9s");
+    expect(formatDuration(119400)).toBe("1m 59s");
+    expect(formatDuration(3599400)).toBe("59m 59s");
+  });
+});
+
+describe("formatCost", () => {
+  it("renders a dash for a missing or zero cost", () => {
+    expect(formatCost(null)).toBe("-");
+    expect(formatCost(undefined)).toBe("-");
+    expect(formatCost(0)).toBe("-");
+  });
+
+  it("shows sub-cent costs with 2 significant digits instead of a floor", () => {
+    expect(formatCost(0.0000123)).toBe("$0.000012");
+    expect(formatCost(0.00002)).toBe("$0.00002");
+    expect(formatCost(0.004)).toBe("$0.004");
+  });
+
+  it("uses 4 decimals under $1 and 2 decimals from $1", () => {
+    expect(formatCost(0.37)).toBe("$0.3700");
+    expect(formatCost(12.5)).toBe("$12.50");
   });
 });

@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getAvailableLLMModels } from "@/lib/api";
 import {
+  chatModels,
   flattenAvailableModels,
   pickDefaultModel,
 } from "@/features/ai-assistant/lib/resolve-model";
@@ -22,7 +23,8 @@ export function AgentModelLink({ projectId, rcaModel, workspaceId }: AgentModelL
     enabled: !!workspaceId,
   });
 
-  const models = flattenAvailableModels(data, isPending);
+  // RCA runs chat models only, so its default never resolves to a decision model.
+  const models = chatModels(flattenAvailableModels(data, isPending));
 
   const resolvedLabel = (() => {
     if (rcaModel) {
@@ -36,7 +38,7 @@ export function AgentModelLink({ projectId, rcaModel, workspaceId }: AgentModelL
   return (
     <Link
       href={`/projects/${projectId}/settings/detectors`}
-      className="inline-flex h-7 items-center gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+      className="inline-flex h-7 items-center gap-1 rounded-sm px-2 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
     >
       {resolvedLabel}
       <ExternalLink className="h-3 w-3" />

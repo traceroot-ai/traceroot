@@ -1,6 +1,6 @@
 # Google ADK Workflow
 
-Fan-out / fan-in graph `Workflow` built with the Google Agent Development Kit (ADK) 2.x, instrumented with [TraceRoot](https://traceroot.ai).
+Fan-out / fan-in graph `Workflow` built with the Google Agent Development Kit (ADK) 2.x, instrumented with [traceroot](https://traceroot.ai).
 
 ## Setup
 

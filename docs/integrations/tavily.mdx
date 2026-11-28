@@ -1,0 +1,133 @@
+---
+title: Tavily
+description: Record the cost of Tavily searches on their tool spans
+---
+
+Record what each [Tavily](https://tavily.com) search costs next to your LLM spend. Every search becomes a tool span with its query, results, latency and dollar cost, and the cost counts toward the trace total.
+
+<Note>
+  traceroot does not auto-instrument Tavily and does not know your plan's price. You trace the search with `observe` and report its cost yourself, and traceroot stores the cost you report. See [Tool and API calls](/tracing/cost-tracking#tool-and-api-calls) for how reported costs add up.
+</Note>
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot tavily-python
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @tavily/core
+    ```
+  </Tab>
+</Tabs>
+
+Reporting a cost requires `traceroot` 0.5.0 or later, or `@traceroot-ai/traceroot` 0.7.0 or later.
+
+## Set up
+
+Initialize traceroot once at startup. No integration flag is needed: the `observe` wrapper in the next step traces the search.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+
+    traceroot.initialize()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize();
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Tavily bills in credits, and a credit's dollar price depends on your plan. It returns the credits a search used when you ask for usage. To record the cost:
+
+1. Wrap the search in a function traced as a tool span (`type="tool"`).
+2. Ask for usage with `include_usage=True` (`includeUsage: true` in TypeScript) and read the credits used.
+3. Multiply by your price per credit and report it with `update_current_span(cost=...)` (`updateCurrentSpan` in TypeScript) while that span is open.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from tavily import TavilyClient
+    from traceroot import observe, update_current_span
+
+    PRICE_PER_CREDIT = 0.008  # your plan's price per credit
+
+    client = TavilyClient()  # reads TAVILY_API_KEY
+
+    @observe(name="tavily_search", type="tool")
+    def web_search(query: str):
+        response = client.search(query, max_results=3, include_usage=True)
+        credits = response.get("usage", {}).get("credits")
+        if credits is not None:
+            update_current_span(cost=credits * PRICE_PER_CREDIT)
+        return response
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { tavily } from '@tavily/core';
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const PRICE_PER_CREDIT = 0.008; // your plan's price per credit
+
+    const client = tavily({ apiKey: process.env.TAVILY_API_KEY });
+
+    async function webSearch(query: string) {
+      return observe({ name: 'tavily_search', type: 'tool' }, async (q: string) => {
+        const response = await client.search(q, { maxResults: 3, includeUsage: true });
+        const credits = response.usage?.credits;
+        if (credits !== undefined) updateCurrentSpan({ cost: credits * PRICE_PER_CREDIT });
+        return response;
+      }, query);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Call `web_search` from your agent like any other function. Its span nests under the span that called it, and its cost adds to that trace's total.
+
+<Frame caption="One credit at the plan rate on the tool span">
+  <img src="/images/tool_cost_credits_v1.png" alt="Span details for a tavily_search tool span with a cost of 0.008000 and its search query input" />
+</Frame>
+
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the traceroot UI**: Navigate to **Tracing > Traces** in [traceroot Cloud](https://app.traceroot.ai). You should see a `tavily_search` span, at the root or under your agent's span. Open it to see its cost; the trace's total cost includes it.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Input | The query passed to `web_search` |
+| Output | The search response |
+| Cost | Credits used × your price per credit, in USD |
+| Latency | Request duration |
+
+## Limitations
+
+- Tavily returns credits only when the search asks for usage; without it the span records no cost.
+- Set `PRICE_PER_CREDIT` to your own plan's rate.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="Credits or quota" icon="chart-line" href="/tracing/cost-tracking#credits-or-quota">
+    Report credits used at your plan's price per credit
+  </Card>
+</CardGroup>

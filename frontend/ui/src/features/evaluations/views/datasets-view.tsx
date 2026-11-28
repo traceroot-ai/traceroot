@@ -1,12 +1,15 @@
 "use client";
 
+import { PageHeader } from "@/components/layout/page-header";
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
-import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
+import { useRememberListQuery } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
@@ -25,22 +28,44 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const { page, limit, goToPage, setLimit, resetPage } = useUrlPagination(50);
-  // Reset to page 0 whenever the (debounced) search changes, so a match on page 0 isn't
-  // hidden behind a stale page carried over from before the search — matching the
-  // traces list. `searchQuery` is the debounced value the API should use.
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
+  const { page, limit, goToPage, setLimit, resetPageState, clampToTotal } = useUrlPagination(50);
+  // The page and the search text (`?search=`) live in the URL; record them so the
+  // dataset detail's breadcrumb and "Back to datasets" link return to this page rather
+  // than the first one.
+  const searchParams = useSearchParams();
+  useRememberListQuery(`datasets:${projectId}`, searchParams.toString());
+  // A (debounced) search change resets to page 0 — in its own URL write, hence the
+  // state-only reset — so a match on page 0 isn't hidden behind a stale page carried
+  // over from before the search, matching the traces list. `searchQuery` is the
+  // debounced value the API should use.
+  const { keyword, setKeyword, searchQuery } = useUrlKeywordSearch(resetPageState);
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);
 
-  const { data, isLoading, error, refetch } = useDatasets(projectId, {
+  const { data, isLoading, error, refetch, isPlaceholderData } = useDatasets(projectId, {
     search_query: searchQuery,
     page,
     limit,
   });
   const datasets = React.useMemo(() => data?.data ?? [], [data]);
+
+  // Every new page of rows, or a new search, starts at the top of the list.
+  const listRef = React.useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify([page, limit, searchQuery]));
   const meta = data?.meta;
+  const total = meta?.total ?? datasets.length;
+
+  // A delete (or a deep link) can leave the page past the end of the list; pull it back
+  // to the last page with rows. Skipped while the previous query's rows are shown as
+  // placeholder: their total belongs to a different query and would clamp a valid page.
+  // Deleting a row deliberately doesn't reset the page — this clamp covers the one case
+  // that needs moving (the last row on the last page).
+  React.useEffect(() => {
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(total);
+  }, [clampToTotal, total, isLoading, isPlaceholderData]);
+
   const del = useDeleteDataset(projectId);
 
   // Evaluations-per-dataset comes from the lineage list (one row per evaluation
@@ -70,13 +95,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
     <div className="flex h-full flex-col text-[13px]">
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
-      <ProjectBreadcrumb projectId={projectId} current="Datasets" />
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <h1 className="text-[13px] font-medium">Datasets</h1>
-        <Button size="sm" className="h-7 text-[12px]" onClick={() => setNewOpen(true)}>
-          New Dataset
-        </Button>
-      </div>
+      <ProjectBreadcrumb projectId={projectId} />
+      <PageHeader
+        title="Datasets"
+        actions={<Button onClick={() => setNewOpen(true)}>New dataset</Button>}
+      />
 
       {/* No date filter here: the list has no date predicate to apply one to
           (server-side search only), and a rendered-but-inert filter chip would
@@ -89,17 +112,19 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         <span className="flex-1" aria-hidden />
       </SearchFilterBar>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
-              <Th className="w-[170px]">Updated At</Th>
+              <Th className="w-[170px]">Updated at</Th>
               <Th>Name</Th>
               <Th className="w-[240px]">Dataset ID</Th>
               <Th className="w-[110px] text-right">Items</Th>
               <Th className="w-[90px] text-right">Versions</Th>
               <Th className="w-[110px] text-right">Evaluations</Th>
-              <Th className="w-[56px] text-right">Actions</Th>
+              <Th className="col-sticky-end-head w-[56px] text-right">
+                <span className="sr-only">Actions</span>
+              </Th>
             </TRHead>
           </THead>
           <TBody>
@@ -136,10 +161,12 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                         so there's no competing name link. */}
                     <Td className="text-foreground">{dataset.name}</Td>
                     <Td
-                      className="max-w-[240px] truncate font-mono text-[11px] text-muted-foreground"
+                      className="max-w-[240px] truncate text-muted-foreground"
                       title={dataset.clientDatasetId ?? dataset.id}
                     >
-                      {dataset.clientDatasetId ?? dataset.id}
+                      <span className="font-mono text-[12px]">
+                        {dataset.clientDatasetId ?? dataset.id}
+                      </span>
                     </Td>
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {dataset.caseCount}
@@ -150,7 +177,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {evalCountByDataset.get(dataset.id) ?? 0}
                     </Td>
-                    <Td className="text-right">
+                    <Td className="col-sticky-end text-right">
                       <DatasetActionsMenu
                         onEdit={() => setEditing(dataset)}
                         onDelete={() => setDeleteTarget(dataset)}
@@ -166,8 +193,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
 
       {meta && meta.total > 0 && (
         <ListPagination
-          page={meta.page}
-          limit={meta.limit}
+          page={page}
+          limit={limit}
           total={meta.total}
           onPageChange={goToPage}
           onLimitChange={setLimit}

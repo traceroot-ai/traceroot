@@ -44,6 +44,15 @@ const meta = {
 };
 
 describe("withAgentTrace", () => {
+  it("disables SDK auto-instrumentation without disabling explicit self-tracing", async () => {
+    const run = await mod.withAgentTrace(meta, async () => "answer");
+
+    // An omitted map opts into the SDK's provider hooks, which bypass our capture policy.
+    expect(initialize.mock.calls[0][0].instrumentModules).toEqual({});
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(run).toEqual({ value: "answer", trace: "available" });
+  });
+
   it("keeps a completed turn when tracing fails on the way out", async () => {
     // fn succeeded; observe then threw while closing spans. Treating that as
     // fn's failure would abort a turn that already worked — and the caller

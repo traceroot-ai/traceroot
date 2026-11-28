@@ -39,29 +39,33 @@ export function buildUrlWithFilters(
 
 /**
  * Format duration in milliseconds to human readable string.
- * e.g., 1500 -> "1.5s", 150 -> "150ms", 65000 -> "1m 5s", 3700000 -> "1h 1m"
+ * e.g., 1500 -> "1.5s", 150 -> "150ms", 65000 -> "1m 5s", 3660000 -> "1h 1m"
  */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "-";
 
-  if (ms < 1000) {
-    return `${Math.round(ms)}ms`;
+  // Round to the displayed precision BEFORE picking a unit and splitting, so a
+  // remainder can never round up into a full unit ("1m 60s", "1h 60m", "60.0s").
+  const roundedMs = Math.round(ms);
+  if (roundedMs < 1000) {
+    return `${roundedMs}ms`;
   }
 
-  if (ms < 60000) {
-    return `${(ms / 1000).toFixed(1)}s`;
+  const tenthsOfSecond = Math.round(ms / 100);
+  if (tenthsOfSecond < 600) {
+    return `${(tenthsOfSecond / 10).toFixed(1)}s`;
+  }
+
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 3600) {
+    return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
   }
 
   // For >= 1 hour, show hours and minutes
-  if (ms >= 3600000) {
-    const hours = Math.floor(ms / 3600000);
-    const minutes = Math.round((ms % 3600000) / 60000);
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.round((ms % 60000) / 1000);
-  return `${minutes}m ${seconds}s`;
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
 const _compactTokenFormatter = new Intl.NumberFormat("en-US", {
@@ -180,11 +184,15 @@ export function formatDate(date: string | Date | null | undefined): string {
 
 /**
  * Format cost to human readable string with appropriate precision.
- * e.g., 0.000123 -> "$0.000123", 0.0523 -> "$0.0523", 1.50 -> "$1.50"
+ * e.g., 0.0000123 -> "$0.000012" (2 significant digits under $0.01),
+ * 0.0523 -> "$0.0523" (4 decimals under $1), 1.50 -> "$1.50" (2 decimals from $1)
  */
 export function formatCost(cost: number | null | undefined): string {
   if (cost === null || cost === undefined || cost === 0) return "-";
-  if (cost < 0.01) return `$${cost.toFixed(6)}`;
+  if (cost < 0.01) {
+    // Sub-cent: real digits, so cheap spans and small deltas stay readable.
+    return `$${Intl.NumberFormat("en", { maximumSignificantDigits: 2 }).format(cost)}`;
+  }
   if (cost < 1) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
 }

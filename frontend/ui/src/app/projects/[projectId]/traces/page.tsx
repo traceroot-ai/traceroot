@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import type { TraceSource } from "@/lib/api/traces";
+import { ApiError } from "@/lib/api/errors";
 import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { Switch } from "@/components/ui/switch";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
@@ -19,6 +21,7 @@ import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -38,6 +41,8 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { TraceLabelChips, TraceLabelPicker } from "@/features/labels/TraceLabelControls";
 
 // Tab definitions
 const tabs = [
@@ -45,6 +50,9 @@ const tabs = [
   { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
   { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
+
+/** How long "Your first trace arrived. Opening it…" shows before the trace opens. */
+const FIRST_TRACE_OPEN_DELAY_MS = 1500;
 
 export default function TracesPage() {
   const params = useParams();
@@ -115,7 +123,7 @@ export default function TracesPage() {
   );
   // Fetch traces with combined query options + user filter from URL.
   // Evaluation traces are excluded from this default list.
-  const { data, isLoading, error } = useTraces(
+  const { data, isLoading, isFetching, dataUpdatedAt, error } = useTraces(
     projectId,
     {
       ...queryOptions,
@@ -123,6 +131,17 @@ export default function TracesPage() {
     },
     { refetchInterval: autoRefresh ? 5000 : false },
   );
+  const invalidFilter = error instanceof ApiError && error.status === 422;
+  const traceListErrorMessage = invalidFilter
+    ? typeof error.detail === "string"
+      ? error.detail
+      : "Try adjusting your filters or date range."
+    : "Make sure the API server is running and you have API keys configured.";
+
+  // Every new page of rows, or a new filter/search/time range, starts at the top of
+  // the list. A live-refresh refetch keeps the same query, so it leaves the scroll alone.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify([queryOptions, userId]));
 
   const prefetchTraces = usePrefetchTraces(projectId);
 
@@ -163,7 +182,69 @@ export default function TracesPage() {
     traceIds,
     visibleColumns.includes("signal_ids"),
   );
-  const showGettingStarted = !checking && !hasEverTraced && !existsError;
+  const noTracesYet = !checking && !hasEverTraced && !existsError;
+
+  // The first trace's arrival, when this visit has been showing the setup tabs:
+  // the tabs' line says it arrived, and a moment later the trace opens. Only a
+  // trace that arrives while the page watches; a project that already had
+  // traces opens on its list as before.
+  // Held per project, so a watch never carries over to another project's page.
+  // `hidden`: it arrived, but the list's filters or time range leave it out, so
+  // the page leaves setup for the list as filtered, and says why it is empty.
+  const [firstTraceState, setFirstTrace] = useState<
+    { projectId: string } & (
+      | { kind: "idle" | "opened" | "hidden" }
+      | { kind: "watching"; existsSince?: number }
+      | { kind: "arrived"; traceId: string }
+    )
+  >({ projectId, kind: "idle" });
+  const firstTrace =
+    firstTraceState.projectId === projectId
+      ? firstTraceState
+      : { projectId, kind: "idle" as const };
+  useEffect(() => {
+    if (noTracesYet && firstTrace.kind === "idle") setFirstTrace({ projectId, kind: "watching" });
+  }, [noTracesYet, firstTrace.kind, projectId]);
+  const newestTraceId = traces[0]?.trace_id;
+  const existsSince = firstTrace.kind === "watching" ? firstTrace.existsSince : undefined;
+  useEffect(() => {
+    if (firstTrace.kind !== "watching" || !hasEverTraced) return;
+    if (newestTraceId) {
+      setFirstTrace({ projectId, kind: "arrived", traceId: newestTraceId });
+    } else if (existsSince === undefined) {
+      // The project has a trace; the list is refetched for it (see above).
+      setFirstTrace({ projectId, kind: "watching", existsSince: Date.now() });
+    } else if (!isFetching && dataUpdatedAt >= existsSince) {
+      // Refetched since, and still empty: the filters leave the trace out.
+      // They are the person's, so they stay as they are.
+      setFirstTrace({ projectId, kind: "hidden" });
+    }
+  }, [
+    firstTrace.kind,
+    existsSince,
+    hasEverTraced,
+    newestTraceId,
+    isFetching,
+    dataUpdatedAt,
+    projectId,
+  ]);
+  const arrivedTraceId = firstTrace.kind === "arrived" ? firstTrace.traceId : null;
+  useEffect(() => {
+    if (!arrivedTraceId) return;
+    const open = setTimeout(() => {
+      selectTrace(arrivedTraceId);
+      setFirstTrace({ projectId, kind: "opened" });
+    }, FIRST_TRACE_OPEN_DELAY_MS);
+    return () => clearTimeout(open);
+  }, [arrivedTraceId, projectId]);
+  const showGettingStarted =
+    noTracesYet ||
+    firstTrace.kind === "arrived" ||
+    (firstTrace.kind === "watching" && hasEverTraced && !newestTraceId);
+  const firstTraceWait: TraceWait =
+    firstTrace.kind === "arrived"
+      ? { kind: "found", found: { projectId, traceId: firstTrace.traceId } }
+      : { kind: "waiting" };
 
   // Hide AI button during loading AND when GettingStarted is shown
   const shouldHideAiButton = checking || showGettingStarted;
@@ -188,8 +269,8 @@ export default function TracesPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
-          <div className="border-b border-border bg-background">
-            <div className="flex items-center">
+          <div className="flex h-11 items-center border-b border-border bg-background">
+            <div className="flex items-center gap-1 px-4">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = tab.id === "traces";
@@ -198,10 +279,10 @@ export default function TracesPage() {
                     key={tab.id}
                     href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                     className={cn(
-                      "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                      "flex items-center gap-1.5 rounded-[2px] px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                       isActive
-                        ? "border-foreground bg-muted text-foreground"
-                        : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -233,42 +314,34 @@ export default function TracesPage() {
             retentionDays={retention.retentionDays}
             onUpgradeClick={retention.onUpgradeClick}
             beforeDateFilter={
-              <ColumnPicker
-                visibleColumns={visibleColumns}
-                onToggleField={toggleField}
-                onReset={resetColumns}
-              />
+              <>
+                <div
+                  className="flex h-8 items-center gap-2 bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
+                  title={
+                    autoRefresh
+                      ? "Live list refresh on (every 5s) — click to disable"
+                      : "Enable live list refresh"
+                  }
+                >
+                  <label htmlFor="traces-live-refresh" className="cursor-pointer">
+                    Live
+                  </label>
+                  <Switch
+                    id="traces-live-refresh"
+                    checked={autoRefresh}
+                    onCheckedChange={setAutoRefresh}
+                  />
+                </div>
+                <ColumnPicker
+                  visibleColumns={visibleColumns}
+                  onToggleField={toggleField}
+                  onReset={resetColumns}
+                />
+              </>
             }
           >
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoRefresh}
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              title={
-                autoRefresh
-                  ? "Live list refresh on (every 5s) — click to disable"
-                  : "Enable live list refresh"
-              }
-              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1 text-[12px] text-foreground transition-colors hover:border-foreground/40 hover:bg-muted"
-            >
-              Live
-              <span
-                className={cn(
-                  "relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
-                  autoRefresh ? "bg-foreground" : "bg-input",
-                )}
-              >
-                <span
-                  className={cn(
-                    "block h-3 w-3 rounded-full bg-background shadow-sm transition-transform duration-200",
-                    autoRefresh ? "translate-x-3" : "translate-x-0",
-                  )}
-                />
-              </span>
-            </button>
             {userId && (
-              <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
+              <div className="flex items-center gap-1.5 rounded-[2px] border border-border bg-background py-1 pl-2.5 pr-1.5 hover:bg-muted">
                 <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[12px] text-muted-foreground">User:</span>
                 <span className="text-[12px] font-medium text-foreground">{userId}</span>
@@ -290,27 +363,29 @@ export default function TracesPage() {
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading traces..." />
             </div>
-          ) : error && !data ? (
+          ) : error && (!data || invalidFilter) ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
               <AlertTriangle className="h-8 w-8 text-destructive/50" />
               <p className="text-[13px] text-destructive">Error loading traces</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running and you have API keys configured.
-              </p>
+              <p className="text-[12px] text-muted-foreground">{traceListErrorMessage}</p>
             </div>
           ) : showGettingStarted ? (
-            <GettingStarted projectId={projectId} />
+            <GettingStarted projectId={projectId} wait={firstTraceWait} />
           ) : traces.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
               <Inbox className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-[13px] text-muted-foreground">No traces found</p>
+              <p className="text-[13px] text-muted-foreground">
+                {firstTrace.kind === "hidden"
+                  ? "Your first trace arrived, but the current filters hide it"
+                  : "No traces found"}
+              </p>
               <p className="text-[12px] text-muted-foreground">
                 Try adjusting your filters or date range.
               </p>
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-auto">
+              <div ref={listRef} className="flex-1 overflow-auto">
                 <TraceListTable
                   projectId={projectId}
                   traces={traces}
@@ -368,20 +443,40 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
+          spanLabels={(selection) =>
+            selectedSource === "user" && (selection.type === "trace" || !selection.span.pending) ? (
+              <TraceLabelChips
+                projectId={projectId}
+                traceId={selectedTraceId}
+                spanId={selection.type === "span" ? selection.span.span_id : null}
+              />
+            ) : null
+          }
           // Offline eval: save any span (or the trace root) as a dataset test case.
           spanHeaderAction={(selection: TraceSelection) => (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 shrink-0 gap-1.5 text-[12px]"
-              onClick={() => {
-                setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
-                setSaveOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden />
-              Add to datasets
-            </Button>
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {selectedSource === "user" &&
+                (selection.type === "trace" || !selection.span.pending) && (
+                  <TraceLabelPicker
+                    key={`${selectedTraceId}:${selection.type === "span" ? selection.span.span_id : ""}`}
+                    projectId={projectId}
+                    traceId={selectedTraceId}
+                    spanId={selection.type === "span" ? selection.span.span_id : null}
+                  />
+                )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 gap-1.5 text-[12px]"
+                onClick={() => {
+                  setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+                  setSaveOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+                Add to datasets
+              </Button>
+            </div>
           )}
           // Offline eval: while the "Save as test case" drawer is open, clicking a
           // different span in the tree retargets the drawer to that span.

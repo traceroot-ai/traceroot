@@ -7,11 +7,13 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId] - Get project details
 async function handleGET(request: NextRequest, { params }: RouteParams) {
+  const readAt = new Date().toISOString();
   const { projectId } = await params;
 
   const authResult = await requireAuth();
@@ -38,13 +40,17 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   return successResponse({
     id: project.id,
+    read_at: readAt,
     workspace_id: project.workspaceId,
     name: project.name,
     trace_ttl_days: project.traceTtlDays,
     rca_model: project.rcaModel,
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
-    alert_emails: project.alertConfig?.emailAddresses ?? [],
+    // Alert recipients are team emails; demo viewers do not get them.
+    alert_emails: isDemoViewer(project.workspaceId, accessResult.membership.role)
+      ? []
+      : (project.alertConfig?.emailAddresses ?? []),
     alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
     access_key_count: project._count.accessKeys,
     create_time: project.createTime,

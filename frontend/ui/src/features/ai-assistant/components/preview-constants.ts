@@ -1,5 +1,8 @@
 import { ROW_HEIGHT } from "@/features/dashboards/grid-constants";
+import { makeRange } from "@/features/dashboards/range-presets";
+import type { TimeRange } from "@/features/dashboards/types";
 import { DEFAULT_SIZE } from "@/features/dashboards/widget-placement";
+import type { CardBounds } from "../lib/resource-card";
 
 /**
  * What the assistant panel's card previews share: the proportions they draw
@@ -42,3 +45,15 @@ export const SNAPSHOT_QUERY_OPTIONS = {
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
 } as const;
+
+/**
+ * The span a card's preview draws: a fixed window as its own bounds — a read
+ * answered for explicit or clamped bounds is a picture of that span and never
+ * slides — or a preset built back to "now" at the moment the preview first
+ * came into view.
+ */
+export function frozenRange(rangeId: string, bounds?: CardBounds): TimeRange {
+  return bounds === undefined
+    ? makeRange(rangeId)
+    : { start: new Date(bounds.start), end: new Date(bounds.end) };
+}

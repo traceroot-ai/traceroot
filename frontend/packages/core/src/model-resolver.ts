@@ -17,15 +17,18 @@ import { getModel } from "@earendil-works/pi-ai/compat";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { prisma } from "./lib/prisma.ts";
 import { decryptKey } from "./lib/encryption.ts";
+import standardModels from "./standard-model-prices.json" with { type: "json" };
 import {
   SYSTEM_MODELS,
   PROVIDER_PRIORITY,
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
+  defaultAdapterModel,
   defaultApiProtocol,
   isDecisionAdapter,
   isDecisionModelId,
+  type LLMAdapter,
 } from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
@@ -57,12 +60,35 @@ export function isSystemModelId(modelId: string): boolean {
   return systemModelLookup.has(modelId);
 }
 
+// These hosted models are absent from the pinned pi-ai registry.
+type HostedFallback = Pick<Model<Api>, "contextWindow" | "reasoning" | "compat" | "headers">;
+const openAIHostedFallback = { contextWindow: 1_050_000, reasoning: true };
+const hostedFallbacks: Partial<Record<string, HostedFallback>> = {
+  "gpt-5.6-sol": openAIHostedFallback,
+  "gpt-5.6-terra": openAIHostedFallback,
+  "gpt-6-sol": openAIHostedFallback,
+  "claude-sonnet-5-5": {
+    contextWindow: 1_000_000,
+    // The Agent SDK sends an unsupported explicit thinking mode for reasoning
+    // models. Omit it so Sonnet uses the provider's adaptive thinking default.
+    reasoning: false,
+    // Both pinned SDKs otherwise opt into the legacy interleaved-thinking beta.
+    headers: { "anthropic-beta": "" },
+    compat: { supportsTemperature: false },
+  },
+};
+
 /**
  * Build a pi-ai Model object with the correct `api` protocol while preserving
  * pi-ai registry data (pricing, context window) when available.
  * Falls back to a manual object for models not in the registry.
  */
-function buildFallbackModel(modelId: string, apiProtocol: string, provider: string): Model<Api> {
+function buildFallbackModel(
+  modelId: string,
+  apiProtocol: string,
+  provider: string,
+  hostedFallback?: HostedFallback,
+): Model<Api> {
   // pi-ai's getModel is typed to known provider IDs; BYOK adapter→provider maps
   // (e.g. deepseek → openai) are valid lookups.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,17 +96,27 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
   if (registryModel) {
     return { ...registryModel, api: apiProtocol } as Model<Api>;
   }
+  // Standard prices are per token; pi-ai expects dollars per million tokens.
+  const prices = hostedFallback
+    ? standardModels.find((entry) => entry.modelName === modelId)?.prices
+    : undefined;
   return {
     id: modelId,
     name: modelId,
     api: apiProtocol,
     provider,
-    baseUrl: "",
+    baseUrl: hostedFallback ? ADAPTER_DEFAULT_BASE_URL[provider] : "",
     reasoning: false,
     input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost: {
+      input: (prices?.input ?? 0) * 1_000_000,
+      output: (prices?.output ?? 0) * 1_000_000,
+      cacheRead: (prices?.cacheRead ?? 0) * 1_000_000,
+      cacheWrite: (prices?.cacheWrite ?? 0) * 1_000_000,
+    },
     contextWindow: 200000,
-    maxTokens: 64000,
+    maxTokens: hostedFallback ? 128_000 : 64_000,
+    ...hostedFallback,
   } as Model<Api>;
 }
 
@@ -138,13 +174,18 @@ export function resolvePiModel(
         | Record<string, string>
         | undefined;
 
-      // BYOK with no model id: use the adapter's first curated model so we
+      // BYOK with no model id: use the adapter's default curated model so we
       // don't accidentally fall back to an Anthropic default for an OpenAI-
       // compatible BYOK row. For free-text adapters (azure, amazon-bedrock,
       // openrouter) the catalog is empty — caller MUST provide modelId, else
       // we'd silently send a wrong model name to that provider.
       const catalog = ADAPTER_MODELS[providerConfig.adapter as keyof typeof ADAPTER_MODELS];
-      const fallbackModelId = modelId || catalog?.[0]?.id;
+      const fallbackModelId =
+        modelId ||
+        defaultAdapterModel(
+          providerConfig.adapter as LLMAdapter,
+          (catalog ?? []).map((m) => m.id),
+        );
       if (!fallbackModelId) {
         throw new Error(
           `BYOK adapter "${providerConfig.adapter}" has no curated model catalog ` +
@@ -170,7 +211,12 @@ export function resolvePiModel(
   // 2. System model with per-model protocol
   const sysInfo = systemModelLookup.get(effectiveModelId);
   if (sysInfo) {
-    return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
+    return buildFallbackModel(
+      effectiveModelId,
+      sysInfo.apiProtocol,
+      sysInfo.piAIProvider,
+      hostedFallbacks[effectiveModelId],
+    );
   }
 
   // 3. Unknown — fall back
@@ -190,7 +236,7 @@ const CONFIG_CACHE_TTL_MS = 60_000;
 
 /**
  * Resolve full BYOK provider config (decrypted key + adapter + baseUrl + config).
- * Cached for 60s. Returns null when row missing, disabled, or DB error.
+ * Cached for 60s. Returns null when row missing, disabled, its key is blank, or DB error.
  */
 export async function fetchProviderConfig(
   workspaceId: string,
@@ -216,6 +262,14 @@ export async function fetchProviderConfig(
 
     if (row?.enabled && row.keyCipher) {
       const key = decryptKey(row.keyCipher);
+      // A blank key must never reach pi-ai: it fills a blank key from this
+      // process's environment, which holds the platform's own provider keys.
+      if (!key.trim()) {
+        console.warn(
+          `[model-resolver] BYOK provider "${providerName}" in workspace ${workspaceId} has a blank key; ignoring it`,
+        );
+        return null;
+      }
       const providerConfig: ProviderModelConfig = {
         adapter: row.adapter,
         key,
@@ -245,11 +299,16 @@ export function invalidateProviderConfigCache(workspaceId: string, providerName:
  * First match wins (BYOK rows are workspace-unique by `provider` label, but may
  * share an adapter — order is determined by Prisma's default sort).
  *
+ * `nativeOnly` skips OpenAI-compatible adapters (DeepSeek, xAI, …) that map to
+ * "openai": their keys are only valid on their own base URL, so a caller that
+ * calls the provider's own endpoint (a system model) must not pick them up.
+ *
  * Returns null if no row matches, the row has no encrypted key, or the DB read fails.
  */
 export async function findByokKeyForPiProvider(
   workspaceId: string,
   piProvider: string,
+  opts: { nativeOnly?: boolean } = {},
 ): Promise<string | null> {
   try {
     const rows = await prisma.modelProvider.findMany({
@@ -257,7 +316,10 @@ export async function findByokKeyForPiProvider(
       select: { provider: true, adapter: true },
     });
     for (const row of rows) {
-      if (ADAPTER_TO_PI_AI[row.adapter] === piProvider) {
+      const matches = opts.nativeOnly
+        ? row.adapter === piProvider
+        : ADAPTER_TO_PI_AI[row.adapter] === piProvider;
+      if (matches) {
         const cfg = await fetchProviderConfig(workspaceId, row.provider);
         if (cfg) return cfg.key;
       }

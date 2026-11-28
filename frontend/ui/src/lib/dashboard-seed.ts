@@ -19,6 +19,12 @@ export function defaultDashboardId(projectId: string): string {
   return `default_${projectId}`;
 }
 
+// The span kinds whose model spend the by-model tiles chart: LLM calls, and
+// the decision-model calls DECISION spans record. Dropping the filter instead
+// would also count AGENT and CHAIN spans that carry a priced model and inflate
+// the breakdown (#2540).
+const MODEL_SPAN_KINDS = { field: "span_kind", op: "in", value: ["LLM", "DECISION"] } as const;
+
 export function seedWidgets(): SeedWidget[] {
   const stat = (title: string, spec: object, x: number): SeedWidget => ({
     title,
@@ -77,7 +83,7 @@ export function seedWidgets(): SeedWidget[] {
       type: "query",
       spec: {
         view: "spans",
-        filters: [{ field: "span_kind", op: "=", value: "LLM" }],
+        filters: [MODEL_SPAN_KINDS],
         metric: { measure: "cost", agg: "sum" },
         breakdown: "model_name",
         display: { type: "line" },
@@ -89,7 +95,7 @@ export function seedWidgets(): SeedWidget[] {
       type: "query",
       spec: {
         view: "spans",
-        filters: [{ field: "span_kind", op: "=", value: "LLM" }],
+        filters: [MODEL_SPAN_KINDS],
         metric: { measure: "total_tokens", agg: "sum" },
         breakdown: "model_name",
         display: { type: "bar" },

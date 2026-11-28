@@ -29,6 +29,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import get_retention_cutoff
 from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.eval import ErrorResponse
 from rest.schemas.public import (
@@ -47,7 +48,7 @@ from rest.services.sql.service import SqlQueryService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public/sql", tags=["SQL (Public)"])
+router = APIRouter(prefix="/public/sql", tags=["SQL"])
 
 #: Returned when something fails in a way the caller had no part in. Deliberately
 #: identical for every such case: an error surface that varies with the internal
@@ -275,6 +276,10 @@ async def run_sql(
         )
     try:
         service = SqlQueryService()
+        # Lists clamp start_after silently to the plan's retention cutoff. The SQL
+        # route does the equivalent by flooring every view call's start bound at
+        # that cutoff, so a query reaching before it simply sees no older rows.
+        retention_floor = get_retention_cutoff(auth.billing_plan)
         # Offloaded to a worker thread. The ClickHouse driver is synchronous, and a
         # blocking call made directly inside an async handler runs on the event loop
         # itself: one query held for the full execution cap would stall every other
@@ -288,6 +293,7 @@ async def run_sql(
                 auth.project_id,
                 parameters=body.parameters,
                 max_rows=body.max_rows,
+                retention_floor=retention_floor,
             ),
             limiter=_gate.limiter,
         )

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { signupEmailError } from "@/lib/signup/email-policy";
 
 /**
  * Captures the options object handed to betterAuth() so the wiring can be
@@ -19,20 +20,53 @@ const betterAuthMock = vi.hoisted(() =>
 
 vi.mock("better-auth", () => ({ betterAuth: (o: Record<string, unknown>) => betterAuthMock(o) }));
 vi.mock("better-auth/adapters/prisma", () => ({ prismaAdapter: () => ({}) }));
+const genericOAuthMock = vi.hoisted(() =>
+  vi.fn((options: Record<string, unknown>) => ({ id: "generic-oauth", options })),
+);
 vi.mock("better-auth/plugins", () => ({
   admin: () => ({ id: "admin" }),
   deviceAuthorization: () => ({ id: "device-authorization" }),
+  genericOAuth: (o: Record<string, unknown>) => genericOAuthMock(o),
   jwt: () => ({ id: "jwt" }),
 }));
 vi.mock("@traceroot/core", () => ({ prisma: {} }));
 const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
+const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
+vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
+const sendPasswordResetEmailMock = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => undefined),
+);
+// Work handed to Next's after() runs once the response has been sent; the tests
+// hold it here and run it themselves.
+const afterResponse = vi.hoisted(() => [] as (() => unknown)[]);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => void afterResponse.push(task),
+}));
+vi.mock("@/lib/email/send-password-reset-email", () => ({
+  sendPasswordResetEmail: sendPasswordResetEmailMock,
+}));
+const signupAttributionPropertiesMock = vi.hoisted(() => vi.fn((): Record<string, string> => ({})));
+vi.mock("@/lib/signup/attribution", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/signup/attribution")>()),
+  signupAttributionProperties: signupAttributionPropertiesMock,
+}));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
-    BETTER_AUTH_URL: "http://localhost:3000",
+    BETTER_AUTH_URL: "https://cloud.example.com",
+    TRACEROOT_CLOUD_ENV: "production",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
+    get AUTH_AGENTID_CLIENT_ID() {
+      return process.env.TEST_AGENTID_CLIENT_ID ?? "";
+    },
+    get AUTH_AGENTID_CLIENT_SECRET() {
+      return process.env.TEST_AGENTID_CLIENT_SECRET ?? "";
+    },
+    AUTH_GITHUB_CLIENT_ID: "",
+    AUTH_GITHUB_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
     // this mock cached, so the value has to be read at access time for the
     // invalid-CIDR test below to reach the config.
@@ -44,12 +78,41 @@ vi.mock("@/env", () => ({
 
 await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
+  account: {
+    accountLinking: {
+      enabled: boolean;
+      trustedProviders: string[];
+      requireLocalEmailVerified?: boolean;
+    };
+  };
+  socialProviders: Record<string, { clientId: string; clientSecret: string }>;
+  onAPIError: { errorURL: string };
+  plugins: { id: string }[];
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
-  databaseHooks: { user: { create: { after: (user: { id: string }) => Promise<void> } } };
+  emailAndPassword: {
+    sendResetPassword: (data: { user: { email: string }; url: string }) => Promise<void>;
+    revokeSessionsOnPasswordReset: boolean;
+  };
+  databaseHooks: {
+    user: {
+      create: {
+        before: (user: { email: string }, context?: { path: string } | null) => Promise<void>;
+        after: (
+          user: Record<string, unknown>,
+          context?: { path: string; params?: { id: string } } | null,
+        ) => Promise<void>;
+      };
+    };
+  };
 };
 
 describe("auth options", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    signupAttributionPropertiesMock.mockReturnValue({});
+  });
+
   it("passes the configured trusted proxies through to better-auth", () => {
     expect(options.advanced.ipAddress.trustedProxies).toEqual(["10.0.0.0/16"]);
   });
@@ -58,13 +121,178 @@ describe("auth options", () => {
     expect(options.advanced.ipAddress.disableIpTracking).toBeUndefined();
   });
 
+  it("sends failed OAuth callbacks to the app's own error page", () => {
+    expect(options.onAPIError.errorURL).toBe("https://cloud.example.com/auth/error");
+  });
+
+  it("trusts only Google for account linking, never AgentID", () => {
+    expect(options.account.accountLinking.trustedProviders).toEqual(["google"]);
+  });
+
+  it("registers no AgentID provider when its credentials are unset", () => {
+    expect(genericOAuthMock).not.toHaveBeenCalled();
+    expect(options.plugins.map((p) => p.id)).not.toContain("generic-oauth");
+  });
+
   it("keeps the device-code creation cap", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
   });
 
+  it("registers only the social providers whose credentials are configured", () => {
+    // Both providers are blank in the env mock above, so better-auth must be
+    // handed an empty set rather than a provider with an empty clientId — that
+    // would render a sign-in button that dead-ends at the provider.
+    expect(options.socialProviders).toEqual({});
+  });
+
+  it("does not trust GitHub for account linking", () => {
+    // Trusting a provider tells better-auth to accept an email the provider
+    // itself reports as unverified as proof of ownership when linking into an
+    // account that already exists. account-linking.test.ts exercises what that
+    // means at runtime, in both directions.
+    expect(options.account.accountLinking.enabled).toBe(true);
+    expect(options.account.accountLinking.trustedProviders).not.toContain("github");
+    // Nor link into an account whose own email was never verified.
+    expect(options.account.accountLinking.requireLocalEmailVerified).toBe(true);
+  });
+
   it("sends user_signed_up when a user is created", async () => {
     await options.databaseHooks.user.create.after({ id: "user-1" });
-    expect(captureServerEventMock).toHaveBeenCalledWith("user-1", "user_signed_up");
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith("user-1", "user_signed_up", {});
+  });
+
+  it("enriches the existing signup event instead of emitting a second one", async () => {
+    const properties = {
+      utm_source: "github",
+      marketing_attribution_model: "last_campaign_touch",
+    };
+    signupAttributionPropertiesMock.mockReturnValue(properties);
+    const context = { path: "/sign-up/email" };
+    await options.databaseHooks.user.create.after({ id: "user-1" }, context);
+    expect(signupAttributionPropertiesMock).toHaveBeenCalledWith(context);
+    expect(captureServerEventMock).toHaveBeenCalledExactlyOnceWith(
+      "user-1",
+      "user_signed_up",
+      properties,
+    );
+  });
+
+  it("enforces the signup email policy through the Cloud auth configuration", async () => {
+    await expect(
+      options.databaseHooks.user.create.before(
+        { email: "a@example.com" },
+        { path: "/sign-up/email" },
+      ),
+    ).rejects.toMatchObject({
+      status: "BAD_REQUEST",
+      body: { code: "EMAIL_DOMAIN_RESERVED" },
+    });
+  });
+
+  it("hands every new user to the sign-up follow-up with the endpoint path and campaign", async () => {
+    signupAttributionPropertiesMock.mockReturnValue({ utm_source: "github" });
+    const createdAt = new Date("2026-11-04T08:00:00Z");
+    const { after } = options.databaseHooks.user.create;
+    await after(
+      { id: "u1", email: "a@example.com", name: undefined, createdAt },
+      { path: "/sign-up/email" },
+    );
+    const user = { id: "u1", email: "a@example.com", name: null, createdAt };
+    expect(onUserCreatedMock).toHaveBeenCalledWith(user, {
+      path: "/sign-up/email",
+      attribution: { utm_source: "github" },
+    });
+  });
+
+  it("hands a social sign-up's provider id from the callback route param", async () => {
+    const { after } = options.databaseHooks.user.create;
+    await after(
+      { id: "u3", email: "agent@agentmail.to" },
+      {
+        path: "/callback/:id",
+        params: { id: "agentid" },
+      },
+    );
+    expect(onUserCreatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u3" }),
+      expect.objectContaining({ path: "/callback/:id", provider: "agentid" }),
+    );
+  });
+
+  it("resolves before the follow-up settles and logs its later rejection", async () => {
+    let reject!: (error: Error) => void;
+    onUserCreatedMock.mockReturnValueOnce(new Promise<undefined>((_, r) => (reject = r)));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { after } = options.databaseHooks.user.create;
+    await expect(after({ id: "u2", email: "b@example.com" }, null)).resolves.toBeUndefined();
+    const error = new Error("slack down");
+    reject(error);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
+    spy.mockRestore();
+  });
+});
+
+describe("password reset", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    afterResponse.length = 0;
+  });
+
+  // Only known emails reach this callback, so any work in it would make their
+  // responses slower than unknown ones.
+  it("prepares and sends nothing until the response has been sent", async () => {
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "a@example.com" },
+      url: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+    expect(sendPasswordResetEmailMock).not.toHaveBeenCalled();
+    expect(afterResponse).toHaveLength(1);
+
+    await afterResponse[0]!();
+    expect(sendPasswordResetEmailMock).toHaveBeenCalledExactlyOnceWith({
+      to: "a@example.com",
+      resetUrl: "https://cloud.example.com/api/auth/reset-password/tok",
+    });
+  });
+
+  it("logs a failed send", async () => {
+    const error = new Error("smtp down");
+    sendPasswordResetEmailMock.mockRejectedValueOnce(error);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await options.emailAndPassword.sendResetPassword({
+      user: { email: "b@example.com" },
+      url: "u",
+    });
+
+    await expect(afterResponse[0]!()).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith("[auth] password reset email failed:", error);
+    spy.mockRestore();
+  });
+
+  it("signs out every session once the password changes", () => {
+    expect(options.emailAndPassword.revokeSessionsOnPasswordReset).toBe(true);
+  });
+});
+
+describe("auth options with AgentID configured", () => {
+  it("registers the AgentID provider", async () => {
+    vi.resetModules();
+    betterAuthMock.mockClear();
+    genericOAuthMock.mockClear();
+    process.env.TEST_AGENTID_CLIENT_ID = "agentid-client";
+    process.env.TEST_AGENTID_CLIENT_SECRET = "agentid-secret";
+    try {
+      await import("./auth");
+    } finally {
+      delete process.env.TEST_AGENTID_CLIENT_ID;
+      delete process.env.TEST_AGENTID_CLIENT_SECRET;
+    }
+    const { config } = genericOAuthMock.mock.calls[0]?.[0] as {
+      config: { providerId: string; clientId: string }[];
+    };
+    expect(config).toEqual([
+      expect.objectContaining({ providerId: "agentid", clientId: "agentid-client" }),
+    ]);
   });
 });
 
@@ -81,5 +309,19 @@ describe("auth options with an invalid trusted-proxy value", () => {
     } finally {
       delete process.env.TEST_TRUSTED_PROXY_CIDRS;
     }
+  });
+});
+
+describe("signup email policy boundaries", () => {
+  it.each([
+    ["a@mail.EXAMPLE.COM.", "EMAIL_DOMAIN_RESERVED"],
+    ["a@localhost", "EMAIL_DOMAIN_RESERVED"],
+    ["a@[127.0.0.1]", "EMAIL_DOMAIN_RESERVED"],
+    ["invalid", "EMAIL_DOMAIN_RESERVED"],
+    ['"a@b"@sub.YOPMAIL.COM ', "EMAIL_DOMAIN_DISPOSABLE"],
+    ["a@notmailinator.com", undefined],
+    ["a@mailinator.com.au", undefined],
+  ])("classifies %s as %s", (email, code) => {
+    expect(signupEmailError(email)?.code).toBe(code);
   });
 });

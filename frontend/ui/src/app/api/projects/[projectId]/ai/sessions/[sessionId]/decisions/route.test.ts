@@ -27,6 +27,7 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/decisions", () 
     requireAuthMock.mockResolvedValue({ user: { id: "u1" } });
     requireProjectAccessMock.mockResolvedValue({
       project: { id: "p1", workspaceId: "ws1", name: "proj" },
+      membership: { role: "MEMBER" },
     });
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

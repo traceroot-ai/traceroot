@@ -3,6 +3,8 @@
 import base64
 import json
 
+import pytest
+
 from shared.span_attributes import (
     CAPTURE_BUDGET_EXCEEDED,
     SPAN_IDS_PATH,
@@ -215,6 +217,45 @@ def test_openinference_reasoning_key_persisted():
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
 
     assert spans[0]["usage_details"]["reasoning_tokens"] == 220
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    ["", "n/a", True, -5, 10**9 + 1],
+    ids=["empty", "non_numeric", "bool", "negative", "over_bound"],
+)
+def test_malformed_reasoning_key_does_not_suppress_valid_fallback(malformed):
+    """A malformed high-priority reasoning attr must not hide a valid lower-priority
+    one, the same as for every other token field, nor be stored as a count itself."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "o1-2024-12-17"),
+            _attr("gen_ai.usage.input_tokens", 500),
+            _attr("gen_ai.usage.output_tokens", 300),
+            _attr("llm.token_count.completion_details.reasoning", malformed),
+            _attr("gen_ai.usage.reasoning_tokens", 120),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["usage_details"]["reasoning_tokens"] == 120
+
+
+def test_bool_reasoning_attr_alone_is_not_counted():
+    """A bool is not a token count: ``True`` must not be stored as 1 reasoning token."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "o1-2024-12-17"),
+            _attr("gen_ai.usage.input_tokens", 500),
+            _attr("gen_ai.usage.output_tokens", 300),
+            _attr("llm.token_count.completion_details.reasoning", True),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["usage_details"]["reasoning_tokens"] == 0
 
 
 def test_reasoning_tokens_do_not_change_cost():
@@ -434,3 +475,15 @@ def test_non_object_explicit_metadata_is_stored_verbatim():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     assert spans[0]["metadata"] == "just a note"
+
+
+def test_deeply_nested_explicit_metadata_does_not_fail_the_batch():
+    """json.loads raises RecursionError, not ValueError, on deeply-nested JSON. One
+    such metadata string must be stored as given, like any other non-object value,
+    rather than abort the transform and lose every span in the batch."""
+    deep = "[" * 200_000 + "]" * 200_000
+    payload = _otel_payload([_attr("traceroot.span.metadata", deep)])
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["metadata"] == deep

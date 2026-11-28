@@ -62,7 +62,7 @@ describe("POST /api/internal/project-dashboard", () => {
     expect(await res.json()).toEqual({ error: "dashboardId is required" });
   });
 
-  it("returns the dashboard with its widgets in creation order", async () => {
+  it("returns the dashboard with its layout and its widgets in creation order", async () => {
     dashboardFindFirstMock.mockResolvedValue({
       id: "dash-1",
       name: "Default",
@@ -71,6 +71,7 @@ describe("POST /api/internal/project-dashboard", () => {
       createdBy: "user-1",
       createTime: CREATE_TIME,
       updateTime: UPDATE_TIME,
+      layout: [{ i: "w-1", x: 0, y: 0, w: 6, h: 4 }],
       widgets: [
         {
           id: "w-1",
@@ -98,6 +99,7 @@ describe("POST /api/internal/project-dashboard", () => {
         creator: "Ada Lovelace",
         createTime: CREATE_TIME,
         updateTime: UPDATE_TIME,
+        layout: [{ i: "w-1", x: 0, y: 0, w: 6, h: 4 }],
         widgets: [
           {
             id: "w-1",
@@ -113,7 +115,7 @@ describe("POST /api/internal/project-dashboard", () => {
     // simply isn't found — and widgets come back in creation order.
     expect(dashboardFindFirstMock.mock.calls[0][0]).toMatchObject({
       where: { id: "dash-1", projectId: "proj-1" },
-      select: { widgets: { orderBy: { createTime: "asc" } } },
+      select: { layout: true, widgets: { orderBy: { createTime: "asc" } } },
     });
   });
 

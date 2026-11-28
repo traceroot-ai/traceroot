@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { PageHeader } from "@/components/layout/page-header";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { PlanType } from "@traceroot/core";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
-import { useLayout } from "@/components/layout/app-layout";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -16,6 +16,7 @@ import type { FilterFieldDef } from "@/features/filters/registry";
 import type { Predicate } from "@/types/api";
 import { useAllDetectorNames } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { SIGNAL_ID_PARAM, SIGNAL_STATUSES } from "@traceroot/core/signals";
 import { useSignalSetup, useSignals } from "@/ee/features/signals/hooks";
@@ -77,8 +78,8 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
 }
 
 const TH =
-  "border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground";
-const TD = "border-r border-border/50 px-3 py-1.5 text-[12px]";
+  "whitespace-nowrap border-r border-border px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground";
+const TD = "whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px]";
 
 export default function SignalsPage() {
   const params = useParams();
@@ -134,7 +135,6 @@ export default function SignalsPage() {
         ...(traceId ? { traceId } : {}),
       },
     });
-  const { sidebarCollapsed } = useLayout();
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
     if (!selectedSignalId) setFullscreen(false);
@@ -157,6 +157,13 @@ export default function SignalsPage() {
     filters: queryOptions.filters,
     ...range,
   });
+
+  // Every new page of rows, or a new filter/time range, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.filters, range]),
+  );
   const signals = data?.data ?? [];
   const meta = data?.meta;
   const selectedIndex = signals.findIndex((s) => s.id === selectedSignalId);
@@ -170,9 +177,7 @@ export default function SignalsPage() {
       <div className="relative flex h-full text-[13px]">
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-4 py-2">
-            <h1 className="text-[13px] font-medium">Signals</h1>
-          </div>
+          <PageHeader title="Signals" />
           <div className="flex-1 overflow-auto">
             <SignalsEmptyState projectId={projectId} setup={setup.data} />
           </div>
@@ -186,9 +191,7 @@ export default function SignalsPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h1 className="text-[13px] font-medium">Signals</h1>
-        </div>
+        <PageHeader title="Signals" />
 
         <SearchFilterBar
           searchInput={
@@ -203,7 +206,7 @@ export default function SignalsPage() {
           beforeDateFilter={rangePicker}
         />
 
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading signals..." />
@@ -240,16 +243,16 @@ export default function SignalsPage() {
               </div>
             )
           ) : (
-            <table className="w-full">
+            <table className="data-table w-full min-w-[44rem]">
               <thead className="sticky top-0 bg-background">
-                <tr className="border-b border-border bg-muted/50">
+                <tr className="border-b border-border">
                   <th className={cn(TH, "w-[150px]")}>Timestamp</th>
-                  <th className={TH}>Signal ID</th>
+                  <th className={cn(TH, "hidden xl:table-cell")}>Signal ID</th>
                   <th className={TH}>Signal name</th>
-                  <th className={TH}>Detector ID</th>
+                  <th className={cn(TH, "hidden xl:table-cell")}>Detector ID</th>
                   <th className={TH}>Detector name</th>
                   <th className={cn(TH, "w-[120px] text-right")}>Affected traces</th>
-                  <th className="w-[90px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="w-[90px] whitespace-nowrap px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Status
                   </th>
                 </tr>
@@ -260,18 +263,35 @@ export default function SignalsPage() {
                     key={signal.id}
                     onClick={() => setSelectedSignalId(signal.id)}
                     className={cn(
-                      "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                      selectedSignalId === signal.id ? "bg-muted" : "hover:bg-muted/50",
+                      "cursor-pointer border-b border-border transition-colors",
+                      selectedSignalId === signal.id ? "bg-accent" : "hover:bg-muted",
                     )}
                   >
                     <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
                       {formatDate(signal.createTime)}
                     </td>
-                    <td className={cn(TD, "font-mono text-[11px] text-muted-foreground")}>
+                    <td
+                      className={cn(
+                        TD,
+                        "hidden max-w-[11rem] truncate font-mono text-[12px] text-muted-foreground xl:table-cell",
+                      )}
+                      title={signal.id}
+                    >
                       {signal.id}
                     </td>
-                    <td className={cn(TD, "text-foreground")}>{signal.title}</td>
-                    <td className={cn(TD, "font-mono text-[11px] text-muted-foreground")}>
+                    <td
+                      className={cn(TD, "max-w-[24rem] truncate text-foreground")}
+                      title={signal.title}
+                    >
+                      {signal.title}
+                    </td>
+                    <td
+                      className={cn(
+                        TD,
+                        "hidden max-w-[11rem] truncate font-mono text-[12px] text-muted-foreground xl:table-cell",
+                      )}
+                      title={signal.detectorId}
+                    >
                       <Link
                         href={`/projects/${projectId}/detectors/${signal.detectorId}`}
                         onClick={(e) => e.stopPropagation()}
@@ -304,8 +324,8 @@ export default function SignalsPage() {
 
         {meta && (
           <ListPagination
-            page={meta.page}
-            limit={meta.limit}
+            page={state.page}
+            limit={state.limit}
             total={meta.total}
             onPageChange={goToPage}
             onLimitChange={updateLimit}
@@ -318,11 +338,9 @@ export default function SignalsPage() {
       {selectedSignalId && (
         <div
           className={cn(
-            "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+            "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-[0_4px_12px_rgba(11,16,21,0.08)] transition-[width,top] duration-200",
             fullscreen
-              ? sidebarCollapsed
-                ? "top-14 w-[calc(100%-3.5rem)]"
-                : "top-14 w-[calc(100%-12rem)]"
+              ? "top-[var(--app-header-h)] w-[calc(100%-var(--app-nav-w))]"
               : "top-0 w-[70%]",
           )}
         >

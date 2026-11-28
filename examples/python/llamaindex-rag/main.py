@@ -1,5 +1,5 @@
 """
-LlamaIndex RAG pipeline with TraceRoot observability.
+LlamaIndex RAG pipeline with traceroot observability.
 
 Demonstrates an in-memory RAG pipeline with document ingestion,
 vector search retrieval, and LLM response synthesis.
@@ -37,18 +37,18 @@ from llama_index.llms.openai import OpenAI
 # Set up LLM with explicit model for cost tracking
 Settings.llm = OpenAI(model="gpt-4o-mini")
 
-# Create documents about TraceRoot
+# Create documents about traceroot
 documents = [
     Document(
         text=(
-            "TraceRoot is an open-source observability and self-improving layer for AI agents. "
+            "traceroot is an open-source AI agent improvement platform. "
             "It captures traces, debugs with AI, and helps ship with confidence. "
             "The platform is built on OpenTelemetry and supports BYOK for any model provider."
         )
     ),
     Document(
         text=(
-            "TraceRoot supports OpenTelemetry-compatible tracing via a Python SDK. "
+            "traceroot supports OpenTelemetry-compatible tracing via a Python SDK. "
             "You can capture LLM calls, agent actions, and tool usage. "
             "The SDK provides auto-instrumentation for OpenAI, Anthropic, LangChain, "
             "LlamaIndex, CrewAI, and more."
@@ -56,7 +56,7 @@ documents = [
     ),
     Document(
         text=(
-            "TraceRoot provides agentic debugging with AI-native root cause analysis "
+            "traceroot provides agentic debugging with AI-native root cause analysis "
             "and GitHub integration. It connects to a sandbox with your production "
             "source code, identifies the exact failing line, and cross-references "
             "your GitHub history to root-cause failures."
@@ -64,14 +64,14 @@ documents = [
     ),
     Document(
         text=(
-            "TraceRoot offers both cloud and self-hosting options. The cloud version "
+            "traceroot offers both cloud and self-hosting options. The cloud version "
             "provides ample storage and LLM tokens for testing. Self-hosting supports "
             "developer mode (local), Docker mode, and Terraform (AWS) deployments."
         )
     ),
     Document(
         text=(
-            "TraceRoot tracks token usage, cost, and latency across all LLM calls. "
+            "traceroot tracks token usage, cost, and latency across all LLM calls. "
             "It supports session tracking, user tracking, and metadata tagging. "
             "The billing system uses a high-water mark to ensure accurate usage tracking."
         )
@@ -90,9 +90,9 @@ logger.info("Index ready.")
 # ---------------------------------------------------------------------------
 
 DEMO_QUERIES = [
-    "What is TraceRoot and what are its main features?",
-    "How does TraceRoot handle debugging and root cause analysis?",
-    "What deployment options does TraceRoot support?",
+    "What is traceroot and what are its main features?",
+    "How does traceroot handle debugging and root cause analysis?",
+    "What deployment options does traceroot support?",
 ]
 
 

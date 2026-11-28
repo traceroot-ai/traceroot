@@ -202,6 +202,15 @@ function toolOutcome(meta: Record<string, unknown>): Record<string, unknown> {
     };
   }
 
+  // A card read's row keeps the card details alone, never the text the
+  // model read: the rebuilt agent knows the read ran and was shown, and
+  // reads again for any figure it needs.
+  if (details !== undefined && result.content === undefined) {
+    return {
+      status: isError ? "failed" : "completed",
+      note: "shown to the user as a card; the result text was not persisted",
+    };
+  }
   const text = firstResultText(result);
   return {
     status: isError ? "failed" : "completed",
@@ -408,6 +417,15 @@ export class SessionManager {
 // ============================================================
 // Low-level CRUD — used by HTTP routes
 // ============================================================
+
+/** The workspace a project belongs to, or null when there is no such project. */
+export async function projectWorkspaceId(projectId: string): Promise<string | null> {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { workspaceId: true },
+  });
+  return project?.workspaceId ?? null;
+}
 
 export async function createSession(params: {
   projectId: string;

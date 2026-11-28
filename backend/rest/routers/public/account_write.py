@@ -57,7 +57,7 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/public", tags=["Account (Public)"])
+router = APIRouter(prefix="/public", tags=["Account"])
 
 # The liveness gate every public write depends on: a no-op for session-token
 # credentials (introspection already proved the session live), an instant

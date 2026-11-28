@@ -3,7 +3,13 @@
 This service handles uploading raw OTEL trace batches to S3/MinIO for
 durable storage. Data is stored using a time-partitioned path structure:
 
-    events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+    events/ingest/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.pb.gz
+
+The suffix names the format: ``.pb.gz`` and ``.pb`` hold the OTLP protobuf
+request body exactly as received, with and without gzip. Batches stored by
+earlier versions were decoded to OTLP JSON first, and stay under
+``events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json``.
+``worker.staged_batch`` reads all three formats under either prefix.
 
 This structure enables:
 - Fast writes (no lookup needed)
@@ -15,15 +21,38 @@ Later, a worker will process these files and insert into ClickHouse.
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
 
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class S3ObjectStream:
+    """An object opened for reading, with the metadata stored alongside it.
+
+    ``body`` holds an open connection until it is read to the end or closed, so
+    whoever receives it must close it.
+    """
+
+    body: StreamingBody
+    content_type: str | None
+    content_length: int | None
+
+
+def _error_status(e: ClientError) -> tuple[int | None, str | None]:
+    """The HTTP status and error code of a failed call; either may be missing."""
+    return (
+        e.response.get("ResponseMetadata", {}).get("HTTPStatusCode"),
+        e.response.get("Error", {}).get("Code"),
+    )
 
 
 class S3Service:
@@ -55,6 +84,37 @@ class S3Service:
 
         self._client: Any = None
 
+    def copy_object(self, source_key: str, dest_key: str) -> None:
+        """Copy an object to another key in the same bucket, server-side.
+
+        Args:
+            source_key: Full S3 key of the existing object
+            dest_key: Full S3 key to copy it to
+
+        Raises:
+            ClientError: If the source doesn't exist or the copy fails
+        """
+        client = self._get_client()
+        client.copy_object(
+            Bucket=self._bucket_name,
+            Key=dest_key,
+            CopySource={"Bucket": self._bucket_name, "Key": source_key},
+        )
+        logger.debug(f"Copied s3://{self._bucket_name}/{source_key} to {dest_key}")
+
+    def delete_object(self, s3_key: str) -> None:
+        """Delete an object from S3.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Raises:
+            ClientError: If the delete fails
+        """
+        client = self._get_client()
+        client.delete_object(Bucket=self._bucket_name, Key=s3_key)
+        logger.debug(f"Deleted s3://{self._bucket_name}/{s3_key}")
+
     def _get_client(self):
         """Get or create the S3 client."""
         if self._client is None:
@@ -73,6 +133,95 @@ class S3Service:
             )
         return self._client
 
+    def object_exists(self, s3_key: str) -> bool:
+        """Check whether an object is stored at a key, with a HEAD request.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            True if the object exists, False if the store answers 404
+
+        Raises:
+            ClientError: For any other failure, so a caller never mistakes an
+                unreachable or forbidden store for a missing object
+        """
+        client = self._get_client()
+        try:
+            client.head_object(Bucket=self._bucket_name, Key=s3_key)
+        except ClientError as e:
+            status, code = _error_status(e)
+            if status == 404 or code in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+        return True
+
+    def put_object_if_absent(self, s3_key: str, body: bytes, content_type: str) -> bool:
+        """Store an object only if nothing is stored at its key yet.
+
+        A conditional PUT (``If-None-Match: *``). Built for content-addressed keys,
+        where an object already at the key holds the same bytes: a 412 means another
+        writer got there first, so it counts as success and nothing is overwritten.
+
+        Args:
+            s3_key: Full S3 key path
+            body: Object bytes
+            content_type: ContentType stored with the object
+
+        Returns:
+            True if this call wrote the object, False if the key was already taken
+
+        Raises:
+            ClientError: For any other failure. That includes a 409 from a
+                concurrent conditional write to the same key, which S3 resolves
+                on retry.
+        """
+        client = self._get_client()
+        try:
+            client.put_object(
+                Bucket=self._bucket_name,
+                Key=s3_key,
+                Body=body,
+                ContentType=content_type,
+                IfNoneMatch="*",
+            )
+        except ClientError as e:
+            status, code = _error_status(e)
+            if status == 412 or code == "PreconditionFailed":
+                logger.debug(f"Object already stored at s3://{self._bucket_name}/{s3_key}")
+                return False
+            raise
+        logger.debug(f"Stored object at s3://{self._bucket_name}/{s3_key}")
+        return True
+
+    def get_object_stream(self, s3_key: str) -> S3ObjectStream | None:
+        """Open an object for streaming, without reading its body into memory.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            The open body with the object's ContentType and ContentLength, or None
+            if nothing is stored at the key. The caller must close the body.
+
+        Raises:
+            ClientError: For any other failure, so a caller never mistakes an
+                unreachable or forbidden store for a missing object
+        """
+        client = self._get_client()
+        try:
+            response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
+        except ClientError as e:
+            status, code = _error_status(e)
+            if status == 404 or code in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+        return S3ObjectStream(
+            body=response["Body"],
+            content_type=response.get("ContentType"),
+            content_length=response.get("ContentLength"),
+        )
+
     def ensure_bucket_exists(self) -> None:
         """Ensure the bucket exists, create if not."""
         client = self._get_client()
@@ -85,27 +234,6 @@ class S3Service:
                 client.create_bucket(Bucket=self._bucket_name)
             else:
                 raise
-
-    def upload_json(self, s3_key: str, data: dict | list) -> None:
-        """Upload JSON data to S3.
-
-        Serializes the data to JSON and uploads to S3.
-
-        Args:
-            s3_key: Full S3 key path
-            data: Python dict or list to serialize as JSON
-        """
-        import json
-
-        client = self._get_client()
-        json_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        client.put_object(
-            Bucket=self._bucket_name,
-            Key=s3_key,
-            Body=json_bytes,
-            ContentType="application/json",
-        )
-        logger.debug(f"Uploaded JSON to s3://{self._bucket_name}/{s3_key}")
 
     def download_json(self, s3_key: str) -> dict | list:
         """Download and parse JSON data from S3.
@@ -121,10 +249,43 @@ class S3Service:
         """
         import json
 
+        return json.loads(self.download_bytes(s3_key).decode("utf-8"))
+
+    def download_bytes(self, s3_key: str) -> bytes:
+        """Download an object's bytes from S3 exactly as stored.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            The object's content
+
+        Raises:
+            ClientError: If the file doesn't exist or download fails
+        """
         client = self._get_client()
         response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
-        body = response["Body"].read()
-        return json.loads(body.decode("utf-8"))
+        return response["Body"].read()
+
+    def upload_bytes(self, s3_key: str, data: bytes, content_type: str) -> None:
+        """Upload bytes to S3 exactly as given.
+
+        No ``ContentEncoding`` is set, even for gzip data, so the object reads
+        back byte-for-byte instead of being decompressed in transit.
+
+        Args:
+            s3_key: Full S3 key path
+            data: The object's content
+            content_type: MIME type stored as the object's ``ContentType``
+        """
+        client = self._get_client()
+        client.put_object(
+            Bucket=self._bucket_name,
+            Key=s3_key,
+            Body=data,
+            ContentType=content_type,
+        )
+        logger.debug(f"Uploaded {len(data)} bytes to s3://{self._bucket_name}/{s3_key}")
 
 
 # Global singleton instance

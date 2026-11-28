@@ -183,10 +183,6 @@ _DERIVED_FIELDS = {"errors"}
 # signal_assignments, not from the traces or spans the Gateway exposes.
 _NON_GATEWAY_TABLE_FIELDS = {"signal_id"}
 
-# Stored columns not yet exposed through the SQL Gateway. Each is a tracked
-# follow-up; remove the entry when the curated schema gains the column.
-_PENDING_GATEWAY_FIELDS = {"error_type"}
-
 # --- Cross-check against the SQL Gateway curated columns (lights up on merge) ---
 
 try:
@@ -215,8 +211,5 @@ def test_registry_columns_exist_in_gateway_public_tables():
         - gateway_cols
         - _DERIVED_FIELDS
         - _NON_GATEWAY_TABLE_FIELDS
-        - _PENDING_GATEWAY_FIELDS
     )
     assert not missing, f"registry columns absent from Gateway curated schema: {missing}"
-    stale = _PENDING_GATEWAY_FIELDS & gateway_cols
-    assert not stale, f"gateway now exposes {stale}; drop them from _PENDING_GATEWAY_FIELDS"

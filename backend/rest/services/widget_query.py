@@ -57,6 +57,7 @@ _OP_SQL = {
     "<": "{expr} < {{{p}:{t}}}",
     "<=": "{expr} <= {{{p}:{t}}}",
     "contains": "{expr} ILIKE {{{p}:String}}",
+    "in": "{expr} IN {{{p}:Array(String)}}",
 }
 
 
@@ -266,7 +267,10 @@ def compile_widget_query(
             keyed_exprs.append(f.expr)
             continue
         pname = f"f{i}"
-        if f.type == "string":
+        if f.type == "string" and isinstance(flt.value, list):  # `in`
+            ch_type = "String"
+            param_value = flt.value
+        elif f.type == "string":
             ch_type = "String"
             text = _string_value_text(flt.value)
             if flt.op == "contains":

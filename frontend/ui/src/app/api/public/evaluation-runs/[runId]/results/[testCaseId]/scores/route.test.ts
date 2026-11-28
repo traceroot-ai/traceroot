@@ -7,10 +7,10 @@ import {
 } from "@/app/api/public/__tests__/eval-store";
 
 let store: EvalStore;
-const requireApiKeyProjectMock = vi.fn();
+const requireEvalApiKeyProjectMock = vi.fn();
 
 vi.mock("@/lib/eval/auth", () => ({
-  requireApiKeyProject: (...args: unknown[]) => requireApiKeyProjectMock(...args),
+  requireEvalApiKeyProject: (...args: unknown[]) => requireEvalApiKeyProjectMock(...args),
 }));
 
 vi.mock("@traceroot/core", async (importOriginal) => ({
@@ -41,8 +41,8 @@ beforeEach(() => {
     testCaseId: "case-1",
     projectId: "proj-1",
   });
-  requireApiKeyProjectMock.mockReset();
-  requireApiKeyProjectMock.mockResolvedValue({ projectId: "proj-1" });
+  requireEvalApiKeyProjectMock.mockReset();
+  requireEvalApiKeyProjectMock.mockResolvedValue({ projectId: "proj-1" });
 });
 
 describe("POST … /results/[testCaseId]/scores", () => {
@@ -115,7 +115,7 @@ describe("POST … /results/[testCaseId]/scores", () => {
   });
 
   it("rejects a result owned by another project", async () => {
-    requireApiKeyProjectMock.mockResolvedValue({ projectId: "proj-2" });
+    requireEvalApiKeyProjectMock.mockResolvedValue({ projectId: "proj-2" });
 
     const res = await POST(makeRequest(judgeScore), params);
 

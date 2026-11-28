@@ -105,7 +105,7 @@ export function signalsAvailable(): boolean {
 }
 
 /**
- * TraceRoot's own TypeSafe key. When set, Jev assigns hits and checks new
+ * traceroot's own TypeSafe key. When set, Jev assigns hits and checks new
  * criteria for every workspace, on our account; without it the chat model does
  * both. A workspace's own TypeSafe key is not used for signals.
  */

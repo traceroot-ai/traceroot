@@ -148,7 +148,7 @@ describe("DashboardIndexPage", () => {
   it("opens the create dialog from the header button", () => {
     mockDashboards([OVERVIEW, COSTS]);
     render(<DashboardIndexPage />);
-    fireEvent.click(screen.getByRole("button", { name: "＋ New dashboard" }));
+    fireEvent.click(screen.getByRole("button", { name: "New dashboard" }));
     expect(screen.getByTestId("create-dialog")).toBeTruthy();
   });
 
@@ -176,7 +176,7 @@ describe("DashboardIndexPage", () => {
     render(<DashboardIndexPage />);
     expect(replace).not.toHaveBeenCalled();
     expect(screen.getByText("Overview")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "＋ New dashboard" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New dashboard" })).toBeTruthy();
   });
 
   it("disables Delete for a sole dashboard — the API would reject it anyway", () => {

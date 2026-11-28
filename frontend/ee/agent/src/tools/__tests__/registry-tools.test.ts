@@ -496,6 +496,78 @@ describe("createRegistryReadTools", () => {
     expect(result.content[0]!.text).toContain("Cost over time");
   });
 
+  it("cards the widget and dashboard reads: the definition reads over the page's window", async () => {
+    stubFetch({
+      id: "dash-1",
+      name: "Overview",
+      widgets: [{ id: "w-1", title: "Cost", type: "query", spec: { view: "spans" } }],
+      layout: [{ i: "w-1", x: 0, y: 0, w: 6, h: 4 }],
+    });
+    const tools = createRegistryReadTools("p1", "u1", { range: "7d" });
+    const dashboard = await tools
+      .find((t) => t.name === "get_dashboard")!
+      .execute("id", { label: "x", dashboard_id: "dash-1" });
+    expect(dashboard.details).toMatchObject({
+      kind: "dashboard_read",
+      dashboard: { id: "dash-1", name: "Overview" },
+      window: { range: "7d", start_time: null, end_time: null },
+      widgets: [{ id: "w-1", spec: { view: "spans" }, status: null }],
+      layout: [{ i: "w-1", x: 0, y: 0, w: 6, h: 4 }],
+    });
+
+    stubFetch({
+      id: "w-1",
+      title: "Cost",
+      type: "query",
+      spec: { view: "spans" },
+      dashboard_id: "dash-1",
+      dashboard_name: "Overview",
+    });
+    const widget = await tools
+      .find((t) => t.name === "get_widget")!
+      .execute("id", { label: "x", widget_id: "w-1" });
+    expect(widget.details).toMatchObject({
+      kind: "widget_read",
+      widget: { id: "w-1", dashboard_id: "dash-1", dashboard_name: "Overview" },
+      window: { range: "7d" },
+    });
+  });
+
+  it("cards the data reads over the window the server answered for", async () => {
+    const window = {
+      start_time: "2026-09-01T00:00:00Z",
+      end_time: "2026-09-02T00:00:00Z",
+      range: null,
+      clamped: false,
+    };
+    stubFetch({
+      widget: { id: "w-1", dashboard_id: "dash-1", title: "Cost", type: "query", spec: {} },
+      window,
+      status: "ok",
+      columns: ["value"],
+      rows: [[1]],
+    });
+    const tools = createRegistryReadTools("p1", "u1", { range: "1d" });
+    const widget = await tools
+      .find((t) => t.name === "get_widget_data")!
+      .execute("id", { label: "x", widget_id: "w-1" });
+    expect(widget.details).toMatchObject({ kind: "widget_read", window, widget: { status: "ok" } });
+
+    stubFetch({
+      dashboard: { id: "dash-1", name: "Overview" },
+      window,
+      widgets: [{ id: "w-1", title: "Cost", type: "query", status: "ok", spec: {}, rows: [[1]] }],
+      layout: [],
+      queried: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    const dashboard = await tools
+      .find((t) => t.name === "get_dashboard_data")!
+      .execute("id", { label: "x", dashboard_id: "dash-1" });
+    expect(dashboard.details).toMatchObject({ kind: "dashboard_read", window, layout: [] });
+  });
+
   it("list_alerts hits the internal alerts route with paging and runs the formatter", async () => {
     const impl = stubFetch({
       data: [
