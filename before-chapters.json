@@ -4,7 +4,15 @@
     "name": "trace-entry"
   },
   {
-    "atSeconds": "1.6",
+    "atSeconds": "1.7",
     "name": "onboarding-entry"
+  },
+  {
+    "atSeconds": "3.3",
+    "name": "detector-list"
+  },
+  {
+    "atSeconds": "5.0",
+    "name": "detector-panel"
   }
 ]

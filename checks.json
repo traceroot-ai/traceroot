@@ -38,6 +38,42 @@
       "overflow": 0
     },
     {
+      "label": "before",
+      "state": "detector-list",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "detector-list",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "detector-list",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "detector-panel",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "detector-panel",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "detector-panel",
+      "width": 390,
+      "overflow": 0
+    },
+    {
       "label": "after",
       "state": "trace-entry",
       "width": 1024,
@@ -124,6 +160,42 @@
     {
       "label": "after",
       "state": "demo-error",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "detector-list",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "detector-list",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "detector-list",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "detector-panel",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "detector-panel",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "detector-panel",
       "width": 390,
       "overflow": 0
     }

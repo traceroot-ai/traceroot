@@ -4,11 +4,11 @@
     "name": "trace-entry"
   },
   {
-    "atSeconds": "1.7",
+    "atSeconds": "1.6",
     "name": "onboarding-entry"
   },
   {
-    "atSeconds": "3.3",
+    "atSeconds": "3.2",
     "name": "demo-join"
   },
   {
@@ -16,7 +16,15 @@
     "name": "demo-joined"
   },
   {
-    "atSeconds": "7.2",
+    "atSeconds": "7.1",
+    "name": "detector-list"
+  },
+  {
+    "atSeconds": "8.8",
+    "name": "detector-panel"
+  },
+  {
+    "atSeconds": "10.5",
     "name": "leave-demo"
   }
 ]
