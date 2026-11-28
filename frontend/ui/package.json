@@ -15,6 +15,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@better-auth/cimd": "1.7.15",
     "@better-auth/core": "1.7.15",
     "@better-auth/oauth-provider": "1.7.15",
     "@hookform/resolvers": "^5.2.2",

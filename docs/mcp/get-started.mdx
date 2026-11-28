@@ -136,6 +136,8 @@ Leave `MCP_RESOURCE_URL` blank to run key-only. To list the server in ChatGPT's 
 
 Behind a proxy or load balancer, also set `AUTH_TRUSTED_PROXY_CIDRS` on `web` to the proxy's address range. Assistants register themselves when they connect, and registration is rate limited per caller; without the setting, the caller's address is taken from an `X-Forwarded-For` header the caller can write itself, so the limit cannot tell callers apart.
 
+The `web` container also needs outbound HTTPS. Claude, Claude Code and ChatGPT identify themselves by the URL of a small public document that names them and their sign-in callback, and `web` fetches it when they connect. If `web` cannot reach it, the connection fails with `invalid_client`.
+
 <Note>
   The MCP server never holds your data or a login of its own. It forwards the assistant's credential to the TraceRoot API, which checks the token, the project it was granted for, and that the connection is still allowed on every request.
 </Note>

@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, deviceAuthorization, genericOAuth, jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
+import { cimd } from "@better-auth/cimd";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
@@ -11,6 +12,7 @@ import { oauthDefaultResource } from "@/lib/oauth/default-resource";
 import { oauthImpersonationGuard } from "@/lib/oauth/impersonation-guard";
 import { oauthRefreshReuseLog } from "@/lib/oauth/refresh-reuse-log";
 import { mcpOAuthProviderOptions } from "@/lib/oauth/provider-options";
+import { mcpCimdOptions } from "@/lib/oauth/client-metadata-documents";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
@@ -226,6 +228,9 @@ export const auth = betterAuth({
           oauthDefaultResource(env.MCP_RESOURCE_URL),
           oauthRefreshReuseLog(),
           oauthProvider(mcpOAuthProviderOptions(env.MCP_RESOURCE_URL)),
+          // Accepts a client_id that is the URL of the assistant's metadata
+          // document, so it can connect without registering first.
+          cimd(mcpCimdOptions()),
         ]
       : []),
   ],
