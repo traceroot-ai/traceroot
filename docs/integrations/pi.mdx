@@ -39,7 +39,7 @@ Create and run sessions as usual — every session created after initialization 
 ```typescript
 import { createAgentSession, ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent';
 
-// pi 0.80's model + credential surface. Created async (it reads the on-disk
+// pi's model + credential surface. Created async (it reads the on-disk
 // model catalog), then handed to createAgentSession. Injecting OPENAI_API_KEY
 // as a runtime credential authenticates from env alone — no `pi auth login`.
 const modelRuntime = await ModelRuntime.create();
@@ -81,6 +81,7 @@ Run your code and confirm the trace arrives:
 | Messages | Prompt and assistant response, when content capture is enabled |
 | Tool calls | Each tool execution with arguments, result, and error status |
 | Tokens | Input, output, and cache read/write counts |
+| Sessions & Users | Grouped via `usingAttributes` (`sessionId`, `userId`) |
 | Latency | Duration per span |
 
 `captureContent` and `captureToolIo` (both default `true`) control whether prompt/response text and tool arguments/results are attached to spans. Pass them through the `{ module, config }` form:
