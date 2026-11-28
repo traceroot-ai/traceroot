@@ -1146,6 +1146,15 @@ model EvaluationResult {
   // Summed wall-clock of the task's LLM spans — distinct from `durationMs`, which is the
   // whole case (task + scorers). Time inside model calls, not time around them.
   llmDurationMs    Int?      @map("llm_duration_ms")
+  // How many of the task's LLM calls carried a price; `cost` sums only those. Unlike the
+  // metrics above, the counts here are real counts (0 included), written for every result
+  // whose trace had spans. NULL with `metricsDerivedAt` set means no spans were found.
+  pricedLlmCalls   Int?      @map("priced_llm_calls")
+  // The scorer subtree's own totals, kept out of `cost` above. `scorerCost` is NULL when
+  // no scorer call was priced, and otherwise the real sum, which may be 0.
+  scorerCost       Float?    @map("scorer_cost")
+  scorerLlmCalls   Int?      @map("scorer_llm_calls")
+  scorerPricedLlmCalls Int?  @map("scorer_priced_llm_calls")
   // Set whenever cost derivation RUNS for this result, independent of the outcome — a
   // zero-cost trace legitimately leaves `cost` NULL (via NULLIF), so this marker is what
   // lets the periodic backfill tell "already derived" from "not yet derived" and settle
