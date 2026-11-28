@@ -1,0 +1,67 @@
+{
+  "list": {
+    "data": [
+      {
+        "id": "alert-001",
+        "name": "Slow traces",
+        "view": "SPANS",
+        "measure": "latency",
+        "aggregation": "p95",
+        "threshold": 8000,
+        "threshold_operator": ">",
+        "window": "1h",
+        "severity": "OK",
+        "status": "ACTIVE",
+        "severity_changed_at": "2026-05-21T08:05:00Z",
+        "alerted_at": null,
+        "last_evaluated_at": "2026-06-01T10:00:00Z",
+        "last_error": null,
+        "last_error_at": null,
+        "last_notify_status": null,
+        "last_notify_error": null,
+        "last_notify_at": null,
+        "creator": "fixture",
+        "create_time": "2026-05-21T08:00:00Z",
+        "update_time": "2026-05-21T08:00:00Z"
+      }
+    ],
+    "meta": {
+      "limit": 50,
+      "page": 1,
+      "total": 1,
+      "capacity": {
+        "used": 1,
+        "max": 20
+      }
+    }
+  },
+  "detail": {
+    "id": "alert-001",
+    "name": "Slow traces",
+    "view": "SPANS",
+    "measure": "latency",
+    "aggregation": "p95",
+    "threshold": 8000,
+    "threshold_operator": ">",
+    "window": "1h",
+    "severity": "OK",
+    "status": "ACTIVE",
+    "severity_changed_at": "2026-05-21T08:05:00Z",
+    "alerted_at": null,
+    "last_evaluated_at": "2026-06-01T10:00:00Z",
+    "last_error": null,
+    "last_error_at": null,
+    "last_notify_status": null,
+    "last_notify_error": null,
+    "last_notify_at": null,
+    "creator": "fixture",
+    "create_time": "2026-05-21T08:00:00Z",
+    "update_time": "2026-05-21T08:00:00Z",
+    "filters": [],
+    "renotify": {
+      "mode": "OFF",
+      "interval_minutes": null
+    },
+    "no_data_mode": "HOLD"
+  }
+}

@@ -39,3 +39,24 @@ MCP_URL=http://localhost:8200/mcp TRACEROOT_API_KEY=tr-… \
 | `MCP_SERVICE_URL`      | `http://localhost:8200` | Its port is the listen port                       |
 | `BACKEND_INTERNAL_URL` | `http://localhost:8000` | The public API (`rest`)                           |
 | `MCP_ALLOWED_HOSTS`    | unset (any)             | Comma-separated hostnames the endpoint answers to |
+
+## Parity check
+
+`scripts/parity.ts` calls each of the 24 tools over MCP and compares the result
+with a baseline: the pinned `traceroot-cli` (`--json`) for 20 tools, and a plain
+HTTP request to the public API for the 4 the CLI has no command for
+(`list_sessions`, `get_session`, `get_dashboard_data`, `run_widget_query`). The
+mapping and the short allow-list of expected differences are in
+`scripts/parity-cases.ts`; any other difference fails the run.
+
+```sh
+# Fast loop on fixtures (fake data; says the harness and service agree, not that the API does)
+pnpm parity:mock
+
+# Against a live stack
+pnpm parity --url http://localhost:8200/mcp --key tr-… --host http://localhost:8000 \
+  [--only get_trace] [--run-id <evaluation run id>]
+```
+
+`get_evaluation_run` has no list tool, so a live run needs `--run-id`; a call
+with no seed data is reported as SKIP and the run exits non-zero.
