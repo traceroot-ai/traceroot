@@ -72,9 +72,6 @@ function db(rows: Row[]) {
   // `where` key throws, so a filter on the wrong column cannot pass silently.
   const MODELED = ["runId", "projectId", "traceId", "metricsDerivedAt", "scorerLlmCalls"];
   const matches = (r: Row, where: Row) => {
-    for (const k of Object.keys(where)) {
-      if (!MODELED.includes(k)) throw new Error(`fake does not model where.${k}`);
-    }
     return ["traceId", "metricsDerivedAt", "scorerLlmCalls"].every((k) => {
       const f = where[k];
       if (f === undefined) return true;
@@ -84,10 +81,15 @@ function db(rows: Row[]) {
       throw new Error(`fake does not model where.${k} = ${JSON.stringify(f)}`);
     });
   };
-  const resultsOf = (where: Row): Row[] =>
-    (find(where.runId, where.projectId)?.results ?? [])
+  const resultsOf = (where: Row): Row[] => {
+    // Checked once per query, so a run with no results still rejects an unmodeled key.
+    for (const k of Object.keys(where)) {
+      if (!MODELED.includes(k)) throw new Error(`fake does not model where.${k}`);
+    }
+    return (find(where.runId, where.projectId)?.results ?? [])
       .map((r: Row, i: number) => ({ ...r, id: r.id ?? `res_${i}` }))
       .filter((r: Row) => matches(r, where));
+  };
   return {
     calls,
     selects,
