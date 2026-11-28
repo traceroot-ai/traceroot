@@ -173,6 +173,9 @@ export interface RunDetail extends RunRow {
   elapsedMs: number | null;
   /** The backend-derived run-level comparison (single source of truth). */
   comparison: RunComparison;
+  /** True when `results` holds fewer results than `caseCount`: either the read stopped at
+   *  its result limit, or the run reported fewer cases than it declared. */
+  resultsTruncated: boolean;
 }
 
 export interface RunDetailResponse {
