@@ -625,6 +625,10 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
 
+    # OTel MCP semantic conventions: tools/call spans (client or server) represent tool executions.
+    if str_attr(attrs.get("mcp.method.name")).lower() == "tools/call":
+        return SpanKind.TOOL
+
     if _is_vercel_embedding_call(attrs):
         return SpanKind.LLM
 
