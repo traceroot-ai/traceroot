@@ -36,8 +36,8 @@ const PROJECT_CREATE_ROLES: ReadonlySet<Workspace["role"]> = new Set(["ADMIN", "
  * counts for neither question.
  */
 export function resolveSetupNeed(workspaces: Workspace[]): SetupNeed | null {
-  // Every account joins the demo workspace as a VIEWER when it signs up, and the
-  // demo has a project. Counted, it would mark a brand-new account as set up:
+  // An account may join the demo before setting up its own workspace. Its
+  // sample project must not count as that account being set up:
   // /onboarding would send it away before it has a workspace, and /device would
   // release the terminal to an account with no project of its own. Our team are
   // ADMINs of the demo, and it is not where their own project goes either.

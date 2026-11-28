@@ -53,7 +53,7 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
   const used = searchQuery ? await prisma.alert.count({ where: { projectId } }) : total;
 
   return successResponse({
-    data: await withCreators(rows),
+    data: await withCreators(rows, projectId),
     meta: { page, limit, total, capacity: { used, max: MAX_ALERTS_PER_PROJECT } },
   });
 }
@@ -86,7 +86,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     select: alertSelect,
   });
 
-  return successResponse({ alert: await serializeAlert(alert) }, 201);
+  return successResponse({ alert: await serializeAlert(alert, projectId) }, 201);
 }
 export const GET = withImpersonationPolicy(handleGET);
 export const POST = withImpersonationPolicy(handlePOST);

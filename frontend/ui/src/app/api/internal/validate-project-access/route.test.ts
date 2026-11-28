@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: vi.fn() } } }));
 vi.mock("@/lib/support/session", () => ({ impersonationContext: vi.fn() }));
 import { auth } from "@/lib/auth";
@@ -26,6 +26,7 @@ vi.mock("@traceroot/core", () => ({
     },
   },
   PlanType: { FREE: "free" },
+  Role: { ADMIN: "ADMIN", MEMBER: "MEMBER", VIEWER: "VIEWER" },
 }));
 
 const verifyInternalSecretMock = vi.fn();
@@ -40,6 +41,7 @@ function makeRequest(body: unknown) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "ws-demo");
   vi.mocked(auth.api.getSession).mockReset();
   vi.mocked(impersonationContext).mockReset();
   projectFindUniqueMock.mockReset();
@@ -47,6 +49,8 @@ beforeEach(() => {
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("POST /api/internal/validate-project-access", () => {
   it.each([false, true])(
@@ -100,10 +104,39 @@ describe("POST /api/internal/validate-project-access", () => {
     expect(body).toMatchObject({
       hasAccess: true,
       role: "admin",
+      demoViewer: false,
       workspaceId: "ws-456",
       billingPlan: "pro",
     });
   });
+
+  it.each([
+    ["ws-demo", "VIEWER", true],
+    ["ws-demo", "MEMBER", true],
+    ["ws-demo", "ADMIN", false],
+    ["ws-own", "VIEWER", false],
+  ])(
+    "resolves demo visibility from workspace %s and role %s",
+    async (workspaceId, role, demoViewer) => {
+      vi.mocked(auth.api.getSession).mockResolvedValue({
+        user: { id: "signed-user" },
+        session: {},
+      } as never);
+      projectFindUniqueMock.mockResolvedValue({
+        id: "proj-123",
+        workspaceId,
+        workspace: { billingPlan: "enterprise" },
+      });
+      memberFindUniqueMock.mockResolvedValue({ role });
+
+      const res = await POST(
+        makeRequest({ browserSession: true, projectId: "proj-123", demoViewer: false }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ userId: "signed-user", role, demoViewer });
+    },
+  );
 
   it("falls back to the FREE plan when the workspace has no billingPlan", async () => {
     projectFindUniqueMock.mockResolvedValue({

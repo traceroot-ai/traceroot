@@ -20,6 +20,8 @@ export function impersonationDenial(
     return "Integration authorization is unavailable while impersonating";
   }
   if (path.includes("/api-keys")) return "Credentials are unavailable while impersonating";
+  if (/^\/api\/demo\/?$/.test(path) && !isRead(method))
+    return "Demo membership is unavailable while impersonating";
   // Provider tests decrypt stored keys; changing a base URL can redirect those
   // keys on the next agent request. Neither staff tier may manage credentials.
   if (/^\/api\/workspaces\/[^/]+\/model-providers(\/|$)/.test(path) && !isRead(method))

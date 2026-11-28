@@ -20,6 +20,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.routers.detector_read_common import (
+    demo_detector,
     list_detectors_page,
     list_findings_page,
     require_detector,
@@ -55,7 +56,14 @@ async def list_detectors(
     ),
 ):
     """List the detectors in the caller's project (newest first)."""
-    return await list_detectors_page(service, auth.project_id, limit, start_after, end_before)
+    return await list_detectors_page(
+        service,
+        auth.project_id,
+        limit,
+        start_after,
+        end_before,
+        demo_viewer=auth.kind == "user" and auth.demo_viewer,
+    )
 
 
 @router.get("/findings", response_model=PublicFindingListResponse, operation_id="list_findings")
@@ -105,6 +113,7 @@ async def get_finding(
     return await require_finding(
         lambda: service.get_finding(auth.project_id, finding_id, auth.billing_plan),
         auth.billing_plan,
+        demo_viewer=auth.kind == "user" and auth.demo_viewer,
     )
 
 
@@ -125,6 +134,7 @@ async def get_finding_by_trace(
     return await require_finding(
         lambda: service.get_finding_by_trace(auth.project_id, trace_id, auth.billing_plan),
         auth.billing_plan,
+        demo_viewer=auth.kind == "user" and auth.demo_viewer,
     )
 
 
@@ -141,5 +151,8 @@ async def get_detector(
     detector_id: str,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
-    """Get one detector's full configuration for the key's project."""
-    return await require_detector(lambda: service.get_detector(auth.project_id, detector_id))
+    """Get a detector, excluding working configuration from demo visitors."""
+    detector = await require_detector(lambda: service.get_detector(auth.project_id, detector_id))
+    if auth.kind == "user" and auth.demo_viewer:
+        return demo_detector(detector)
+    return detector

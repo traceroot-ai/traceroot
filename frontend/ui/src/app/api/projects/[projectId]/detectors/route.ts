@@ -5,6 +5,8 @@ import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { captureDetectorCreated } from "@/lib/detector-created-event";
 import { validateOutputSchema } from "@/features/detectors/output-schema";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
+import { isDemoViewer } from "@/lib/demo-workspace";
+import { demoDetector } from "@/lib/demo-read";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
@@ -26,6 +28,7 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  const demo = isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role);
 
   const { searchParams } = req.nextUrl;
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
@@ -39,8 +42,8 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
         projectId,
         OR: [
           { name: { contains: searchQuery, mode: "insensitive" as const } },
-          { template: { contains: searchQuery, mode: "insensitive" as const } },
-          { prompt: { contains: searchQuery, mode: "insensitive" as const } },
+          ...(demo ? [] : [{ template: { contains: searchQuery, mode: "insensitive" as const } }]),
+          ...(demo ? [] : [{ prompt: { contains: searchQuery, mode: "insensitive" as const } }]),
         ],
       }
     : { projectId };
@@ -56,7 +59,10 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
     prisma.detector.count({ where }),
   ]);
 
-  return successResponse({ data, meta: { page, limit, total } });
+  return successResponse({
+    data: demo ? data.map(demoDetector) : data,
+    meta: { page, limit, total },
+  });
 }
 
 // POST /api/projects/[projectId]/detectors - Create a new detector

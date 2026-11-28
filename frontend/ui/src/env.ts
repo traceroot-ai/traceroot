@@ -72,7 +72,7 @@ const serverSchema = z.object({
   SLACK_CLIENT_SECRET: z.string().default(""),
   SLACK_STATE_SECRET: z.string().default(""),
   SLACK_REDIRECT_URI: z.string().default("http://localhost:3000/api/slack/oauth/callback"),
-  // The public demo workspace: every user joins it as a VIEWER. Unset means no
+  // The public demo workspace: users explicitly join as a VIEWER. Unset means no
   // demo workspace (self-hosted). See lib/demo-workspace.ts.
   DEMO_WORKSPACE_ID: z.string().trim().optional(),
   // Slack incoming webhook for the "new user registered" notice; unset means no post.

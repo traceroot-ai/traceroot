@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth-helpers";
 import { displayJsonValue } from "@/lib/eval/json-value";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
@@ -30,11 +31,14 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
   });
   if (!dataset) return errorResponse("Dataset not found", 404);
 
+  const demo = isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role);
+  const versions = dataset.versions.map((v) => (demo ? { ...v, createdBy: null } : v));
+
   // The requested version, if it belongs to this dataset; else the current one.
   const requestedVersionId = req.nextUrl.searchParams.get("version_id");
   const selectedVersion =
-    (requestedVersionId ? dataset.versions.find((v) => v.id === requestedVersionId) : undefined) ??
-    dataset.versions.find((v) => v.id === dataset.currentVersionId) ??
+    (requestedVersionId ? versions.find((v) => v.id === requestedVersionId) : undefined) ??
+    versions.find((v) => v.id === dataset.currentVersionId) ??
     null;
 
   // Newest first for the UI table (latest-added test case at the top). Every case
@@ -46,23 +50,24 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
         orderBy: [{ createTime: "desc" }, { testCaseId: "desc" }],
       })
     : [];
-  const currentVersion = dataset.versions.find((v) => v.id === dataset.currentVersionId) ?? null;
+  const currentVersion = versions.find((v) => v.id === dataset.currentVersionId) ?? null;
 
   // Present input/expected as human-readable text for the UI: a genuine string as-is,
   // structured values (from an SDK push) as pretty JSON — never a bare quoted string.
   const presentedCases = testCases.map((t) => ({
     ...t,
+    ...(demo ? { addedBy: null } : {}),
     input: displayJsonValue(t.input),
     expected: t.expected === null ? null : displayJsonValue(t.expected),
   }));
 
   return successResponse({
-    dataset,
+    dataset: { ...dataset, versions },
     currentVersion,
     selectedVersion,
     isCurrentVersion: selectedVersion?.id === dataset.currentVersionId,
     testCases: presentedCases,
-    versions: dataset.versions,
+    versions,
   });
 }
 

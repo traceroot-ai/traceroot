@@ -3,7 +3,9 @@
 from datetime import UTC, datetime
 
 import pytest
+import respx
 from fastapi.testclient import TestClient
+from httpx import Response
 
 from rest.main import app
 from rest.retention import get_retention_cutoff
@@ -16,6 +18,7 @@ from rest.schemas.public import (
     RCAResult,
 )
 from rest.services.detector_reader import get_detector_reader_service
+from shared.config import settings
 
 
 def _now_naive():
@@ -110,12 +113,13 @@ def reader():
     return FakeReader()
 
 
-def _make_client(reader: FakeReader, billing_plan: str) -> TestClient:
+def _make_client(reader: FakeReader, billing_plan: str, demo_viewer: bool = False) -> TestClient:
     """Build a TestClient with auth + reader overrides for one billing plan.
 
     Args:
         reader (FakeReader): Fake detector reader returned by the service dep.
         billing_plan (str): Plan stamped on the mocked project access.
+        demo_viewer (bool): Whether this caller receives the published demo projection.
 
     Returns:
         TestClient: Client against the app with overrides installed.
@@ -128,6 +132,7 @@ def _make_client(reader: FakeReader, billing_plan: str) -> TestClient:
             role="ADMIN",
             workspace_id="ws-test",
             billing_plan=billing_plan,
+            demo_viewer=demo_viewer,
         )
 
     app.dependency_overrides[get_project_access] = mock_get_access
@@ -148,6 +153,22 @@ def free_plan_client(reader):
 
 
 class TestListDetectors:
+    @pytest.mark.parametrize("detail", [False, True])
+    @pytest.mark.parametrize("demo_viewer", [False, True])
+    def test_demo_template_is_published_identifier(self, reader, detail, demo_viewer):
+        client = _make_client(reader, "enterprise", demo_viewer=demo_viewer)
+        item = _detector().model_copy(update={"template": "private policy text"})
+        reader.detectors_return = ([item], 1)
+        reader.detector = _detector_detail().model_copy(update={"template": "private policy text"})
+
+        resp = client.get("/api/v1/projects/proj-A/detectors" + ("/det-1" if detail else ""))
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert (body if detail else body["data"][0])["template"] == (
+            "blank" if demo_viewer else "private policy text"
+        )
+
     def test_200_returns_page_and_scopes_to_project(self, client, reader):
         reader.detectors_return = ([_detector()], 1)
         resp = client.get("/api/v1/projects/proj-A/detectors")
@@ -207,6 +228,24 @@ class TestListFindings:
 
 
 class TestGetFinding:
+    @pytest.mark.parametrize("by_trace", [False, True])
+    @pytest.mark.parametrize("demo_viewer", [False, True])
+    def test_demo_finding_templates_are_published(self, reader, by_trace, demo_viewer):
+        client = _make_client(reader, "enterprise", demo_viewer=demo_viewer)
+        finding = _finding()
+        templates = ["safety", "private policy text", None]
+        finding.results = [finding.results[0].model_copy(update={"template": t}) for t in templates]
+        reader.finding = reader.by_trace = finding
+
+        path = "traces/t-1/finding" if by_trace else "findings/f-1"
+        resp = client.get(f"/api/v1/projects/proj-A/detectors/{path}")
+
+        assert resp.status_code == 200
+        assert [item["template"] for item in resp.json()["results"]] == (
+            ["safety", "blank", "blank"] if demo_viewer else templates
+        )
+        assert finding.results[1].template == "private policy text"
+
     def test_200_includes_results_and_rca(self, client, reader):
         reader.finding = _finding()
         resp = client.get("/api/v1/projects/proj-A/detectors/findings/f-1")
@@ -276,6 +315,70 @@ def _detector_detail() -> DetectorDetail:
 
 
 class TestGetDetector:
+    @pytest.mark.parametrize(
+        ("flag", "restricted"),
+        [
+            (True, True),
+            (False, False),
+            ("missing", True),
+            (None, True),
+            ("false", True),
+            (0, True),
+        ],
+    )
+    @respx.mock
+    def test_cookie_visibility_end_to_end(self, client, reader, flag, restricted):
+        app.dependency_overrides.pop(get_project_access)
+        reader.detector = _detector_detail()
+        body = {
+            "hasAccess": True,
+            "userId": "user-1",
+            "role": "ADMIN",
+            "workspaceId": "ws-1",
+            "billingPlan": "enterprise",
+        }
+        if flag != "missing":
+            body["demoViewer"] = flag
+        respx.post("http://localhost:3000/api/internal/validate-project-access").mock(
+            return_value=Response(200, json=body)
+        )
+
+        resp = client.get(
+            "/api/v1/projects/proj-A/detectors/det-1",
+            headers={"Cookie": "better-auth.session_token=signed-cookie"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["detector_id"] == "det-1"
+        assert data["name"] == "Error spike"
+        assert data["template"] == "failure"
+        assert data["enabled"] is True
+        assert data["prompt"] == ("" if restricted else reader.detector.prompt)
+        for field in (
+            "output_schema",
+            "detection_model",
+            "detection_provider",
+            "detection_source",
+            "trigger_conditions",
+        ):
+            assert data[field] == (None if restricted else getattr(reader.detector, field))
+
+    def test_internal_system_call_keeps_configuration(self, client, reader, monkeypatch):
+        app.dependency_overrides.pop(get_project_access)
+        reader.detector = _detector_detail().model_copy(update={"template": "private policy text"})
+        monkeypatch.setattr(settings, "internal_api_secret", "test-demo-internal-secret")
+
+        resp = client.get(
+            "/api/v1/projects/proj-A/detectors/det-1",
+            headers={"X-Internal-Secret": "test-demo-internal-secret"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["prompt"] == reader.detector.prompt
+        assert resp.json()["trigger_conditions"] == reader.detector.trigger_conditions
+        assert resp.json()["template"] == "private policy text"
+
     def test_200_returns_full_config(self, client, reader):
         reader.detector = _detector_detail()
         resp = client.get("/api/v1/projects/proj-A/detectors/det-1")

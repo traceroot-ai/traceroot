@@ -28,6 +28,7 @@ class ProjectAccessInfo:
         role: str,
         workspace_id: str = "",
         billing_plan: str = "free",
+        demo_viewer: bool = True,
     ):
         self.project_id = project_id
         self.user_id = user_id
@@ -35,6 +36,9 @@ class ProjectAccessInfo:
         # Resolved for rate limiting (keyed per workspace, tiered by plan).
         self.workspace_id = workspace_id
         self.billing_plan = billing_plan
+        # Only an explicit false from trusted introspection allows working
+        # detector configuration; old/unknown callers remain restricted.
+        self.demo_viewer = demo_viewer
 
 
 async def get_project_access(
@@ -77,6 +81,7 @@ async def get_project_access(
             user_id=x_user_id or "system",
             role=MemberRole.ADMIN,
             billing_plan="enterprise",
+            demo_viewer=False,
         )
 
     if not (session_cookie or secure_session_cookie):
@@ -147,6 +152,7 @@ async def get_project_access(
         role=data.get("role", MemberRole.VIEWER),
         workspace_id=workspace_id,
         billing_plan=data.get("billingPlan", "free"),
+        demo_viewer=data.get("demoViewer") is not False,
     )
 
 

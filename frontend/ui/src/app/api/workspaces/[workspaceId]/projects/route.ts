@@ -11,6 +11,7 @@ import {
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { seedDefaultDashboard } from "@/lib/dashboard-seed";
 import { captureServerEvent } from "@/lib/posthog-server";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -29,10 +30,11 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(user.id, workspaceId);
   if (membershipResult.error) return membershipResult.error;
+  const demo = isDemoViewer(workspaceId, membershipResult.membership.role);
 
   // Check for includeDeleted query param
   const url = new URL(request.url);
-  const includeDeleted = url.searchParams.get("includeDeleted") === "true";
+  const includeDeleted = !demo && url.searchParams.get("includeDeleted") === "true";
 
   const projects = await prisma.project.findMany({
     where: {
@@ -50,7 +52,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
       id: p.id,
       name: p.name,
       trace_ttl_days: p.traceTtlDays,
-      access_key_count: p._count.accessKeys,
+      ...(demo ? {} : { access_key_count: p._count.accessKeys }),
       delete_time: p.deleteTime,
       create_time: p.createTime,
       update_time: p.updateTime,

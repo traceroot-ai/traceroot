@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Dashboard not found" }, { status: 404 });
   }
 
-  const creators = await resolveCreatorNames([dashboard.createdBy]);
+  const creators = await resolveCreatorNames([dashboard.createdBy], projectId);
   const { createdBy, ...rest } = dashboard;
   return NextResponse.json({
     dashboard: { ...rest, creator: creators.get(createdBy) ?? null },

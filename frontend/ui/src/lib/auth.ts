@@ -18,7 +18,6 @@ import { signupAttributionProperties } from "@/lib/signup/attribution";
 import { signupEmailPolicyHook } from "@/lib/signup/email-policy-hook";
 import { refuseUnverifiedGitHubSignUp } from "@/lib/signup/verified-social-email";
 import { isCloud } from "@/lib/server/cloud";
-import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { agentIdProvider } from "@/lib/agentid";
 import {
   AGENTID_PROVIDER_ID,
@@ -83,17 +82,6 @@ export const auth = betterAuth({
             { id: user.id, email: user.email, name: user.name ?? null, createdAt: user.createdAt },
             context ? { path: context.path, provider: context.params?.id, attribution } : null,
           ).catch((error) => console.error("[signup] follow-up failed:", error));
-        },
-      },
-    },
-    session: {
-      create: {
-        // Each login re-checks the demo workspace membership, so users that
-        // the backfill missed (or that were removed) join at their next login.
-        // Not awaited, and ensureDemoMembership never rejects, so it cannot
-        // slow down or break sign-in.
-        after: async (session) => {
-          void ensureDemoMembership(session.userId);
         },
       },
     },

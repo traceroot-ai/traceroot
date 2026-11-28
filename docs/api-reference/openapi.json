@@ -10784,7 +10784,7 @@
         }
       },
       "get": {
-        "description": "Get one detector's full configuration for the key's project.",
+        "description": "Get a detector, excluding working configuration from demo visitors.",
         "operationId": "get_detector",
         "parameters": [
           {
@@ -10888,11 +10888,11 @@
         ],
         "x-mint": {
           "metadata": {
-            "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, root cause analysis settings, and trigger conditions."
+            "description": "Fetch a detector's configuration by id, including prompt, schema and triggers. Demo visitors receive only published catalog information."
           }
         },
         "x-tool": {
-          "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+          "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions. Demo visitors receive only published catalog information.",
           "enabled": true,
           "name": "get_detector"
         }

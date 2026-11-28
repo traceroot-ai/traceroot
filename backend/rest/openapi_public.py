@@ -508,7 +508,8 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "name": "get_detector",
         "description": (
             "Fetch one detector's full configuration by id: prompt, output schema, "
-            "sample rate, RCA and detection settings, and trigger conditions."
+            "sample rate, RCA and detection settings, and trigger conditions. "
+            "Demo visitors receive only published catalog information."
         ),
         "enabled": True,
     },
@@ -1308,8 +1309,8 @@ _DOCS_DESCRIPTIONS: dict[str, str] = {
         "detector's id, name, template, enabled flag, and creation time."
     ),
     "get_detector": (
-        "Fetch one detector's full configuration by id: prompt, output schema, "
-        "sample rate, root cause analysis settings, and trigger conditions."
+        "Fetch a detector's configuration by id, including prompt, schema and triggers. "
+        "Demo visitors receive only published catalog information."
     ),
     "create_detector": (
         "Create a detector using a template's built-in instructions or your own prompt. "

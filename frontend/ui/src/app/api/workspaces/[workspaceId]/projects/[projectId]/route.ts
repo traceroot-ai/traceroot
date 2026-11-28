@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth-helpers";
 import { readDeleteReason } from "@/lib/route-helpers";
 import { deleteProject, updateProject, type ProjectPatch } from "@/lib/write-services/projects";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 
 type RouteParams = { params: Promise<{ workspaceId: string; projectId: string }> };
 
@@ -22,6 +23,8 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(user.id, workspaceId);
   if (membershipResult.error) return membershipResult.error;
+  if (isDemoViewer(workspaceId, membershipResult.membership.role))
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
 
   const project = await prisma.project.findFirst({
     where: {

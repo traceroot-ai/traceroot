@@ -1,4 +1,5 @@
 import type { Detector, UpdateDetectorInput } from "../hooks/use-detectors";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 
 /**
  * The detector edit panel's form as plain data, so dirty-checking and merge
@@ -21,7 +22,7 @@ export function detectorToFormValues(d: Detector): DetectorFormValues {
   return {
     name: d.name,
     prompt: d.prompt,
-    sampleRate: d.sampleRate,
+    sampleRate: d.sampleRate ?? DEFAULT_DETECTOR_SAMPLE_RATE,
     enableRca: d.enableRca ?? true,
     enableSignals: d.enableSignals ?? true,
     detectionModel: d.detectionModel ?? "",

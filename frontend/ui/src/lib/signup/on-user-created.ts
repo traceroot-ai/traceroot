@@ -1,4 +1,4 @@
-// Everything that follows a new account (demo workspace access, Resend contact,
+// Everything that follows a new account (Resend contact,
 // welcome email or its cloud due time, Slack notice, and sign-up webhook)
 // runs from better-auth's user.create.after hook. Each arm is on only when
 // its own config is set and never rejects. The contact is created before the
@@ -10,7 +10,6 @@ import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { scheduleWelcome } from "@/lib/email/welcome/welcome-schedule";
 import { isCloud } from "@/lib/server/cloud";
-import { ensureDemoMembership } from "@/lib/demo-workspace";
 import { AGENTID_PROVIDER_ID } from "@/lib/social-providers";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
@@ -56,13 +55,9 @@ export async function onUserCreated(
   user: CreatedUser,
   context: SignupContext | null,
 ): Promise<void> {
-  // Every account can look at the demo workspace, however it was created.
-  const demo = ensureDemoMembership(user.id);
-
   // Staff-provisioned users are not sign-ups; agents sign up in bulk, so they
   // get no welcome email or Slack post.
   if (!isSelfSignup(context) || signupProvider(context) === AGENTID_PROVIDER_ID) {
-    await demo;
     return;
   }
 
@@ -132,5 +127,5 @@ export async function onUserCreated(
       )
     : undefined;
 
-  await Promise.all([demo, welcome, slack, webhook]);
+  await Promise.all([welcome, slack, webhook]);
 }

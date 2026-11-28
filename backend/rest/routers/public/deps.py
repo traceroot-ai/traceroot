@@ -300,6 +300,10 @@ class AuthResult:
     # None for API keys and for session-token credentials, whose introspection
     # already proved the session live.
     session_id: str | None = None
+    # Project-user introspection is authoritative about demo visitors. Unknown
+    # (old/malformed UI responses) is restricted too, so rolling deployments
+    # cannot expose stored detector configuration. Ignored for API keys.
+    demo_viewer: bool = True
 
 
 async def authenticate_api_key(
@@ -635,6 +639,7 @@ async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
         ingestion_blocked=True,
         role=role,
         user_id=user_id,
+        demo_viewer=data.get("demoViewer") is not False,
     )
 
 
@@ -709,6 +714,7 @@ async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
         role=role,
         user_id=user_id,
         session_id=session_id,
+        demo_viewer=data.get("demoViewer") is not False,
     )
 
 

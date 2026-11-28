@@ -56,7 +56,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ dashboards: [] });
   }
 
-  const creators = await resolveCreatorNames(dashboards.map((d) => d.createdBy));
+  const creators = await resolveCreatorNames(
+    dashboards.map((d) => d.createdBy),
+    projectId,
+  );
   return NextResponse.json({
     dashboards: dashboards.map(({ createdBy, _count, ...d }) => ({
       ...d,

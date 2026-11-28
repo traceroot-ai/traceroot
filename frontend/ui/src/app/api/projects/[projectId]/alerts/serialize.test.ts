@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 
 const mockFindMany = vi.fn();
+const mockProject = vi.fn();
 
 vi.mock("@traceroot/core", () => ({
-  prisma: { user: { findMany: (...args: unknown[]) => mockFindMany(...args) } },
+  prisma: {
+    user: { findMany: (...args: unknown[]) => mockFindMany(...args) },
+    project: { findFirst: (...args: unknown[]) => mockProject(...args) },
+  },
 }));
 
 import {
@@ -66,6 +70,33 @@ function fullRow(overrides: Record<string, unknown> = {}): AlertRow {
 beforeEach(() => {
   mockFindMany.mockReset();
   mockFindMany.mockResolvedValue([]);
+  mockProject.mockReset();
+  mockProject.mockResolvedValue(null);
+});
+afterEach(() => vi.unstubAllEnvs());
+
+it("uses the public Demo creator for alert list and detail without resolving staff identities", async () => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "demo");
+  mockProject.mockResolvedValue({ id: "project" });
+  mockFindMany.mockResolvedValue([{ id: "user-1", name: "Staff", email: "staff@example.com" }]);
+  const [summary] = await withCreators([summaryRow()], "project");
+  const detail = await serializeAlert(fullRow(), "project");
+  expect(summary.creator).toBe("Demo");
+  expect(detail.creator).toBe("Demo");
+  expect(detail).not.toHaveProperty("createdBy");
+  expect(mockFindMany).not.toHaveBeenCalled();
+  expect(mockProject).toHaveBeenCalledWith({
+    where: { id: "project", workspaceId: "demo", deleteTime: null },
+    select: { id: true },
+  });
+});
+
+it("keeps ordinary workspace creator names when a different Demo is configured", async () => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "demo");
+  mockProject.mockResolvedValue(null);
+  mockFindMany.mockResolvedValue([{ id: "user-1", name: "Staff", email: "staff@example.com" }]);
+  expect((await withCreators([summaryRow()], "own-project"))[0].creator).toBe("Staff");
+  expect((await serializeAlert(fullRow(), "own-project")).creator).toBe("Staff");
 });
 
 describe("decimalToNumber", () => {
@@ -87,7 +118,7 @@ describe("withCreators", () => {
   it("falls back to the email when the account has no name", async () => {
     mockFindMany.mockResolvedValue([{ id: "user-1", name: "", email: "ada@example.com" }]);
 
-    const [alert] = await withCreators([summaryRow()]);
+    const [alert] = await withCreators([summaryRow()], "project");
 
     expect(alert.creator).toBe("ada@example.com");
   });
@@ -95,7 +126,7 @@ describe("withCreators", () => {
   it("renders a creator that resolves to no user as null", async () => {
     mockFindMany.mockResolvedValue([]);
 
-    const [alert] = await withCreators([summaryRow({ createdBy: "deleted-user" })]);
+    const [alert] = await withCreators([summaryRow({ createdBy: "deleted-user" })], "project");
 
     expect(alert.creator).toBeNull();
   });
@@ -103,11 +134,14 @@ describe("withCreators", () => {
   it("looks the whole page up in one deduplicated query", async () => {
     mockFindMany.mockResolvedValue([{ id: "user-1", name: "Ada", email: "ada@example.com" }]);
 
-    await withCreators([
-      summaryRow({ id: "a" }),
-      summaryRow({ id: "b" }),
-      summaryRow({ id: "c", createdBy: "user-2" }),
-    ]);
+    await withCreators(
+      [
+        summaryRow({ id: "a" }),
+        summaryRow({ id: "b" }),
+        summaryRow({ id: "c", createdBy: "user-2" }),
+      ],
+      "project",
+    );
 
     expect(mockFindMany).toHaveBeenCalledTimes(1);
     expect(mockFindMany.mock.calls[0][0].where.id.in).toEqual(["user-1", "user-2"]);
@@ -119,7 +153,10 @@ describe("withCreators", () => {
       { id: "user-2", name: "Grace", email: "grace@example.com" },
     ]);
 
-    const alerts = await withCreators([summaryRow(), summaryRow({ createdBy: "user-2" })]);
+    const alerts = await withCreators(
+      [summaryRow(), summaryRow({ createdBy: "user-2" })],
+      "project",
+    );
 
     expect(alerts.map((a) => a.creator)).toEqual(["Ada", "Grace"]);
   });
@@ -127,14 +164,14 @@ describe("withCreators", () => {
   it("replaces the raw createdBy id with the resolved creator", async () => {
     mockFindMany.mockResolvedValue([{ id: "user-1", name: "Ada", email: "ada@example.com" }]);
 
-    const [alert] = await withCreators([summaryRow()]);
+    const [alert] = await withCreators([summaryRow()], "project");
 
     expect("createdBy" in alert).toBe(false);
     expect(alert.threshold).toBe(500);
   });
 
   it("issues no rows and still queries safely for an empty page", async () => {
-    expect(await withCreators([])).toEqual([]);
+    expect(await withCreators([], "project")).toEqual([]);
     expect(mockFindMany.mock.calls[0][0].where.id.in).toEqual([]);
   });
 
@@ -142,7 +179,10 @@ describe("withCreators", () => {
     mockFindMany.mockResolvedValue([{ id: "user-1", name: "Ada", email: "ada@example.com" }]);
     const lastEvaluatedAt = new Date("2026-08-01T00:01:00.000Z");
 
-    const [alert] = await withCreators([summaryRow({ severity: "ALERT", lastEvaluatedAt })]);
+    const [alert] = await withCreators(
+      [summaryRow({ severity: "ALERT", lastEvaluatedAt })],
+      "project",
+    );
 
     expect(alert.severity).toBe("ALERT");
     expect(alert.lastEvaluatedAt).toBe(lastEvaluatedAt);
@@ -153,15 +193,18 @@ describe("withCreators", () => {
     const lastErrorAt = new Date("2026-08-01T00:02:00.000Z");
     const lastNotifyAt = new Date("2026-08-01T00:03:00.000Z");
 
-    const [alert] = await withCreators([
-      summaryRow({
-        lastError: "ClickHouse read timeout",
-        lastErrorAt,
-        lastNotifyStatus: "FAILED",
-        lastNotifyError: "channel revoked",
-        lastNotifyAt,
-      }),
-    ]);
+    const [alert] = await withCreators(
+      [
+        summaryRow({
+          lastError: "ClickHouse read timeout",
+          lastErrorAt,
+          lastNotifyStatus: "FAILED",
+          lastNotifyError: "channel revoked",
+          lastNotifyAt,
+        }),
+      ],
+      "project",
+    );
 
     expect(alert.lastError).toBe("ClickHouse read timeout");
     expect(alert.lastErrorAt).toBe(lastErrorAt);
@@ -173,7 +216,7 @@ describe("withCreators", () => {
   it("reports a healthy rule's health fields as empty rather than dropping them", async () => {
     mockFindMany.mockResolvedValue([{ id: "user-1", name: "Ada", email: "ada@example.com" }]);
 
-    const [alert] = await withCreators([summaryRow()]);
+    const [alert] = await withCreators([summaryRow()], "project");
 
     for (const field of HEALTH_FIELDS) {
       expect(field in alert).toBe(true);
@@ -186,7 +229,7 @@ describe("serializeAlert", () => {
   it("adds the rule fields the summary omits", async () => {
     mockFindMany.mockResolvedValue([{ id: "user-1", name: "Ada", email: "ada@example.com" }]);
 
-    const alert = await serializeAlert(fullRow());
+    const alert = await serializeAlert(fullRow(), "project");
 
     expect(alert.filters).toEqual([{ field: "model_name", op: "=", value: "gpt-4o" }]);
     expect(alert.renotify).toEqual({ mode: "EVERY", intervalMinutes: 60 });
@@ -197,7 +240,10 @@ describe("serializeAlert", () => {
   });
 
   it("carries the same health fields the list carries", async () => {
-    const alert = await serializeAlert(fullRow({ lastError: "ClickHouse read timeout" }));
+    const alert = await serializeAlert(
+      fullRow({ lastError: "ClickHouse read timeout" }),
+      "project",
+    );
 
     expect(alert.lastError).toBe("ClickHouse read timeout");
     for (const field of HEALTH_FIELDS) {

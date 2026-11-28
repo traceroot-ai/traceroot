@@ -3,7 +3,7 @@
  * so a version id from another dataset or project reads as "not found" rather than
  * leaking a snapshot. Auth + Prisma are mocked.
  */
-import { it, expect, vi, beforeEach } from "vitest";
+import { it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
 vi.mock("@/lib/support/route-guard", () => ({
@@ -41,9 +41,15 @@ async function body(res: { json: () => Promise<unknown> }) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("DEMO_WORKSPACE_ID", "demo-workspace");
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
-  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  auth.requireProjectAccess.mockResolvedValue({
+    project: { id: "p1", workspaceId: "customer-workspace" },
+    membership: { role: "VIEWER" },
+  });
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 it("returns the cases with input/expected decoded for display, oldest first", async () => {
   // Stored values are JSON-ENCODED; the response decodes them so this view matches
@@ -103,4 +109,46 @@ it("403s a caller without project access", async () => {
   });
   expect((await GET({} as never, params)).status).toBe(403);
   expect(prismaMock.datasetVersion.findFirst).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["demo-workspace", "VIEWER", true],
+  ["demo-workspace", "ADMIN", false],
+  ["customer-workspace", "VIEWER", false],
+])("publishes snapshot authors according to %s %s access", async (workspaceId, role, redact) => {
+  auth.requireProjectAccess.mockResolvedValue({
+    project: { id: "p1", workspaceId },
+    membership: { role },
+  });
+  const stored = {
+    id: "dv1",
+    label: "v1",
+    createdBy: "internal-author@example.com",
+    testCases: [
+      {
+        testCaseId: "c1",
+        input: '"sample"',
+        expected: null,
+        addedBy: "internal-editor@example.com",
+      },
+    ],
+  };
+  prismaMock.datasetVersion.findFirst.mockResolvedValue(stored);
+
+  const b = await body(await GET({} as never, params));
+  expect(b.version).toMatchObject({
+    id: "dv1",
+    createdBy: redact ? null : "internal-author@example.com",
+    testCases: b.testCases,
+  });
+  expect(b.testCases).toEqual([
+    expect.objectContaining({
+      testCaseId: "c1",
+      input: "sample",
+      addedBy: redact ? null : "internal-editor@example.com",
+    }),
+  ]);
+  if (redact) expect(JSON.stringify(b)).not.toContain("@example.com");
+  expect(stored.createdBy).toBe("internal-author@example.com");
+  expect(stored.testCases[0].addedBy).toBe("internal-editor@example.com");
 });

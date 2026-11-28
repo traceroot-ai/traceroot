@@ -28,12 +28,44 @@ from rest.services.detector_reader import DetectorReaderService
 logger = logging.getLogger(__name__)
 
 
+def _demo_template(template: str | None) -> str:
+    return (
+        template
+        if template in {"failure", "hallucination", "logic", "task", "safety", "intent", "blank"}
+        else "blank"
+    )
+
+
+def demo_detector(detector: DetectorDetail) -> DetectorDetail:
+    """Keep published catalog fields, excluding a demo detector's working configuration."""
+    # Rebuild rather than copying the stored object: newly added configuration
+    # must not leak by default.
+    return DetectorDetail(
+        detector_id=detector.detector_id,
+        name=detector.name,
+        template=_demo_template(detector.template),
+        enabled=detector.enabled,
+        created_at=detector.created_at,
+        prompt="",
+        output_schema=None,
+        sample_rate=100,
+        enable_rca=False,
+        detection_model=None,
+        detection_provider=None,
+        detection_source=None,
+        updated_at=detector.created_at,
+        trigger_conditions=None,
+    )
+
+
 async def list_detectors_page(
     service: DetectorReaderService,
     project_id: str,
     limit: int,
     start_after: datetime | None,
     end_before: datetime | None,
+    *,
+    demo_viewer: bool = False,
 ) -> PublicDetectorListResponse:
     """List a project's detectors, mapping reader errors to a clean 500.
 
@@ -46,6 +78,7 @@ async def list_detectors_page(
         limit (int): Max items in the returned page.
         start_after (datetime | None): Inclusive lower bound on creation time.
         end_before (datetime | None): Exclusive upper bound on creation time.
+        demo_viewer (bool): Return only published template identifiers for demo visitors.
 
     Returns:
         PublicDetectorListResponse: The page plus pagination meta.
@@ -65,6 +98,10 @@ async def list_detectors_page(
             detail="Failed to list detectors",
         ) from e
 
+    if demo_viewer:
+        items = [
+            item.model_copy(update={"template": _demo_template(item.template)}) for item in items
+        ]
     return PublicDetectorListResponse(
         data=items, meta=PaginationMeta(page=0, limit=limit, total=total)
     )
@@ -119,13 +156,14 @@ async def list_findings_page(
 
 
 async def require_finding(
-    fetch: Callable[[], FindingDetail | None], billing_plan: str
+    fetch: Callable[[], FindingDetail | None], billing_plan: str, *, demo_viewer: bool = False
 ) -> FindingDetail:
     """Run a reader fetch, mapping None -> 404 and reader errors -> a clean 500.
 
     Args:
         fetch (Callable[[], FindingDetail | None]): Zero-arg reader call.
         billing_plan (str): Plan used for the retention-by-time check.
+        demo_viewer (bool): Publish only known template identifiers in detector results.
 
     Returns:
         FindingDetail: The finding, when present and inside the retention window.
@@ -141,6 +179,15 @@ async def require_finding(
     if finding is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
     enforce_retention_by_time(billing_plan, finding.timestamp)
+    if demo_viewer:
+        return finding.model_copy(
+            update={
+                "results": [
+                    item.model_copy(update={"template": _demo_template(item.template)})
+                    for item in finding.results
+                ]
+            }
+        )
     return finding
 
 

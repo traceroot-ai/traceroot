@@ -22,6 +22,7 @@ from rest.rate_limit import (
 )
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.routers.detector_read_common import (
+    demo_detector,
     list_detectors_page,
     list_findings_page,
     require_detector,
@@ -57,7 +58,9 @@ async def list_detectors(
     ),
 ):
     """List the project's detectors (newest first)."""
-    return await list_detectors_page(service, project_id, limit, start_after, end_before)
+    return await list_detectors_page(
+        service, project_id, limit, start_after, end_before, demo_viewer=_access.demo_viewer
+    )
 
 
 @router.get("/findings", response_model=PublicFindingListResponse)
@@ -109,6 +112,7 @@ async def get_finding(
     return await require_finding(
         lambda: service.get_finding(project_id, finding_id, _access.billing_plan),
         _access.billing_plan,
+        demo_viewer=_access.demo_viewer,
     )
 
 
@@ -128,6 +132,7 @@ async def get_finding_by_trace(
     return await require_finding(
         lambda: service.get_finding_by_trace(project_id, trace_id, _access.billing_plan),
         _access.billing_plan,
+        demo_viewer=_access.demo_viewer,
     )
 
 
@@ -145,5 +150,6 @@ async def get_detector(
     _access: RateLimitedProjectAccess,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
-    """Get one detector's full configuration for the project."""
-    return await require_detector(lambda: service.get_detector(project_id, detector_id))
+    """Get a detector, excluding working configuration from demo visitors."""
+    detector = await require_detector(lambda: service.get_detector(project_id, detector_id))
+    return demo_detector(detector) if _access.demo_viewer else detector

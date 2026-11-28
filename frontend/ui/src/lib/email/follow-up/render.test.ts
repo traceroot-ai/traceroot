@@ -3,7 +3,7 @@ import { renderFollowUp } from "./render";
 
 const LINKS = {
   setupUrl: "https://app.traceroot.ai/projects/p1/traces",
-  demoUrl: "https://app.traceroot.ai/projects/demo/traces",
+  demoUrl: "https://app.traceroot.ai/demo",
   integrationsUrl: "https://app.traceroot.ai/workspaces/w1/settings/integrations",
   bookingUrl: "https://cal.com/traceroot/30min",
 };

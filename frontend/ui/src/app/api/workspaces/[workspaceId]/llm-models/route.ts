@@ -1,7 +1,13 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { listWorkspaceModels } from "@traceroot/core";
-import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
+import {
+  requireAuth,
+  requireWorkspaceMembership,
+  successResponse,
+  errorResponse,
+} from "@/lib/auth-helpers";
+import { DEMO_VIEWER_FORBIDDEN, isDemoViewer } from "@/lib/demo-workspace";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
@@ -16,6 +22,8 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(authResult.user.id, workspaceId);
   if (membershipResult.error) return membershipResult.error;
+  if (isDemoViewer(workspaceId, membershipResult.membership.role))
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
 
   return successResponse(await listWorkspaceModels(workspaceId));
 }

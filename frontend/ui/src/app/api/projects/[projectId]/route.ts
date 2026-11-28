@@ -38,6 +38,19 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Project not found", 404);
   }
 
+  if (isDemoViewer(project.workspaceId, accessResult.membership.role)) {
+    return successResponse({
+      id: project.id,
+      read_at: readAt,
+      workspace_id: project.workspaceId,
+      name: project.name,
+      trace_ttl_days: project.traceTtlDays,
+      alert_emails: [],
+      create_time: project.createTime,
+      update_time: project.updateTime,
+    });
+  }
+
   return successResponse({
     id: project.id,
     read_at: readAt,
@@ -47,10 +60,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     rca_model: project.rcaModel,
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
-    // Alert recipients are team emails; demo viewers do not get them.
-    alert_emails: isDemoViewer(project.workspaceId, accessResult.membership.role)
-      ? []
-      : (project.alertConfig?.emailAddresses ?? []),
+    alert_emails: project.alertConfig?.emailAddresses ?? [],
     alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
     access_key_count: project._count.accessKeys,
     create_time: project.createTime,
