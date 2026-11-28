@@ -123,3 +123,52 @@ describe("MessageInput", () => {
     expect(screen.getByPlaceholderText("Reply to revise, or use the buttons")).not.toBeNull();
   });
 });
+
+describe("MessageInput IME handling", () => {
+  function renderInput(onSend: (message: string) => void) {
+    return render(<MessageInput onSend={onSend} modelSelection={PICK} onModelChange={vi.fn()} />);
+  }
+
+  it("sends on Enter when no IME composition is active", () => {
+    const onSend = vi.fn();
+    renderInput(onSend);
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter", keyCode: 13 });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("hello", PICK);
+  });
+
+  it("does not send on Enter while isComposing is true", () => {
+    const onSend = vi.fn();
+    renderInput(onSend);
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter", isComposing: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("does not send on the keyCode 229 Enter some browsers report while composing", () => {
+    const onSend = vi.fn();
+    renderInput(onSend);
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    const keydown = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(keydown, "keyCode", { value: 229 });
+    fireEvent(textarea, keydown);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("does not send on shift+Enter, so multiline behavior is unchanged", () => {
+    const onSend = vi.fn();
+    renderInput(onSend);
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+});

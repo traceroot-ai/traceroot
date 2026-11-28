@@ -115,7 +115,12 @@ export function TextField({
       maxLength={MAX_VALUE_LENGTH}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") onEnter?.();
+        // Ignore Enter during IME composition (it confirms a candidate, it
+        // doesn't submit); keyCode 229 covers browsers where isComposing is
+        // unreliable.
+        if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+          onEnter?.();
+        }
       }}
       className={cn("h-7 min-w-0 flex-1 rounded-md", textSize)}
     />
@@ -168,7 +173,13 @@ export function NumberField({
         onKeyDown={(e) => {
           // Block a minus sign always, and a decimal point on integer fields.
           if (e.key === "-" || (integer && e.key === ".")) e.preventDefault();
-          else if (e.key === "Enter") onEnter?.();
+          else if (
+            e.key === "Enter" &&
+            !e.nativeEvent.isComposing &&
+            e.nativeEvent.keyCode !== 229
+          ) {
+            onEnter?.();
+          }
         }}
         className={cn(
           "min-w-0 flex-1 bg-transparent outline-none [appearance:textfield] placeholder:text-muted-foreground [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",

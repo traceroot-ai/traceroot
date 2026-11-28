@@ -182,7 +182,12 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               id={`${formId}-key-name`}
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                !e.nativeEvent.isComposing &&
+                e.nativeEvent.keyCode !== 229 &&
+                handleCreate()
+              }
             />
           </div>
           {createMutation.error instanceof ImpersonationError && (
@@ -215,7 +220,12 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               onChange={(e) =>
                 setEditingKey(editingKey ? { ...editingKey, name: e.target.value } : null)
               }
-              onKeyDown={(e) => e.key === "Enter" && handleSaveNote()}
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                !e.nativeEvent.isComposing &&
+                e.nativeEvent.keyCode !== 229 &&
+                handleSaveNote()
+              }
             />
           </div>
           {updateMutation.error instanceof ImpersonationError && (

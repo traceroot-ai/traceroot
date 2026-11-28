@@ -134,3 +134,72 @@ it("associates the API key name field with its visible label", () => {
   fireEvent.click(screen.getByRole("button", { name: "Create new API key" }));
   expect(within(screen.getByRole("dialog")).getByLabelText("Name (optional)")).toBeTruthy();
 });
+
+it("creates the key on Enter, but ignores Enter while an IME is composing", async () => {
+  vi.mocked(getAccessKeys).mockResolvedValue({ access_keys: [] });
+  vi.mocked(createAccessKey).mockResolvedValue({
+    data: { key: "tr-created", key_hint: "tr-created" },
+  } as Awaited<ReturnType<typeof createAccessKey>>);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Create new API key" }));
+  const dialog = within(screen.getByRole("dialog"));
+  const input = dialog.getByLabelText("Name (optional)");
+  fireEvent.change(input, { target: { value: "Production" } });
+
+  // Enter that confirms an IME candidate must not create the key.
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  const imeEnter = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+  });
+  Object.defineProperty(imeEnter, "keyCode", { value: 229 });
+  fireEvent(input, imeEnter);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(createAccessKey).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 13 });
+  await vi.waitFor(() => expect(createAccessKey).toHaveBeenCalledWith("p", "Production"));
+});
+
+it("saves the note on Enter, but ignores Enter while an IME is composing", async () => {
+  vi.mocked(getAccessKeys).mockResolvedValue({
+    access_keys: [
+      {
+        id: "key-1",
+        name: "Test key",
+        key_hint: "tr-1234",
+        create_time: new Date().toISOString(),
+        last_use_time: null,
+      },
+    ],
+  } as Awaited<ReturnType<typeof getAccessKeys>>);
+  vi.mocked(updateAccessKey).mockResolvedValue({} as Awaited<ReturnType<typeof updateAccessKey>>);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByText("Test key"));
+  const dialog = within(screen.getByRole("dialog"));
+  const input = dialog.getByLabelText("Note");
+  fireEvent.change(input, { target: { value: "Renamed" } });
+
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  const imeEnter = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+  });
+  Object.defineProperty(imeEnter, "keyCode", { value: 229 });
+  fireEvent(input, imeEnter);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(updateAccessKey).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 13 });
+  await vi.waitFor(() => expect(updateAccessKey).toHaveBeenCalledWith("p", "key-1", "Renamed"));
+});
