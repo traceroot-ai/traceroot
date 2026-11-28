@@ -4,7 +4,7 @@
  *   TEST_DATABASE_URL=postgresql://... pnpm --filter @traceroot/core test loops.db
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { LOOP_DETECTOR_TEMPLATE } from "../keys.ts";
 import {
   createLoopWithDetector,
@@ -18,6 +18,7 @@ import {
 } from "../writes.ts";
 import {
   countFreeLoopRunsUsed,
+  countProjectLoopRunsSince,
   existingLoopSignals,
   getLoopRun,
   getLoopSummary,
@@ -441,6 +442,89 @@ describe.skipIf(!url)("Loops on Postgres", () => {
 
       expect(await db.$transaction((tx) => countFreeLoopRunsUsed(tx, workspaceId))).toBe(3);
       expect(await db.$transaction((tx) => countFreeLoopRunsUsed(tx, ids.workspace))).toBe(0);
+    } finally {
+      await db.workspace.delete({ where: { id: workspaceId } });
+    }
+  });
+
+  it("counts a project's runs since a time in one statement: Loop turns, plus running runs before theirs", async () => {
+    // A workspace of its own, so other tests' runs do not count here.
+    const workspaceId = `w_daily_${suffix}`;
+    const projectId = `p_daily_${suffix}`;
+    const otherProjectId = `p_daily_other_${suffix}`;
+    await db.workspace.create({ data: { id: workspaceId, name: `daily ${suffix}` } });
+    await db.project.create({ data: { id: projectId, workspaceId, name: "p" } });
+    await db.project.create({ data: { id: otherProjectId, workspaceId, name: "q" } });
+    // Records every operation the count issues, raw or through a model.
+    const operations: string[] = [];
+    const recorded = db.$extends({
+      query: {
+        async $allOperations({ model, operation, args, query }) {
+          operations.push(model ? `${model}.${operation}` : operation);
+          return query(args);
+        },
+      },
+    }) as unknown as Prisma.TransactionClient;
+    try {
+      const since = new Date("2026-11-20T00:00:00Z");
+      const before = new Date("2026-11-19T23:00:00Z");
+      const after = new Date("2026-11-20T01:00:00Z");
+      const session = (id: string, project = projectId) =>
+        db.aISession.create({
+          data: { id, projectId: project, workspaceId, status: "completed" },
+        });
+      const message = (sessionId: string, createTime: Date, kind = "loop") =>
+        db.aIMessage.create({
+          data: { workspaceId, sessionId, kind, role: "user", content: "go", createTime },
+        });
+      // Two Loop turns in the window, one with two Loop rows (counted once).
+      await session(`s_d_one_${suffix}`);
+      await message(`s_d_one_${suffix}`, after);
+      await message(`s_d_one_${suffix}`, after);
+      await session(`s_d_two_${suffix}`);
+      await message(`s_d_two_${suffix}`, after);
+      // Not counted: a Loop turn before `since`, a chat, another project's Loop turn.
+      await session(`s_d_old_${suffix}`);
+      await message(`s_d_old_${suffix}`, before);
+      await session(`s_d_chat_${suffix}`);
+      await message(`s_d_chat_${suffix}`, after, "chat");
+      await session(`s_d_other_${suffix}`, otherProjectId);
+      await message(`s_d_other_${suffix}`, after);
+
+      const running = async (
+        name: string,
+        sessionId: string | null,
+        createTime: Date,
+        project = projectId,
+      ) => {
+        const loop = await db.$transaction((tx) =>
+          createLoopWithDetector(tx, { ...newLoop(name), projectId: project }),
+        );
+        const run = await db.$transaction((tx) =>
+          createRun(tx, { loopId: loop.id, projectId: project, trigger: "manual" }),
+        );
+        await db.loopRun.update({
+          where: { id: run.id },
+          data: { status: "running", sessionId, createTime },
+        });
+      };
+      // Counted: running before its session, and running with a session but no Loop turn yet.
+      await running("d-no-session", null, after);
+      await session(`s_d_pending_${suffix}`);
+      await running("d-pending", `s_d_pending_${suffix}`, after);
+      // Counted once, as its Loop turn: running and already past its kickoff.
+      await running("d-started", `s_d_one_${suffix}`, after);
+      // Not counted: running since before `since`, and another project's running run.
+      await running("d-old", null, before);
+      await running("d-other", null, after, otherProjectId);
+
+      expect(await countProjectLoopRunsSince(recorded, projectId, since)).toBe(4);
+      expect(operations).toEqual(["$queryRaw"]);
+      expect(await countProjectLoopRunsSince(recorded, otherProjectId, since)).toBe(2);
+      expect(await countProjectLoopRunsSince(recorded, projectId, after)).toBe(4);
+      expect(
+        await countProjectLoopRunsSince(recorded, projectId, new Date("2026-11-20T02:00:00Z")),
+      ).toBe(0);
     } finally {
       await db.workspace.delete({ where: { id: workspaceId } });
     }
