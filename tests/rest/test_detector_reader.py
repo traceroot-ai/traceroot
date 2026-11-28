@@ -5,7 +5,7 @@ ClickHouse is faked (dispatches by SQL content) and the Postgres boundary
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -419,7 +419,7 @@ def test_get_detector_returns_full_config_with_trigger(reader, monkeypatch):
     assert detail.detection_model == "claude-haiku-4-5"
     assert detail.detection_provider == "anthropic"
     assert detail.detection_source == "system"
-    assert detail.updated_at == datetime(2026, 8, 2, 9, 0, 0)
+    assert detail.updated_at == datetime(2026, 8, 2, 9, 0, 0, tzinfo=UTC)
     assert detail.trigger_conditions == [{"field": "root_span_finished", "op": "=", "value": True}]
 
 
