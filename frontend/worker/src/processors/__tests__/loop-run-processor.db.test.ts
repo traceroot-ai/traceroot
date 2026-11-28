@@ -11,7 +11,7 @@
  * toward its daily cap, and its Loops have no nextRunAt, so no tick claims them.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { prisma } from "@traceroot/core";
+import { prisma, type Prisma } from "@traceroot/core";
 import {
   LOOP_LIMITS,
   createLoopWithDetector,
@@ -817,6 +817,87 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
         status: "timed_out",
         error: "reclaimed",
         findingKeys: [],
+      });
+    });
+
+    /**
+     * Another transaction locks the run row once the agent answered; `whileHeld`
+     * runs in it after the worker is seen waiting on that lock, then it commits.
+     */
+    function lockRunWhenAnswered(
+      runId: string,
+      whileHeld: (tx: Prisma.TransactionClient) => Promise<void>,
+    ) {
+      const answer = fetchMock.getMockImplementation()!;
+      let held: Promise<void> | undefined;
+      fetchMock.mockImplementation(async (target: string, init: RequestInit) => {
+        if (target.endsWith("/sessions")) return answer(target, init);
+        const response = await answer(target, init);
+        let locked!: () => void;
+        const isLocked = new Promise<void>((resolve) => (locked = resolve));
+        held = prisma.$transaction(
+          async (tx) => {
+            await tx.$queryRaw`SELECT id FROM loop_runs WHERE id = ${runId} FOR UPDATE`;
+            const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+            locked();
+            await waitUntilBlockedBy(pid);
+            await whileHeld(tx);
+          },
+          { timeout: 20_000 },
+        );
+        await isLocked;
+        return response;
+      });
+      return { released: () => held! };
+    }
+
+    /** Wait until some other connection waits on a lock the backend `pid` holds. */
+    async function waitUntilBlockedBy(pid: number) {
+      for (let i = 0; i < 200; i++) {
+        const [{ waiting }] = await prisma.$queryRaw<{ waiting: number }[]>`
+          SELECT count(*)::int AS waiting FROM pg_stat_activity
+          WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`;
+        if (waiting > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      throw new Error("the worker never waited on the run's lock");
+    }
+
+    it("waits for a lock on the run, then records nothing once it was reclaimed meanwhile", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      const lock = lockRunWhenAnswered(run.id, async (tx) => {
+        expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+        // The tick's reclaim, after the agent answered and before the findings are recorded.
+        await tx.loopRun.update({ where: { id: run.id }, data: { attempts: { increment: 1 } } });
+      });
+      await runJob(run.id);
+      await lock.released();
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+      expect(await runRow(run.id)).toMatchObject({
+        status: "running",
+        attempts: 2,
+        finishedAt: null,
+        findingKeys: [],
+      });
+    });
+
+    it("records the findings only after another transaction releases the run's lock", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      const lock = lockRunWhenAnswered(run.id, async () => {
+        expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      });
+      await runJob(run.id);
+      await lock.released();
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "succeeded",
+        findingKeys: ["tool-timeouts", "wrong-city"],
       });
     });
 

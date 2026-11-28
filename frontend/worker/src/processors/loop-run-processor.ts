@@ -4,8 +4,10 @@
  * a fresh system session. The agent reads traces and answers with a summary and
  * its findings; this processor owns the run's lifecycle (loop_runs.status) from
  * pending to its end state. The findings are recorded as hits of the Loop's
- * hidden detector, which the signals round groups into signals, only while the
- * run is still this try's. A dry run's answer has none (the agent route drops them).
+ * hidden detector, which the signals round groups into signals, in one step
+ * with the run's finish while its row is locked as this try's: a reclaim waits
+ * for that step, and a try that lost the run records nothing. A dry run's answer
+ * has none (the agent route drops them).
  */
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@traceroot/core";
@@ -18,7 +20,7 @@ import {
   type LoopRunModel,
 } from "@traceroot/core/loops";
 import { resolveProjectModel, type ResolvedModel } from "../agent/resolve-model.js";
-import { finishLoopRun, ownsLoopRun, type LoopRunFinish } from "../loops/finish.js";
+import { finishLoopRun, finishLoopRunLocked, type LoopRunFinish } from "../loops/finish.js";
 import { recordLoopFindings } from "../loops/findings.js";
 import { startLoopRun } from "../loops/start.js";
 import { windowHasTraces } from "../loops/window-traces.js";
@@ -134,6 +136,8 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
   // What the agent says it ran on; it alone knows its default when we sent none.
   let ranOn: LoopRunModel | null = null;
   let finish: LoopRunFinish;
+  // The findings to record with the finish, under the run's lock.
+  let findings: LoopFinding[] = [];
   try {
     if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
       // Nothing for the agent to read, checked before the model so that an
@@ -167,17 +171,7 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
         });
         ranOn = result.modelUsed;
         finish = outcomeOf(result, timeoutMs);
-        if (finish.status === "quiet" && result.findings.length > 0) {
-          // A try that outlived its reclaim, or whose run already finished,
-          // records nothing: its finish below does not land either.
-          if (await ownsLoopRun(running)) {
-            finish = await recordFindings(project.id, loop, result.findings, finish);
-          } else {
-            console.log(
-              `[Loops] run=${run.id} attempt ${run.attempts} is stale; its findings are not recorded.`,
-            );
-          }
-        }
+        if (finish.status === "quiet") findings = result.findings;
       }
     }
   } catch (error) {
@@ -195,15 +189,42 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
       provider: resolved.providerName,
       source: resolved.source,
     });
-  await finishLoopRun(running, {
-    ...finish,
+  const withModel = (outcome: LoopRunFinish): LoopRunFinish => ({
+    ...outcome,
     metadata: {
       model: model?.model ?? null,
       provider: model?.provider ?? null,
       source: model?.source ?? null,
-      ...finish.metadata,
+      ...outcome.metadata,
     },
   });
+  if (findings.length === 0) {
+    await finishLoopRun(running, withModel(finish));
+    return;
+  }
+
+  // A try that outlived its reclaim, or whose run already finished, records
+  // nothing and writes no finish.
+  const answered = finish;
+  try {
+    const owned = await finishLoopRunLocked(running, async () =>
+      withModel(await recordFindings(project.id, loop, findings, answered)),
+    );
+    if (!owned) {
+      console.log(
+        `[Loops] run=${run.id} attempt ${run.attempts} is stale; its findings are not recorded.`,
+      );
+    }
+  } catch (error) {
+    // The locked step did not commit (a database write failed or its time ran
+    // out): the failure is written on its own, and lands only while the run is
+    // still this try's.
+    console.error(`[Loops] run=${run.id} could not finish with its findings:`, error);
+    await finishLoopRun(
+      running,
+      withModel({ ...answered, status: "failed", error: LOOP_FINDINGS_FAILED }),
+    );
+  }
 }
 
 /**
