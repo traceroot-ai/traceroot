@@ -3,6 +3,7 @@
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Loader2, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,8 +18,10 @@ import type { SpanKind, SpanStatus } from "@traceroot/core";
 import { cn } from "@/lib/utils";
 import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { useEvaluationRun } from "../hooks";
+import { oldestFirst } from "../compare/run-order";
+import { RunPicker } from "../compare/run-picker";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
-import type { ResultRow, RunDetail, ScoreRow } from "../types";
+import type { ResultRow, RunDetail, RunRow, ScoreRow } from "../types";
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
@@ -164,9 +167,10 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
 /**
  * Evaluation run detail — a plain, trace-list-style surface: the experiment name
  * rides in the breadcrumb, then a searchable table of the run's per-case results
- * (one column per scorer). Run identity, run switching, and cross-run comparison
- * all live on the Experiments list now (row selection → Actions → Compare), so
- * this page carries no header of its own.
+ * (one column per scorer). Run identity and run switching live on the Experiments
+ * list (row selection → Actions → Compare), so this page carries no run header of its
+ * own; "Compare with…" starts a comparison of this run with another, the previous run
+ * on its dataset suggested first.
  *
  * Opening a result opens the REAL trace viewer (span tree + span detail) on that
  * result's trace — or, when a result emitted no telemetry, a clearly-labeled
@@ -174,6 +178,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
  */
 export function RunDetailView({ projectId, runId }: { projectId: string; runId: string }) {
   const { data, isLoading, error } = useEvaluationRun(projectId, runId);
+  const router = useRouter();
   const runsListHref = useListReturnHref(
     `evaluations:${projectId}`,
     `/projects/${projectId}/evaluations`,
@@ -219,6 +224,15 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
 
   const closeResult = () => setOpenResultId(null);
 
+  // This run first; the older of the two is the baseline, as on the runs list.
+  const compareWith = (other: RunRow) => {
+    if (!run) return;
+    const baseline = oldestFirst(other, run) < 0 ? other : run;
+    router.push(
+      `/projects/${projectId}/evaluations/compare?runs=${run.id},${other.id}&baseline=${baseline.id}`,
+    );
+  };
+
   // The trace panel's up/down chevrons step between this run's results, so you can
   // walk case-by-case without closing it.
   const openIndex = openResult ? results.findIndex((r) => r.id === openResult.id) : -1;
@@ -237,6 +251,22 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         backHref={runsListHref}
         backLabel="Evaluations"
         title={data?.run.evaluationName ?? "Run"}
+        actions={
+          run && (
+            <RunPicker
+              projectId={projectId}
+              selectedIds={[run.id]}
+              anchor={run}
+              datasetId={run.datasetId}
+              onPick={compareWith}
+              label="Compare with"
+            >
+              <Button variant="outline" size="sm" className="text-[12px]">
+                Compare with…
+              </Button>
+            </RunPicker>
+          )
+        }
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (

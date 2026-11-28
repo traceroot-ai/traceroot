@@ -56,6 +56,7 @@ const mount = () =>
       runIds={RUN_IDS}
       baselineId={null}
       onChangeBaseline={vi.fn()}
+      onChangeRuns={vi.fn()}
     />,
   );
 
@@ -114,6 +115,7 @@ function mountRuns(runs: RunBundle[]) {
       runIds={runs.map((b) => b.run.id)}
       baselineId={runs[0].run.id}
       onChangeBaseline={vi.fn()}
+      onChangeRuns={vi.fn()}
     />,
   );
 }
@@ -164,6 +166,7 @@ function mountPair(a: RunBundle["results"], b: RunBundle["results"]) {
       runIds={["a", "b"]}
       baselineId="a"
       onChangeBaseline={vi.fn()}
+      onChangeRuns={vi.fn()}
     />,
   );
 }
@@ -308,6 +311,7 @@ describe("CompareRunsView — cells without a value", () => {
         runIds={["a", "b"]}
         baselineId="a"
         onChangeBaseline={vi.fn()}
+        onChangeRuns={vi.fn()}
       />,
     );
     // 1 → 2 is a different label, not "+1".
@@ -435,35 +439,5 @@ describe("CompareRunsView — runs with fewer results than cases", () => {
   it("says nothing more when every run reported every case it declared", () => {
     mountDeclaring((b) => ({ caseCount: b.results.length, resultsTruncated: false }));
     expect(screen.queryByText(/reported|loaded the first/)).toBeNull();
-  });
-});
-
-describe("CompareRunsView — the coverage line", () => {
-  it("says how many cases there are and how many every run has, on one muted line", () => {
-    mount();
-    const line = screen.getByText("12 cases · 10 in all runs").closest("p") as HTMLElement;
-    expect(line.className).toContain("text-muted-foreground");
-  });
-
-  it("notes the runs short of their cases on the same line, each run's reason on hover", async () => {
-    const runs = PAIRED_FIXTURE.map((b) => ({
-      ...b,
-      run: { ...b.run, caseCount: 12, resultsTruncated: b.results.length < 12 },
-    }));
-    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
-      ids.map((id) => ({
-        data: runs.find((b) => b.run.id === id),
-        isLoading: false,
-        isError: false,
-      })),
-    );
-    mount();
-    const note = screen.getByText("2 runs are missing cases");
-    expect(note.closest("p")).toBe(screen.getByText("12 cases · 10 in all runs").closest("p"));
-    expect(note.querySelector("svg")).toBeTruthy();
-    fireEvent.focus(note);
-    const tip = within(await screen.findByRole("tooltip"));
-    expect(tip.getByText("#1 reported 11 of 12 cases.")).toBeTruthy();
-    expect(tip.getByText("#2 reported 11 of 12 cases.")).toBeTruthy();
   });
 });

@@ -19,20 +19,25 @@ export default function CompareRunsPage() {
     .filter(Boolean);
   const baselineId = searchParams.get("baseline");
 
-  const setBaseline = (baseline: string | null) => {
+  const navigate = (runs: string[], baseline: string | null) => {
     const q = new URLSearchParams();
-    if (runIds.length) q.set("runs", runIds.join(","));
+    if (runs.length) q.set("runs", runs.join(","));
     if (baseline) q.set("baseline", baseline);
     const qs = q.toString();
     router.push(`/projects/${projectId}/evaluations/compare${qs ? `?${qs}` : ""}`);
   };
+  // The view names the baseline it compared against, so adding an older run can't move it.
+  // A baseline no longer compared leaves the URL, so the oldest run takes over.
+  const setRuns = (runs: string[], baseline: string | null) =>
+    navigate(runs, baseline && runs.includes(baseline) ? baseline : null);
 
   return (
     <CompareRunsView
       projectId={projectId}
       runIds={runIds}
       baselineId={baselineId}
-      onChangeBaseline={setBaseline}
+      onChangeBaseline={(baseline) => navigate(runIds, baseline)}
+      onChangeRuns={setRuns}
     />
   );
 }

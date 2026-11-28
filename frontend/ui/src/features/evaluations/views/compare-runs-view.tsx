@@ -1,22 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { Search } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Input } from "@/components/ui/input";
 import { Table } from "@/components/ui/table";
 import { EmptyState } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRunDetails } from "../hooks";
-import { COMPARISON_TABLE, Dot } from "../compare/cells";
+import { COMPARISON_TABLE } from "../compare/cells";
 import { hasPairedCases, noResultsText } from "../compare/coverage";
 import { buildCompareModel, comparePairs, type RunBundle } from "../compare/model";
+import { useRunDots } from "../compare/run-colors";
+import { newestRun } from "../compare/run-order";
+import { RunsMenu, type RunsMenuView } from "../compare/runs-menu";
 import { runLabeler, runTagger } from "../compare/run-tags";
 import { ScopeLine } from "../compare/scope-line";
 import { ComparisonBody } from "../compare/table-body";
 import { SummaryGroup } from "../compare/summary-group";
 import { ComparisonHead } from "../compare/table-head";
+import { CaseToolbar } from "../compare/toolbar";
 
 // A run comparison is N runs (2+) lined up case-by-case, anchored on the baseline run
 // (alignment lives in `../compare/model`). Each case is a group of lines, one per run,
@@ -24,41 +25,31 @@ import { ComparisonHead } from "../compare/table-head";
 // improvement/regression change. The "All cases" group leads the body and compares each
 // other run with the baseline on the cases both of them scored.
 
-// Stable per-run colours, keyed by selection order so a baseline change never
-// recolours the table. The baseline picker is the legend.
-const RUN_DOTS = [
-  "bg-sky-500",
-  "bg-violet-500",
-  "bg-amber-500",
-  "bg-emerald-500",
-  "bg-rose-500",
-  "bg-teal-500",
-  "bg-indigo-500",
-  "bg-orange-500",
-];
-
 export function CompareRunsView({
   projectId,
   runIds,
   baselineId,
   onChangeBaseline,
+  onChangeRuns,
 }: {
   projectId: string;
   runIds: string[];
   baselineId: string | null;
   onChangeBaseline: (baselineId: string | null) => void;
+  /** The runs to compare, in the order they were selected, and the baseline to keep: the
+   *  one being compared against, or null when it was removed. */
+  onChangeRuns: (runIds: string[], baselineId: string | null) => void;
 }) {
   const queries = useEvaluationRunDetails(projectId, runIds);
   const [keyword, setKeyword] = React.useState("");
+  // The Runs menu opens from its button.
+  const [runsMenu, setRunsMenu] = React.useState<RunsMenuView | null>(null);
 
   const isLoading = queries.some((q) => q.isLoading);
   const isError = queries.some((q) => q.isError);
 
-  // Stable per-run colour, keyed by selection order (not display order).
-  const dotFor = React.useCallback(
-    (runId: string) => RUN_DOTS[Math.max(0, runIds.indexOf(runId)) % RUN_DOTS.length],
-    [runIds],
-  );
+  // Per-run colour by selection order (not display order), kept while the run is selected.
+  const dotFor = useRunDots(runIds);
 
   const loaded = React.useMemo<RunBundle[]>(
     () => queries.map((q) => q.data).filter((d): d is NonNullable<typeof d> => !!d),
@@ -69,7 +60,6 @@ export function CompareRunsView({
   // display order (baseline first); and the union of aligned cases.
   const model = React.useMemo(() => buildCompareModel(loaded, baselineId), [loaded, baselineId]);
   const ordered = model.runs;
-  const effectiveBaselineId = model.baselineRunId || null;
   const baseline = ordered[0];
   const crossDataset = model.alignment === "canonical_input";
   const datasetNames = [...new Set(ordered.map((b) => b.run.datasetName ?? "—"))];
@@ -97,6 +87,8 @@ export function CompareRunsView({
   const tagOf = React.useMemo(() => runTagger(ordered), [ordered]);
   const labelOf = React.useMemo(() => runLabeler(ordered, tagOf), [ordered, tagOf]);
   // Runs with no results; with fewer than two runs left, that is why nothing is compared.
+  // Runs to add are suggested from before the newest one compared.
+  const newest = newestRun(ordered);
   const emptyTags = ordered.filter((b) => b.results.length === 0).map((b) => tagOf(b.run.id));
 
   return (
@@ -104,48 +96,52 @@ export function CompareRunsView({
       <div className="flex h-full flex-col text-[12px]">
         <ProjectBreadcrumb projectId={projectId} current="Run Comparison" />
 
-        {/* Search + baseline picker. */}
-        <div className="flex min-h-11 flex-wrap items-center gap-3 border-b border-border px-4 py-1">
-          <div className="relative min-w-[12rem] max-w-md flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="Search..."
-              className="h-8 pl-8 text-[13px]"
+        {/* Search, then the runs, whose menu also picks the baseline. */}
+        <CaseToolbar
+          keyword={keyword}
+          onChangeKeyword={setKeyword}
+          runs={
+            <RunsMenu
+              count={runIds.length}
+              open={runsMenu}
+              onOpenChange={setRunsMenu}
+              legend={
+                baseline
+                  ? {
+                      projectId,
+                      runs: ordered,
+                      baselineRunId: model.baselineRunId,
+                      dotFor,
+                      tagOf,
+                      canRemove: runIds.length > 2,
+                      onSetBaseline: onChangeBaseline,
+                      onRemove: (runId) => {
+                        const runs = runIds.filter((id) => id !== runId);
+                        // Without a baseline in the URL, the oldest run left takes over.
+                        onChangeRuns(
+                          runs,
+                          runId === model.baselineRunId ? null : model.baselineRunId,
+                        );
+                      },
+                    }
+                  : null
+              }
+              picker={
+                baseline && newest
+                  ? {
+                      projectId,
+                      selectedIds: runIds,
+                      anchor: newest.run,
+                      datasetId: baseline.run.datasetId,
+                      // Pin the baseline in use, so an older run added without one in the
+                      // URL doesn't become the default baseline.
+                      onPick: (run) => onChangeRuns([...runIds, run.id], model.baselineRunId),
+                    }
+                  : null
+              }
             />
-          </div>
-          {ordered.length > 0 && baseline && (
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-[12px] text-muted-foreground">Baseline</span>
-              <Select value={effectiveBaselineId ?? ""} onValueChange={(v) => onChangeBaseline(v)}>
-                {/* `[&>span]:!flex` overrides the trigger's base `line-clamp-1`
-                  (display:-webkit-box), which would otherwise swallow the dot. */}
-                <SelectTrigger
-                  className="h-8 w-auto gap-2 text-[13px] [&>span]:!flex [&>span]:items-center [&>span]:gap-2"
-                  title="Baseline run"
-                >
-                  <span className="whitespace-nowrap">
-                    <Dot color={dotFor(baseline.run.id)} />
-                    {labelOf(baseline.run.id)}
-                  </span>
-                </SelectTrigger>
-                <SelectContent align="end">
-                  {ordered.map((b) => (
-                    <SelectItem
-                      key={b.run.id}
-                      value={b.run.id}
-                      className="text-[12px]"
-                      icon={<Dot color={dotFor(b.run.id)} />}
-                    >
-                      {labelOf(b.run.id)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </div>
+          }
+        />
 
         {runIds.length < 2 ? (
           <div className="p-3">
