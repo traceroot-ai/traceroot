@@ -239,7 +239,8 @@ def test_refusal_detail_matches_the_control_plane():
     message out of the control plane's source and compares it.
     """
     source = CONTROL_PLANE_AUTH.read_text(encoding="utf-8")
-    messages = re.findall(r'publicError\(\s*"([^"]+)",\s*403,?\s*\)', source)
+    scope_case = source.split('case "insufficient_scope":', 1)[1].split("default:", 1)[0]
+    messages = re.findall(r'publicError\(\s*"([^"]+)",\s*403,?\s*\)', scope_case)
     assert messages == [INSUFFICIENT_SCOPE_DETAIL], messages
 
 

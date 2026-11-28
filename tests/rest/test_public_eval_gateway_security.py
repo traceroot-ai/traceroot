@@ -154,7 +154,8 @@ class TestUpstreamPathAllowlist:
 
 
 class TestForwardedHeaderAllowlist:
-    def test_cookie_and_spoofable_headers_are_stripped(self, client, upstream):
+    def test_cookie_and_spoofable_headers_are_stripped(self, client, upstream, monkeypatch):
+        monkeypatch.setattr(eval_gateway.settings, "internal_api_secret", "gateway-test-secret")
         # A write: the reads are no longer forwarded, so the header allowlist is exercised
         # on the traffic that still crosses the boundary.
         resp = client.post(
@@ -174,9 +175,10 @@ class TestForwardedHeaderAllowlist:
         forwarded = upstream.calls.last.request.headers
         # The confused-deputy credential must not cross the trust boundary.
         assert "cookie" not in forwarded
-        for name in ("x-forwarded-for", "x-real-ip", "x-internal-secret", "te"):
+        for name in ("x-forwarded-for", "x-real-ip", "te"):
             assert name not in forwarded, name
         # What the SDK legitimately needs still arrives.
+        assert forwarded["x-internal-secret"] == "gateway-test-secret"
         assert forwarded["authorization"] == "Bearer tr_sometoken"
         assert forwarded["user-agent"] == "traceroot-sdk/1.0"
 

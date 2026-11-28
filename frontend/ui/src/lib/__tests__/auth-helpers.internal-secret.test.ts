@@ -9,12 +9,9 @@
  *    byte-by-byte. The spy assertion fails if this is ever refactored back to
  *    a short-circuiting string comparison.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { timingSafeEqual } from "crypto";
 
-const envMock = vi.hoisted(() => ({ INTERNAL_API_SECRET: "test-secret" }));
-
-vi.mock("@/env", () => ({ env: envMock }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: vi.fn() } } }));
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
 vi.mock("@traceroot/core", () => ({
@@ -35,8 +32,10 @@ function requestWithSecret(secret?: string): Request {
 }
 
 describe("verifyInternalSecret", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
-    envMock.INTERNAL_API_SECRET = "test-secret";
+    vi.stubEnv("INTERNAL_API_SECRET", "test-secret");
     vi.mocked(timingSafeEqual).mockClear();
   });
 
@@ -65,8 +64,21 @@ describe("verifyInternalSecret", () => {
     // env validation rejects a blank INTERNAL_API_SECRET at boot, so this is
     // unreachable in a running app — pinned anyway so the guard survives any
     // future loosening of that validation.
-    envMock.INTERNAL_API_SECRET = "";
+    vi.stubEnv("INTERNAL_API_SECRET", "");
     expect(verifyInternalSecret(requestWithSecret(""))).toBe(false);
+    expect(verifyInternalSecret(requestWithSecret("anything"))).toBe(false);
+  });
+
+  it.each(["changeme", "dev-internal-secret", "   "])(
+    "rejects an unusable configured secret %j even when the caller supplies it",
+    (secret) => {
+      vi.stubEnv("INTERNAL_API_SECRET", secret);
+      expect(verifyInternalSecret(requestWithSecret(secret))).toBe(false);
+    },
+  );
+
+  it("fails closed when the configured secret is missing", () => {
+    vi.stubEnv("INTERNAL_API_SECRET", undefined);
     expect(verifyInternalSecret(requestWithSecret("anything"))).toBe(false);
   });
 

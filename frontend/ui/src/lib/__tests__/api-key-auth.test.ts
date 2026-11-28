@@ -13,19 +13,21 @@
  * (3) is the regression guard: unifying the lookup must not change the
  * reporting routes' responses.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashApiKey } from "@/lib/api-keys";
 
 const prismaMock = vi.hoisted(() => ({
   accessKey: { findUnique: vi.fn(), update: vi.fn() },
 }));
 
-vi.mock("@traceroot/core", () => ({ prisma: prismaMock }));
+const billingMock = vi.hoisted(() => vi.fn(() => true));
+vi.mock("@traceroot/core", () => ({ prisma: prismaMock, isBillingEnabled: billingMock }));
 
 import { requireApiKeyProject, resolveApiKeyProject, parseScope } from "@/lib/public-auth";
 import { requireEvalApiKeyProject } from "@/lib/eval/auth";
 
 const KEY = "tr-11111111-2222-3333-4444-555555555555";
+const INTERNAL_SECRET = "gateway-test-secret";
 
 function keyRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -42,20 +44,42 @@ function keyRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function req(authorization?: string): Request {
-  return new Request("http://localhost/api/public/datasets", {
-    headers: authorization === undefined ? {} : { authorization },
-  });
+function req(authorization?: string, internalSecret: string | null = INTERNAL_SECRET): Request {
+  const headers = new Headers();
+  if (authorization !== undefined) headers.set("authorization", authorization);
+  if (internalSecret !== null) headers.set("X-Internal-Secret", internalSecret);
+  return new Request("http://localhost/api/public/datasets", { headers });
 }
 
 beforeEach(() => {
+  vi.stubEnv("INTERNAL_API_SECRET", INTERNAL_SECRET);
+  billingMock.mockReturnValue(true);
   prismaMock.accessKey.findUnique.mockReset();
   prismaMock.accessKey.update.mockReset();
   prismaMock.accessKey.findUnique.mockResolvedValue(keyRow());
   prismaMock.accessKey.update.mockResolvedValue({});
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("resolveApiKeyProject", () => {
+  it.each([null, "guessed-secret"])(
+    "refuses cloud bypass with internal secret %s",
+    async (secret) => {
+      expect(await resolveApiKeyProject(req(`Bearer ${KEY}`, secret))).toEqual({
+        ok: false,
+        reason: "gateway_required",
+      });
+      expect(prismaMock.accessKey.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.accessKey.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves direct API access on self-host", async () => {
+    billingMock.mockReturnValue(false);
+    expect((await resolveApiKeyProject(req(`Bearer ${KEY}`, null))).ok).toBe(true);
+  });
+
   it("resolves the project and scope for a valid key", async () => {
     const result = await resolveApiKeyProject(req(`Bearer ${KEY}`));
     expect(result).toEqual({
@@ -156,6 +180,15 @@ describe("resolveApiKeyProject", () => {
 });
 
 describe("requireApiKeyProject (Bearer public API)", () => {
+  it("rejects direct cloud requests in the public detail envelope", async () => {
+    const result = await requireApiKeyProject(req(`Bearer ${KEY}`, null));
+    if (result.ok) throw new Error("expected a refusal");
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({
+      detail: "Use the public API gateway at /api/v1/public.",
+    });
+  });
+
   it("answers a flat 401 {detail} that does not distinguish the reason", async () => {
     const bodies: unknown[] = [];
     for (const row of [
@@ -199,6 +232,15 @@ describe("requireApiKeyProject (Bearer public API)", () => {
 });
 
 describe("requireEvalApiKeyProject (SDK reporting surface)", () => {
+  it("rejects direct cloud requests in the reporting error envelope", async () => {
+    const result = await requireEvalApiKeyProject(req(`Bearer ${KEY}`, null));
+    if (!result.error) throw new Error("expected a refusal");
+    expect(result.error.status).toBe(403);
+    expect(await result.error.json()).toEqual({
+      error: "Use the public API gateway at /api/v1/public.",
+    });
+  });
+
   it("returns the project id for a valid key of either scope", async () => {
     for (const scope of ["ingest", "admin"]) {
       prismaMock.accessKey.findUnique.mockResolvedValue(keyRow({ scope }));

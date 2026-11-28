@@ -13,6 +13,7 @@ import {
 // this handler hanging. `withTimeout` keeps the deadline armed across the whole
 // provider check (including the error-body reads below).
 import { TimeoutError, withTimeout } from "./timeout";
+import { withWorkspaceRateLimit } from "@/lib/workspace-rate-limit";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -119,6 +120,10 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
   );
   if (membershipResult.error) return membershipResult.error;
 
+  return withWorkspaceRateLimit(workspaceId, () => testProvider(request, workspaceId));
+}
+
+async function testProvider(request: NextRequest, workspaceId: string) {
   let body: unknown;
   try {
     body = await request.json();

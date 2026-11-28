@@ -173,6 +173,7 @@ async def forward(
     url = f"{settings.traceroot_ui_url.rstrip('/')}/api/public/{subpath}"
     body = await _read_capped_body(request)
     headers = {k: v for k, v in request.headers.items() if k.lower() in _FORWARD_REQUEST_HEADERS}
+    headers["X-Internal-Secret"] = settings.internal_api_secret
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             upstream = await client.request(

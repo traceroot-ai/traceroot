@@ -30,6 +30,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/internal/traces"),
     ("POST", "/api/v1/internal/traces/agent"),
     ("GET", "/api/v1/internal/label-target"),
+    ("POST", "/api/v1/internal/rate-limit"),
     # Alerts (#1889): the worker asks REST to evaluate a rule's measure over a window.
     ("POST", "/api/v1/internal/alert-evaluate"),
     # Dashboard mirror for the agent (be0f0f29): read-only listing and detail,

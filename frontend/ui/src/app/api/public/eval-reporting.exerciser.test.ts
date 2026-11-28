@@ -37,7 +37,10 @@ const PROJECT_ID = "proj_1";
 
 function req(body: unknown) {
   return {
-    headers: new Headers({ authorization: `Bearer ${API_KEY}` }),
+    headers: new Headers({
+      authorization: `Bearer ${API_KEY}`,
+      "X-Internal-Secret": process.env.INTERNAL_API_SECRET!,
+    }),
     json: async () => body,
   } as unknown as Request;
 }

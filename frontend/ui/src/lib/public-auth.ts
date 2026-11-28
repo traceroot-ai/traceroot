@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@traceroot/core";
+import { isBillingEnabled, prisma } from "@traceroot/core";
 import { hashApiKey } from "@/lib/api-keys";
+import { verifyInternalSecret } from "@/lib/internal-secret";
 
 /**
  * Bearer-API-key authentication for the public API surface.
  *
- * The public API is reached two ways and both land here: directly, and through
- * the Python gateway, which forwards the caller's Bearer token rather than
- * exchanging it — so the key is re-validated authoritatively in the one place
- * that owns the key store.
+ * On cloud this surface is internal to the metered Python gateway. The gateway
+ * authenticates itself and forwards the caller's Bearer token, so the key is
+ * still re-validated by the one place that owns the key store. Self-hosted
+ * deployments, which have no plan-based limits, may also call it directly.
  *
  * This deliberately mirrors `internal/validate-api-key` (same lookup, same
  * rejection reasons, same `lastUseTime` bookkeeping). It is a separate function
@@ -60,6 +61,7 @@ export type PublicAuthResult =
  */
 export type ApiKeyRejection =
   | "missing_token"
+  | "gateway_required"
   | "not_found"
   | "project_deleted"
   | "expired"
@@ -116,6 +118,10 @@ export async function resolveApiKeyProject(
   const token = bearerToken(request);
   if (token === null) {
     return { ok: false, reason: "missing_token" };
+  }
+
+  if (isBillingEnabled() && !verifyInternalSecret(request)) {
+    return { ok: false, reason: "gateway_required" };
   }
 
   const accessKey = await prisma.accessKey.findUnique({
@@ -210,6 +216,11 @@ export async function requireApiKeyProject(
   }
 
   switch (result.reason) {
+    case "gateway_required":
+      return {
+        ok: false,
+        response: publicError("Use the public API gateway at /api/v1/public.", 403),
+      };
     case "missing_token":
       return {
         ok: false,

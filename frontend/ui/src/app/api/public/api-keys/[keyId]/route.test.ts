@@ -18,6 +18,7 @@ const findUniqueMock = vi.fn();
 const deleteManyMock = vi.fn();
 const updateMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
+  isBillingEnabled: () => true,
   prisma: {
     accessKey: {
       findUnique: (...a: unknown[]) => findUniqueMock(...a),
@@ -42,9 +43,10 @@ function authRow(overrides: Record<string, unknown> = {}) {
 
 function request() {
   return {
-    headers: {
-      get: (n: string) => (n.toLowerCase() === "authorization" ? "Bearer tr-caller" : null),
-    },
+    headers: new Headers({
+      authorization: "Bearer tr-caller",
+      "X-Internal-Secret": process.env.INTERNAL_API_SECRET!,
+    }),
   } as unknown as Parameters<typeof DELETE>[0];
 }
 
