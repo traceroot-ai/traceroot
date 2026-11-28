@@ -453,6 +453,33 @@ def test_capture_markers_survive_alongside_explicit_metadata():
     assert metadata[CAPTURE_BUDGET_EXCEEDED] is True
 
 
+def test_unknown_attributes_survive_alongside_explicit_metadata():
+    """Explicit metadata adds to the span's attribute bag; it does not replace it.
+
+    The TS SDK records model parameters and the prompt as ordinary attributes on
+    every model span, so a user who also passes `metadata` must not lose them.
+    On a key collision the user's value wins.
+    """
+    payload = _otel_payload(
+        [
+            _attr("traceroot.span.metadata", json.dumps({"customer": "acme", "tier": "gold"})),
+            _attr("traceroot.llm.model_parameters", '{"temperature": 0.2}'),
+            _attr("llm.invocation_parameters", '{"max_tokens": 256}'),
+            _attr("tier", "free"),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    metadata = json.loads(spans[0]["metadata"])
+
+    assert metadata == {
+        "customer": "acme",
+        "tier": "gold",
+        "traceroot.llm.model_parameters": '{"temperature": 0.2}',
+        "llm.invocation_parameters": '{"max_tokens": 256}',
+    }
+
+
 def test_capture_markers_survive_without_explicit_metadata():
     """The other branch keeps them too — they are ordinary unknown attributes there."""
     payload = _otel_payload([_attr(TRUNCATED, True)])
