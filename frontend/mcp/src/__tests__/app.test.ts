@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, parseAllowedHosts, parseListenPort } from "../app.js";
 import { EXPOSED_TOOLS } from "../exposure.js";
+import { SERVER_INSTRUCTIONS } from "../instructions.js";
 
 type Backend = (url: URL, init: RequestInit) => { status: number; body: unknown };
 
@@ -79,6 +80,12 @@ describe("MCP app", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toBe("Bearer");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("tells a connecting client what the server is and how to use it", async () => {
+    const { app } = appWith(() => ({ status: 200, body: {} }));
+    const client = await connect(app);
+    expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
   });
 
   it("refuses a Host it is not configured for", async () => {
@@ -183,7 +190,7 @@ describe("MCP app", () => {
     );
     expect(response.status).toBe(200);
     const text = await response.text();
-    expect(text).toContain('{\\n  \\"traces\\": []\\n}');
+    expect(text).toContain('{\\"traces\\":[]}');
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.headers).toEqual({ Authorization: "Bearer tr-legacy" });
   });

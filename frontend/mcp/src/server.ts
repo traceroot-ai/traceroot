@@ -1,6 +1,14 @@
-import { ApiClient, REGISTRY, toMcpTool, type ToMcpToolOptions } from "@traceroot-ai/tools";
+import {
+  ApiClient,
+  REGISTRY,
+  toMcpTool,
+  type McpTool,
+  type ToMcpToolOptions,
+} from "@traceroot-ai/tools";
 import { McpServer, fromJsonSchema, type JsonSchemaType } from "@modelcontextprotocol/server";
 import { SURFACE_HIDDEN_PARAMS, exposedEntries } from "./exposure.js";
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
+import { PARAM_DESCRIPTIONS } from "./param-docs.js";
 import { traceReadDefaults, withholdTraceContent } from "./trace-content.js";
 
 const GET_TRACE_NOTE =
@@ -15,14 +23,37 @@ export interface ServerConfig {
   fetchImpl?: typeof fetch;
 }
 
+const registryDescription = (name: string) =>
+  REGISTRY.find((entry) => entry.name === name)!.description;
+
 /** Per-tool shaping that is specific to this surface. */
 const TOOL_OPTIONS: Readonly<Record<string, Partial<ToMcpToolOptions>>> = {
   get_trace: {
     defaults: traceReadDefaults,
     transformResult: withholdTraceContent,
-    description: REGISTRY.find((entry) => entry.name === "get_trace")!.description + GET_TRACE_NOTE,
+    description: registryDescription("get_trace") + GET_TRACE_NOTE,
+  },
+  run_widget_query: {
+    // The registry's wording points at create_widget, which this surface does not
+    // offer; the spec parameter carries the shape.
+    description: registryDescription("run_widget_query").replace(
+      "the same spec shape as create_widget",
+      "a widget spec",
+    ),
   },
 };
+
+/** The exposed tools, built against `client`. What a connected assistant is offered. */
+export function buildTools(client: ApiClient): McpTool[] {
+  return exposedEntries(REGISTRY).map((entry) =>
+    toMcpTool(entry, {
+      client,
+      hiddenParams: SURFACE_HIDDEN_PARAMS,
+      paramDescriptions: PARAM_DESCRIPTIONS,
+      ...TOOL_OPTIONS[entry.name],
+    }),
+  );
+}
 
 /**
  * Build the server for one request. The caller's credential is forwarded
@@ -36,14 +67,12 @@ export function createServer(authorization: string, config: ServerConfig): McpSe
     timeoutMs: config.timeoutMs,
     fetchImpl: config.fetchImpl,
   });
-  const server = new McpServer({ name: "traceroot", version: "0.0.1" });
+  const server = new McpServer(
+    { name: "traceroot", version: "0.0.1" },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
-  for (const entry of exposedEntries(REGISTRY)) {
-    const tool = toMcpTool(entry, {
-      client,
-      hiddenParams: SURFACE_HIDDEN_PARAMS,
-      ...TOOL_OPTIONS[entry.name],
-    });
+  for (const tool of buildTools(client)) {
     server.registerTool(
       tool.name,
       {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../client.js";
-import { toMcpTool } from "../mcp.js";
+import { DEFAULT_MAX_RESULT_CHARS, toMcpTool, truncateResult } from "../mcp.js";
 import type { RegistryEntry, ToolAnnotations } from "../types.js";
 
 function fakeFetch(status: number, body: unknown) {
@@ -147,5 +147,64 @@ describe("toMcpTool", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain("API error 401");
     expect(result.content[0]!.text).toContain("bad key");
+  });
+
+  describe("paramDescriptions", () => {
+    const entry: RegistryEntry = {
+      ...listTraces,
+      inputSchema: {
+        ...listTraces.inputSchema,
+        properties: {
+          project_id: { type: "string", description: "Project" },
+          trace_id: { type: "string" },
+          limit: { type: "integer", description: "Items per page" },
+        },
+      },
+    };
+    const options = { client: clientWith(fakeFetch(200, {})), hiddenParams: ["project_id"] };
+
+    it("describes a param the registry leaves bare", () => {
+      const tool = toMcpTool(entry, {
+        ...options,
+        paramDescriptions: { trace_id: "Id of the trace, from list_traces." },
+      });
+      expect(tool.inputSchema.properties.trace_id).toEqual({
+        type: "string",
+        description: "Id of the trace, from list_traces.",
+      });
+    });
+
+    it("never replaces a description the registry already has", () => {
+      const tool = toMcpTool(entry, { ...options, paramDescriptions: { limit: "something else" } });
+      expect(tool.inputSchema.properties.limit).toMatchObject({ description: "Items per page" });
+    });
+  });
+
+  describe("the result text", () => {
+    it("is compact JSON", async () => {
+      const tool = toMcpTool(listTraces, {
+        client: clientWith(fakeFetch(200, { data: [{ a: 1 }] })),
+      });
+      const { content } = await tool.execute({ project_id: "p" });
+      expect(content[0]?.text).toBe('{"data":[{"a":1}]}');
+    });
+
+    it("is cut at the limit, with what to do about it", async () => {
+      const tool = toMcpTool(listTraces, {
+        client: clientWith(fakeFetch(200, { data: "x".repeat(500) })),
+        maxResultChars: 100,
+      });
+      const { content, isError } = await tool.execute({ project_id: "p" });
+      const text = content[0]?.text ?? "";
+      expect(isError).toBeUndefined();
+      expect(text.startsWith('{"data":"xxx')).toBe(true);
+      expect(text).toContain("Result truncated");
+      expect(text).toContain("Narrow the request");
+    });
+
+    it("is left alone under the limit", () => {
+      expect(truncateResult("short", 100)).toBe("short");
+      expect(DEFAULT_MAX_RESULT_CHARS).toBeGreaterThan(10_000);
+    });
   });
 });
