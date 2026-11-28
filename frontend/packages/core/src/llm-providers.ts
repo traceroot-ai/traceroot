@@ -134,6 +134,7 @@ export const SYSTEM_MODELS: {
     // (ADAPTER_MODELS.anthropic).
     models: [
       { id: "claude-opus-4-8", label: "claude-opus-4-8" },
+      { id: "claude-opus-5", label: "claude-opus-5", requiresExplicitSource: true },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
       { id: "claude-opus-4-6", label: "claude-opus-4-6" },
       { id: "claude-sonnet-5", label: "claude-sonnet-5" },
