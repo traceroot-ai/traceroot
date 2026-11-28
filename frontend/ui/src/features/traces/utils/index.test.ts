@@ -209,6 +209,42 @@ describe("enrichSpansWithPending", () => {
     expect(result.filter((s) => s.pending)).toHaveLength(0);
   });
 
+  it.each(["null", "false", "0", '"text"', "[]", "[null]", "not json"])(
+    "preserves a child span whose metadata is %s",
+    (metadata) => {
+      const child = makeSpan({ span_id: "child", parent_span_id: "parent", metadata });
+
+      expect(enrichSpansWithPending([child])).toEqual([child]);
+      expect(child.metadata).toBe(metadata);
+    },
+  );
+
+  it.each([
+    { label: "null IDs", ids: null, names: ["parent", "child"] },
+    { label: "string IDs", ids: "parent", names: ["parent", "child"] },
+    { label: "object IDs", ids: { 0: "parent", length: 1 }, names: ["parent", "child"] },
+    { label: "non-string ID", ids: [42], names: ["parent", "child"] },
+    { label: "null ID", ids: [null], names: ["parent", "child"] },
+    { label: "nested ID", ids: [["parent"]], names: ["parent", "child"] },
+    { label: "null names", ids: ["parent"], names: null },
+    { label: "string names", ids: ["parent"], names: "xy" },
+    { label: "object names", ids: ["parent"], names: { 0: "parent", 1: "child", length: 2 } },
+    { label: "non-string name", ids: ["parent"], names: ["parent", 42] },
+    { label: "null name", ids: ["parent"], names: [null, "child"] },
+    { label: "object name", ids: ["parent"], names: [{}, "child"] },
+  ])("ignores $label without inventing ancestors", ({ ids, names }) => {
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "parent",
+      metadata: JSON.stringify({
+        "traceroot.span.ids_path": ids,
+        "traceroot.span.path": names,
+      }),
+    });
+
+    expect(enrichSpansWithPending([child])).toEqual([child]);
+  });
+
   it("strips existing pending spans from the real spans list before merging", () => {
     // If a real span arrives to replace a pending placeholder, the pending one
     // should not appear in the output alongside the real one.
