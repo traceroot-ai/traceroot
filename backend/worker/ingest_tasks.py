@@ -409,7 +409,7 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 for trace_id, m in _task_metrics_by_trace(rows).items():
                     # Written unconditionally — see the docstring. NULLIF keeps a genuinely
                     # cost-less (or model-call-less) trace at NULL rather than a misleading
-                    # 0, while still letting a previously over-reported total be corrected
+                    # 0, while still letting an over-reported total be corrected
                     # back down. Every metric here shares that property, so they are written
                     # in one statement.
                     cur.execute(
