@@ -1495,7 +1495,7 @@
   {
     "id": "tr-glm-4-5-air",
     "modelName": "glm-4.5-air",
-    "matchPattern": "(?i)^(zai\\/)?glm-4\\.5-air(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(zai\\/|z-ai\\/)?glm-4\\.5-air(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
       "input": 0.0000002,

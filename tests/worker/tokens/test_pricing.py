@@ -221,6 +221,7 @@ GLM_MODEL_CASES = [
     ("zai/glm-4.5", "glm-4.5"),
     ("glm-4.5-air", "glm-4.5-air"),
     ("zai/glm-4.5-air", "glm-4.5-air"),
+    ("z-ai/glm-4.5-air", "glm-4.5-air"),
     ("glm-4.5-flash", "glm-4.5-flash"),
 ]
 
