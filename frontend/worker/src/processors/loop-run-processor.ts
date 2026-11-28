@@ -3,11 +3,13 @@
  * its window has traces, its model, then the agent service's loop-run route on
  * a fresh system session. The agent reads traces and answers with a summary and
  * its findings; this processor owns the run's lifecycle (loop_runs.status) from
- * pending to its end state. The findings are recorded as hits of the Loop's
- * hidden detector, which the signals round groups into signals, in one step
- * with the run's finish while its row is locked as this try's: a reclaim waits
- * for that step, and a try that lost the run records nothing. A dry run's answer
- * has none (the agent route drops them).
+ * pending to its end state. A run with findings is accepted by its finish:
+ * succeeded with their keys, and the findings stored on the row, in one write
+ * that lands only while the run is still this try's. They are then published
+ * as hits of the Loop's hidden detector, which the signals round groups into
+ * signals; a publish that does not complete is finished by the Loop tick (see
+ * loops/publish.ts). A try that lost the run accepts nothing and publishes
+ * nothing. A dry run's answer has none (the agent route drops them).
  */
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@traceroot/core";
@@ -20,8 +22,8 @@ import {
   type LoopRunModel,
 } from "@traceroot/core/loops";
 import { resolveProjectModel, type ResolvedModel } from "../agent/resolve-model.js";
-import { finishLoopRun, finishLoopRunLocked, type LoopRunFinish } from "../loops/finish.js";
-import { recordLoopFindings } from "../loops/findings.js";
+import { finishLoopRun, type LoopRunFinish } from "../loops/finish.js";
+import { PENDING_FINDINGS_KEY, pendingFindingsOf, publishLoopFindings } from "../loops/publish.js";
 import { startLoopRun } from "../loops/start.js";
 import { windowHasTraces } from "../loops/window-traces.js";
 import {
@@ -42,8 +44,6 @@ export const LOOP_SESSION_TIMEOUT_ERROR =
   "The agent service did not create the loop session in time.";
 
 export const LOOP_NO_SUMMARY = "The run ended without a summary.";
-export const LOOP_FINDINGS_FAILED =
-  "The run's findings could not be recorded. Try running it again.";
 
 export function noTracesSkip(lookbackHours: number): string {
   return `Skipped: no traces in the last ${lookbackHours} ${lookbackHours === 1 ? "hour" : "hours"}.`;
@@ -78,7 +78,7 @@ export function outcomeOf(result: LoopAgentResult, timeoutMs: number): LoopRunFi
   switch (result.status) {
     case "submitted":
     case "budget_exhausted":
-      // Quiet until its findings are recorded (see recordFindings).
+      // Quiet, unless it has findings to accept (see processLoopRun).
       return summary
         ? { status: "quiet", ...usage }
         : { status: "failed", ...usage, error: LOOP_NO_SUMMARY };
@@ -136,7 +136,7 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
   // What the agent says it ran on; it alone knows its default when we sent none.
   let ranOn: LoopRunModel | null = null;
   let finish: LoopRunFinish;
-  // The findings to record with the finish, under the run's lock.
+  // The findings the finish accepts.
   let findings: LoopFinding[] = [];
   try {
     if (!(await hasTracesToRead(run.id, project.id, loop.lookbackHours))) {
@@ -203,47 +203,30 @@ export async function processLoopRun(job: Pick<Job<LoopRunJob>, "data">): Promis
     return;
   }
 
-  // A try that outlived its reclaim, or whose run already finished, records
-  // nothing and writes no finish.
-  const answered = finish;
-  try {
-    const owned = await finishLoopRunLocked(running, async () =>
-      withModel(await recordFindings(project.id, loop, findings, answered)),
+  // Accepted in the finish's one write: a try that outlived its reclaim, or
+  // whose run already finished, accepts nothing and so publishes nothing.
+  const now = new Date();
+  const pending = pendingFindingsOf(findings, now.getTime());
+  const accepted = await finishLoopRun(
+    running,
+    withModel({
+      ...finish,
+      status: "succeeded",
+      findingKeys: pending.findings.map((f) => f.key),
+      metadata: { ...finish.metadata, [PENDING_FINDINGS_KEY]: pending },
+    }),
+    now,
+  );
+  if (!accepted) {
+    console.log(
+      `[Loops] run=${run.id} attempt ${run.attempts} is stale; its findings are not accepted.`,
     );
-    if (!owned) {
-      console.log(
-        `[Loops] run=${run.id} attempt ${run.attempts} is stale; its findings are not recorded.`,
-      );
-    }
-  } catch (error) {
-    // The locked step did not commit (a database write failed or its time ran
-    // out): the failure is written on its own, and lands only while the run is
-    // still this try's.
-    console.error(`[Loops] run=${run.id} could not finish with its findings:`, error);
-    await finishLoopRun(
-      running,
-      withModel({ ...answered, status: "failed", error: LOOP_FINDINGS_FAILED }),
-    );
+    return;
   }
-}
-
-/**
- * Record the run's findings: "succeeded" with the keys that have a written hit
- * (see recordLoopFindings), or "failed" when no hit was written.
- */
-export async function recordFindings(
-  projectId: string,
-  loop: { id: string; name: string; detectorId: string },
-  findings: LoopFinding[],
-  finish: LoopRunFinish,
-): Promise<LoopRunFinish> {
-  try {
-    const findingKeys = await recordLoopFindings({ projectId, loop, findings });
-    return findingKeys.length > 0 ? { ...finish, status: "succeeded", findingKeys } : finish;
-  } catch (error) {
-    console.error(`[Loops] loop=${loop.id} failed to record findings:`, error);
-    return { ...finish, status: "failed", error: LOOP_FINDINGS_FAILED };
-  }
+  // The tick republishes whatever this leaves pending.
+  await publishLoopFindings(run.id, pending.tries).catch((error: unknown) =>
+    console.error(`[Loops] run=${run.id} could not publish its findings:`, error),
+  );
 }
 
 async function callAgent(params: {

@@ -62,19 +62,19 @@ describe("recordLoopFindings", () => {
       inFlight -= 1;
     });
     const traces = Array.from({ length: 20 }, (_, i) => `t${i}`);
-    const keys = await recordLoopFindings({
+    const result = await recordLoopFindings({
       projectId: "p",
       loop,
       findings: [finding("a-key", traces), finding("b-key", traces)],
     });
-    expect(keys).toEqual(["a-key", "b-key"]);
+    expect(result).toEqual({ keys: ["a-key", "b-key"], failed: 0 });
     expect(mocks.writeDetectorFinding).toHaveBeenCalledTimes(40);
     expect(most).toBe(HIT_WRITE_CONCURRENCY);
   });
 
   it("writes a finding and a completed run per trace, one timestamp per finding", async () => {
     let clock = 1_000;
-    const keys = await recordLoopFindings({
+    const { keys } = await recordLoopFindings({
       projectId: "p",
       loop,
       findings: [finding("tool-timeouts", ["t1", "t2"])],
@@ -116,7 +116,7 @@ describe("recordLoopFindings", () => {
   });
 
   it("gives a trace in two findings two runs, and enqueues the round once", async () => {
-    const keys = await recordLoopFindings({
+    const { keys } = await recordLoopFindings({
       projectId: "p",
       loop,
       findings: [finding("a-key", ["t1"]), finding("b-key", ["t1", "t2"])],
@@ -135,7 +135,7 @@ describe("recordLoopFindings", () => {
   });
 
   it("lists a repeated key once, writing its first finding", async () => {
-    const keys = await recordLoopFindings({
+    const { keys } = await recordLoopFindings({
       projectId: "p",
       loop,
       findings: [finding("a-key", ["t1"]), finding("a-key", ["t2"])],
@@ -155,12 +155,12 @@ describe("recordLoopFindings", () => {
       }
     });
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const keys = await recordLoopFindings({
+    const result = await recordLoopFindings({
       projectId: "p",
       loop,
       findings: [finding("a-key", ["t1", "t2"]), finding("b-key", ["t3"])],
     });
-    expect(keys).toEqual(["a-key"]);
+    expect(result).toEqual({ keys: ["a-key"], failed: 2 });
     // Every write was attempted: one failure does not abort the others.
     expect(mocks.writeDetectorFinding).toHaveBeenCalledTimes(3);
     expect(errors.mock.calls.map((c) => c[0])).toEqual([
@@ -184,7 +184,7 @@ describe("recordLoopFindings", () => {
   it("keeps the findings when the enqueue fails: the sweeper picks the hits up", async () => {
     mocks.enqueueSignalHits.mockRejectedValueOnce(new Error("redis down"));
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const keys = await recordLoopFindings({
+    const { keys } = await recordLoopFindings({
       projectId: "p",
       loop,
       findings: [finding("a-key", ["t1"])],

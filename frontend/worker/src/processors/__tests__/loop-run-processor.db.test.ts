@@ -11,7 +11,7 @@
  * toward its daily cap, and its Loops have no nextRunAt, so no tick claims them.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { prisma, type Prisma } from "@traceroot/core";
+import { prisma } from "@traceroot/core";
 import {
   LOOP_LIMITS,
   createLoopWithDetector,
@@ -29,6 +29,12 @@ import {
 import { loopFindingRunId } from "../../loops/findings.js";
 import {
   LOOP_FINDINGS_FAILED,
+  LOOP_PUBLISH_MAX_TRIES,
+  PENDING_FINDINGS_KEY,
+  publishLoopFindings,
+  recoverPendingFindings,
+} from "../../loops/publish.js";
+import {
   LOOP_SESSION_TIMEOUT_ERROR,
   LOOP_SESSION_TIMEOUT_MS,
   noTracesSkip,
@@ -51,6 +57,8 @@ const mocks = vi.hoisted(() => ({
   writeDetectorRun: vi.fn(),
   enqueueSignalHits: vi.fn(),
   windowHasTraces: vi.fn(),
+  /** Set by a test to stop the worker right after its finish accepted the findings. */
+  crashBeforePublish: false,
 }));
 vi.mock("../../agent/resolve-model.js", () => ({
   resolveProjectModel: mocks.resolveProjectModel,
@@ -61,6 +69,17 @@ vi.mock("../../detection/clickhouse-writer.js", () => ({
 }));
 vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mocks.enqueueSignalHits }));
 vi.mock("../../loops/window-traces.js", () => ({ windowHasTraces: mocks.windowHasTraces }));
+vi.mock("../../loops/publish.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../loops/publish.js")>();
+  return {
+    ...actual,
+    // Only the worker's own call: the tick's recovery calls the module's publish.
+    publishLoopFindings: (runId: string, tries: number) =>
+      mocks.crashBeforePublish
+        ? Promise.reject(new Error("worker stopped"))
+        : actual.publishLoopFindings(runId, tries),
+  };
+});
 
 const url = process.env.TEST_DATABASE_URL;
 const billingAtLoad = process.env.ENABLE_BILLING;
@@ -260,6 +279,7 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
     mocks.writeDetectorRun.mockReset().mockResolvedValue(undefined);
     mocks.enqueueSignalHits.mockReset().mockResolvedValue(1);
     mocks.windowHasTraces.mockReset().mockResolvedValue(true);
+    mocks.crashBeforePublish = false;
     agentAnswers({});
   });
   afterEach(() => {
@@ -696,18 +716,29 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       },
     ];
 
-    it("records the findings as hits of the loop's detector and succeeds with their keys", async () => {
+    /** The findings a run accepted and has not published yet, if any. */
+    async function pendingOf(runId: string) {
+      const { metadata } = await runRow(runId);
+      return (metadata as Record<string, unknown> | null)?.[PENDING_FINDINGS_KEY] as
+        | { tries: number; findings: unknown[] }
+        | undefined;
+    }
+
+    it("accepts the findings, publishes them as hits of the loop's detector, and clears them", async () => {
       const ids = await setup();
       const { detectorId } = await loopRow(ids.loopId);
       const run = await addRun(ids);
       agentAnswers({ findings });
       await runJob(run.id);
-      expect(await runRow(run.id)).toMatchObject({
+      const row = await runRow(run.id);
+      expect(row).toMatchObject({
         status: "succeeded",
         findingKeys: ["tool-timeouts", "wrong-city"],
         summary: "Nothing recurring in the last 24 hours.",
         error: null,
       });
+      expect(row.metadata).toMatchObject({ model: "claude-sonnet", toolCalls: 12 });
+      expect(await pendingOf(run.id)).toBeUndefined();
       expect(mocks.writeDetectorFinding).toHaveBeenCalledTimes(3);
       expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
       for (const [row] of mocks.writeDetectorRun.mock.calls) {
@@ -722,10 +753,11 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       agentAnswers({ findings: [] });
       await runJob(run.id);
       expect(await runRow(run.id)).toMatchObject({ status: "quiet", findingKeys: [] });
+      expect(await pendingOf(run.id)).toBeUndefined();
       expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
     });
 
-    it("succeeds with the keys that have a written hit when some writes fail", async () => {
+    it("keeps the findings pending when some writes fail, until the tick republishes them", async () => {
       const ids = await setup();
       const { detectorId } = await loopRow(ids.loopId);
       const run = await addRun(ids);
@@ -738,9 +770,18 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       await runJob(run.id);
       expect(await runRow(run.id)).toMatchObject({
         status: "succeeded",
-        findingKeys: ["tool-timeouts"],
+        findingKeys: ["tool-timeouts", "wrong-city"],
+        error: null,
       });
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 1 });
+      // The hit that landed is enqueued now.
       expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+
+      mocks.writeDetectorRun.mockReset().mockResolvedValue(undefined);
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("published");
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(2);
     });
 
     it("fails a run whose agent answer does not match the contract", async () => {
@@ -755,21 +796,90 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
       expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
     });
 
-    it("fails, keeping the summary, when no finding can be written", async () => {
+    it("loses nothing when the backend times out after the accept: the tick publishes later", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      mocks.writeDetectorFinding.mockRejectedValue(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+      );
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "succeeded",
+        findingKeys: ["tool-timeouts", "wrong-city"],
+        error: null,
+        summary: "Nothing recurring in the last 24 hours.",
+      });
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 1, findings });
+      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+
+      mocks.writeDetectorFinding.mockReset().mockResolvedValue(undefined);
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("published");
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+    });
+
+    it("publishes after a crash between the accept and the publish", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      mocks.crashBeforePublish = true;
+      await runJob(run.id);
+      expect(await runRow(run.id)).toMatchObject({
+        status: "succeeded",
+        findingKeys: ["tool-timeouts", "wrong-city"],
+      });
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 1 });
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("published");
+      expect(await pendingOf(run.id)).toBeUndefined();
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not let an earlier publish try publish or clear a later try's claim", async () => {
+      const ids = await setup();
+      const run = await addRun(ids);
+      agentAnswers({ findings });
+      mocks.crashBeforePublish = true;
+      await runJob(run.id);
+      mocks.crashBeforePublish = false;
+      // The tick took the payload over as try 2 and failed to write it.
+      mocks.writeDetectorFinding.mockRejectedValue(new Error("Backend API error 500"));
+      expect(await recoverPendingFindings({ id: run.id, tries: 1 }, new Date())).toBe("retry");
+      mocks.writeDetectorFinding.mockReset().mockResolvedValue(undefined);
+
+      expect(await publishLoopFindings(run.id, 1)).toBe("not_pending");
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(await pendingOf(run.id)).toMatchObject({ tries: 2 });
+    });
+
+    it("gives up after its last publish try, keeping the run succeeded with an error", async () => {
       const ids = await setup();
       const run = await addRun(ids);
       agentAnswers({ findings });
       mocks.writeDetectorRun.mockRejectedValue(new Error("Backend API error 500: secret detail"));
       await runJob(run.id);
+      for (let tries = 1; tries < LOOP_PUBLISH_MAX_TRIES - 1; tries++) {
+        expect(await recoverPendingFindings({ id: run.id, tries }, new Date())).toBe("retry");
+      }
+      expect(
+        await recoverPendingFindings({ id: run.id, tries: LOOP_PUBLISH_MAX_TRIES - 1 }, new Date()),
+      ).toBe("gave_up");
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3 * LOOP_PUBLISH_MAX_TRIES);
       expect(await runRow(run.id)).toMatchObject({
-        status: "failed",
+        status: "succeeded",
         error: LOOP_FINDINGS_FAILED,
-        findingKeys: [],
+        findingKeys: ["tool-timeouts", "wrong-city"],
         summary: "Nothing recurring in the last 24 hours.",
       });
+      expect(await pendingOf(run.id)).toBeUndefined();
     });
 
-    it("records nothing when the run is reclaimed while the agent works", async () => {
+    it("accepts and publishes nothing when the run is reclaimed while the agent works", async () => {
       const ids = await setup();
       const run = await addRun(ids);
       agentAnswers({ findings });
@@ -793,10 +903,11 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
         attempts: 2,
         finishedAt: null,
         findingKeys: [],
+        metadata: null,
       });
     });
 
-    it("records nothing when the run already finished while the agent works", async () => {
+    it("accepts and publishes nothing when the run already finished while the agent works", async () => {
       const ids = await setup();
       const run = await addRun(ids);
       agentAnswers({ findings });
@@ -811,93 +922,14 @@ describe.skipIf(!url)("processLoopRun on Postgres", () => {
         return answer(target, init);
       });
       await runJob(run.id);
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
       expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
       expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
       expect(await runRow(run.id)).toMatchObject({
         status: "timed_out",
         error: "reclaimed",
         findingKeys: [],
-      });
-    });
-
-    /**
-     * Another transaction locks the run row once the agent answered; `whileHeld`
-     * runs in it after the worker is seen waiting on that lock, then it commits.
-     */
-    function lockRunWhenAnswered(
-      runId: string,
-      whileHeld: (tx: Prisma.TransactionClient) => Promise<void>,
-    ) {
-      const answer = fetchMock.getMockImplementation()!;
-      let held: Promise<void> | undefined;
-      fetchMock.mockImplementation(async (target: string, init: RequestInit) => {
-        if (target.endsWith("/sessions")) return answer(target, init);
-        const response = await answer(target, init);
-        let locked!: () => void;
-        const isLocked = new Promise<void>((resolve) => (locked = resolve));
-        held = prisma.$transaction(
-          async (tx) => {
-            await tx.$queryRaw`SELECT id FROM loop_runs WHERE id = ${runId} FOR UPDATE`;
-            const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
-            locked();
-            await waitUntilBlockedBy(pid);
-            await whileHeld(tx);
-          },
-          { timeout: 20_000 },
-        );
-        await isLocked;
-        return response;
-      });
-      return { released: () => held! };
-    }
-
-    /** Wait until some other connection waits on a lock the backend `pid` holds. */
-    async function waitUntilBlockedBy(pid: number) {
-      for (let i = 0; i < 200; i++) {
-        const [{ waiting }] = await prisma.$queryRaw<{ waiting: number }[]>`
-          SELECT count(*)::int AS waiting FROM pg_stat_activity
-          WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`;
-        if (waiting > 0) return;
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      throw new Error("the worker never waited on the run's lock");
-    }
-
-    it("waits for a lock on the run, then records nothing once it was reclaimed meanwhile", async () => {
-      const ids = await setup();
-      const run = await addRun(ids);
-      agentAnswers({ findings });
-      const lock = lockRunWhenAnswered(run.id, async (tx) => {
-        expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
-        // The tick's reclaim, after the agent answered and before the findings are recorded.
-        await tx.loopRun.update({ where: { id: run.id }, data: { attempts: { increment: 1 } } });
-      });
-      await runJob(run.id);
-      await lock.released();
-      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
-      expect(mocks.writeDetectorRun).not.toHaveBeenCalled();
-      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
-      expect(await runRow(run.id)).toMatchObject({
-        status: "running",
-        attempts: 2,
-        finishedAt: null,
-        findingKeys: [],
-      });
-    });
-
-    it("records the findings only after another transaction releases the run's lock", async () => {
-      const ids = await setup();
-      const run = await addRun(ids);
-      agentAnswers({ findings });
-      const lock = lockRunWhenAnswered(run.id, async () => {
-        expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
-      });
-      await runJob(run.id);
-      await lock.released();
-      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(3);
-      expect(await runRow(run.id)).toMatchObject({
-        status: "succeeded",
-        findingKeys: ["tool-timeouts", "wrong-city"],
+        metadata: null,
       });
     });
 

@@ -1,8 +1,9 @@
 /**
  * The writes that end a Loop run: the run row, the Loop's lastRunAt, and the
- * failure streak that pauses a Loop whose scheduled runs keep failing. A run
- * whose outcome depends on recording its findings finishes under a lock on its
- * row, so the findings are recorded only by the try that still owns the run.
+ * failure streak that pauses a Loop whose scheduled runs keep failing. Each
+ * finish lands only while the run is still the try's, so a run with findings
+ * stores them in the same write and only the try that owns the run accepts
+ * them (see publish.ts).
  */
 import { prisma, type Prisma } from "@traceroot/core";
 import { LOOP_LIMITS, type LoopRunStatus } from "@traceroot/core/loops";
@@ -20,7 +21,7 @@ export interface LoopRunFinish {
   status: LoopRunOutcome;
   summary?: string | null;
   error?: string | null;
-  /** The finding keys the run recorded, each once; set only when it succeeded. */
+  /** The finding keys the run accepted, each once; set only when it succeeded. */
   findingKeys?: string[];
   tracesRead?: number;
   costUsd?: number | null;
@@ -58,43 +59,6 @@ export async function finishLoopRun(
   now: Date = new Date(),
 ): Promise<boolean> {
   return prisma.$transaction((tx) => writeFinish(tx, run, finish, now));
-}
-
-/**
- * How long the locked step may hold the run row. Recording writes at most
- * findingsPerRun x tracesPerFinding hits, ten at a time, each two short internal
- * writes, then one enqueue: about twenty writes in a row, a few seconds in all.
- * A minute leaves room for a slow backend, and still bounds how long a reclaim
- * of this run can wait on the lock.
- */
-export const LOCKED_FINISH_TIMEOUT_MS = 60_000;
-/** How long the locked step may wait for a database connection to start. */
-export const LOCKED_FINISH_MAX_WAIT_MS = 10_000;
-
-/**
- * Do `work` and write the outcome it returns as one step: the run row is
- * locked while it is still this try's, so a reclaim's update waits until the
- * outcome is written and then finds the run finished. `work` must not throw:
- * it turns its own failures into an outcome. Returns false, without calling
- * `work`, when the run is no longer this try's.
- */
-export async function finishLoopRunLocked(
-  run: FinishTarget,
-  work: () => Promise<LoopRunFinish>,
-  now: () => Date = () => new Date(),
-): Promise<boolean> {
-  return prisma.$transaction(
-    async (tx) => {
-      const owned = await tx.$queryRaw<{ id: string }[]>`
-        SELECT id FROM loop_runs
-        WHERE id = ${run.id} AND status = ${run.fromStatus} AND attempts = ${run.attempts}
-        FOR UPDATE`;
-      if (owned.length === 0) return false;
-      const finish = await work();
-      return writeFinish(tx, run, finish, now());
-    },
-    { timeout: LOCKED_FINISH_TIMEOUT_MS, maxWait: LOCKED_FINISH_MAX_WAIT_MS },
-  );
 }
 
 /** The run's outcome and the Loop's settle, on the caller's transaction. */

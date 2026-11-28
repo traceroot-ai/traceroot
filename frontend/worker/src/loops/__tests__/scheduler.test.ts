@@ -1,7 +1,7 @@
 /**
  * The tick's failure handling, with Postgres and Redis stubbed: one Loop or run
  * that fails is logged and skipped, and a failing step does not stop the next.
- * The claim, reclaim and enqueue themselves run against Postgres in
+ * The claim, reclaim, enqueue and findings recovery run against Postgres in
  * scheduler.db.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
@@ -12,6 +12,7 @@ const { db, queue, startCronTick, finishLoopRun } = vi.hoisted(() => ({
     loop: { findMany: vi.fn() },
     loopRun: { findMany: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   },
   queue: { add: vi.fn(), close: vi.fn() },
   startCronTick: vi.fn(),
@@ -111,17 +112,20 @@ describe("runLoopTick", () => {
   it("runs every step when the ones before it fail", async () => {
     db.loop.findMany.mockRejectedValue(new Error("db down"));
     db.loopRun.findMany.mockRejectedValue(new Error("db down"));
+    db.$queryRaw.mockRejectedValue(new Error("db down"));
     await runLoopTick(NOW, { add: vi.fn() });
     expect(loggedErrors()).toEqual([
       "[Loops] claim read failed",
       "[Loops] reclaim read failed",
       "[Loops] pending read failed",
+      "[Loops] pending findings read failed",
     ]);
   });
 
   it("enqueues on the worker's own queue when given none, and closes it once", async () => {
     db.loop.findMany.mockResolvedValue([]);
     db.loopRun.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "r1" }]);
+    db.$queryRaw.mockResolvedValue([]);
     queue.add.mockResolvedValue({});
     await runLoopTick(NOW);
     expect(queue.add).toHaveBeenCalledWith("loop-run", { runId: "r1" }, expect.anything());

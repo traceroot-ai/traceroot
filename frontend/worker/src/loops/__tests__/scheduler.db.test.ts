@@ -1,13 +1,14 @@
 /**
- * The Loop tick's claim, reclaim and finish against a real Postgres with the
- * migrations applied, so their compare-and-set writes and row locks race the
- * way two replicas would. Skipped unless TEST_DATABASE_URL is set:
+ * The Loop tick's claim, reclaim, finish and findings recovery against a real
+ * Postgres with the migrations applied, so their compare-and-set writes and row
+ * locks race the way two replicas would. The ClickHouse writes and the signal
+ * enqueue are faked. Skipped unless TEST_DATABASE_URL is set:
  *   TEST_DATABASE_URL=postgresql://... pnpm --filter traceroot-worker test db.test
  *
  * Every timestamp sits in 2000, before any other suite's rows, so a tick here
- * claims and reclaims only this file's Loops and runs.
+ * claims, reclaims and republishes only this file's Loops and runs.
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@traceroot/core";
 import { LOOP_LIMITS, createLoopWithDetector, createRun } from "@traceroot/core/loops";
 import {
@@ -18,7 +19,27 @@ import {
   WORKER_STOPPED_ERROR,
 } from "../scheduler.js";
 import { finishLoopRun } from "../finish.js";
+import {
+  LOOP_FINDINGS_FAILED,
+  LOOP_PUBLISH_BATCH,
+  LOOP_PUBLISH_GRACE_MS,
+  LOOP_PUBLISH_MAX_TRIES,
+  PENDING_FINDINGS_KEY,
+  pendingFindingsOf,
+  republishPendingFindings,
+} from "../publish.js";
 import { startLoopRun } from "../start.js";
+
+const mocks = vi.hoisted(() => ({
+  writeDetectorFinding: vi.fn(),
+  writeDetectorRun: vi.fn(),
+  enqueueSignalHits: vi.fn(),
+}));
+vi.mock("../../detection/clickhouse-writer.js", () => ({
+  writeDetectorFinding: mocks.writeDetectorFinding,
+  writeDetectorRun: mocks.writeDetectorRun,
+}));
+vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mocks.enqueueSignalHits }));
 
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
@@ -92,7 +113,54 @@ function fakeQueue() {
   };
 }
 
+/**
+ * A succeeded run that accepted one finding and whose publish try `tries`
+ * claimed it at `claimedAt`, never clearing it.
+ */
+async function acceptedRun(loopId: string, claimedAt: Date, tries = 1) {
+  const pending = {
+    ...pendingFindingsOf(
+      [
+        {
+          key: "tool-timeouts",
+          title: "Tool calls time out",
+          covers: "Traces where a tool call times out.",
+          summary: "Two traces hit the tool timeout.",
+          traceIds: ["t1", "t2"],
+        },
+      ],
+      claimedAt.getTime(),
+    ),
+    tries,
+  };
+  return prisma.$transaction((tx) =>
+    createRun(tx, {
+      loopId,
+      projectId: ids.project,
+      trigger: "schedule",
+      status: "succeeded",
+      data: {
+        finishedAt: claimedAt,
+        findingKeys: ["tool-timeouts"],
+        metadata: { model: "m", [PENDING_FINDINGS_KEY]: pending },
+      },
+    }),
+  );
+}
+
+async function pendingOf(runId: string) {
+  const { metadata } = await prisma.loopRun.findUniqueOrThrow({ where: { id: runId } });
+  return (metadata as Record<string, unknown> | null)?.[PENDING_FINDINGS_KEY] as
+    | { tries: number; claimedAtMs: number }
+    | undefined;
+}
+
 describe.skipIf(!url)("Loop tick on Postgres", () => {
+  beforeEach(() => {
+    mocks.writeDetectorFinding.mockReset().mockResolvedValue(undefined);
+    mocks.writeDetectorRun.mockReset().mockResolvedValue(undefined);
+    mocks.enqueueSignalHits.mockReset().mockResolvedValue(1);
+  });
   beforeAll(async () => {
     await prisma.workspace.create({ data: { id: ids.workspace, name: `tick ${suffix}` } });
     await prisma.project.create({
@@ -292,6 +360,124 @@ describe.skipIf(!url)("Loop tick on Postgres", () => {
         status: "quiet",
         summary: "done",
       });
+    });
+  });
+
+  describe("republishPendingFindings", () => {
+    const PAST_GRACE = new Date(NOW.getTime() - LOOP_PUBLISH_GRACE_MS - 60_000);
+
+    it("republishes findings left pending past the grace period, then clears them", async () => {
+      const loop = await loopDueAt(null);
+      const run = await acceptedRun(loop.id, PAST_GRACE);
+
+      const counts = await republishPendingFindings(NOW);
+
+      expect(counts).toMatchObject({ published: 1, retry: 0, gave_up: 0 });
+      expect(mocks.writeDetectorFinding).toHaveBeenCalledTimes(2);
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(2);
+      // The hits keep the time the run accepted them.
+      for (const [row] of mocks.writeDetectorRun.mock.calls) {
+        expect(row).toMatchObject({
+          detectorId: loop.detectorId,
+          timestampMs: PAST_GRACE.getTime(),
+        });
+      }
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+      const row = await prisma.loopRun.findUniqueOrThrow({ where: { id: run.id } });
+      expect(row).toMatchObject({ status: "succeeded", error: null, metadata: { model: "m" } });
+      expect(await pendingOf(run.id)).toBeUndefined();
+    });
+
+    it("leaves runs without findings to publish, and claims inside the grace period, alone", async () => {
+      const loop = await loopDueAt(null);
+      const fresh = await acceptedRun(loop.id, new Date(NOW.getTime() - 60_000));
+      const done = await prisma.$transaction((tx) =>
+        createRun(tx, {
+          loopId: loop.id,
+          projectId: ids.project,
+          trigger: "schedule",
+          status: "succeeded",
+          data: { finishedAt: PAST_GRACE, findingKeys: ["a"], metadata: { model: "m" } },
+        }),
+      );
+
+      await republishPendingFindings(NOW);
+
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(mocks.enqueueSignalHits).not.toHaveBeenCalled();
+      expect(await pendingOf(fresh.id)).toMatchObject({ tries: 1 });
+      expect(await prisma.loopRun.findUniqueOrThrow({ where: { id: done.id } })).toMatchObject({
+        metadata: { model: "m" },
+        error: null,
+      });
+      // Out of the way of the later ticks below.
+      await prisma.loopRun.delete({ where: { id: fresh.id } });
+    });
+
+    it("keeps the findings pending, as the next try, when the writes fail again", async () => {
+      const loop = await loopDueAt(null);
+      const run = await acceptedRun(loop.id, PAST_GRACE);
+      mocks.writeDetectorFinding.mockRejectedValue(new Error("Backend API error 503"));
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      expect(await republishPendingFindings(NOW)).toMatchObject({ retry: 1 });
+      // Claimed now, so the next tick inside the grace period leaves it alone.
+      expect(await pendingOf(run.id)).toEqual(
+        expect.objectContaining({ tries: 2, claimedAtMs: NOW.getTime() }),
+      );
+      mocks.writeDetectorFinding.mockReset().mockResolvedValue(undefined);
+      expect(await republishPendingFindings(NOW)).toMatchObject({ published: 0, retry: 0 });
+
+      const later = new Date(NOW.getTime() + LOOP_PUBLISH_GRACE_MS + 1);
+      expect(await republishPendingFindings(later)).toMatchObject({ published: 1 });
+      expect(await pendingOf(run.id)).toBeUndefined();
+      vi.mocked(console.error).mockRestore();
+    });
+
+    it("gives up on a run that used every publish try, keeping it succeeded", async () => {
+      const loop = await loopDueAt(null);
+      const run = await acceptedRun(loop.id, PAST_GRACE, LOOP_PUBLISH_MAX_TRIES);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      expect(await republishPendingFindings(NOW)).toMatchObject({ gave_up: 1 });
+
+      expect(mocks.writeDetectorFinding).not.toHaveBeenCalled();
+      expect(await prisma.loopRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject({
+        status: "succeeded",
+        error: LOOP_FINDINGS_FAILED,
+        findingKeys: ["tool-timeouts"],
+      });
+      expect(await pendingOf(run.id)).toBeUndefined();
+      vi.mocked(console.error).mockRestore();
+    });
+
+    it("publishes each run once when several ticks republish at once", async () => {
+      const loop = await loopDueAt(null);
+      const run = await acceptedRun(loop.id, PAST_GRACE);
+
+      await Promise.all(Array.from({ length: 4 }, () => republishPendingFindings(NOW)));
+
+      expect(mocks.writeDetectorRun).toHaveBeenCalledTimes(2);
+      expect(mocks.enqueueSignalHits).toHaveBeenCalledTimes(1);
+      expect(await pendingOf(run.id)).toBeUndefined();
+    });
+
+    it("republishes at most a batch of runs per tick, oldest claim first", async () => {
+      const loop = await loopDueAt(null);
+      const runs = [];
+      for (let i = 0; i <= LOOP_PUBLISH_BATCH; i++) {
+        runs.push(await acceptedRun(loop.id, new Date(PAST_GRACE.getTime() - i * 1_000)));
+      }
+
+      expect(await republishPendingFindings(NOW)).toMatchObject({
+        published: LOOP_PUBLISH_BATCH,
+      });
+      // The newest claim waits for the next tick.
+      expect(await pendingOf(runs[0]!.id)).toMatchObject({ tries: 1 });
+      for (const run of runs.slice(1)) expect(await pendingOf(run.id)).toBeUndefined();
+
+      expect(await republishPendingFindings(NOW)).toMatchObject({ published: 1 });
+      expect(await pendingOf(runs[0]!.id)).toBeUndefined();
     });
   });
 

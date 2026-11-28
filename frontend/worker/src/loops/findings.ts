@@ -41,16 +41,17 @@ export const HIT_WRITE_CONCURRENCY = 10;
 /**
  * Write every (finding, trace) hit, then enqueue the detector's assignment
  * round once. A hit is written when its finding row and its run both land; the
- * run is what the round reads, so a key is recorded once any of its hits is
- * written, and the run lists it. Failed writes are logged and the rest kept.
- * Returns the recorded keys, each once; throws when no hit was written.
+ * run is what the round reads. Every write has a deterministic id, so writing
+ * the same findings again rewrites the same rows. Failed writes are logged and
+ * the rest kept. Returns the keys with a written hit, each once, and how many
+ * hits failed; throws when no hit was written.
  */
 export async function recordLoopFindings(params: {
   projectId: string;
   loop: { name: string; detectorId: string };
   findings: readonly LoopFinding[];
   now?: () => number;
-}): Promise<string[]> {
+}): Promise<{ keys: string[]; failed: number }> {
   const { projectId, loop } = params;
   const now = params.now ?? Date.now;
   const detectorName = loopDetectorName(loop.name);
@@ -107,10 +108,12 @@ export async function recordLoopFindings(params: {
       ),
   );
   const recorded = new Set<string>();
+  let failed = 0;
   results.forEach((result, i) => {
     const { key, traceId } = hits[i];
     if (result.status === "fulfilled") recorded.add(key);
     else {
+      failed += 1;
       console.error(
         `[Loops] detector=${loop.detectorId} key=${key} trace=${traceId}: hit not written:`,
         result.reason,
@@ -132,5 +135,5 @@ export async function recordLoopFindings(params: {
   }).catch((err) =>
     console.error(`[Loops] Failed to enqueue signal assignment for ${loop.detectorId}:`, err),
   );
-  return findings.map((f) => f.key).filter((key) => recorded.has(key));
+  return { keys: findings.map((f) => f.key).filter((key) => recorded.has(key)), failed };
 }
