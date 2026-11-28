@@ -47,7 +47,7 @@ def _parse_data(raw: str) -> Any:
         return {}
     try:
         return json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
         return raw
 
 

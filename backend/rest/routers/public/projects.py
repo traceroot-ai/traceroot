@@ -244,7 +244,7 @@ async def create_project_api_key(
     """
     try:
         body = json.loads(await _read_capped_body(request))
-    except ValueError as e:
+    except (ValueError, RecursionError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Request body must be JSON"
         ) from e
