@@ -17,7 +17,9 @@ from backend.rest.schemas.eval import (
     SCORER_MESSAGE_CONTENT_MAX,
     SCORER_MESSAGES_MAX,
     SCORER_SOURCE_MAX,
+    EmittedMetric,
     RegisterRunRequest,
+    ScoreInput,
     ScorerRef,
     UpsertResultRequest,
 )
@@ -34,6 +36,27 @@ def _run(**over):
         "candidate_version": "v1",
         **over,
     }
+
+
+@pytest.mark.parametrize(
+    "model,payload,field",
+    [
+        (ScoreInput, {"scorer_name": "grade", "scorer_version": "1"}, "numeric_value"),
+        (ScorerRef, {"name": "grade", "version": "1"}, "threshold"),
+        (EmittedMetric, {"name": "grade"}, "threshold"),
+        (UpsertResultRequest, _result(), "cost"),
+    ],
+)
+class TestFiniteEvaluationNumbers:
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_rejects_non_finite_numbers(self, model, payload, field, value):
+        # Zod rejects these values. JSON numbers such as 1e400 also parse as infinity.
+        with pytest.raises(ValidationError):
+            model.model_validate({**payload, field: value})
+
+    @pytest.mark.parametrize("value", [0, 0.5, 1e308, None])
+    def test_preserves_finite_numbers_and_null(self, model, payload, field, value):
+        assert getattr(model.model_validate({**payload, field: value}), field) == value
 
 
 class TestUpsertResultScores:
