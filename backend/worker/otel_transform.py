@@ -1183,12 +1183,15 @@ def transform_otel_to_clickhouse(
                         # Only ESTIMATION is gated either way; reported usage above is
                         # kept on error spans, since a provider that does report counts
                         # on a failure is reporting real ones.
+                        from worker.attachment_extraction import without_inline_media
                         from worker.tokens import calculate_cost
 
+                        input_text = span_record.get("input")
+                        output_text = span_record.get("output")
                         usage = calculate_cost(
                             model=model_name,
-                            input_text=span_record.get("input"),
-                            output_text=span_record.get("output"),
+                            input_text=input_text and without_inline_media(input_text),
+                            output_text=output_text and without_inline_media(output_text),
                         )
                         if usage["input_tokens"] is not None:
                             span_record["input_tokens"] = usage["input_tokens"]

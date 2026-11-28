@@ -56,6 +56,7 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -315,6 +316,151 @@ class _Extractor:
     def _omit(self, reason: str, byte_count: int) -> str:
         self.result.omitted += 1
         return f"[image omitted: {reason}, {byte_count} bytes]"
+
+
+class _ImageDropper(_Extractor):
+    """Finds images exactly as the extractor does, and drops them unvalidated and unstored."""
+
+    def __init__(self) -> None:
+        super().__init__(s3_service=None, project_id="", config=settings.attachments)
+
+    def _replacement(self, data: str) -> str:
+        return ""
+
+
+def without_inline_images(text: str) -> str:
+    """``text`` with every image ``extract_attachments`` would find removed, for token estimation."""
+    return _ImageDropper().rewrite(text)
+
+
+# Audio is billed by duration, not by its base64 characters, and it stays in the span
+# text (the trace viewer plays it inline), so it is only dropped for token estimation.
+_AUDIO_DATA_URL_RE = re.compile(
+    r"data:audio/[A-Za-z0-9.+-]+;base64,(?P<data>[A-Za-z0-9+/]+={0,2})",
+    re.ASCII | re.IGNORECASE,
+)
+_AUDIO_TYPE_RE = re.compile(r"audio/", re.ASCII | re.IGNORECASE)
+
+_MIN_AUDIO_BYTES = 12
+"""The shortest bytes treated as audio: a WAV file's RIFF header.
+
+A ``data`` value that decodes to fewer bytes is a marker such as ``"REDACTED"``,
+not audio, and is left in the text.
+"""
+
+
+def without_inline_media(text: str) -> str:
+    """``text`` with inline images and base64 audio removed, for token estimation.
+
+    Audio is found in three shapes: a ``data:audio/...;base64,`` URL, a JSON object
+    whose ``media_type`` / ``mime_type`` / ``mimeType`` is an ``audio/`` type (a
+    Gemini ``inline_data`` part, say), and the ``{"data": ..., "format": ...}``
+    object under an OpenAI part's ``input_audio`` key.
+    """
+    text = without_inline_images(text)
+    has_input_audio = '"input_audio"' in text
+    if not has_input_audio and _AUDIO_TYPE_RE.search(text) is None:
+        return text
+    text = _AUDIO_DATA_URL_RE.sub(_drop_audio_data_url, text)
+    if '"data"' in text and (has_input_audio or any(key in text for key in _JSON_SHAPE_KEYS)):
+        text = _drop_json_audio(text)
+    return text
+
+
+def _drop_audio_data_url(match: re.Match[str]) -> str:
+    # A URL whose data is not audio (data:audio/wav;base64,REDACTED) is text the
+    # model was sent, so it stays.
+    return "" if _could_be_audio(match.group("data")) else match.group(0)
+
+
+def _drop_json_audio(text: str) -> str:
+    """``text`` with the base64 of every known JSON audio shape removed."""
+    # The same bound on the parsed tree as _Extractor._replace_json_shapes.
+    if len(text) > _MAX_JSON_VALUES and (
+        text.count(",") + text.count(":") + text.count("[") > _MAX_JSON_VALUES
+    ):
+        return text
+    try:
+        parsed = json.loads(text)
+    except (ValueError, RecursionError):
+        return text
+
+    # How many audio shapes hold each audio value.
+    in_audio: dict[str, int] = {}
+    for node in _walk(parsed):
+        if isinstance(node, dict):
+            for found in _known_shape_audio(node):
+                in_audio[found] = in_audio.get(found, 0) + 1
+    if not in_audio:
+        return text
+
+    # The text is matched by value, not by position, so a value is dropped only when
+    # every string equal to it is audio. The same base64 under a non-audio type is
+    # text the model was sent, and dropping it there would undercount. Only the
+    # audio values are counted, so the count costs no memory per other string.
+    everywhere = dict.fromkeys(in_audio, 0)
+    for node in _walk(parsed):
+        if isinstance(node, str) and node in everywhere:
+            everywhere[node] += 1
+    audio = {data for data, count in in_audio.items() if everywhere[data] == count}
+    if not audio:
+        return text
+    # As with images, base64 is written unescaped, so each value appears in the
+    # text as a quoted string, and one pass over the text finds them all.
+    pieces: list[str] = []
+    end = 0
+    for match in _QUOTED_BASE64_RE.finditer(text):
+        if match.group(1) in audio:
+            pieces.append(text[end : match.start(1)])
+            end = match.end(1)
+    if not pieces:
+        return text
+    pieces.append(text[end:])
+    return "".join(pieces)
+
+
+def _walk(root: Any) -> Iterator[Any]:
+    """Every value in a parsed JSON tree, containers included, depth first."""
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+
+
+def _known_shape_audio(node: dict) -> list[str]:
+    """The base64 audio ``node`` holds as one of the known audio shapes."""
+    found: list[str] = []
+    data = node.get("data")
+    declared = node.get("media_type", node.get("mime_type", node.get("mimeType")))
+    if (
+        isinstance(declared, str)
+        and declared.strip().lower().startswith("audio/")
+        and isinstance(data, str)
+        and _could_be_audio(data)
+    ):
+        found.append(data)
+    # OpenAI's part: {"type": "input_audio", "input_audio": {"data": ..., "format": ...}}.
+    # Only the object under the input_audio key is audio; a {data, format} pair
+    # anywhere else is not.
+    part = node.get("input_audio")
+    if isinstance(part, dict) and isinstance(part.get("format"), str):
+        part_data = part.get("data")
+        if isinstance(part_data, str) and _could_be_audio(part_data):
+            found.append(part_data)
+    return found
+
+
+def _could_be_audio(data: str) -> bool:
+    """Whether ``data`` is strict base64 of at least ``_MIN_AUDIO_BYTES``, without decoding it."""
+    return (
+        len(data) % 4 == 0
+        and _decoded_size(data) >= _MIN_AUDIO_BYTES
+        and _BASE64_RE.fullmatch(data) is not None
+    )
 
 
 def _known_shape_image(node: dict) -> str | None:
