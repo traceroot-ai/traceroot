@@ -159,7 +159,7 @@ TraceRoot.initialize({ disableBatch: true });
 
 **Note:** Disabling batching does not make the network request synchronous. You still must await `flush()` or `shutdown()` before terminating the process with `process.exit()`.
 
-*(Note: The Python SDK registers an `atexit` handler that flushes spans automatically in most environments. However, `atexit` does not run when a serverless runtime freezes the process — Python handlers there still need `traceroot.flush()` before returning.)*
+*(Note: The Python SDK registers an `atexit` handler that flushes spans automatically on normal interpreter exit, but `atexit` does not run on `SIGTERM` (such as container or web server shutdowns) or when a serverless runtime freezes the process — Python servers and handlers there still need `traceroot.shutdown()` or `traceroot.flush()` in their shutdown hook.)*
 
 ## Environment Variables
 
