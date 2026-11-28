@@ -208,29 +208,51 @@ def _eval_metrics_by_trace(rows) -> dict[str, EvalTraceMetrics]:
             if (sid in in_scorer) == (parent in in_scorer)
         }
 
-        # Every span with a model-call span somewhere beneath it. A model-call span in
-        # this set wraps a call that is already counted, so it is not a call of its own.
+        # One bottom-up pass over the tree: a span is taken once all its children have
+        # been, and hands its totals to its parent, so the work grows with the number of
+        # spans and not with spans times depth. ``wraps_llm`` gets every span with a
+        # model-call span somewhere beneath it; a model-call span in it wraps a call that
+        # is already counted, so it is not a call of its own. ``calls_under`` counts the
+        # counted calls beneath each span, so a usage-less call only borrows from an
+        # ancestor whose usage is that call's alone.
         wraps_llm: set[str] = set()
-        for sid, sp in t["spans"].items():
-            if sp["kind"] not in _MODEL_CALL_KINDS:
-                continue
-            parent = parents.get(sid)
-            while parent is not None and parent not in wraps_llm:
-                wraps_llm.add(parent)
-                parent = parents.get(parent)
-
-        # How many counted calls each span wraps, so a usage-less call only borrows from
-        # an ancestor whose usage is that call's alone.
         calls_under: dict[str, int] = defaultdict(int)
-        for sid, sp in t["spans"].items():
-            if sp["kind"] not in _MODEL_CALL_KINDS or sid in wraps_llm:
-                continue
+        children_left = dict.fromkeys(t["spans"], 0)
+        for parent in parents.values():
+            if parent in children_left:
+                children_left[parent] += 1
+        ready = [sid for sid, left in children_left.items() if not left]
+        while ready:
+            sid = ready.pop()
             parent = parents.get(sid)
-            seen: set[str] = set()
-            while parent is not None and parent not in seen:
-                seen.add(parent)
-                calls_under[parent] += 1
-                parent = parents.get(parent)
+            if parent is None:
+                continue
+            counted = t["spans"][sid]["kind"] in _MODEL_CALL_KINDS and sid not in wraps_llm
+            calls_under[parent] += calls_under[sid] + int(counted)
+            if counted or sid in wraps_llm:
+                wraps_llm.add(parent)
+            if parent in children_left:
+                children_left[parent] -= 1
+                if not children_left[parent]:
+                    ready.append(parent)
+
+        # A span still waiting on a child sits on a loop of parent links, which no tracer
+        # sends but a project can. Every span of a loop is above the whole loop and all
+        # that hangs off it, itself included, so each takes the loop's totals and none of
+        # them is a call of its own.
+        for sid, left in children_left.items():
+            if not left:
+                continue
+            loop = [sid]
+            while parents[loop[-1]] != sid:
+                loop.append(parents[loop[-1]])
+            calls = sum(calls_under[s] for s in loop)
+            wraps = any(s in wraps_llm or t["spans"][s]["kind"] in _MODEL_CALL_KINDS for s in loop)
+            for s in loop:
+                children_left[s] = 0
+                calls_under[s] = calls
+                if wraps:
+                    wraps_llm.add(s)
 
         task, scorer = asdict(LlmMetrics()), asdict(LlmMetrics())
         for sid, sp in t["spans"].items():
@@ -285,7 +307,11 @@ def _price(span: dict) -> float | None:
 def _sole_wrapper(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict | None:
     """The nearest model-call ancestor of counted call ``sid`` when that ancestor wraps
     only this call, else None. ``parents`` maps each span to its parent in the same part
-    of the trace, so the ancestor is never the other part's."""
+    of the trace, so the ancestor is never the other part's.
+
+    The walk passes only spans that wrap this call alone and stops at the first that wraps
+    more, so no span is passed for two calls, and the walks for every call in a trace take
+    one step per span between them."""
     parent = parents.get(sid)
     seen: set[str] = set()
     while parent is not None and parent not in seen and calls_under[parent] == 1:
@@ -406,13 +432,13 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
 
     The priced-call counts and ``scorer_llm_calls`` are real counts, 0 included, written
     for every result whose trace had spans; a result whose trace had none is only stamped,
-    so NULL there with ``metrics_derived_at`` set means no spans were found.
+    so NULL there with ``scorer_metrics_derived_at`` set means no spans were found.
     ``scorer_cost`` is NULL when no scorer call was priced, else the real sum (0 allowed).
 
-    These columns add no marker of their own: they ride on ``metrics_derived_at``, so the
-    backfill that fills the LLM metrics fills them too. A worker without the scorer split
-    stamps rows without these columns and nothing would come back for them, so this split
-    must be deployed with the LLM metrics derivation.
+    These columns have their own marker, ``scorer_metrics_derived_at``, stamped with the
+    other two. A worker without the scorer split stamps only ``cost_derived_at`` and
+    ``metrics_derived_at``, so the backfill derives any row it handled again, whichever
+    order the services deploy in.
 
     Idempotent + self-healing: recomputed on every batch, so late-arriving spans
     correct the total in BOTH directions. That two-way property is the point — under
@@ -431,8 +457,8 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     revisits it — ``cost`` stays NULL despite fully-priced LLM spans sitting in
     ClickHouse. ``backfill_eval_result_costs`` closes that gap by re-running this
     derivation for not-yet-derived result rows; it keys off the ``cost_derived_at`` and
-    ``metrics_derived_at`` markers stamped below (NOT ``cost IS NULL``), so a zero-cost
-    trace settles after one pass instead of being re-swept forever.
+    ``scorer_metrics_derived_at`` markers stamped below (NOT ``cost IS NULL``), so a
+    zero-cost trace settles after one pass instead of being re-swept forever.
 
     NOTE: once the SDK reports an authoritative per-result cost OR token counts, this
     derivation must DEFER to them rather than overwrite — it exists only because those
@@ -524,13 +550,15 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 # self-healing above is unaffected; only ``backfill_eval_result_costs``
                 # reads them.
                 #
-                # Two markers because two writers exist during a deploy. A worker from
-                # before the LLM metrics writes `cost` and stamps `cost_derived_at` only,
-                # so a row it handled still reads `metrics_derived_at IS NULL` and the
-                # backfill re-derives it here, whichever worker got to it first.
+                # One marker per set of derived columns, because older workers write a
+                # subset during a deploy. A worker from before the LLM metrics stamps
+                # `cost_derived_at` only, and one from before the scorer split stamps
+                # `metrics_derived_at` too but never `scorer_metrics_derived_at`. A row
+                # either handled still reads `scorer_metrics_derived_at IS NULL`, so the
+                # backfill derives it again here, whichever worker got to it first.
                 cur.execute(
                     "UPDATE evaluation_results SET cost_derived_at = now(),"
-                    " metrics_derived_at = now()"
+                    " metrics_derived_at = now(), scorer_metrics_derived_at = now()"
                     " WHERE project_id = %s AND trace_id = ANY(%s)",
                     (project_id, eval_trace_ids),
                 )
@@ -564,11 +592,13 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     ``batch_size`` newest-first rows within a recent window (backed by the partial index
     ``ix_eval_result_cost_backfill``), the next run picks up any remainder.
 
-    The same sweep fills the LLM metrics for results that predate them or were handled by
-    a worker that does not derive them (``metrics_derived_at IS NULL``). That selection has
-    no time window: the marker is stamped whatever the outcome, including for a trace whose
-    spans are gone, so each pass shrinks the set by up to ``batch_size`` rows until it is
-    empty, backed by ``ix_eval_result_metrics_backfill``.
+    The same sweep derives every result that predates the scorer split or was handled by
+    a worker without it (``scorer_metrics_derived_at IS NULL``). Every derivation stamps
+    that marker with ``metrics_derived_at``, so this also covers every result whose LLM
+    metrics were never derived. The selection has no time window: the marker is stamped
+    whatever the outcome, including for a trace whose spans are gone, so each pass shrinks
+    the set by up to ``batch_size`` rows until it is empty, backed by
+    ``ix_eval_result_scorer_metrics_backfill``.
 
     Requires a Celery *beat* process to be scheduled (see ``celery_app.beat_schedule``).
     """
@@ -602,12 +632,12 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
                 (batch_size,),
             )
             rows = list(cur.fetchall())
-            # Results whose LLM metrics were never derived, of any age. A separate query so
-            # each selection stays on its own partial index and a backlog of one cannot
+            # Results the scorer split was never derived for, of any age. A separate query
+            # so each selection stays on its own partial index and a backlog of one cannot
             # take the other's batch.
             cur.execute(
                 "SELECT project_id, trace_id FROM evaluation_results "
-                "WHERE metrics_derived_at IS NULL AND trace_id IS NOT NULL "
+                "WHERE scorer_metrics_derived_at IS NULL AND trace_id IS NOT NULL "
                 "ORDER BY create_time DESC "
                 "LIMIT %s",
                 (batch_size,),

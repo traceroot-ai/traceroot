@@ -1,5 +1,6 @@
 """Unit tests for Celery task logic with mocked S3 + ClickHouse."""
 
+import re
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -285,6 +286,17 @@ class TestTaskCostByTrace:
         assert _eval_metrics_by_trace(rows)["t2"].task.cost == pytest.approx(0.02)
 
 
+def _null_checks(sql: str) -> dict[str, bool]:
+    """``{column: must be NULL}`` for each ``column IS [NOT] NULL`` in the WHERE of ``sql``."""
+    where = sql.split("WHERE", 1)[1].split("ORDER BY", 1)[0]
+    return {column: not negated for column, negated in re.findall(r"(\w+) IS (NOT )?NULL", where)}
+
+
+def _selects(sql: str, row: dict) -> bool:
+    """Whether ``row`` (column -> value) passes every NULL check in the WHERE of ``sql``."""
+    return all((row[column] is None) == is_null for column, is_null in _null_checks(sql).items())
+
+
 class FakeCursor:
     """Records every `execute()` call and answers `fetchall()` from a canned
     result, so a test can assert on exactly which statements were issued."""
@@ -439,9 +451,9 @@ class TestUpdateEvalResultCosts:
         # so the zero-cost trace settles instead of being re-swept by the backfill forever.
         marking = [(sql, params) for sql, params in updates if "cost_derived_at" in sql]
         assert len(marking) == 1
-        # The same stamp sets the metrics' own marker, which a pre-metrics worker never
+        # The same stamp sets the scorer columns' own marker, which an older worker never
         # sets — that is what lets the backfill find the rows such a worker handled.
-        assert "metrics_derived_at = now()" in marking[0][0]
+        assert "scorer_metrics_derived_at = now()" in marking[0][0]
         _, mark_params = marking[0]
         assert mark_params[0] == "proj-1"
         assert set(mark_params[1]) == {"t-costed", "t-zero"}
@@ -519,16 +531,16 @@ class TestUpdateEvalResultCosts:
         assert "create_time >" in select_sql
         assert "ORDER BY create_time DESC" in select_sql
 
-    def test_backfill_also_derives_metrics_for_results_of_any_age(self, monkeypatch):
-        """Results that predate the LLM metrics, or that a pre-metrics worker stamped
-        `cost_derived_at` on during a deploy, are found by `metrics_derived_at IS NULL` —
+    def test_backfill_also_derives_every_result_the_scorer_split_has_not_seen(self, monkeypatch):
+        """Results that predate the scorer columns, or that a worker without the scorer
+        split stamped during a deploy, are found by `scorer_metrics_derived_at IS NULL` —
         a selection with no time window, so none can age out before it is derived."""
         from worker import ingest_tasks
 
         class TwoQueryCursor(FakeCursor):
             def fetchall(self):
                 sql = self.executed[-1][0]
-                if "metrics_derived_at IS NULL" in sql:
+                if "scorer_metrics_derived_at IS NULL" in sql:
                     return [("p1", "t-old"), ("p1", "t1")]
                 return [("p1", "t1")]
 
@@ -549,12 +561,36 @@ class TestUpdateEvalResultCosts:
         assert calls == [("p1", {"t1", "t-old"})]
         selects = [(sql, p) for sql, p in cursor.executed if sql.strip().startswith("SELECT")]
         assert len(selects) == 2
-        metrics_sql, metrics_params = selects[1]
-        assert "metrics_derived_at IS NULL" in metrics_sql
-        assert "trace_id IS NOT NULL" in metrics_sql
-        assert "create_time >" not in metrics_sql
-        assert "ORDER BY create_time DESC" in metrics_sql
-        assert metrics_params == (10,)
+        scorer_sql, scorer_params = selects[1]
+        assert _null_checks(scorer_sql) == {"scorer_metrics_derived_at": True, "trace_id": False}
+        assert "create_time >" not in scorer_sql
+        assert "ORDER BY create_time DESC" in scorer_sql
+        assert scorer_params == (10,)
+
+    def test_backfill_selects_a_row_a_worker_without_the_scorer_split_stamped(self, monkeypatch):
+        """Such a worker stamps `cost_derived_at` and `metrics_derived_at` but never the
+        scorer marker, whichever order the services deploy in. Each selection's NULL
+        checks are applied to the row, so a selection keyed on another marker misses it."""
+        from worker import ingest_tasks
+
+        cursor = FakeCursor(fetchall_result=[])
+        self._patch_connect(monkeypatch, cursor)
+        ingest_tasks.backfill_eval_result_costs(batch_size=10)
+        selects = [sql for sql, _ in cursor.executed if sql.strip().startswith("SELECT")]
+
+        stamped = datetime(2026, 11, 27, tzinfo=UTC)
+        derived = {
+            "trace_id": "t",
+            "cost_derived_at": stamped,
+            "metrics_derived_at": stamped,
+            "scorer_metrics_derived_at": stamped,
+        }
+        old_worker = {**derived, "scorer_metrics_derived_at": None}
+        no_trace = dict.fromkeys(derived)
+
+        assert any(_selects(sql, old_worker) for sql in selects)
+        assert not any(_selects(sql, derived) for sql in selects)
+        assert not any(_selects(sql, no_trace) for sql in selects)
 
     def test_backfill_no_null_cost_results_is_a_noop(self, monkeypatch):
         from worker import ingest_tasks

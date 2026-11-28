@@ -17,6 +17,7 @@ for grading itself.
 
 import logging
 import re
+import sys
 from datetime import datetime, timedelta
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -682,6 +683,87 @@ class TestTheScorersAreMeasuredApart:
         assert m.scorer.cost == pytest.approx(0.001)
 
 
+def _calls_made(fn) -> int:
+    """How many calls ``fn()`` makes, builtins such as ``dict.get`` and ``set.add`` included.
+
+    A count, not a timing, so it comes out the same on every machine."""
+    made = 0
+
+    def count(frame, event, arg):
+        nonlocal made
+        if event in ("call", "c_call"):
+            made += 1
+
+    previous = sys.getprofile()
+    sys.setprofile(count)
+    try:
+        fn()
+    finally:
+        sys.setprofile(previous)
+    return made
+
+
+class TestDeepTreesTakeLinearWork:
+    """A project sends whatever span tree it likes, so the derivation must not walk every
+    call up through all its ancestors. That costs calls times depth: 9 million steps for a
+    chain of 3,000 spans ending in 3,000 calls, on every derivation of the trace."""
+
+    @staticmethod
+    def _calls_under_a_chain(depth, calls):
+        """``depth`` spans in a chain, the deepest wrapping ``calls`` priced calls."""
+        rows = [_row("s0", None, "EVALUATION", None)]
+        rows += [_row(f"s{i}", f"s{i - 1}", "TOOL", None) for i in range(1, depth)]
+        rows += [
+            _row(f"llm{i}", f"s{depth - 1}", "LLM", 0.001, tokens=(2, 1, 3)) for i in range(calls)
+        ]
+        return rows
+
+    @staticmethod
+    def _a_call_at_every_level(depth):
+        """A chain of ``depth`` spans with a priced call hanging off each one."""
+        rows = [_row("s0", None, "EVALUATION", None)]
+        rows += [_row(f"s{i}", f"s{i - 1}", "TOOL", None) for i in range(1, depth)]
+        rows += [_row(f"llm{i}", f"s{i}", "LLM", 0.001, tokens=(2, 1, 3)) for i in range(depth)]
+        return rows
+
+    def test_a_deep_chain_ending_in_many_calls_counts_each_once(self):
+        task = _eval_metrics_by_trace(self._calls_under_a_chain(3000, 3000))[T].task
+        assert (task.llm_calls, task.priced_llm_calls) == (3000, 3000)
+        assert task.cost == pytest.approx(3.0)
+        assert (task.prompt_tokens, task.completion_tokens, task.total_tokens) == (
+            6000,
+            3000,
+            9000,
+        )
+
+    @pytest.mark.parametrize("shape", ["calls_under_a_chain", "a_call_at_every_level"])
+    def test_the_work_grows_with_the_spans_not_with_spans_times_depth(self, shape):
+        if shape == "calls_under_a_chain":
+            rows = self._calls_under_a_chain(1000, 1000)
+        else:
+            rows = self._a_call_at_every_level(1000)
+        made = _calls_made(lambda: _eval_metrics_by_trace(rows))
+        # A handful of calls per span. Walking each call up a 1,000-span chain makes one
+        # to two million.
+        assert made < 50 * len(rows), f"{made} calls for {len(rows)} spans"
+
+    def test_parent_links_that_loop_end_and_count_the_call_beneath_once(self):
+        # No tracer sends a loop, but a project can. Each span of the loop is above the
+        # other, so the LLM span on it wraps a call and is not a call itself. The one call
+        # hangs off the loop, reported no usage, and borrows from that span, which wraps it
+        # alone.
+        task = _eval_metrics_by_trace(
+            [
+                _row("a", "b", "TOOL", None),
+                _row("b", "a", "LLM", 0.5, tokens=(7, 3, 10)),
+                _row("call", "a", "LLM", None),
+            ]
+        )[T].task
+        assert (task.llm_calls, task.priced_llm_calls) == (1, 1)
+        assert task.cost == pytest.approx(0.5)
+        assert task.total_tokens == 10
+
+
 class TestWriteIsUnconditional:
     """`if cost <= 0: continue` froze an over-report permanently. Under
     BatchSpanProcessor a parent exports after its children, so a scorer's LLM child can
@@ -898,9 +980,17 @@ class TestTheScorerColumnsAreWritten:
             "scorer_llm_calls": 1,
             "scorer_priced_llm_calls": 1,
         }
-        stamps = [c for c in cur.execute.call_args_list if "metrics_derived_at = now()" in c[0][0]]
+        stamps = [c[0] for c in cur.execute.call_args_list if "_derived_at = now()" in c[0][0]]
         assert len(stamps) == 1
-        assert set(stamps[0][0][1][1]) == {T, "no-spans"}
+        sql, params = stamps[0]
+        # Every derivation stamps all three markers, so a row this worker handled leaves
+        # the scorer columns' own backfill selection.
+        assert set(re.findall(r"(\w+) = now\(\)", sql)) == {
+            "cost_derived_at",
+            "metrics_derived_at",
+            "scorer_metrics_derived_at",
+        }
+        assert set(params[1]) == {T, "no-spans"}
 
     def test_a_code_only_scorer_writes_null_cost_and_zero_counts(self):
         cur = self._run(
