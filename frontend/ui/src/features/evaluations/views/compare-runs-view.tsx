@@ -133,6 +133,18 @@ export function CompareRunsView({
   // Runs with no results; with fewer than two runs left, that is why nothing is compared.
   // Runs to add are suggested from before the newest one compared.
   const newest = newestRun(ordered);
+  // Export covers the table, so it waits for one: why, while the branches below show
+  // something else in its place.
+  const exportOff =
+    runIds.length < 2
+      ? "No comparison to export"
+      : isLoading
+        ? "Available once the runs load"
+        : failed.length > 0 || !baseline
+          ? "No comparison to export"
+          : !hasPairedCases(model)
+            ? "These runs have no matching inputs"
+            : null;
   const emptyTags = ordered.filter((b) => b.results.length === 0).map((b) => tagOf(b.run.id));
 
   return (
@@ -142,9 +154,13 @@ export function CompareRunsView({
 
         {/* Search, filters and sort, then the runs, whose menu also picks the baseline. */}
         <CaseToolbar
+          projectId={projectId}
           model={model}
           pairs={pairs}
           searchRef={searchRef}
+          cases={visible}
+          casesAnalysis={shownAnalysis}
+          exportOff={exportOff}
           analysis={analysis}
           onChange={setAnalysis}
           tagOf={tagOf}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Above the comparison table, one row: the search, Filters, Sort and the Runs menu.
+ * Above the comparison table, one row: the search, Filters, Sort and the Runs menu, then Export at its end.
  * Runs (N) opens the runs compared, each with its menu to make it the baseline, remove it
  * or open it, and Add runs, which turns the same panel into the run picker. Under the
  * toolbar, one muted line says how many cases there are and how many every run has, with
@@ -65,7 +65,7 @@ const runMenu = async (name: RegExp, item: string) => {
 };
 
 describe("CompareRunsView — one-row toolbar", () => {
-  it("puts search, filters, sort and runs on one row", () => {
+  it("puts search, filters, sort and runs on one row, export at its end", () => {
     mount();
     expect(document.querySelectorAll("[data-toolbar]")).toHaveLength(1);
     const row = within(document.querySelector('[data-toolbar="cases"]') as HTMLElement);
@@ -74,6 +74,7 @@ describe("CompareRunsView — one-row toolbar", () => {
       row.getByRole("button", { name: "Filters" }),
       row.getByRole("combobox", { name: /^Sort cases/ }),
       row.getByRole("button", { name: "Runs (3)" }),
+      row.getByRole("button", { name: "Export" }),
     ];
     for (const [a, b] of controls.slice(1).map((c, i) => [controls[i], c])) {
       expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
