@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   coverageSummary,
   hasPairedCases,
+  matchingSummary,
   noResultsText,
   partialNotesLine,
   partialRunNotes,
@@ -17,6 +18,13 @@ describe("coverageSummary", () => {
 
   it("says only how many cases there are when every run has all of them", () => {
     expect(coverageSummary({ total: 12, sharedByAll: 12 })).toBe("12 cases in all runs");
+  });
+});
+
+describe("matchingSummary", () => {
+  it("counts the cases a search or filters match against all of them", () => {
+    expect(matchingSummary({ matching: 1, total: 12 })).toBe("1 matching · 12 total");
+    expect(matchingSummary({ matching: 0, total: 1 })).toBe("0 matching · 1 total");
   });
 });
 

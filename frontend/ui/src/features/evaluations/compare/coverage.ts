@@ -32,6 +32,11 @@ export function coverageSummary({
   return `${casesText(total)} · ${sharedByAll} in all runs`;
 }
 
+/** "1 matching · 12 total": how many cases a search or filters match, of all of them. */
+export function matchingSummary({ matching, total }: { matching: number; total: number }): string {
+  return `${matching} matching · ${total} total`;
+}
+
 /** One note per run whose results fall short of the cases it declared, each led by the
  *  run's tag and saying why: it has no results, the page stopped at its result limit, or
  *  the run itself reported fewer cases. */
