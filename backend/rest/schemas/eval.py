@@ -517,7 +517,7 @@ class RunUsageBucket(BaseModel):
             "result's trace is still being processed. `unavailable`: no result was "
             "processed. `no_calls`: no LLM call was made. `unpriced`: calls were made and "
             "none was priced. `partial`: some calls are unpriced or some results have no "
-            "usable trace. `complete`: every call was priced."
+            "usable trace. `complete`: every call was priced and every result had a usable trace."
         )
     )
 
@@ -537,7 +537,7 @@ class RunUsage(BaseModel):
         description="Results with no trace linked, or whose trace had no spans."
     )
     task: RunUsageBucket = Field(description="The task under test.")
-    scorers: RunUsageBucket = Field(description="The scorers (LLM judges).")
+    scorers: RunUsageBucket = Field(description="The scorers.")
     combined: RunUsageBucket = Field(description="The task plus the scorers.")
 
 

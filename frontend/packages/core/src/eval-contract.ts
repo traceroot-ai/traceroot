@@ -469,7 +469,8 @@ export const ListEvaluationRunsResponseSchema = z.object({
  * How far a bucket's totals can be trusted. The first rule that matches wins:
  * `processing` (some result's trace is still being read), `unavailable` (no result was
  * processed), `no_calls` (no LLM call was made), `unpriced` (calls, none priced),
- * `partial` (some calls unpriced, or some results never processed), `complete`.
+ * `partial` (some calls unpriced, or some results have no usable trace), `complete`
+ * (every call was priced and every result had a usable trace).
  */
 export const RunUsageStateSchema = z.enum([
   "processing",

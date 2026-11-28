@@ -68,17 +68,22 @@ function db(rows: Row[]) {
   const queries: Array<{ sql: string; values: unknown[] }> = [];
   const find = (id: string, projectId: string) =>
     rows.find((r) => r.id === id && r.projectId === projectId);
-  // Honours the column filters the usage aggregate adds: `null`, `{ not: null }` and `{ gt }`.
-  const matches = (r: Row, where: Row) =>
-    ["traceId", "metricsDerivedAt", "scorerLlmCalls", "createTime"].every((k) => {
+  // Honours the column filters the usage queries add: `null` and `{ not: null }`. Any other
+  // `where` key throws, so a filter on the wrong column cannot pass silently.
+  const MODELED = ["runId", "projectId", "traceId", "metricsDerivedAt", "scorerLlmCalls"];
+  const matches = (r: Row, where: Row) => {
+    for (const k of Object.keys(where)) {
+      if (!MODELED.includes(k)) throw new Error(`fake does not model where.${k}`);
+    }
+    return ["traceId", "metricsDerivedAt", "scorerLlmCalls"].every((k) => {
       const f = where[k];
       if (f === undefined) return true;
       const v = r[k] ?? null;
       if (f === null) return v === null;
       if ("not" in f) return v !== f.not;
-      if ("gt" in f) return v !== null && v > f.gt;
-      return true;
+      throw new Error(`fake does not model where.${k} = ${JSON.stringify(f)}`);
     });
+  };
   const resultsOf = (where: Row): Row[] =>
     (find(where.runId, where.projectId)?.results ?? [])
       .map((r: Row, i: number) => ({ ...r, id: r.id ?? `res_${i}` }))
@@ -473,6 +478,11 @@ describe("usage", () => {
     expect(u.scorers).toMatchObject({ llm_calls: 1, priced_llm_calls: 1 });
     expect(u.scorers.cost).toBeCloseTo(0.0005);
     for (const b of [u.task, u.scorers, u.combined]) expect(b.state).toBe("processing");
+  });
+
+  it("reports a free priced model as a task cost of 0, not null", async () => {
+    const u = await usage([processed({ llmCalls: 2, pricedLlmCalls: 2, cost: null })]);
+    expect(u.task).toEqual({ cost: 0, llm_calls: 2, priced_llm_calls: 2, state: "complete" });
   });
 
   it("is partial when only some task calls were priced", async () => {

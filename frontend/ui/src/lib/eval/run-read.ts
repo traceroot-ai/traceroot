@@ -302,7 +302,7 @@ export async function readRunSummary(input: {
   const countOf = (status: string) => statusRows.find((g) => g.status === status)?.count ?? 0;
 
   // Every result that is neither processed nor pending has no usable trace: none linked,
-  // no spans found, or older than the window.
+  // no spans found.
   const resultCount = statusRows.reduce((n, g) => n + g.count, 0);
   const usage = runUsage(processed._sum, {
     results_processed: processed._count._all,
