@@ -1,13 +1,29 @@
 import { serve } from "@hono/node-server";
 import { createApp, parseAllowedHosts, parseListenPort } from "./app.js";
+import { shouldServeAfterIssuerCheck } from "./issuer-check.js";
+import { parseOAuthConfig } from "./oauth.js";
 
 const MCP_SERVICE_URL = process.env.MCP_SERVICE_URL || "http://localhost:8200";
 const PORT = parseListenPort(MCP_SERVICE_URL);
+
+const oauth = parseOAuthConfig(process.env);
+
+// With OAuth on, refuse to serve when the advertised issuer is not the
+// authorization server's own: a mismatch fails every sign-in silently.
+if (
+  oauth &&
+  !(await shouldServeAfterIssuerCheck(oauth, {
+    internalOrigin: process.env.TRACEROOT_UI_URL || undefined,
+  }))
+) {
+  process.exit(1);
+}
 
 const app = createApp({
   backendUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
   timeoutMs: 60_000,
   allowedHosts: parseAllowedHosts(process.env.MCP_ALLOWED_HOSTS),
+  oauth,
 });
 
 serve({ fetch: app.fetch, port: PORT });

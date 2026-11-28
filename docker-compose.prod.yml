@@ -648,6 +648,16 @@ services:
       BACKEND_INTERNAL_URL: http://rest:8000
       # Hostnames the endpoint answers to (comma-separated); empty answers any.
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      # OAuth discovery, so an assistant can sign in instead of using a key. The
+      # public URL of this endpoint and the issuer of the web app's OAuth provider
+      # (BETTER_AUTH_URL plus /api/auth). Both set turns it on; either blank leaves
+      # the endpoint key-only. Tokens are still verified by rest, not here.
+      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
+      MCP_OAUTH_ISSUER: ${TRACEROOT_OAUTH_ISSUER:-}
+      # Where the web app answers inside this network. With OAuth on, the server
+      # checks at startup that the web app's issuer is MCP_OAUTH_ISSUER exactly,
+      # and exits if not.
+      TRACEROOT_UI_URL: http://web:3000
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/health"]
       interval: 10s

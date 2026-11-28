@@ -1,11 +1,20 @@
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { Hono } from "hono";
+import {
+  challenge,
+  isExpiredJwt,
+  protectedResourceMetadata,
+  resourceMetadataPath,
+  type OAuthConfig,
+} from "./oauth.js";
 import { createServer, type ServerConfig } from "./server.js";
 
 export interface AppConfig extends ServerConfig {
   /** Hostnames the endpoint answers to (DNS-rebinding protection); unset allows any. */
   allowedHosts?: string[];
+  /** When set, the endpoint advertises OAuth so assistants can sign in instead of using a key. */
+  oauth?: OAuthConfig;
 }
 
 /**
@@ -52,11 +61,32 @@ export function createApp(config: AppConfig): Hono {
 
   const app = new Hono();
   app.get("/health", (c) => c.json({ status: "ok" }));
+
+  const { oauth } = config;
+  if (oauth) {
+    // Public metadata: assistants read it before they hold any credential, and a
+    // browser-based client may read it cross-origin.
+    app.get(resourceMetadataPath(oauth), (c) =>
+      c.json(protectedResourceMetadata(oauth), 200, { "Access-Control-Allow-Origin": "*" }),
+    );
+  }
+
   app.all("/mcp", (c) => {
+    const authorization = c.req.header("authorization") ?? "";
+    const bearer = /^Bearer (\S+)/i.exec(authorization)?.[1];
     // A missing credential is refused here; a wrong one is refused by the backend.
-    if (!/^Bearer \S+/i.test(c.req.header("authorization") ?? "")) {
+    if (!bearer) {
       return c.json({ error: "Missing bearer credential" }, 401, {
-        "WWW-Authenticate": "Bearer",
+        "WWW-Authenticate": challenge(oauth),
+      });
+    }
+    // An expired OAuth token gets the 401 that tells a client to refresh it.
+    if (oauth && isExpiredJwt(bearer)) {
+      return c.json({ error: "The access token expired" }, 401, {
+        "WWW-Authenticate": challenge(oauth, {
+          code: "invalid_token",
+          description: "The access token expired",
+        }),
       });
     }
     return mcp.fetch(c.req.raw);
