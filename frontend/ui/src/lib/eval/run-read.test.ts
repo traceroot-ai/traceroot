@@ -70,9 +70,10 @@ function db(rows: Row[]) {
     rows.find((r) => r.id === id && r.projectId === projectId);
   // Honours the column filters the usage queries add: `null` and `{ not: null }`. Any other
   // `where` key throws, so a filter on the wrong column cannot pass silently.
-  const MODELED = ["runId", "projectId", "traceId", "metricsDerivedAt", "scorerLlmCalls"];
+  const FILTERED = ["traceId", "scorerMetricsDerivedAt", "scorerLlmCalls"];
+  const MODELED = ["runId", "projectId", ...FILTERED];
   const matches = (r: Row, where: Row) => {
-    return ["traceId", "metricsDerivedAt", "scorerLlmCalls"].every((k) => {
+    return FILTERED.every((k) => {
       const f = where[k];
       if (f === undefined) return true;
       const v = r[k] ?? null;
@@ -443,7 +444,9 @@ describe("usage", () => {
   const processed = (over: Row = {}): Row => ({
     ...run().results[0],
     traceId: "t",
+    // The worker stamps every marker at once.
     metricsDerivedAt: new Date(),
+    scorerMetricsDerivedAt: new Date(),
     createTime: new Date(),
     llmCalls: 3,
     pricedLlmCalls: 3,
@@ -471,7 +474,7 @@ describe("usage", () => {
     const u = await usage([
       processed(),
       // Stale column values stay on the pending row: none may leak into the sums.
-      processed({ metricsDerivedAt: null, scorerLlmCalls: null }),
+      processed({ metricsDerivedAt: null, scorerMetricsDerivedAt: null, scorerLlmCalls: null }),
     ]);
     expect(u.results_pending).toBe(1);
     expect(u.results_processed).toBe(1);
@@ -514,7 +517,12 @@ describe("usage", () => {
   it("counts a result with no trace, or no spans found, as without trace and makes totals partial", async () => {
     const u = await usage([
       processed(),
-      processed({ traceId: null, metricsDerivedAt: null, scorerLlmCalls: null }),
+      processed({
+        traceId: null,
+        metricsDerivedAt: null,
+        scorerMetricsDerivedAt: null,
+        scorerLlmCalls: null,
+      }),
       processed({ scorerLlmCalls: null }),
     ]);
     expect(u.results_without_trace).toBe(2);
@@ -534,6 +542,7 @@ describe("usage", () => {
       processed(),
       processed({
         metricsDerivedAt: null,
+        scorerMetricsDerivedAt: null,
         scorerLlmCalls: null,
         createTime: new Date(Date.now() - 8 * DAY),
       }),
@@ -541,6 +550,37 @@ describe("usage", () => {
     expect(u.results_pending).toBe(1);
     expect(u.results_without_trace).toBe(0);
     expect(u.task.state).toBe("processing");
+  });
+
+  it("counts a result whose trace was unlinked as without trace, its stale values unsummed", async () => {
+    const u = await usage([
+      processed(),
+      // Derived while it had a trace, so every marker and total is still set.
+      processed({ traceId: null, cost: 0.5, llmCalls: 9, pricedLlmCalls: 9, scorerCost: 0.25 }),
+    ]);
+    expect([u.results_processed, u.results_pending, u.results_without_trace]).toEqual([1, 0, 1]);
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3, state: "partial" });
+    expect(u.task.cost).toBeCloseTo(0.001);
+    expect(u.scorers).toMatchObject({ llm_calls: 1, priced_llm_calls: 1, state: "partial" });
+    expect(u.scorers.cost).toBeCloseTo(0.0005);
+  });
+
+  it("keeps waiting on a result a worker without the scorer split stamped", async () => {
+    // Such a worker writes the task's totals and stamps metricsDerivedAt, but never the
+    // scorer columns or their marker, so the backfill derives the result again.
+    const u = await usage([
+      processed(),
+      processed({
+        scorerMetricsDerivedAt: null,
+        pricedLlmCalls: null,
+        scorerCost: null,
+        scorerLlmCalls: null,
+        scorerPricedLlmCalls: null,
+      }),
+    ]);
+    expect([u.results_processed, u.results_pending, u.results_without_trace]).toEqual([1, 1, 0]);
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3 });
+    for (const b of [u.task, u.scorers, u.combined]) expect(b.state).toBe("processing");
   });
 
   it("is unavailable when no result was processed and none is pending", async () => {

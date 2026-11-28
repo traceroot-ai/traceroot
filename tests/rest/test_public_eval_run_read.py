@@ -78,9 +78,9 @@ SUMMARY = {
         "results_processed": 2,
         "results_pending": 0,
         "results_without_trace": 0,
-        "task": {"cost": 0.003, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
+        "task": {"cost": 0.0008, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
         "scorers": {"cost": None, "llm_calls": 0, "priced_llm_calls": 0, "state": "no_calls"},
-        "combined": {"cost": 0.003, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
+        "combined": {"cost": 0.0008, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
     },
 }
 

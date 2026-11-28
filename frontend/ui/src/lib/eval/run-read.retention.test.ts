@@ -93,6 +93,7 @@ describe("retention gate on the run-summary read", () => {
     expect(prismaMock.$queryRaw).not.toHaveBeenCalled();
     expect(prismaMock.evaluationResult.groupBy).not.toHaveBeenCalled();
     expect(prismaMock.evaluationResult.aggregate).not.toHaveBeenCalled();
+    expect(prismaMock.evaluationResult.count).not.toHaveBeenCalled();
     expect(prismaMock.dataset.findFirst).not.toHaveBeenCalled();
   });
 

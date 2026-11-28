@@ -265,10 +265,16 @@ export async function readRunSummary(input: {
       where: { id: run.datasetId, projectId },
       select: { clientDatasetId: true, id: true },
     }),
-    // Processed: the worker derived the metrics and found spans (the scorer count is NULL
-    // when it found none). Only these results are summed.
+    // Processed: still linked to a trace, which the worker derived the scorer split for
+    // and found spans in (the scorer count is NULL when it found none). Only these results
+    // are summed, so the old totals of a result whose trace was unlinked stay out.
     prisma.evaluationResult.aggregate({
-      where: { ...where, metricsDerivedAt: { not: null }, scorerLlmCalls: { not: null } },
+      where: {
+        ...where,
+        traceId: { not: null },
+        scorerMetricsDerivedAt: { not: null },
+        scorerLlmCalls: { not: null },
+      },
       _sum: {
         cost: true,
         llmCalls: true,
@@ -279,14 +285,15 @@ export async function readRunSummary(input: {
       },
       _count: { _all: true },
     }),
-    // Pending: linked to a trace the worker has not read yet. This is the worker's own
-    // metrics backfill selection (`metrics_derived_at IS NULL AND trace_id IS NOT NULL` in
-    // backend/worker/ingest_tasks.py), which has no time window, so neither does this.
+    // Pending: linked to a trace the worker has not derived the scorer split for yet. This
+    // is the worker's own backfill selection (`scorer_metrics_derived_at IS NULL AND
+    // trace_id IS NOT NULL` in backend/worker/ingest_tasks.py), which has no time window,
+    // so neither does this.
     prisma.evaluationResult.count({
       where: {
         ...where,
         traceId: { not: null },
-        metricsDerivedAt: null,
+        scorerMetricsDerivedAt: null,
       },
     }),
   ]);
@@ -301,8 +308,8 @@ export async function readRunSummary(input: {
   // so the read counts those groups itself rather than reporting them as absent.
   const countOf = (status: string) => statusRows.find((g) => g.status === status)?.count ?? 0;
 
-  // Every result that is neither processed nor pending has no usable trace: none linked,
-  // no spans found.
+  // Every result that is neither processed nor pending has no usable trace: none linked
+  // (or since unlinked), or no spans found.
   const resultCount = statusRows.reduce((n, g) => n + g.count, 0);
   const usage = runUsage(processed._sum, {
     results_processed: processed._count._all,
