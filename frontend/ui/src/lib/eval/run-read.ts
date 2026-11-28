@@ -4,7 +4,13 @@ import { parseScorers } from "@/lib/eval/comparison-db";
 import type { EvalReadResult } from "@/lib/eval/read-result";
 import { countResultStatuses } from "@/lib/eval/result-status-counts";
 import { runLink } from "@/lib/eval/run-link";
-import { ScoreSummarizer, metricSummary, type SummaryItem } from "@/lib/eval/run-summary";
+import {
+  RUN_METRICS,
+  RUN_METRIC_SELECT,
+  ScoreSummarizer,
+  metricSummary,
+  type SummaryItem,
+} from "@/lib/eval/run-summary";
 import { isOutsideRetention } from "@/lib/server/retention";
 
 const RUN_SELECT = {
@@ -184,8 +190,8 @@ export async function readRunSummary(input: {
     prisma.evaluationResult.groupBy({ by: ["status"], where, _count: { _all: true } }),
     prisma.evaluationResult.aggregate({
       where,
-      _avg: { durationMs: true, cost: true },
-      _count: { durationMs: true, cost: true },
+      _avg: RUN_METRIC_SELECT,
+      _count: RUN_METRIC_SELECT,
     }),
     summarizeScores(run.id, projectId, parseScorers(run.scorers)),
     prisma.dataset.findFirst({
@@ -240,10 +246,11 @@ export async function readRunSummary(input: {
     // reported, a metric is what the platform derived from the trace — which stops being
     // answerable the moment someone names a scorer "cost".
     scores: scores.map(metricItem),
-    metrics: [
-      metricSummary("duration", stored._avg.durationMs, stored._count.durationMs),
-      metricSummary("cost", stored._avg.cost, stored._count.cost),
-    ].map(metricItem),
+    // Each mean is the database's AVG over the results that reported the column, and its
+    // COUNT over the same non-null rows is that mean's observed_count.
+    metrics: RUN_METRICS.map((m) =>
+      metricSummary(m.key, stored._avg[m.field], stored._count[m.field]),
+    ).map(metricItem),
   } satisfies ReadRunResponse;
 
   return { ok: true, body };
