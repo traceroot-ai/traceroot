@@ -6,8 +6,9 @@
   "scripts": {
     "start": "tsx agent.ts"
   },
+  "type": "module",
   "dependencies": {
-    "@traceroot-ai/traceroot": "^0.1.6",
+    "@traceroot-ai/traceroot": "^0.4.0",
     "dotenv": "^16.4.5",
     "openai": "^6.7.0"
   },
