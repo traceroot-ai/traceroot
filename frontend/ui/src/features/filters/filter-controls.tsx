@@ -11,6 +11,7 @@ import { Check, ChevronDown, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { isImeComposition } from "@/lib/keyboard";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { useMetadataKeys } from "./hooks";
 import { MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "./predicate";
@@ -115,7 +116,7 @@ export function TextField({
       maxLength={MAX_VALUE_LENGTH}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") onEnter?.();
+        if (e.key === "Enter" && !isImeComposition(e)) onEnter?.();
       }}
       className={cn("h-7 min-w-0 flex-1 rounded-md", textSize)}
     />
@@ -168,7 +169,7 @@ export function NumberField({
         onKeyDown={(e) => {
           // Block a minus sign always, and a decimal point on integer fields.
           if (e.key === "-" || (integer && e.key === ".")) e.preventDefault();
-          else if (e.key === "Enter") onEnter?.();
+          else if (e.key === "Enter" && !isImeComposition(e)) onEnter?.();
         }}
         className={cn(
           "min-w-0 flex-1 bg-transparent outline-none [appearance:textfield] placeholder:text-muted-foreground [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
@@ -356,7 +357,7 @@ export function MetadataKeyCombobox({
             onKeyDown={(e) => {
               // Enter dismisses the suggestion list and applies the filter if the row is
               // complete; the typed key needs no confirmation, it is already the key.
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && !isImeComposition(e)) {
                 setOpen(false);
                 onEnter?.();
               }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImpersonationError } from "@/lib/api/errors";
 import { getAccessKeys, createAccessKey, updateAccessKey, deleteAccessKey } from "@/lib/api";
@@ -124,6 +124,69 @@ it.each(["create", "update", "delete"] as const)(
     expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
   },
 );
+
+it("does not create an API key while confirming an IME candidate", async () => {
+  vi.mocked(getAccessKeys).mockResolvedValue({ access_keys: [] });
+  vi.mocked(createAccessKey).mockResolvedValue({
+    data: {
+      id: "key-1",
+      key: "tr-secret",
+      key_hint: "tr-secret",
+      name: "Production",
+      expire_time: null,
+      last_use_time: null,
+      create_time: "2026-01-01T00:00:00Z",
+    },
+  });
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Create new API key" }));
+  const input = within(screen.getByRole("dialog")).getByLabelText("Name (optional)");
+  fireEvent.change(input, { target: { value: "Production" } });
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+  expect(createAccessKey).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(createAccessKey).toHaveBeenCalledWith("p", "Production"));
+});
+
+it("does not save an API key note while confirming an IME candidate", async () => {
+  vi.mocked(getAccessKeys).mockResolvedValue({
+    access_keys: [
+      {
+        id: "key-1",
+        name: "Production",
+        key_hint: "tr-1234",
+        expire_time: null,
+        create_time: "2026-01-01T00:00:00Z",
+        last_use_time: null,
+      },
+    ],
+  } as Awaited<ReturnType<typeof getAccessKeys>>);
+  vi.mocked(updateAccessKey).mockResolvedValue({
+    id: "key-1",
+    name: "Production",
+    key_hint: "tr-1234",
+    expire_time: null,
+    create_time: "2026-01-01T00:00:00Z",
+    last_use_time: null,
+  });
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AccessKeysTab projectId="p" />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByText("Production"));
+  const input = within(screen.getByRole("dialog")).getByLabelText("Note");
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+  expect(updateAccessKey).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(updateAccessKey).toHaveBeenCalledWith("p", "key-1", "Production"));
+});
 
 it("associates the API key name field with its visible label", () => {
   render(
