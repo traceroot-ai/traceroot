@@ -1,4 +1,5 @@
 import { demoAgentWriteDenied } from "@/lib/demo-agent";
+import { DEMO_CREATOR, isDemoProject } from "@/lib/dashboard-read";
 /**
  * Cookie-route handlers for signals (ee). The route files under app/api only
  * wrap these with the impersonation policy. Every write runs through core
@@ -310,8 +311,15 @@ export async function handleGetSignal(
   if (!result) return errorResponse("Signal not found", 404);
   if (result.merged) return successResponse(result);
   const counted = await tracesPerBucket(projectId, result.signal.detectorId, result.window, tz);
+  const demo = await isDemoProject(projectId);
   return successResponse({
     ...result,
+    statusEvents: demo
+      ? result.statusEvents.map((event) => ({
+          ...event,
+          actorUserId: event.actorUserId === "system" ? "system" : DEMO_CREATOR,
+        }))
+      : result.statusEvents,
     // Without the key the worker runs no signal RCA, so the panel offers none.
     grouping: signalsKeyConfigured(),
     hitSeries: result.hitSeries.map((b) => ({

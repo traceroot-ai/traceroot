@@ -4,7 +4,7 @@
  * test-case values as human text, and edits/deletes touch only the dataset's own
  * metadata — never a published snapshot. Auth + Prisma are mocked.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
 vi.mock("@/lib/support/route-guard", () => ({
@@ -69,11 +69,17 @@ async function body(res: { json: () => Promise<unknown> }) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("DEMO_WORKSPACE_ID", "demo-workspace");
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
-  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  auth.requireProjectAccess.mockResolvedValue({
+    project: { id: "p1", workspaceId: "customer-workspace" },
+    membership: { role: "VIEWER" },
+  });
   prismaMock.testCase.findMany.mockResolvedValue([]);
   prismaMock.evaluationRun.count.mockResolvedValue(0);
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("GET", () => {
   it("returns the current version, its cases (newest first), and the version list", async () => {
@@ -364,4 +370,44 @@ describe("DELETE", () => {
     expect((await DELETE({} as never, params)).status).toBe(403);
     expect(prismaMock.dataset.delete).not.toHaveBeenCalled();
   });
+});
+
+it.each([
+  ["demo-workspace", "VIEWER", true],
+  ["demo-workspace", "ADMIN", false],
+  ["customer-workspace", "VIEWER", false],
+])("publishes dataset authors according to %s %s access", async (workspaceId, role, redact) => {
+  auth.requireProjectAccess.mockResolvedValue({
+    project: { id: "p1", workspaceId },
+    membership: { role },
+  });
+  const stored = dataset({
+    versions: [
+      { ...v2, createdBy: "internal-author@example.com" },
+      { ...v1, createdBy: "internal-author@example.com" },
+    ],
+  });
+  prismaMock.dataset.findFirst.mockResolvedValue(stored);
+  prismaMock.testCase.findMany.mockResolvedValue([
+    { testCaseId: "c1", input: '"sample"', expected: null, addedBy: "internal-editor@example.com" },
+  ]);
+
+  const b = await body(await GET(getReq("version_id=dv1"), params));
+  const author = redact ? null : "internal-author@example.com";
+  expect(b.currentVersion).toMatchObject({ id: "dv2", createdBy: author });
+  expect(b.selectedVersion).toMatchObject({ id: "dv1", createdBy: author });
+  expect(b.versions).toEqual([
+    expect.objectContaining({ id: "dv2", createdBy: author }),
+    expect.objectContaining({ id: "dv1", createdBy: author }),
+  ]);
+  expect((b.dataset as { versions: unknown[] }).versions).toEqual(b.versions);
+  expect(b.testCases).toEqual([
+    expect.objectContaining({
+      testCaseId: "c1",
+      input: "sample",
+      addedBy: redact ? null : "internal-editor@example.com",
+    }),
+  ]);
+  if (redact) expect(JSON.stringify(b)).not.toContain("@example.com");
+  expect(stored.versions[0]).toMatchObject({ createdBy: "internal-author@example.com" });
 });

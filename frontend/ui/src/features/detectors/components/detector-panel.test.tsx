@@ -81,6 +81,18 @@ const baseDetector: Detector = {
   trigger: { conditions: [] },
 };
 
+it("labels a public demo template without inventing a sampling rate or allowing a save", () => {
+  mocks.detector = { ...baseDetector, sampleRate: null };
+  renderPanel();
+  expect(
+    screen.getByText("Public demo template. Working configuration is not shared."),
+  ).toBeTruthy();
+  expect(screen.getByText("Not shared in the demo.")).toBeTruthy();
+  expect((screen.getByRole("slider") as HTMLInputElement).disabled).toBe(true);
+  expect(saveButton().disabled).toBe(true);
+  expect(screen.queryByText("25%")).toBeNull();
+});
+
 function renderPanel(detectorId = "det-1") {
   const onClose = vi.fn();
   const view = render(

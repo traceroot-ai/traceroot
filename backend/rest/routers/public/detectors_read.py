@@ -20,6 +20,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.routers.detector_read_common import (
+    demo_detector,
     list_detectors_page,
     list_findings_page,
     require_detector,
@@ -55,7 +56,14 @@ async def list_detectors(
     ),
 ):
     """List the detectors in the caller's project (newest first)."""
-    return await list_detectors_page(service, auth.project_id, limit, start_after, end_before)
+    return await list_detectors_page(
+        service,
+        auth.project_id,
+        limit,
+        start_after,
+        end_before,
+        demo_viewer=auth.kind == "user" and auth.demo_viewer,
+    )
 
 
 @router.get("/findings", response_model=PublicFindingListResponse, operation_id="list_findings")
@@ -105,6 +113,7 @@ async def get_finding(
     return await require_finding(
         lambda: service.get_finding(auth.project_id, finding_id, auth.billing_plan),
         auth.billing_plan,
+        demo_viewer=auth.kind == "user" and auth.demo_viewer,
     )
 
 
@@ -125,6 +134,7 @@ async def get_finding_by_trace(
     return await require_finding(
         lambda: service.get_finding_by_trace(auth.project_id, trace_id, auth.billing_plan),
         auth.billing_plan,
+        demo_viewer=auth.kind == "user" and auth.demo_viewer,
     )
 
 
@@ -144,22 +154,5 @@ async def get_detector(
     """Get a detector, excluding working configuration from demo visitors."""
     detector = await require_detector(lambda: service.get_detector(auth.project_id, detector_id))
     if auth.kind == "user" and auth.demo_viewer:
-        # Rebuild from the published catalog fields rather than copying the
-        # stored object: newly added configuration must not leak by default.
-        return DetectorDetail(
-            detector_id=detector.detector_id,
-            name=detector.name,
-            template=detector.template,
-            enabled=detector.enabled,
-            created_at=detector.created_at,
-            prompt="",
-            output_schema=None,
-            sample_rate=100,
-            enable_rca=False,
-            detection_model=None,
-            detection_provider=None,
-            detection_source=None,
-            updated_at=detector.created_at,
-            trigger_conditions=None,
-        )
+        return demo_detector(detector)
     return detector

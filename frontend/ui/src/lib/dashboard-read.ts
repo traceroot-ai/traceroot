@@ -15,9 +15,8 @@ export async function isDemoProject(projectId: string): Promise<boolean> {
 }
 
 /**
- * Resolve dashboard creator ids to display names for the dashboard read
- * routes (cookie list and internal mirrors). Dashboards are shared across a
- * project's members, so reads show who created each one. createdBy holds a
+ * Resolve creator ids for dashboard and alert reads (cookie and internal
+ * mirrors). These are shared across a project's members. createdBy holds a
  * bare user id (no relation on the model); resolve display names in one
  * batch — a deleted account resolves to null.
  */

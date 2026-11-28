@@ -22,6 +22,7 @@ const db = vi.hoisted(() => ({
   gitHubInstallationFindMany: vi.fn(),
   accessKeyFindMany: vi.fn(),
   projectFindFirst: vi.fn(),
+  listWorkspaceModels: vi.fn(),
 }));
 
 vi.mock("@traceroot/core", async (importOriginal) => ({
@@ -33,6 +34,7 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
     accessKey: { findMany: db.accessKeyFindMany },
     project: { findFirst: db.projectFindFirst },
   },
+  listWorkspaceModels: db.listWorkspaceModels,
 }));
 
 const auth = vi.hoisted(() => ({ role: "VIEWER", workspaceId: "ws-demo" }));
@@ -60,6 +62,8 @@ import { GET as getSubscriptionInfo } from "./billing/subscription-info/route";
 import { GET as getApiKeys, POST as createApiKey } from "./projects/[projectId]/api-keys/route";
 import { GET as getWorkspace } from "./workspaces/[workspaceId]/route";
 import { GET as getProject } from "./projects/[projectId]/route";
+import { GET as getWorkspaceProject } from "./workspaces/[workspaceId]/projects/[projectId]/route";
+import { GET as getWorkspaceModels } from "./workspaces/[workspaceId]/llm-models/route";
 
 type Result = { status: number; data: Record<string, unknown> };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,6 +80,18 @@ const DENIED_READS: [string, () => Promise<Result>][] = [
   ["GitHub status", () => call(getGitHubStatus, query())],
   ["billing subscription info", () => call(getSubscriptionInfo, query())],
   ["project API keys", () => call(getApiKeys, {}, projectParams)],
+  ["workspace model inventory", () => call(getWorkspaceModels, {}, workspaceParams())],
+  [
+    "workspace project settings",
+    () =>
+      call(
+        getWorkspaceProject,
+        {},
+        {
+          params: Promise.resolve({ workspaceId: auth.workspaceId, projectId: "proj-1" }),
+        },
+      ),
+  ],
 ];
 
 beforeEach(() => {
@@ -101,6 +117,7 @@ beforeEach(() => {
   db.modelProviderFindMany.mockResolvedValue([]);
   db.gitHubInstallationFindMany.mockResolvedValue([]);
   db.accessKeyFindMany.mockResolvedValue([]);
+  db.listWorkspaceModels.mockResolvedValue({ systemModels: [], byokProviders: [] });
   db.projectFindFirst.mockImplementation(async () => ({
     id: "proj-1",
     workspaceId: auth.workspaceId,
@@ -111,6 +128,7 @@ beforeEach(() => {
     rcaSource: null,
     alertConfig: { emailAddresses: ["oncall@traceroot.ai"], alertWindow: "1h" },
     _count: { accessKeys: 1 },
+    accessKeys: [],
     createTime: "2026-10-01",
     updateTime: "2026-10-01",
   }));
@@ -130,6 +148,7 @@ describe("a demo viewer", () => {
     expect(db.modelProviderFindMany).not.toHaveBeenCalled();
     expect(db.gitHubInstallationFindMany).not.toHaveBeenCalled();
     expect(db.accessKeyFindMany).not.toHaveBeenCalled();
+    expect(db.listWorkspaceModels).not.toHaveBeenCalled();
   });
 
   it("reads the workspace for the General page, without its billing state", async () => {

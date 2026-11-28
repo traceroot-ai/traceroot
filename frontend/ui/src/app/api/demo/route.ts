@@ -55,9 +55,14 @@ async function handleDELETE() {
   });
   if (membership && membership.role !== Role.VIEWER)
     return errorResponse("Only demo visitors can leave through this page", 403);
-  await prisma.workspaceMember.deleteMany({
-    where: { workspaceId, userId: auth.user.id, role: Role.VIEWER },
-  });
+  try {
+    await prisma.workspaceMember.deleteMany({
+      where: { workspaceId, userId: auth.user.id, role: Role.VIEWER },
+    });
+  } catch (error) {
+    console.error("[demo] could not leave", auth.user.id, error);
+    return errorResponse("Could not leave the demo. Please try again.", 500);
+  }
   return successResponse({ left: true });
 }
 

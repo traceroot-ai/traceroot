@@ -30,6 +30,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: { useSession: () => mocks.session, signOut: vi.fn() },
+  useSession: () => mocks.session,
 }));
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHeaderContent: vi.fn() }),

@@ -42,7 +42,7 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
         projectId,
         OR: [
           { name: { contains: searchQuery, mode: "insensitive" as const } },
-          { template: { contains: searchQuery, mode: "insensitive" as const } },
+          ...(demo ? [] : [{ template: { contains: searchQuery, mode: "insensitive" as const } }]),
           ...(demo ? [] : [{ prompt: { contains: searchQuery, mode: "insensitive" as const } }]),
         ],
       }

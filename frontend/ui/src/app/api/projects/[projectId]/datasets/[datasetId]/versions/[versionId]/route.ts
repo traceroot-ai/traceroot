@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth-helpers";
 import { TEST_CASE_ORDER } from "@/lib/eval/versions";
 import { displayJsonValue } from "@/lib/eval/json-value";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 type RouteParams = {
   params: Promise<{ projectId: string; datasetId: string; versionId: string }>;
@@ -30,15 +31,21 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
   });
   if (!version) return errorResponse("Dataset version not found", 404);
 
+  const demo = isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role);
+
   // Decode input/expected for display, matching the current-version route — otherwise
   // the same case renders as raw JSON-encoded text here (e.g. `"hello"`, `42`) but
   // decoded in the current view.
   const testCases = version.testCases.map((t) => ({
     ...t,
+    ...(demo ? { addedBy: null } : {}),
     input: displayJsonValue(t.input),
     expected: t.expected === null ? null : displayJsonValue(t.expected),
   }));
 
-  return successResponse({ version: { ...version, testCases }, testCases });
+  return successResponse({
+    version: { ...version, ...(demo ? { createdBy: null } : {}), testCases },
+    testCases,
+  });
 }
 export const GET = withImpersonationPolicy(handleGET);

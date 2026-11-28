@@ -46,7 +46,10 @@ function req(body: unknown) {
 beforeEach(() => {
   fakePrisma.reset();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1", email: "e@x.com" } });
-  auth.requireProjectAccess.mockResolvedValue({ project: { id: PROJECT_ID } });
+  auth.requireProjectAccess.mockResolvedValue({
+    project: { id: PROJECT_ID, workspaceId: "customer-workspace" },
+    membership: { role: "MEMBER" },
+  });
   // A dataset with an initial version v1 holding one case.
   fakePrisma.dataset.rows.push({ id: "ds1", projectId: PROJECT_ID, currentVersionId: "dv1" });
   fakePrisma.datasetVersion.rows.push({

@@ -110,7 +110,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Signing in must never grant access to the shared demo workspace.
+  // Covers the session hook; signup follow-ups have their own regression test.
   expect(ensureDemoMembership).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });

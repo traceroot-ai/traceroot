@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
-import { prisma, type AlertFilter, type AlertRenotify } from "@traceroot/core";
+import type { AlertFilter, AlertRenotify } from "@traceroot/core";
+import { resolveCreatorNames } from "@/lib/dashboard-read";
 
 export const alertSummarySelect = {
   id: true,
@@ -78,21 +79,18 @@ function toSummary(row: AlertSummaryRow, creator: string | null): AlertSummary {
   return { ...rest, threshold: decimalToNumber(threshold), creator };
 }
 
-async function resolveCreators(ids: readonly string[]): Promise<Map<string, string>> {
-  const users = await prisma.user.findMany({
-    where: { id: { in: [...new Set(ids)] } },
-    select: { id: true, name: true, email: true },
-  });
-  // || not ??: an empty-string name must fall through to the email too.
-  return new Map(users.map((u) => [u.id, u.name || u.email]));
-}
-
 /**
  * `createdBy` holds a bare user id with no relation on the model, so display
  * names resolve in one batch here. A deleted account resolves to null.
  */
-export async function withCreators(rows: AlertSummaryRow[]): Promise<AlertSummary[]> {
-  const byId = await resolveCreators(rows.map((row) => row.createdBy));
+export async function withCreators(
+  rows: AlertSummaryRow[],
+  projectId: string,
+): Promise<AlertSummary[]> {
+  const byId = await resolveCreatorNames(
+    rows.map((row) => row.createdBy),
+    projectId,
+  );
   return rows.map((row) => toSummary(row, byId.get(row.createdBy) ?? null));
 }
 
@@ -106,7 +104,7 @@ export function toAlertRecord(row: AlertRow, creator: string | null): AlertRecor
   };
 }
 
-export async function serializeAlert(row: AlertRow): Promise<AlertRecord> {
-  const byId = await resolveCreators([row.createdBy]);
+export async function serializeAlert(row: AlertRow, projectId: string): Promise<AlertRecord> {
+  const byId = await resolveCreatorNames([row.createdBy], projectId);
   return toAlertRecord(row, byId.get(row.createdBy) ?? null);
 }

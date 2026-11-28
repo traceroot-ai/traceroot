@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     if (!alert) {
       return NextResponse.json({ error: "Alert not found" }, { status: 404 });
     }
-    return NextResponse.json({ alert: await serializeAlert(alert) });
+    return NextResponse.json({ alert: await serializeAlert(alert, projectId) });
   }
 
   // Clamped rather than rejected, like the cookie route: the public layer
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
   const used = searchQuery ? await prisma.alert.count({ where: { projectId } }) : total;
 
   return NextResponse.json({
-    alerts: rows.length === 0 ? [] : await withCreators(rows),
+    alerts: rows.length === 0 ? [] : await withCreators(rows, projectId),
     meta: { page, limit, total, capacity: { used, max: MAX_ALERTS_PER_PROJECT } },
   });
 }

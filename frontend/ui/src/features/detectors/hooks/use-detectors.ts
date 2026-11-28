@@ -9,7 +9,7 @@ export interface Detector {
   template: string;
   prompt: string;
   outputSchema: Array<{ name: string; type: string }>;
-  sampleRate: number;
+  sampleRate: number | null;
   enableRca: boolean;
   /** Group this detector's hits into signals. */
   enableSignals: boolean;

@@ -102,6 +102,10 @@ test("demo membership requires a choice and stays revoked after another login", 
   const configuration = await (await request.get(`${base}/api/projects/${projectId}`)).json();
   expect(configuration).not.toHaveProperty("rca_model");
   expect(configuration).not.toHaveProperty("access_key_count");
+  for (const path of [`/workspaces/${workspaceId}`, `/workspaces/${workspaceId}/projects`]) {
+    const body = await (await request.get(`${base}/api${path}`)).json();
+    expect(body.projects[0]).not.toHaveProperty("access_key_count");
+  }
   const detectors = await (await request.get(`${base}/api/projects/${projectId}/detectors`)).json();
   expect(JSON.stringify(detectors)).not.toContain("PRIVATE_WORKING_PROMPT");
   expect(JSON.stringify(detectors)).not.toContain("private_field");
@@ -111,6 +115,12 @@ test("demo membership requires a choice and stays revoked after another login", 
   expect(dashboards.data[0].creator).toBe("Demo");
   expect(JSON.stringify(dashboards)).not.toContain("private-staff-id");
   expect((await request.get(`${base}/api/projects/${projectId}/api-keys`)).status()).toBe(403);
+  expect(
+    (await request.get(`${base}/api/workspaces/${workspaceId}/projects/${projectId}`)).status(),
+  ).toBe(403);
+  expect((await request.get(`${base}/api/workspaces/${workspaceId}/llm-models`)).status()).toBe(
+    403,
+  );
   expect((await request.get(`${base}/api/workspaces/${workspaceId}/members`)).status()).toBe(403);
 
   // Repeated join remains one VIEWER membership.

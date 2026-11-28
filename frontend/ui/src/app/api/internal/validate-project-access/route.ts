@@ -4,6 +4,7 @@ import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { auth } from "@/lib/auth";
 import { impersonationContext } from "@/lib/support/session";
+import { isDemoViewer } from "@/lib/demo-workspace";
 
 const validateAccessSchema = z.object({
   userId: z.string().min(1, "User ID is required").optional(),
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
     hasAccess: true,
     userId,
     role: membership.role,
+    demoViewer: isDemoViewer(project.workspaceId, membership.role),
     workspaceId: project.workspaceId,
     billingPlan: project.workspace?.billingPlan || PlanType.FREE,
   });

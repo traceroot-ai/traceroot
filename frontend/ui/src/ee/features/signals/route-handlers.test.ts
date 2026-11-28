@@ -7,6 +7,7 @@ const core = vi.hoisted(() => ({
   listSignals: vi.fn(),
   workspace: vi.fn(),
   getSignal: vi.fn(),
+  isDemoProject: vi.fn(),
   editSignalCriteria: vi.fn(),
   setSignalStatus: vi.fn(),
   mergeSignals: vi.fn(),
@@ -50,6 +51,10 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/write-services/audit", () => ({ writeAudit: core.writeAudit }));
+vi.mock("@/lib/dashboard-read", () => ({
+  isDemoProject: core.isDemoProject,
+  DEMO_CREATOR: "Demo",
+}));
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: core.requireAuth,
   requireProjectAccess: core.requireProjectAccess,
@@ -75,6 +80,7 @@ import {
 const mockFetch = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  core.isDemoProject.mockResolvedValue(false);
   core.workspace.mockResolvedValue({ billingPlan: "enterprise" });
   vi.stubGlobal("fetch", mockFetch);
   mockFetch.mockResolvedValue({ ok: true });
@@ -689,3 +695,36 @@ it.each(["VIEWER", "MEMBER"])("blocks demo %s RCA before scheduling", async (rol
     vi.unstubAllEnvs();
   }
 });
+
+it.each([true, false])(
+  "publishes status actors only when the project is demo: %s",
+  async (demo) => {
+    core.isDemoProject.mockResolvedValue(demo);
+    const stored = {
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window: { from: new Date(0), to: new Date(86_400_000), granularity: "day" },
+      hitSeries: [],
+      statusEvents: [
+        { actorUserId: "internal-employee-id", fromStatus: "open", toStatus: "resolved" },
+        { actorUserId: "system", fromStatus: "resolved", toStatus: "open" },
+      ],
+    };
+    core.getSignal.mockResolvedValue(stored);
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ data: [] }) });
+
+    const response = await handleGetSignal(req(), signalParams);
+    const body = await response.json();
+    expect(body.statusEvents).toEqual([
+      {
+        actorUserId: demo ? "Demo" : "internal-employee-id",
+        fromStatus: "open",
+        toStatus: "resolved",
+      },
+      { actorUserId: "system", fromStatus: "resolved", toStatus: "open" },
+    ]);
+    expect(core.isDemoProject).toHaveBeenCalledWith("p1");
+    if (demo) expect(JSON.stringify(body)).not.toContain("internal-employee-id");
+    expect(stored.statusEvents[0].actorUserId).toBe("internal-employee-id");
+  },
+);

@@ -6,7 +6,8 @@ vi.mock("@/lib/support/route-guard", () => ({
 vi.mock("@/lib/dashboard-seed", () => ({ seedDefaultDashboard: vi.fn() }));
 
 const db = vi.hoisted(() => ({
-  project: { findFirst: vi.fn() },
+  project: { findFirst: vi.fn(), findMany: vi.fn() },
+  workspace: { findUnique: vi.fn() },
   detector: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
   dashboard: { findMany: vi.fn(), findFirst: vi.fn() },
   user: { findMany: vi.fn() },
@@ -18,6 +19,7 @@ vi.mock("@traceroot/core", async (original) => ({
 }));
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: async () => ({ user: { id: "visitor" } }),
+  requireWorkspaceMembership: async () => ({ membership: { role: access.role } }),
   requireProjectAccess: async () => ({
     project: { id: "project", workspaceId: access.workspaceId },
     membership: { role: access.role },
@@ -37,6 +39,8 @@ import { GET as detectors } from "./projects/[projectId]/detectors/route";
 import { GET as detector } from "./projects/[projectId]/detectors/[detectorId]/route";
 import { GET as dashboards } from "./projects/[projectId]/dashboards/route";
 import { GET as dashboard } from "./projects/[projectId]/dashboards/[dashboardId]/route";
+import { GET as workspace } from "./workspaces/[workspaceId]/route";
+import { GET as workspaceProjects } from "./workspaces/[workspaceId]/projects/route";
 import { getTemplate } from "@/features/detectors/templates";
 
 const internalDetector = {
@@ -65,10 +69,17 @@ const params = {
     dashboardId: "dashboard",
   }),
 };
-const request = { nextUrl: new URL("https://app.example/api?search_query=failures") };
+const request = {
+  url: "https://app.example/api?search_query=failures&includeDeleted=true",
+  nextUrl: new URL("https://app.example/api?search_query=failures"),
+};
 type Result = { status: number; data: Record<string, unknown> };
 const call = (handler: unknown) =>
   (handler as (req: unknown, ctx: unknown) => Promise<Result>)(request, params);
+const callWorkspace = (handler: unknown) =>
+  (handler as (req: unknown, ctx: unknown) => Promise<Result>)(request, {
+    params: Promise.resolve({ workspaceId: access.workspaceId }),
+  });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -94,6 +105,15 @@ beforeEach(() => {
   db.detector.findMany.mockResolvedValue([internalDetector]);
   db.detector.findFirst.mockResolvedValue(internalDetector);
   db.detector.count.mockResolvedValue(1);
+  const projects = [{ id: "project", name: "Demo Project", _count: { accessKeys: 7 } }];
+  db.project.findMany.mockResolvedValue(projects);
+  db.workspace.findUnique.mockImplementation(async () => ({
+    id: access.workspaceId,
+    name: "Workspace",
+    billingPlan: "free",
+    projects,
+    _count: { members: 10 },
+  }));
   const row = { id: "dashboard", name: "Example dashboard", createdBy: "staff", widgets: [] };
   db.dashboard.findMany.mockResolvedValue([row]);
   db.dashboard.findFirst.mockResolvedValue(row);
@@ -118,6 +138,19 @@ it("returns demo identity without working model, alert window or key metadata", 
   }
 });
 
+it("omits key metadata from both workspace project lists and excludes retired demo projects", async () => {
+  for (const handler of [workspace, workspaceProjects]) {
+    const result = await callWorkspace(handler);
+    const projects = result.data.projects as Record<string, unknown>[];
+    expect(projects[0]).toMatchObject({ id: "project", name: "Demo Project" });
+    expect(projects[0]).not.toHaveProperty("access_key_count");
+  }
+  expect(db.project.findMany.mock.calls[0][0].where).toEqual({
+    workspaceId: "demo",
+    deleteTime: null,
+  });
+});
+
 it("publishes the same public template in detector list and detail, not working configuration", async () => {
   const list = (await call(detectors)).data.data as Record<string, unknown>[];
   const detail = (await call(detector)).data.detector;
@@ -133,15 +166,17 @@ it("publishes the same public template in detector list and detail, not working 
   expect(JSON.stringify(list)).not.toContain("981");
   // Searching must not disclose the redacted prompt through result counts.
   const where = db.detector.count.mock.calls[0][0].where;
-  expect(where.OR).toEqual([
-    { name: { contains: "failures", mode: "insensitive" } },
-    { template: { contains: "failures", mode: "insensitive" } },
-  ]);
+  expect(where.OR).toEqual([{ name: { contains: "failures", mode: "insensitive" } }]);
 });
 
 it("does not turn unknown custom templates into a disclosure path", async () => {
   db.detector.findFirst.mockResolvedValue({ ...internalDetector, template: "custom" });
-  expect((await call(detector)).data.detector).toMatchObject({ prompt: "", outputSchema: [] });
+  expect((await call(detector)).data.detector).toMatchObject({
+    template: "blank",
+    prompt: "",
+    outputSchema: [],
+    sampleRate: null,
+  });
 });
 
 it("uses a demo creator label in both dashboard reads without resolving staff identities", async () => {
@@ -168,10 +203,16 @@ it.each([
   expect((await call(detector)).data.detector).toMatchObject({ prompt: "INTERNAL_PROMPT" });
   const list = (await call(detectors)).data.data as Record<string, unknown>[];
   expect(list[0].prompt).toBe("INTERNAL_PROMPT");
+  for (const handler of [workspace, workspaceProjects]) {
+    const projects = (await callWorkspace(handler)).data.projects as Record<string, unknown>[];
+    expect(projects[0].access_key_count).toBe(7);
+  }
+  const dashboardList = (await call(dashboards)).data.data as Record<string, unknown>[];
+  expect(dashboardList[0].creator).toBe(workspaceId === "demo" ? "Demo" : "Staff Name");
   if (workspaceId !== "demo") {
-    const list = (await call(dashboards)).data.data as Record<string, unknown>[];
-    expect(list[0].creator).toBe("Staff Name");
     expect((await call(dashboard)).data.dashboard).toMatchObject({ createdBy: "staff" });
+  } else {
+    expect((await call(dashboard)).data.dashboard).toMatchObject({ creator: "Demo" });
   }
 });
 

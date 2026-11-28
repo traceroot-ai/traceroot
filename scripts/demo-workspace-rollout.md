@@ -9,8 +9,12 @@ It preserves ADMIN and MEMBER roles and all other workspaces. It never adds user
    deployment finish; otherwise an old instance can re-add viewers or the reset
    can remove users who have just opted in.
 2. Review the shared project's published content, including alerts, datasets,
-   assistant transcripts, RCA results and trace payloads. Keep only approved sample
-   data. API response filtering does not sanitize free-form stored content.
+   assistant transcripts, RCA results and trace payloads. Include scorer and
+   evaluation-run definitions (model choices, judge messages/prompts and source
+   code), run metadata, and automatically recorded RCA/message metadata, models
+   and providers. Publish only approved samples; remove or replace internal
+   working content before reopening demo access. API response filtering does not
+   sanitize free-form stored content.
 3. Set `DATABASE_URL` and `DEMO_WORKSPACE_ID` for the deployment, then inspect the
    dry-run count:
 

@@ -10,3 +10,9 @@ it("uses the app when this deployment has no demo", async () => {
   vi.stubEnv("DEMO_WORKSPACE_ID", "");
   expect(await demoProjectUrl("https://self.example.com")).toBe("https://self.example.com");
 });
+it("preserves a configured app path prefix", async () => {
+  vi.stubEnv("DEMO_WORKSPACE_ID", "demo");
+  expect(await demoProjectUrl("https://self.example.com/traceroot/")).toBe(
+    "https://self.example.com/traceroot/demo",
+  );
+});

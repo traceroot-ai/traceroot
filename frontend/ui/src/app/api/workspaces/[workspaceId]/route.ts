@@ -47,8 +47,9 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
   }
 
   const isDemo = isDemoWorkspace(workspace.id);
+  const demoViewer = isDemoViewer(workspace.id, membership.role);
   // Demo viewers read this for the General page, but not the billing state.
-  const billing = isDemoViewer(workspace.id, membership.role)
+  const billing = demoViewer
     ? {}
     : {
         billingPlan: workspace.billingPlan,
@@ -63,13 +64,13 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     role: membership.role,
     is_demo: isDemo,
     retention_days: getRetentionDays(workspace.billingPlan),
-    // The demo workspace has every user as a member; that count is not shown.
+    // Visitor counts are not part of the published demo.
     member_count: isDemo ? undefined : workspace._count.members,
     projects: workspace.projects.map((p) => ({
       id: p.id,
       name: p.name,
       trace_ttl_days: p.traceTtlDays,
-      access_key_count: p._count.accessKeys,
+      ...(demoViewer ? {} : { access_key_count: p._count.accessKeys }),
       create_time: p.createTime,
       last_ingested_at: p.lastIngestedAt,
     })),

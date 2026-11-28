@@ -328,10 +328,10 @@ export default function DetectorsPage() {
                         {capitalizeLabel(template?.label ?? detector.template)}
                       </td>
                       <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {modelLabel}
+                        {detector.sampleRate === null ? "—" : modelLabel}
                       </td>
                       <td className="whitespace-nowrap border-r border-border px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {detector.sampleRate}%
+                        {detector.sampleRate === null ? "—" : `${detector.sampleRate}%`}
                       </td>
                       <td className={countClass}>
                         <CountLink

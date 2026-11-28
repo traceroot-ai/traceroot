@@ -10765,7 +10765,7 @@
           "Detectors"
         ],
         "x-tool": {
-          "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+          "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions. Demo visitors receive only published catalog information.",
           "enabled": true,
           "name": "get_detector"
         }

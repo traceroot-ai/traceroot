@@ -5,6 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mocks = vi.hoisted(() => ({ api: vi.fn(), push: vi.fn() }));
 vi.mock("@/lib/api/client", () => ({ fetchNextApi: mocks.api }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "visitor" } } }),
+}));
 import { DemoEntry } from "./demo-entry";
 
 let access = { available: true, joined: false, canLeave: false };
@@ -37,7 +40,9 @@ afterEach(cleanup);
 
 it("does not join on load, then joins only after the explicit click", async () => {
   mount();
-  fireEvent.click(await screen.findByRole("button", { name: "Join demo" }));
+  const join = await screen.findByRole("button", { name: "Join demo" });
+  expect(mocks.api.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  fireEvent.click(join);
   expect(mocks.api.mock.calls[0]).toEqual(["/demo"]);
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/projects/demo-project/traces"));
   expect(mocks.api).toHaveBeenCalledWith("/demo", { method: "POST" });

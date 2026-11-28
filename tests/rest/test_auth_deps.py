@@ -318,6 +318,7 @@ class TestGetProjectAccess:
                     "userId": "user-456",
                     "role": "ADMIN",
                     "workspaceId": "ws-456",
+                    "demoViewer": False,
                 },
             )
         )
@@ -328,11 +329,41 @@ class TestGetProjectAccess:
         assert result.user_id == "user-456"
         assert result.role == "ADMIN"
         assert result.workspace_id == "ws-456"
+        assert result.demo_viewer is False
         import json
 
         request = route.calls.last.request
         assert json.loads(request.content) == {"browserSession": True, "projectId": "proj-123"}
         assert request.headers["cookie"] == "better-auth.session_token=signed-cookie"
+
+    @pytest.mark.parametrize(
+        ("flag", "restricted"),
+        [
+            (True, True),
+            (False, False),
+            (None, True),
+            ("false", True),
+            (0, True),
+            ("missing", True),
+        ],
+    )
+    @respx.mock
+    async def test_cookie_demo_visibility_fails_closed(self, flag, restricted):
+        body = {
+            "hasAccess": True,
+            "userId": "user-456",
+            "role": "ADMIN",
+            "workspaceId": "ws-456",
+        }
+        if flag != "missing":
+            body["demoViewer"] = flag
+        respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+            return_value=Response(200, json=body)
+        )
+
+        result = await get_project_access("proj-123", session_cookie="signed-cookie")
+
+        assert result.demo_viewer is restricted
 
     async def test_missing_user_id(self):
         with pytest.raises(HTTPException) as exc_info:

@@ -162,6 +162,42 @@ def test_list_detectors_returns_items_with_pagination_meta(client, reader):
     assert body["data"][0]["enabled"] is True
 
 
+@pytest.mark.parametrize("detail", [False, True])
+@pytest.mark.parametrize(
+    ("kind", "demo_viewer", "expected"),
+    [
+        ("user", True, "blank"),
+        ("user", False, "private policy text"),
+        ("api_key", True, "private policy text"),
+    ],
+)
+def test_demo_template_is_published_identifier(client, reader, detail, kind, demo_viewer, expected):
+    reader.detectors_return = ([_detector(template="private policy text")], 1)
+    reader.detector = _detector_detail().model_copy(update={"template": "private policy text"})
+    app.dependency_overrides[authenticate_public_caller] = lambda: replace(
+        make_auth(), kind=kind, demo_viewer=demo_viewer
+    )
+
+    resp = client.get("/api/v1/public/detectors" + ("/det-1" if detail else ""))
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert (body if detail else body["data"][0])["template"] == expected
+
+
+def test_demo_catalog_keeps_all_public_template_ids(client, reader):
+    templates = ["failure", "hallucination", "logic", "task", "safety", "intent", "blank"]
+    reader.detectors_return = ([_detector(template=template) for template in templates], 7)
+    app.dependency_overrides[authenticate_public_caller] = lambda: replace(
+        make_auth(), kind="user", demo_viewer=True
+    )
+
+    resp = client.get("/api/v1/public/detectors")
+
+    assert resp.status_code == 200
+    assert [item["template"] for item in resp.json()["data"]] == templates
+
+
 def test_list_detectors_forwards_limit_and_project_scope(client, reader):
     client.get("/api/v1/public/detectors?limit=10")
     args = reader.detectors_args
@@ -242,6 +278,29 @@ def test_list_reader_failure_returns_sanitized_500(client, reader):
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Failed to list findings"
     assert "boom" not in resp.text
+
+
+@pytest.mark.parametrize("by_trace", [False, True])
+@pytest.mark.parametrize("kind,demo_viewer", [("user", True), ("user", False), ("api_key", True)])
+def test_finding_templates_are_published_for_demo_visitors(
+    client, reader, by_trace, kind, demo_viewer
+):
+    finding = _detail()
+    templates = ["logic", "private policy text", None]
+    finding.results = [finding.results[0].model_copy(update={"template": t}) for t in templates]
+    reader.finding = reader.by_trace = finding
+    app.dependency_overrides[authenticate_public_caller] = lambda: replace(
+        make_auth(), kind=kind, demo_viewer=demo_viewer
+    )
+
+    path = "traces/t1/finding" if by_trace else "findings/f1"
+    resp = client.get(f"/api/v1/public/detectors/{path}")
+
+    assert resp.status_code == 200
+    assert [item["template"] for item in resp.json()["results"]] == (
+        ["logic", "blank", "blank"] if kind == "user" and demo_viewer else templates
+    )
+    assert finding.results[1].template == "private policy text"
 
 
 def test_detail_by_finding_id_returns_results_and_rca(client, reader):

@@ -257,3 +257,16 @@ describe("POST /api/internal/project-signals", () => {
     expect(await res.json()).toEqual({ error: "Signal not found" });
   });
 });
+
+it("keeps status event actors outside the internal read's published signal projection", async () => {
+  db.signal.findFirst.mockResolvedValue({
+    ...SIGNAL_ROW,
+    statusEvents: [{ actorUserId: "internal-employee-id" }],
+  });
+  db.detector.findFirst.mockResolvedValue({ name: "Sample detector" });
+  const response = await handleInternalSignalRead(request({ projectId: "p1", signalId: "sig-1" }));
+  const body = await response.json();
+  expect(body.signal.id).toBe("sig-1");
+  expect(body.signal).not.toHaveProperty("statusEvents");
+  expect(JSON.stringify(body)).not.toContain("internal-employee-id");
+});

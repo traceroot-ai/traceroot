@@ -9,8 +9,12 @@ const mocks = vi.hoisted(() => ({
   upsert: vi.fn(),
   remove: vi.fn(),
 }));
+const wrapped = vi.hoisted(() => new Set<unknown>());
 vi.mock("@/lib/support/route-guard", () => ({
-  withImpersonationPolicy: (handler: unknown) => handler,
+  withImpersonationPolicy: (handler: unknown) => {
+    wrapped.add(handler);
+    return handler;
+  },
 }));
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: mocks.auth,
@@ -30,6 +34,10 @@ vi.mock("@traceroot/core", () => ({
 }));
 import { GET, POST, DELETE } from "./route";
 const request = (method = "GET") => new NextRequest("http://localhost/api/demo", { method });
+
+it("wraps every exported handler with the impersonation boundary", () => {
+  for (const handler of [GET, POST, DELETE]) expect(wrapped.has(handler)).toBe(true);
+});
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -152,6 +160,14 @@ it("leaves only the caller's VIEWER membership, including a concurrent role chan
 
 it("leaving is idempotent when already absent", async () => {
   expect((await DELETE(request("DELETE"))).status).toBe(200);
+});
+
+it("reports a failed leave without claiming membership was revoked", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  mocks.remove.mockRejectedValue(new Error("database unavailable"));
+  const response = await DELETE(request("DELETE"));
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({ error: "Could not leave the demo. Please try again." });
 });
 
 it.each(["ADMIN", "MEMBER"])("cannot remove a maintainer with role %s", async (role) => {

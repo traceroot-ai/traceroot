@@ -1,5 +1,5 @@
 import type { Prisma } from "@traceroot/core";
-import { DEFAULT_DETECTOR_SAMPLE_RATE, getTemplate } from "@/features/detectors/templates";
+import { getTemplate } from "@/features/detectors/templates";
 
 type Detector = Prisma.DetectorGetPayload<{ include: { trigger: true } }>;
 
@@ -10,10 +10,10 @@ export function demoDetector(detector: Detector) {
     id: detector.id,
     projectId: detector.projectId,
     name: detector.name,
-    template: detector.template,
+    template: template?.id ?? "blank",
     prompt: template?.prompt ?? "",
     outputSchema: template?.outputSchema ?? [],
-    sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+    sampleRate: null,
     enabled: detector.enabled,
     enableRca: detector.enableRca,
     enableSignals: detector.enableSignals,

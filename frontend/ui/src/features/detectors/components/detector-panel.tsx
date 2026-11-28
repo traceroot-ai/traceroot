@@ -228,6 +228,11 @@ export function DetectorPanel({
 
       {/* Scrollable form body */}
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+        {detector?.sampleRate === null && (
+          <p className="text-[12px] text-muted-foreground">
+            Public demo template. Working configuration is not shared.
+          </p>
+        )}
         {/* Name */}
         <div className="border border-border">
           <div className="flex h-9 items-center border-b border-border px-4">
@@ -249,13 +254,17 @@ export function DetectorPanel({
           </div>
           {/* Detector Model — per-detector, editable */}
           <div className="p-3">
-            <ModelSelector
-              value={editModelSelection}
-              onChange={setEditModelSelection}
-              workspaceId={workspaceId}
-              defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
-              allowDecisionModels
-            />
+            {detector?.sampleRate === null ? (
+              <p className="text-[12px] text-muted-foreground">Not shared in the demo.</p>
+            ) : (
+              <ModelSelector
+                value={editModelSelection}
+                onChange={setEditModelSelection}
+                workspaceId={workspaceId}
+                defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+                allowDecisionModels
+              />
+            )}
             <p className="mt-1 text-[12px] text-muted-foreground">
               Used to evaluate each trace for this detector.
             </p>
@@ -298,11 +307,12 @@ export function DetectorPanel({
               min={0}
               max={100}
               value={editSampleRate}
+              disabled={detector?.sampleRate === null}
               onChange={(e) => setEditSampleRate(Number(e.target.value))}
               className="flex-1 cursor-pointer accent-brand"
             />
             <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
-              {editSampleRate}%
+              {detector?.sampleRate === null ? "—" : `${editSampleRate}%`}
             </span>
           </div>
         </div>
@@ -333,6 +343,7 @@ export function DetectorPanel({
               updateMutation.isPending ||
               !detector ||
               detector.id !== detectorId ||
+              detector.sampleRate === null ||
               conditionsError !== null
             }
             className="h-7 text-[12px]"

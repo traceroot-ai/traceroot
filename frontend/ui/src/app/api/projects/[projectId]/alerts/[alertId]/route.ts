@@ -19,7 +19,7 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
   });
   if (!alert) return errorResponse("Alert not found", 404);
 
-  return successResponse({ alert: await serializeAlert(alert) });
+  return successResponse({ alert: await serializeAlert(alert, projectId) });
 }
 
 // Thin adapters over the write service, which owns the merged-rule

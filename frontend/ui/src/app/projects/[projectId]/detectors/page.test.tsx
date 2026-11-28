@@ -152,6 +152,22 @@ afterEach(() => {
 });
 
 describe("DetectorsPage", () => {
+  it("shows placeholders for redacted demo model and sampling configuration", () => {
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      data: {
+        ...defaultDetectorList.data,
+        data: [{ ...defaultDetectorList.data.data[0], sampleRate: null }],
+      },
+    });
+    render(<DetectorsPage />);
+    const row = screen.getByText("My Detector").closest("tr");
+    expect(row?.textContent).not.toContain("25%");
+    expect(row?.textContent).not.toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+    expect(row?.querySelectorAll("td")[2].textContent).toBe("—");
+    expect(row?.querySelectorAll("td")[3].textContent).toBe("—");
+  });
+
   it("shows the resolved detector default model, unadorned", () => {
     render(<DetectorsPage />);
 
