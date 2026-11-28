@@ -16,6 +16,10 @@
 -- derives its metrics later, whichever order the services deploy in. No data is rewritten.
 --
 -- Idempotent: every statement is IF NOT EXISTS, so re-running it is a no-op.
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
 ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "prompt_tokens" INTEGER;
 ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "completion_tokens" INTEGER;
 ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "total_tokens" INTEGER;
@@ -28,3 +32,5 @@ ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "metrics_derived_at" T
 -- as they are stamped, so it empties once the historical results are derived.
 CREATE INDEX IF NOT EXISTS "ix_eval_result_metrics_backfill" ON "evaluation_results" ("create_time")
     WHERE "metrics_derived_at" IS NULL AND "trace_id" IS NOT NULL;
+
+COMMIT;
