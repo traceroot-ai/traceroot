@@ -500,9 +500,9 @@ export const RunUsageSchema = z.object({
   currency: z.literal("USD"),
   /** Results whose trace TraceRoot has processed and found spans for. */
   results_processed: z.number().int().nonnegative(),
-  /** Results with a trace not processed yet (within the backfill window). */
+  /** Results with a trace not processed yet. */
   results_pending: z.number().int().nonnegative(),
-  /** No trace linked, no spans found, or too old to be processed. */
+  /** No trace linked, or no spans were found. */
   results_without_trace: z.number().int().nonnegative(),
   task: RunUsageBucketSchema,
   scorers: RunUsageBucketSchema,

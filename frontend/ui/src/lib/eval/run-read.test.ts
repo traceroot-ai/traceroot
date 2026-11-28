@@ -463,11 +463,15 @@ describe("usage", () => {
   it("is processing while a recent trace has no marker, totalling only processed results", async () => {
     const u = await usage([
       processed(),
-      processed({ metricsDerivedAt: null, llmCalls: null, scorerLlmCalls: null }),
+      // Stale column values stay on the pending row: none may leak into the sums.
+      processed({ metricsDerivedAt: null, scorerLlmCalls: null }),
     ]);
     expect(u.results_pending).toBe(1);
     expect(u.results_processed).toBe(1);
-    expect(u.task.llm_calls).toBe(3);
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3 });
+    expect(u.task.cost).toBeCloseTo(0.001);
+    expect(u.scorers).toMatchObject({ llm_calls: 1, priced_llm_calls: 1 });
+    expect(u.scorers.cost).toBeCloseTo(0.0005);
     for (const b of [u.task, u.scorers, u.combined]) expect(b.state).toBe("processing");
   });
 
@@ -503,12 +507,17 @@ describe("usage", () => {
     ]);
     expect(u.results_without_trace).toBe(2);
     expect(u.results_processed).toBe(1);
+    // The two excluded rows keep their stale values; only the processed row is summed.
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3 });
+    expect(u.task.cost).toBeCloseTo(0.001);
+    expect(u.scorers).toMatchObject({ llm_calls: 1, priced_llm_calls: 1 });
+    expect(u.scorers.cost).toBeCloseTo(0.0005);
     expect(u.task.state).toBe("partial");
     expect(u.scorers.state).toBe("partial");
     expect(u.combined.state).toBe("partial");
   });
 
-  it("does not wait on a trace older than the backfill window", async () => {
+  it("keeps waiting on an old trace the worker has not processed, as the worker does", async () => {
     const u = await usage([
       processed(),
       processed({
@@ -517,9 +526,9 @@ describe("usage", () => {
         createTime: new Date(Date.now() - 8 * DAY),
       }),
     ]);
-    expect(u.results_pending).toBe(0);
-    expect(u.results_without_trace).toBe(1);
-    expect(u.task.state).toBe("partial");
+    expect(u.results_pending).toBe(1);
+    expect(u.results_without_trace).toBe(0);
+    expect(u.task.state).toBe("processing");
   });
 
   it("is unavailable when no result was processed and none is pending", async () => {

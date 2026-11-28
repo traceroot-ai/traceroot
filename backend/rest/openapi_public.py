@@ -731,7 +731,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "observed_count, the number of results it was taken over. A numeric score's "
             "value is its mean and a boolean score's is its pass rate. A categorical or "
             "mixed-type score, or one no result reported, has a null value: it has no "
-            "mean, and is not a score of 0."
+            "mean, and is not a score of 0. `usage` totals the run's LLM cost and calls "
+            "for the task and for the scorers, each with a state: `processing` means "
+            "traces are still being processed, and a cost is null when no call was "
+            "priced."
         ),
         "enabled": True,
     },

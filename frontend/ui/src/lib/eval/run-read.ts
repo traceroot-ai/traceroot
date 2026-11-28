@@ -136,13 +136,6 @@ async function summarizeScores(
   return summarizer.items();
 }
 
-/**
- * How long a result's trace is still waited for. It must match the window
- * `backfill_eval_result_costs` in backend/worker/ingest_tasks.py scans (`interval '7 days'`):
- * past it nothing will process the trace, so the result stops counting as pending.
- */
-const METRICS_BACKFILL_WINDOW_DAYS = 7;
-
 type UsageBucket = RunUsage["task"];
 type UsageCounts = Pick<
   RunUsage,
@@ -258,7 +251,8 @@ export async function readRunSummary(input: {
   }
 
   const where = { runId: run.id, projectId };
-  const backfillCutoff = new Date(Date.now() - METRICS_BACKFILL_WINDOW_DAYS * 24 * 3600 * 1000);
+  // The usage counts below are separate statements, so a result processed between them can
+  // be seen in two buckets or none for one read. The next read corrects it.
   const [byStatus, stored, scores, dataset, processed, pending] = await Promise.all([
     prisma.evaluationResult.groupBy({ by: ["status"], where, _count: { _all: true } }),
     prisma.evaluationResult.aggregate({
@@ -285,13 +279,14 @@ export async function readRunSummary(input: {
       },
       _count: { _all: true },
     }),
-    // Pending: linked to a trace the worker has not read yet and still inside its window.
+    // Pending: linked to a trace the worker has not read yet. This is the worker's own
+    // metrics backfill selection (`metrics_derived_at IS NULL AND trace_id IS NOT NULL` in
+    // backend/worker/ingest_tasks.py), which has no time window, so neither does this.
     prisma.evaluationResult.count({
       where: {
         ...where,
         traceId: { not: null },
         metricsDerivedAt: null,
-        createTime: { gt: backfillCutoff },
       },
     }),
   ]);

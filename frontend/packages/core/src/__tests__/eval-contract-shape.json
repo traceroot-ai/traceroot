@@ -569,6 +569,81 @@
         }
       }
     },
+    "RunUsageBucket": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "cost": {
+          "type": "number",
+          "minimum": 0,
+          "required": true,
+          "nullable": true
+        },
+        "llm_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "priced_llm_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "state": {
+          "type": "enum",
+          "enum": ["processing", "unavailable", "no_calls", "unpriced", "partial", "complete"],
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "RunUsage": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "currency": {
+          "type": "literal",
+          "const": "USD",
+          "required": true,
+          "nullable": false
+        },
+        "results_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "results_pending": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "results_without_trace": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "task": {
+          "type": "RunUsageBucket",
+          "required": true,
+          "nullable": false
+        },
+        "scorers": {
+          "type": "RunUsageBucket",
+          "required": true,
+          "nullable": false
+        },
+        "combined": {
+          "type": "RunUsageBucket",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
     "ReadRunResponse": {
       "kind": "object",
       "unknown_keys": "strip",
@@ -716,6 +791,11 @@
           "required": false,
           "nullable": false,
           "default": []
+        },
+        "usage": {
+          "type": "RunUsage",
+          "required": true,
+          "nullable": false
         }
       }
     },
