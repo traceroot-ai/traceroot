@@ -247,9 +247,14 @@ function toProjectRecord(row: ProjectRow): ProjectRecord {
 
 const PROJECT_NOT_FOUND = { ok: false, status: 404, error: "Project not found" } as const;
 // The partial unique index over (workspaceId, name) where deleteTime is null.
-// Raw SQL in the migration rather than a schema-level unique, so Prisma
-// reports a collision on it by this name rather than by field list.
+// It is raw SQL in the migration rather than a schema-level unique, and Prisma
+// (5.x) reports a collision on it by the column list it resolves from the
+// Postgres error, `['workspace_id', 'name']`, not by the index name. Both
+// spellings are accepted so a Prisma upgrade that starts reporting the index
+// name does not silently turn the 409 back into a 500.
 const LIVE_NAME_INDEX = "uq_project_workspace_live_name";
+const LIVE_NAME_COLUMNS = "workspace_id,name";
+const LIVE_NAME_TARGETS = new Set([LIVE_NAME_INDEX, LIVE_NAME_COLUMNS]);
 
 const PROJECT_NAME_TAKEN = {
   ok: false,
@@ -370,7 +375,7 @@ export async function updateProject(input: {
     // key) even when this patch carries a name, so match the violated
     // constraint exactly; any other target, or none, is not the rename and
     // is rethrown rather than reported as a name collision.
-    if (isPrismaKnownError(e, "P2002") && prismaErrorTarget(e) === LIVE_NAME_INDEX) {
+    if (isPrismaKnownError(e, "P2002") && LIVE_NAME_TARGETS.has(prismaErrorTarget(e))) {
       return PROJECT_NAME_TAKEN;
     }
     throw e;
