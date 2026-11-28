@@ -1,0 +1,133 @@
+{
+  "kind": "fixture-backed visual evidence",
+  "overflow": [
+    {
+      "label": "before",
+      "state": "trace-entry",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "trace-entry",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "trace-entry",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "onboarding-entry",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "onboarding-entry",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "before",
+      "state": "onboarding-entry",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "trace-entry",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "trace-entry",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "trace-entry",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "onboarding-entry",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "onboarding-entry",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "onboarding-entry",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-join",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-join",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-join",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-joined",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-joined",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-joined",
+      "width": 390,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-error",
+      "width": 1024,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-error",
+      "width": 768,
+      "overflow": 0
+    },
+    {
+      "label": "after",
+      "state": "demo-error",
+      "width": 390,
+      "overflow": 0
+    }
+  ],
+  "consoleErrors": [],
+  "unknownRoutes": []
+}

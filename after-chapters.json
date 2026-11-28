@@ -1,0 +1,22 @@
+[
+  {
+    "atSeconds": "0.0",
+    "name": "trace-entry"
+  },
+  {
+    "atSeconds": "1.7",
+    "name": "onboarding-entry"
+  },
+  {
+    "atSeconds": "3.3",
+    "name": "demo-join"
+  },
+  {
+    "atSeconds": "4.8",
+    "name": "demo-joined"
+  },
+  {
+    "atSeconds": "7.2",
+    "name": "leave-demo"
+  }
+]

@@ -1,0 +1,57 @@
+[
+  {
+    "name": "before-onboarding-entry-1024.png",
+    "pixels": 58,
+    "percent": "0.006"
+  },
+  {
+    "name": "before-onboarding-entry-390.png",
+    "pixels": 58,
+    "percent": "0.017"
+  },
+  {
+    "name": "before-onboarding-entry-768.png",
+    "pixels": 58,
+    "percent": "0.008"
+  },
+  {
+    "name": "before-onboarding-entry-dark.png",
+    "pixels": 58,
+    "percent": "0.004"
+  },
+  {
+    "name": "before-onboarding-entry-light.png",
+    "pixels": 58,
+    "percent": "0.004"
+  },
+  {
+    "name": "before-trace-entry-1024.png",
+    "pixels": 48,
+    "percent": "0.005"
+  },
+  {
+    "name": "before-trace-entry-390-drawer.png",
+    "pixels": 157,
+    "percent": "0.045"
+  },
+  {
+    "name": "before-trace-entry-390.png",
+    "pixels": 50,
+    "percent": "0.014"
+  },
+  {
+    "name": "before-trace-entry-768.png",
+    "pixels": 48,
+    "percent": "0.007"
+  },
+  {
+    "name": "before-trace-entry-dark.png",
+    "pixels": 145,
+    "percent": "0.011"
+  },
+  {
+    "name": "before-trace-entry-light.png",
+    "pixels": 146,
+    "percent": "0.011"
+  }
+]
