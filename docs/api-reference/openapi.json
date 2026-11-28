@@ -4254,6 +4254,9 @@
               }
             ],
             "title": "Task Error Count"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/RunUsage"
           }
         },
         "required": [
@@ -4276,7 +4279,8 @@
           "passed_count",
           "failed_count",
           "errored_count",
-          "not_scored_count"
+          "not_scored_count",
+          "usage"
         ],
         "title": "ReadRunResponse",
         "type": "object"
@@ -4511,6 +4515,114 @@
           "observed_count"
         ],
         "title": "RunMetricItem",
+        "type": "object"
+      },
+      "RunUsage": {
+        "description": "Totals over the run's results whose traces TraceRoot has processed. The scorers'\ncost is never part of ``metrics`` (cost), which stays the task-only mean.",
+        "properties": {
+          "combined": {
+            "$ref": "#/components/schemas/RunUsageBucket",
+            "description": "The task plus the scorers."
+          },
+          "currency": {
+            "const": "USD",
+            "description": "Currency of every cost.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "results_pending": {
+            "description": "Results with a trace TraceRoot has not processed yet.",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Results Pending",
+            "type": "integer"
+          },
+          "results_processed": {
+            "description": "Results whose trace TraceRoot has processed and found spans for.",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Results Processed",
+            "type": "integer"
+          },
+          "results_without_trace": {
+            "description": "Results with no trace linked, or whose trace had no spans.",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Results Without Trace",
+            "type": "integer"
+          },
+          "scorers": {
+            "$ref": "#/components/schemas/RunUsageBucket",
+            "description": "The scorers."
+          },
+          "task": {
+            "$ref": "#/components/schemas/RunUsageBucket",
+            "description": "The task under test."
+          }
+        },
+        "required": [
+          "currency",
+          "results_processed",
+          "results_pending",
+          "results_without_trace",
+          "task",
+          "scorers",
+          "combined"
+        ],
+        "title": "RunUsage",
+        "type": "object"
+      },
+      "RunUsageBucket": {
+        "description": "LLM spend for one part of a run: the task, the scorers, or both.",
+        "properties": {
+          "cost": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of the priced calls' costs in USD. Null when no call was priced: a missing price is never reported as $0.",
+            "title": "Cost"
+          },
+          "llm_calls": {
+            "description": "LLM calls made, priced or not.",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Llm Calls",
+            "type": "integer"
+          },
+          "priced_llm_calls": {
+            "description": "LLM calls that carried a price.",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Priced Llm Calls",
+            "type": "integer"
+          },
+          "state": {
+            "description": "How far the totals can be trusted, first match wins. `processing`: some result's trace is still being processed. `unavailable`: no result was processed. `no_calls`: no LLM call was made. `unpriced`: calls were made and none was priced. `partial`: some calls are unpriced or some results have no usable trace. `complete`: every call was priced and every result had a usable trace.",
+            "enum": [
+              "processing",
+              "unavailable",
+              "no_calls",
+              "unpriced",
+              "partial",
+              "complete"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cost",
+          "llm_calls",
+          "priced_llm_calls",
+          "state"
+        ],
+        "title": "RunUsageBucket",
         "type": "object"
       },
       "ScoreInput": {
@@ -11467,13 +11579,13 @@
           "Offline Eval"
         ],
         "x-mint": {
-          "content": "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, or unobserved scores return null. This endpoint summarizes a single run.",
+          "content": "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, or unobserved scores return null. `usage` totals the run's LLM calls and cost (USD) for the task, the scorers and both, with a `state` for how complete each total is. This endpoint summarizes a single run.",
           "metadata": {
             "description": "Read an evaluation run's status and counts. Numeric scores are averaged, boolean scores are pass rates, and scores without a supported aggregate are null."
           }
         },
         "x-tool": {
-          "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and per-case means of duration, cost, prompt/completion/total tokens, LLM calls and time spent in model calls (summed over a case's calls, so it can exceed the case's duration). The LLM metrics cover the task under test, not its scorers. Each is averaged over the cases that reported it: a case that made no model call, or whose model call reported no usage, is left out of that metric rather than counted as 0, so llm_calls and the token metrics can have different observed_count values. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
+          "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and per-case means of duration, cost, prompt/completion/total tokens, LLM calls and time spent in model calls (summed over a case's calls, so it can exceed the case's duration). The LLM metrics cover the task under test, not its scorers. Each is averaged over the cases that reported it: a case that made no model call, or whose model call reported no usage, is left out of that metric rather than counted as 0, so llm_calls and the token metrics can have different observed_count values. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0. `usage` totals the run's LLM cost and calls for the task and for the scorers, each with a state: `processing` means traces are still being processed, and a cost is null when no call was priced.",
           "enabled": true,
           "name": "get_evaluation_run"
         }

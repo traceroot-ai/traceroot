@@ -68,11 +68,29 @@ function db(rows: Row[]) {
   const queries: Array<{ sql: string; values: unknown[] }> = [];
   const find = (id: string, projectId: string) =>
     rows.find((r) => r.id === id && r.projectId === projectId);
-  const resultsOf = (where: Row): Row[] =>
-    (find(where.runId, where.projectId)?.results ?? []).map((r: Row, i: number) => ({
-      ...r,
-      id: r.id ?? `res_${i}`,
-    }));
+  // Honours the column filters the usage queries add: `null` and `{ not: null }`. Any other
+  // `where` key throws, so a filter on the wrong column cannot pass silently.
+  const FILTERED = ["traceId", "scorerMetricsDerivedAt", "scorerLlmCalls"];
+  const MODELED = ["runId", "projectId", ...FILTERED];
+  const matches = (r: Row, where: Row) => {
+    return FILTERED.every((k) => {
+      const f = where[k];
+      if (f === undefined) return true;
+      const v = r[k] ?? null;
+      if (f === null) return v === null;
+      if ("not" in f) return v !== f.not;
+      throw new Error(`fake does not model where.${k} = ${JSON.stringify(f)}`);
+    });
+  };
+  const resultsOf = (where: Row): Row[] => {
+    // Checked once per query, so a run with no results still rejects an unmodeled key.
+    for (const k of Object.keys(where)) {
+      if (!MODELED.includes(k)) throw new Error(`fake does not model where.${k}`);
+    }
+    return (find(where.runId, where.projectId)?.results ?? [])
+      .map((r: Row, i: number) => ({ ...r, id: r.id ?? `res_${i}` }))
+      .filter((r: Row) => matches(r, where));
+  };
   return {
     calls,
     selects,
@@ -98,7 +116,20 @@ function db(rows: Row[]) {
         },
         // Answers exactly the columns the read selects, AVG and COUNT over non-null rows
         // as Postgres does, so a metric the read forgets to select comes back undefined.
-        aggregate: async ({ where, _avg, _count }: Row) => {
+        count: async ({ where }: Row) => resultsOf(where).length,
+        aggregate: async ({ where, _avg, _count, _sum }: Row) => {
+          if (_sum) {
+            const sums = (field: string) => {
+              const xs = resultsOf(where)
+                .map((r) => r[field])
+                .filter((x) => x != null);
+              return xs.length ? xs.reduce((a, b) => a + b, 0) : null;
+            };
+            return {
+              _sum: Object.fromEntries(Object.keys(_sum).map((f) => [f, sums(f)])),
+              _count: { _all: resultsOf(where).length },
+            };
+          }
           const stat = (field: string) => {
             const xs = resultsOf(where)
               .map((r) => r[field])
@@ -405,5 +436,165 @@ describe("query cost", () => {
     // A score's error is TEXT too; the summary only asks whether a row errored.
     expect(sql.match(/\berror\b/g)).toEqual(["error"]);
     expect(sql).toContain("s.error IS NOT NULL");
+  });
+});
+
+describe("usage", () => {
+  const DAY = 24 * 3600 * 1000;
+  const processed = (over: Row = {}): Row => ({
+    ...run().results[0],
+    traceId: "t",
+    // The worker stamps every marker at once.
+    metricsDerivedAt: new Date(),
+    scorerMetricsDerivedAt: new Date(),
+    createTime: new Date(),
+    llmCalls: 3,
+    pricedLlmCalls: 3,
+    cost: 0.001,
+    scorerLlmCalls: 1,
+    scorerPricedLlmCalls: 1,
+    scorerCost: 0.0005,
+    ...over,
+  });
+  const usage = async (results: Row[]) => (await readBody([run({ results })])).usage;
+
+  it("sums the task, the scorers and both when every result is processed", async () => {
+    const u = await usage([processed({ cost: 0.002 }), processed({ cost: 0.001 })]);
+    expect(u.currency).toBe("USD");
+    expect([u.results_processed, u.results_pending, u.results_without_trace]).toEqual([2, 0, 0]);
+    expect(u.task.cost).toBeCloseTo(0.003);
+    expect(u.task).toMatchObject({ llm_calls: 6, priced_llm_calls: 6, state: "complete" });
+    expect(u.scorers.cost).toBeCloseTo(0.001);
+    expect(u.scorers).toMatchObject({ llm_calls: 2, priced_llm_calls: 2, state: "complete" });
+    expect(u.combined.cost).toBeCloseTo(0.004);
+    expect(u.combined).toMatchObject({ llm_calls: 8, priced_llm_calls: 8, state: "complete" });
+  });
+
+  it("is processing while a recent trace has no marker, totalling only processed results", async () => {
+    const u = await usage([
+      processed(),
+      // Stale column values stay on the pending row: none may leak into the sums.
+      processed({ metricsDerivedAt: null, scorerMetricsDerivedAt: null, scorerLlmCalls: null }),
+    ]);
+    expect(u.results_pending).toBe(1);
+    expect(u.results_processed).toBe(1);
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3 });
+    expect(u.task.cost).toBeCloseTo(0.001);
+    expect(u.scorers).toMatchObject({ llm_calls: 1, priced_llm_calls: 1 });
+    expect(u.scorers.cost).toBeCloseTo(0.0005);
+    for (const b of [u.task, u.scorers, u.combined]) expect(b.state).toBe("processing");
+  });
+
+  it("reports a free priced model as a task cost of 0, not null", async () => {
+    const u = await usage([processed({ llmCalls: 2, pricedLlmCalls: 2, cost: null })]);
+    expect(u.task).toEqual({ cost: 0, llm_calls: 2, priced_llm_calls: 2, state: "complete" });
+  });
+
+  it("is partial when only some task calls were priced", async () => {
+    const u = await usage([processed({ llmCalls: 4, pricedLlmCalls: 3, cost: 0.003 })]);
+    expect(u.task).toMatchObject({ llm_calls: 4, priced_llm_calls: 3, state: "partial" });
+    expect(u.task.cost).toBeCloseTo(0.003);
+  });
+
+  it("is unpriced for scorers with calls and no price, and combined partial", async () => {
+    const u = await usage([
+      processed({ scorerLlmCalls: 2, scorerPricedLlmCalls: 0, scorerCost: null }),
+    ]);
+    expect(u.scorers).toEqual({ cost: null, llm_calls: 2, priced_llm_calls: 0, state: "unpriced" });
+    expect(u.task.state).toBe("complete");
+    expect(u.combined).toMatchObject({ llm_calls: 5, priced_llm_calls: 3, state: "partial" });
+    expect(u.combined.cost).toBeCloseTo(0.001);
+  });
+
+  it("reports code-only scorers as no_calls and combined equal to the task", async () => {
+    const u = await usage([
+      processed({ scorerLlmCalls: 0, scorerPricedLlmCalls: 0, scorerCost: null }),
+    ]);
+    expect(u.scorers).toEqual({ cost: null, llm_calls: 0, priced_llm_calls: 0, state: "no_calls" });
+    expect(u.combined).toEqual(u.task);
+  });
+
+  it("counts a result with no trace, or no spans found, as without trace and makes totals partial", async () => {
+    const u = await usage([
+      processed(),
+      processed({
+        traceId: null,
+        metricsDerivedAt: null,
+        scorerMetricsDerivedAt: null,
+        scorerLlmCalls: null,
+      }),
+      processed({ scorerLlmCalls: null }),
+    ]);
+    expect(u.results_without_trace).toBe(2);
+    expect(u.results_processed).toBe(1);
+    // The two excluded rows keep their stale values; only the processed row is summed.
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3 });
+    expect(u.task.cost).toBeCloseTo(0.001);
+    expect(u.scorers).toMatchObject({ llm_calls: 1, priced_llm_calls: 1 });
+    expect(u.scorers.cost).toBeCloseTo(0.0005);
+    expect(u.task.state).toBe("partial");
+    expect(u.scorers.state).toBe("partial");
+    expect(u.combined.state).toBe("partial");
+  });
+
+  it("keeps waiting on an old trace the worker has not processed, as the worker does", async () => {
+    const u = await usage([
+      processed(),
+      processed({
+        metricsDerivedAt: null,
+        scorerMetricsDerivedAt: null,
+        scorerLlmCalls: null,
+        createTime: new Date(Date.now() - 8 * DAY),
+      }),
+    ]);
+    expect(u.results_pending).toBe(1);
+    expect(u.results_without_trace).toBe(0);
+    expect(u.task.state).toBe("processing");
+  });
+
+  it("counts a result whose trace was unlinked as without trace, its stale values unsummed", async () => {
+    const u = await usage([
+      processed(),
+      // Derived while it had a trace, so every marker and total is still set.
+      processed({ traceId: null, cost: 0.5, llmCalls: 9, pricedLlmCalls: 9, scorerCost: 0.25 }),
+    ]);
+    expect([u.results_processed, u.results_pending, u.results_without_trace]).toEqual([1, 0, 1]);
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3, state: "partial" });
+    expect(u.task.cost).toBeCloseTo(0.001);
+    expect(u.scorers).toMatchObject({ llm_calls: 1, priced_llm_calls: 1, state: "partial" });
+    expect(u.scorers.cost).toBeCloseTo(0.0005);
+  });
+
+  it("keeps waiting on a result a worker without the scorer split stamped", async () => {
+    // Such a worker writes the task's totals and stamps metricsDerivedAt, but never the
+    // scorer columns or their marker, so the backfill derives the result again.
+    const u = await usage([
+      processed(),
+      processed({
+        scorerMetricsDerivedAt: null,
+        pricedLlmCalls: null,
+        scorerCost: null,
+        scorerLlmCalls: null,
+        scorerPricedLlmCalls: null,
+      }),
+    ]);
+    expect([u.results_processed, u.results_pending, u.results_without_trace]).toEqual([1, 1, 0]);
+    expect(u.task).toMatchObject({ llm_calls: 3, priced_llm_calls: 3 });
+    for (const b of [u.task, u.scorers, u.combined]) expect(b.state).toBe("processing");
+  });
+
+  it("is unavailable when no result was processed and none is pending", async () => {
+    const u = await usage([run().results[0]]);
+    expect(u.results_without_trace).toBe(1);
+    for (const b of [u.task, u.scorers, u.combined]) {
+      expect(b).toEqual({ cost: null, llm_calls: 0, priced_llm_calls: 0, state: "unavailable" });
+    }
+  });
+
+  it("leaves the cost metric as the task-only mean", async () => {
+    const body = await readBody([
+      run({ results: [processed({ cost: 0.002 }), processed({ cost: 0.004 })] }),
+    ]);
+    expect(byName(body.metrics).cost).toMatchObject({ value: 0.003, observed_count: 2 });
   });
 });

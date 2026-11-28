@@ -1,4 +1,11 @@
-import { PlanType, prisma, type EvalRunStatus, type ReadRunResponse } from "@traceroot/core";
+import {
+  PlanType,
+  prisma,
+  type EvalRunStatus,
+  type ReadRunResponse,
+  type RunUsage,
+  type RunUsageState,
+} from "@traceroot/core";
 import type { ComparisonScorerMeta } from "@/lib/eval/comparison";
 import { parseScorers } from "@/lib/eval/comparison-db";
 import type { EvalReadResult } from "@/lib/eval/read-result";
@@ -129,6 +136,64 @@ async function summarizeScores(
   return summarizer.items();
 }
 
+type UsageBucket = RunUsage["task"];
+type UsageCounts = Pick<
+  RunUsage,
+  "results_processed" | "results_pending" | "results_without_trace"
+>;
+
+/** One bucket's state; the first rule that matches wins. */
+function usageState(
+  bucket: Pick<UsageBucket, "llm_calls" | "priced_llm_calls">,
+  counts: UsageCounts,
+): RunUsageState {
+  if (counts.results_pending > 0) return "processing";
+  if (counts.results_processed === 0) return "unavailable";
+  if (bucket.llm_calls === 0) return "no_calls";
+  if (bucket.priced_llm_calls === 0) return "unpriced";
+  if (bucket.priced_llm_calls < bucket.llm_calls || counts.results_without_trace > 0) {
+    return "partial";
+  }
+  return "complete";
+}
+
+type UsageSums = {
+  cost: number | null;
+  llmCalls: number | null;
+  pricedLlmCalls: number | null;
+  scorerCost: number | null;
+  scorerLlmCalls: number | null;
+  scorerPricedLlmCalls: number | null;
+};
+
+/**
+ * Totals over the results TraceRoot has processed, as real sums: never a mean times a
+ * case count. A result's call counts are NULL when it made no call and cost is NULL when
+ * no call was priced, so a missing sum reads 0 here and cost stays null unless a call
+ * was priced.
+ */
+function runUsage(sums: UsageSums, counts: UsageCounts): RunUsage {
+  const bucket = (cost: number | null, calls: number | null, priced: number | null) => {
+    const b = { llm_calls: calls ?? 0, priced_llm_calls: priced ?? 0 };
+    return { cost: b.priced_llm_calls > 0 ? (cost ?? 0) : null, ...b };
+  };
+  const task = bucket(sums.cost, sums.llmCalls, sums.pricedLlmCalls);
+  const scorers = bucket(sums.scorerCost, sums.scorerLlmCalls, sums.scorerPricedLlmCalls);
+  const combined = {
+    cost:
+      task.cost === null && scorers.cost === null ? null : (task.cost ?? 0) + (scorers.cost ?? 0),
+    llm_calls: task.llm_calls + scorers.llm_calls,
+    priced_llm_calls: task.priced_llm_calls + scorers.priced_llm_calls,
+  };
+  return {
+    currency: "USD",
+    ...counts,
+    task: { ...task, state: usageState(task, counts) },
+    scorers: { ...scorers, state: usageState(scorers, counts) },
+    combined: { ...combined, state: usageState(combined, counts) },
+  };
+}
+
 /**
  * Read one run's summary inside a project the caller has ALREADY resolved.
  *
@@ -186,7 +251,9 @@ export async function readRunSummary(input: {
   }
 
   const where = { runId: run.id, projectId };
-  const [byStatus, stored, scores, dataset] = await Promise.all([
+  // The usage counts below are separate statements, so a result processed between them can
+  // be seen in two buckets or none for one read. The next read corrects it.
+  const [byStatus, stored, scores, dataset, processed, pending] = await Promise.all([
     prisma.evaluationResult.groupBy({ by: ["status"], where, _count: { _all: true } }),
     prisma.evaluationResult.aggregate({
       where,
@@ -197,6 +264,37 @@ export async function readRunSummary(input: {
     prisma.dataset.findFirst({
       where: { id: run.datasetId, projectId },
       select: { clientDatasetId: true, id: true },
+    }),
+    // Processed: still linked to a trace, which the worker derived the scorer split for
+    // and found spans in (the scorer count is NULL when it found none). Only these results
+    // are summed, so the old totals of a result whose trace was unlinked stay out.
+    prisma.evaluationResult.aggregate({
+      where: {
+        ...where,
+        traceId: { not: null },
+        scorerMetricsDerivedAt: { not: null },
+        scorerLlmCalls: { not: null },
+      },
+      _sum: {
+        cost: true,
+        llmCalls: true,
+        pricedLlmCalls: true,
+        scorerCost: true,
+        scorerLlmCalls: true,
+        scorerPricedLlmCalls: true,
+      },
+      _count: { _all: true },
+    }),
+    // Pending: linked to a trace the worker has not derived the scorer split for yet. This
+    // is the worker's own backfill selection (`scorer_metrics_derived_at IS NULL AND
+    // trace_id IS NOT NULL` in backend/worker/ingest_tasks.py), which has no time window,
+    // so neither does this.
+    prisma.evaluationResult.count({
+      where: {
+        ...where,
+        traceId: { not: null },
+        scorerMetricsDerivedAt: null,
+      },
     }),
   ]);
 
@@ -209,6 +307,15 @@ export async function readRunSummary(input: {
   // `passed` and `failed` stay valid on the wire for results from released SDK versions,
   // so the read counts those groups itself rather than reporting them as absent.
   const countOf = (status: string) => statusRows.find((g) => g.status === status)?.count ?? 0;
+
+  // Every result that is neither processed nor pending has no usable trace: none linked
+  // (or since unlinked), or no spans found.
+  const resultCount = statusRows.reduce((n, g) => n + g.count, 0);
+  const usage = runUsage(processed._sum, {
+    results_processed: processed._count._all,
+    results_pending: pending,
+    results_without_trace: Math.max(0, resultCount - processed._count._all - pending),
+  });
 
   // `satisfies` pins the body to the published contract: a field renamed or dropped here
   // fails to compile rather than silently diverging from the Zod/Pydantic/OpenAPI trio.
@@ -234,7 +341,7 @@ export async function readRunSummary(input: {
     // The observed population: every result this run reported, a different fact from the
     // run's DECLARED case_count. Each mean below carries its own `observed_count`, because a
     // scorer that errored on some cases averaged over fewer than this.
-    result_count: statusRows.reduce((n, g) => n + g.count, 0),
+    result_count: resultCount,
     scored_count: reported ? run.scoredCount : null,
     task_error_count: reported ? run.taskErrorCount : null,
     scorer_error_count: reported ? run.scorerErrorCount : null,
@@ -251,6 +358,9 @@ export async function readRunSummary(input: {
     metrics: RUN_METRICS.map((m) =>
       metricSummary(m.key, stored._avg[m.field], stored._count[m.field]),
     ).map(metricItem),
+    // The run's LLM spend, with the coverage that says how far to trust it. Unlike the
+    // `cost` mean above, it includes the scorers' calls, in their own bucket.
+    usage,
   } satisfies ReadRunResponse;
 
   return { ok: true, body };

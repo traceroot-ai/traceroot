@@ -547,8 +547,10 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 # from `cost IS NULL`, so a zero-cost trace (NULLIF above) or one whose
                 # spans never landed settles instead of being re-swept by the backfill
                 # forever. Ingest never filters on these columns, so the late-SPAN
-                # self-healing above is unaffected; only ``backfill_eval_result_costs``
-                # reads them.
+                # self-healing above is unaffected. ``backfill_eval_result_costs`` reads
+                # them, and so does the run read (frontend/ui/src/lib/eval/run-read.ts),
+                # which splits a run's results into processed and pending by
+                # ``scorer_metrics_derived_at``.
                 #
                 # One marker per set of derived columns, because older workers write a
                 # subset during a deploy. A worker from before the LLM metrics stamps

@@ -73,6 +73,15 @@ SUMMARY = {
     "not_scored_count": 0,
     "scores": [],
     "metrics": [],
+    "usage": {
+        "currency": "USD",
+        "results_processed": 2,
+        "results_pending": 0,
+        "results_without_trace": 0,
+        "task": {"cost": 0.0008, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
+        "scorers": {"cost": None, "llm_calls": 0, "priced_llm_calls": 0, "state": "no_calls"},
+        "combined": {"cost": 0.0008, "llm_calls": 6, "priced_llm_calls": 6, "state": "complete"},
+    },
 }
 
 # (path, the read the internal route is asked for, a body inside the contract)

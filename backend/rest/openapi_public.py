@@ -731,7 +731,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "observed_count, the number of results it was taken over. A numeric score's "
             "value is its mean and a boolean score's is its pass rate. A categorical or "
             "mixed-type score, or one no result reported, has a null value: it has no "
-            "mean, and is not a score of 0."
+            "mean, and is not a score of 0. `usage` totals the run's LLM cost and calls "
+            "for the task and for the scorers, each with a state: `processing` means "
+            "traces are still being processed, and a cost is null when no call was "
+            "priced."
         ),
         "enabled": True,
     },
@@ -1520,7 +1523,9 @@ _DOCS_USAGE_NOTES = {
     ),
     "read_run": (
         "Numeric scores return a mean and Boolean scores a pass rate. Categorical, mixed-type, "
-        "or unobserved scores return null. This endpoint summarizes a single run."
+        "or unobserved scores return null. `usage` totals the run's LLM calls and cost "
+        "(USD) for the task, the scorers and both, with a `state` for how complete each "
+        "total is. This endpoint summarizes a single run."
     ),
     "get_dashboard_data": (
         "Each widget has its own result. Feeds are skipped, and query widgets beyond the "

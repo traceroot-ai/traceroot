@@ -497,6 +497,50 @@ class RunMetricItem(BaseModel):
     )
 
 
+RunUsageState = Literal["processing", "unavailable", "no_calls", "unpriced", "partial", "complete"]
+
+
+class RunUsageBucket(BaseModel):
+    """LLM spend for one part of a run: the task, the scorers, or both."""
+
+    cost: JsonNonNegativeFloat | None = Field(
+        description=(
+            "Sum of the priced calls' costs in USD. Null when no call was priced: a "
+            "missing price is never reported as $0."
+        )
+    )
+    llm_calls: JsonNonNegativeInt = Field(description="LLM calls made, priced or not.")
+    priced_llm_calls: JsonNonNegativeInt = Field(description="LLM calls that carried a price.")
+    state: RunUsageState = Field(
+        description=(
+            "How far the totals can be trusted, first match wins. `processing`: some "
+            "result's trace is still being processed. `unavailable`: no result was "
+            "processed. `no_calls`: no LLM call was made. `unpriced`: calls were made and "
+            "none was priced. `partial`: some calls are unpriced or some results have no "
+            "usable trace. `complete`: every call was priced and every result had a usable trace."
+        )
+    )
+
+
+class RunUsage(BaseModel):
+    """Totals over the run's results whose traces TraceRoot has processed. The scorers'
+    cost is never part of ``metrics`` (cost), which stays the task-only mean."""
+
+    currency: Literal["USD"] = Field(description="Currency of every cost.")
+    results_processed: JsonNonNegativeInt = Field(
+        description="Results whose trace TraceRoot has processed and found spans for."
+    )
+    results_pending: JsonNonNegativeInt = Field(
+        description="Results with a trace TraceRoot has not processed yet."
+    )
+    results_without_trace: JsonNonNegativeInt = Field(
+        description="Results with no trace linked, or whose trace had no spans."
+    )
+    task: RunUsageBucket = Field(description="The task under test.")
+    scorers: RunUsageBucket = Field(description="The scorers.")
+    combined: RunUsageBucket = Field(description="The task plus the scorers.")
+
+
 class ReadRunResponse(BaseModel):
     """A run's SUMMARY — deliberately no per-case rows, so the payload is bounded by
     scorer count rather than case count and needs no truncation flag."""
@@ -535,6 +579,7 @@ class ReadRunResponse(BaseModel):
     not_scored_count: JsonNonNegativeInt
     scores: list[RunMetricItem] = Field(default_factory=list)
     metrics: list[RunMetricItem] = Field(default_factory=list)
+    usage: RunUsage
 
 
 # --- (b) Upsert one test-case result with scores ----------------------------
