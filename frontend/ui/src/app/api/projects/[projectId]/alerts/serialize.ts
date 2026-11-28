@@ -19,6 +19,7 @@ export const alertSummarySelect = {
   lastErrorAt: true,
   lastNotifyStatus: true,
   lastNotifyError: true,
+  lastNotifySeverity: true,
   lastNotifyAt: true,
   createTime: true,
   updateTime: true,
@@ -53,6 +54,7 @@ export interface AlertSummary {
   lastErrorAt: Date | null;
   lastNotifyStatus: string | null;
   lastNotifyError: string | null;
+  lastNotifySeverity: string | null;
   lastNotifyAt: Date | null;
   createTime: Date;
   updateTime: Date;

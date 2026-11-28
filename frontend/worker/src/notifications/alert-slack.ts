@@ -1,6 +1,11 @@
 import { Queue, Worker, type Job } from "bullmq";
 import { ALERT_CLOSE_MAX_RESENDS, decryptKey, prisma, type AlertStatus } from "@traceroot/core";
 import {
+  PERMANENT_SLACK_ERROR,
+  RETRIES_EXHAUSTED,
+  SLACK_CONFIGURATION_FAILURES,
+} from "@traceroot/core/alert-delivery";
+import {
   buildAlertBlocks,
   buildAlertClosedBlocks,
   createSlackClient,
@@ -27,7 +32,6 @@ import {
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
 } from "../alerts/claim.js";
-import { RETRIES_EXHAUSTED, SLACK_CONFIGURATION_FAILURES } from "../alerts/delivery.js";
 import { revertAlertEmission } from "../alerts/emission.js";
 import { logError, logInfo } from "../alerts/log.js";
 
@@ -275,7 +279,7 @@ async function compensateNonDelivery(payload: AlertNotificationJob, reason: stri
  */
 const PERMANENT_DELIVERY_FAILURES = new Set([
   ...SLACK_CONFIGURATION_FAILURES,
-  "permanent-slack-error",
+  PERMANENT_SLACK_ERROR,
 ]);
 
 // Carries the plan it was refused for, so it is a prefix rather than a member.
@@ -367,7 +371,7 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
   } catch (error) {
     if (!isRetryableSlackError(error)) {
       logError(`slack dropped ${tag} reason=permanent-slack-error`, error);
-      await recordNonDelivery(payload, "permanent-slack-error");
+      await recordNonDelivery(payload, PERMANENT_SLACK_ERROR);
       return;
     }
     throw error;
