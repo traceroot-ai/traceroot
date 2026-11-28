@@ -336,6 +336,15 @@ describe("updateProject", () => {
 
   it("maps a rename collision on the live-name index to 409 and rethrows a P2002 on any other target", async () => {
     mockAccess();
+    // Prisma reports the raw-SQL partial index by column list, not by name.
+    tx.project.update.mockRejectedValueOnce(prismaError("P2002", ["workspace_id", "name"]));
+    expect(await runUpdate({ name: "Taken" })).toEqual({
+      ok: false,
+      status: 409,
+      error: "A project with this name already exists",
+    });
+    // The index-name spelling is kept as a fallback for a Prisma that
+    // reports it instead.
     tx.project.update.mockRejectedValueOnce(prismaError("P2002", "uq_project_workspace_live_name"));
     expect(await runUpdate({ name: "Taken" })).toEqual({
       ok: false,

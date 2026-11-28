@@ -157,7 +157,7 @@ describe("project PATCH rename collisions", () => {
     Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
 
   it("maps a rename collision (Prisma P2002 on the name index) to 409 instead of 500", async () => {
-    update.mockRejectedValue(p2002("uq_project_workspace_live_name"));
+    update.mockRejectedValue(p2002(["workspace_id", "name"]));
     const res = await patch({ name: "Taken" });
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe("A project with this name already exists");
