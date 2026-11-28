@@ -102,6 +102,7 @@ def test_integrations_overview_parity() -> None:
     tools_and_agents_docs = {
         "claude-code",
         "codex",
+        "gemini-cli",
         "pi-cli",
         "exa",
         "notte",
