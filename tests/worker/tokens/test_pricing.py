@@ -1140,17 +1140,11 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-opus-5-20260728-v1:0", "claude-opus-5"),
     ("claude-opus-5@20260728", "claude-opus-5"),
     ("claude-5-opus@20260728", "claude-opus-5"),
-    # Opus 5.5 — plain, Bedrock bare + CRIS inference profiles
+    # Opus 5.5 — plain, anthropic/ prefix, Bedrock bare and global profile
     ("claude-opus-5-5", "claude-opus-5-5"),
     ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
     ("anthropic.claude-opus-5-5", "claude-opus-5-5"),
     ("global.anthropic.claude-opus-5-5", "claude-opus-5-5"),
-    ("us.anthropic.claude-opus-5-5", "claude-opus-5-5"),
-    ("eu.anthropic.claude-opus-5-5", "claude-opus-5-5"),
-    ("apac.anthropic.claude-opus-5-5", "claude-opus-5-5"),
-    ("jp.anthropic.claude-opus-5-5", "claude-opus-5-5"),
-    ("au.anthropic.claude-opus-5-5", "claude-opus-5-5"),
-    ("in.anthropic.claude-opus-5-5", "claude-opus-5-5"),
     # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
     ("claude-opus-4-8", "claude-opus-4-8"),
     ("claude-opus-4-8[1m]", "claude-opus-4-8"),
@@ -1192,17 +1186,11 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("global.anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("claude-sonnet-5@20260601", "claude-sonnet-5"),
-    # Sonnet 5.5 — plain, Bedrock bare + CRIS inference profiles
+    # Sonnet 5.5 — plain, anthropic/ prefix, Bedrock bare and global profile
     ("claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("global.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
-    ("us.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
-    ("eu.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
-    ("apac.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
-    ("jp.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
-    ("au.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
-    ("in.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
@@ -1248,18 +1236,7 @@ class TestClaudeBedrockAndVertexIds:
             (prefix + e["modelName"], e["modelName"])
             for e in _standard_price_entries()
             for prefix in (
-                [
-                    "",
-                    "anthropic/",
-                    "anthropic.",
-                    "global.anthropic.",
-                    "us.anthropic.",
-                    "eu.anthropic.",
-                    "apac.anthropic.",
-                    "jp.anthropic.",
-                    "au.anthropic.",
-                    "in.anthropic.",
-                ]
+                ["", "anthropic/", "anthropic.", "global.anthropic."]
                 if e["provider"] == "anthropic"
                 else [""]
             )
@@ -1461,6 +1438,29 @@ class TestClaudeFastAndDotNotationIds:
     def test_opus_4_6_has_no_fast_card(self, real_cache):
         # Opus 4.6 fast bills standard upstream; a 4.6 fast entry would over-charge.
         assert all(e["model_name"] != "claude-opus-4-6-fast" for e in real_cache)
+
+
+# (pattern owner, id it must not absorb): Bedrock bills the regional and GovCloud
+# profiles of the 5.5 models above the global rate, and OpenRouter's :batch at half.
+CLAUDE_5_5_NON_MATCHES = [
+    ("claude-opus-5-5", "us.anthropic.claude-opus-5-5"),
+    ("claude-opus-5-5", "eu.anthropic.claude-opus-5-5"),
+    ("claude-opus-5-5", "us-gov.anthropic.claude-opus-5-5"),
+    ("claude-opus-5-5", "anthropic/claude-opus-5.5:batch"),
+    ("claude-sonnet-5-5", "us.anthropic.claude-sonnet-5-5"),
+    ("claude-sonnet-5-5", "eu.anthropic.claude-sonnet-5-5"),
+    ("claude-sonnet-5-5", "us-gov.anthropic.claude-sonnet-5-5"),
+    ("claude-sonnet-5-5", "anthropic/claude-sonnet-5.5:batch"),
+]
+
+
+class TestClaude55Ids:
+    @pytest.mark.parametrize("owner,model_id", CLAUDE_5_5_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
 
 
 # (pattern owner, id it must not absorb): the next Mythos version, and the Bedrock

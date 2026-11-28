@@ -194,13 +194,12 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
     expect(aliased).toEqual(canonical);
   });
 
-  // Verbatim catalogue shape for the 5.5 row: Bedrock inference-profile prefixes
-  // and OpenRouter dotted ids (#2937).
+  // Verbatim catalogue shape for the 5.5 row: Bedrock's global profile and
+  // OpenRouter's dotted id (#2937).
   const CLAUDE_5_5 = "claude-opus-5-5";
   const CLAUDE_5_5_ROW = {
     modelName: CLAUDE_5_5,
-    matchPattern:
-      "(?i)^(anthropic\\/)?(claude-opus-5[.-]5|(eu\\.|us\\.|apac\\.|global\\.|jp\\.|au\\.|in\\.)?anthropic\\.claude-opus-5-5(-v\\d+:\\d+)?)$",
+    matchPattern: "(?i)^(anthropic[/.]|global\\.anthropic\\.)?claude-opus-5[.-]5$",
     prices: [
       { usageType: "input", price: 0.000004 },
       { usageType: "output", price: 0.00002 },
@@ -212,6 +211,7 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
     const canonical = await lookup(CLAUDE_5_5);
     expect(await lookup("global.anthropic.claude-opus-5-5")).toEqual(canonical);
     expect(await lookup("anthropic/claude-opus-5.5")).toEqual(canonical);
+    expect(await lookup("us.anthropic.claude-opus-5-5")).toBeNull();
   });
 });
 
