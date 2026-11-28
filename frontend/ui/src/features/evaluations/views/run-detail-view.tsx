@@ -161,6 +161,16 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
   };
 }
 
+type RunLoadError = "not_found" | "no_access" | "failed";
+
+/** Classify a failed run fetch from the status in the error message ("Request failed: <status>"). */
+function runLoadError(error: unknown): RunLoadError {
+  const message = error instanceof Error ? error.message : "";
+  if (/\b404\b/.test(message)) return "not_found";
+  if (/\b(401|403)\b/.test(message)) return "no_access";
+  return "failed";
+}
+
 /**
  * Evaluation run detail — a plain, trace-list-style surface: the experiment name
  * rides in the breadcrumb, then a searchable table of the run's per-case results
@@ -173,7 +183,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
  * reconstructed eval-shaped trace built from the result + its scores.
  */
 export function RunDetailView({ projectId, runId }: { projectId: string; runId: string }) {
-  const { data, isLoading, error } = useEvaluationRun(projectId, runId);
+  const { data, isLoading, error, refetch } = useEvaluationRun(projectId, runId);
   const runsListHref = useListReturnHref(
     `evaluations:${projectId}`,
     `/projects/${projectId}/evaluations`,
@@ -243,12 +253,31 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           <div className="flex h-64 items-center justify-center">
             <p className="text-[13px] text-muted-foreground">Loading run...</p>
           </div>
-        ) : error || !data ? (
+        ) : !data ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2">
-            <p className="text-[13px] text-destructive">Evaluation run not found</p>
-            <Link href={runsListHref} className="text-[12px] text-muted-foreground underline">
-              Back to evaluations
-            </Link>
+            {runLoadError(error) === "failed" ? (
+              <>
+                <p className="text-[13px] text-destructive">Couldn&apos;t load this run</p>
+                <button
+                  type="button"
+                  onClick={() => refetch()}
+                  className="text-[12px] text-muted-foreground underline"
+                >
+                  Try again
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-[13px] text-destructive">
+                  {runLoadError(error) === "no_access"
+                    ? "You don't have access to this run"
+                    : "Evaluation run not found"}
+                </p>
+                <Link href={runsListHref} className="text-[12px] text-muted-foreground underline">
+                  Back to evaluations
+                </Link>
+              </>
+            )}
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
