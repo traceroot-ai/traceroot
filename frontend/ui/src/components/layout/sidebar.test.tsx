@@ -118,6 +118,10 @@ describe("Sidebar", () => {
       ["Verify", ["Datasets", "Evaluations"]],
     ]);
     expect(container.querySelector('nav a[aria-current="page"]')?.textContent).toBe("Signals");
+    // Each label leads with a decorative brand pixel that stays out of its name.
+    expect(container.querySelectorAll('nav [role="group"] > div > span[aria-hidden]')).toHaveLength(
+      3,
+    );
   });
 
   it("drops the group labels when collapsed but keeps the groups", () => {

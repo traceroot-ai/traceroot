@@ -5,6 +5,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  session: {
+    data: { user: { id: "user-1" } } as { user: { id: string } } | null,
+    isPending: false,
+  },
   workspace: {
     id: "ws-own",
     name: "Acme",
@@ -54,9 +59,9 @@ vi.mock("@/lib/auth-helpers", () => ({
   errorResponse: (error: string, status: number) => NextResponse.json({ error }, { status }),
 }));
 vi.mock("@/lib/auth-client", () => ({
-  authClient: { useSession: () => ({ data: { user: { id: "user-1" } } }) },
+  authClient: { useSession: () => mocks.session },
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/components/layout/page-header", () => ({ PageHeader: () => null }));
 vi.mock("@/features/workspaces/components", () => ({ CreateWorkspaceDialog: () => null }));
 
@@ -69,6 +74,8 @@ import WorkspacesPage from "./page";
 let queryClient: QueryClient;
 
 beforeEach(() => {
+  mocks.session = { data: { user: { id: "user-1" } }, isPending: false };
+  mocks.push.mockReset();
   mocks.workspace.name = "Acme";
   mocks.workspace.updateTime = new Date("2026-10-02T00:00:00Z");
   mocks.workspace.projects[0].lastIngestedAt = new Date("2026-10-02T00:00:00Z");
@@ -106,6 +113,20 @@ async function renderUpdatedCell() {
   const row = await screen.findByRole("button", { name: /Acme/ });
   return within(row).getAllByRole("cell")[2];
 }
+
+it("keeps a returning user on the workspace list while their session is loading", () => {
+  mocks.session = { data: null, isPending: true };
+  const page = () => (
+    <QueryClientProvider client={queryClient}>
+      <WorkspacesPage />
+    </QueryClientProvider>
+  );
+  const { rerender } = render(page());
+  expect(mocks.push).not.toHaveBeenCalled();
+  mocks.session = { data: null, isPending: false };
+  rerender(page());
+  expect(mocks.push).toHaveBeenCalledWith("/");
+});
 
 describe("Workspaces Updated column", () => {
   it("displays the stored timestamp from the list response", async () => {

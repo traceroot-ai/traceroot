@@ -20,12 +20,18 @@ const slack = vi.hoisted(() => ({
     error: null as Error | null,
   },
   save: vi.fn(),
+  saveState: "idle" as "idle" | "pending" | "success",
   saveError: null as Error | null,
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: slack.status, isLoading: false }),
   useSlackChannels: () => slack.channels,
-  useSaveSlackChannel: () => ({ mutate: slack.save, isPending: false, error: slack.saveError }),
+  useSaveSlackChannel: () => ({
+    mutate: slack.save,
+    isIdle: slack.saveState === "idle",
+    isPending: slack.saveState === "pending",
+    error: slack.saveError,
+  }),
 }));
 const github = vi.hoisted(() => ({
   status: {
@@ -70,6 +76,7 @@ beforeEach(() => {
   slack.status = { connected: false };
   slack.channels = { data: undefined, isLoading: false, error: null };
   slack.save.mockReset();
+  slack.saveState = "idle";
   slack.saveError = null;
   github.status = { connected: false, installations: [] };
   workspace.role = "ADMIN";
@@ -213,6 +220,17 @@ describe("choosing a Slack channel", () => {
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["#general"]);
   });
 
+  it.each(["pending", "success"] as const)(
+    "clears the selection prompt when the channel save is %s",
+    (state) => {
+      slack.saveState = state;
+      renderStep();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(onContinue).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
+
   it("saves the picked channel for the workspace", () => {
     renderStep();
     fireEvent.click(screen.getByRole("option", { name: "#alerts" }));
@@ -234,14 +252,25 @@ describe("choosing a Slack channel", () => {
     expect(screen.getByRole("alert").textContent).toContain("Slack refused the channel.");
   });
 
-  it("keeps Continue and Skip while the channel is still to pick", () => {
+  it("asks for a channel before continuing and still allows an explicit skip", () => {
     renderStep();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(onContinue).toHaveBeenCalledOnce();
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Choose a Slack channel");
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(onSkip).toHaveBeenCalledOnce();
   });
 });
 
 describe("a Slack channel chosen", () => {
+  it("continues immediately when the channel is already saved", () => {
+    slack.status = { connected: true, teamName: "Acme", channel: { id: "C1", name: "alerts" } };
+    renderStep();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(onContinue).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("says where alerts go, and can change it", async () => {
     slack.status = { connected: true, teamName: "Acme", channel: { id: "C1", name: "alerts" } };
     slack.channels = {

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   search: "projectId=proj-1",
   getProject: vi.fn(),
+  firstTraceTime: vi.fn(),
   getTraces: vi.fn(),
   session: {
     data: { user: { id: "user-1", email: "kai@example.com" } },
@@ -34,6 +35,7 @@ vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHeaderContent: vi.fn() }),
 }));
 vi.mock("@/lib/api", () => ({ getProject: mocks.getProject }));
+vi.mock("@/lib/api/projects", () => ({ getProjectFirstTraceTime: mocks.firstTraceTime }));
 vi.mock("@/lib/api/traces", () => ({
   getTraces: (projectId: string, key: string, options: unknown, user: unknown) =>
     mocks.getTraces(projectId, key, options, user),
@@ -55,6 +57,9 @@ vi.mock("posthog-js/react", () => ({ usePostHog: () => ({ capture }) }));
 import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
 import { MAX_UNREADABLE_ROUNDS } from "@/features/onboarding/use-project-trace-wait";
 import SetupStepPage from "./page";
+import { latestSetup, rememberSetup } from "@/features/onboarding/setup-resume";
+
+const resume = () => latestSetup("user-1");
 
 function trace(traceId: string, startTime: string) {
   return {
@@ -152,11 +157,14 @@ async function reachManual() {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  localStorage.clear();
   mocks.getProject.mockResolvedValue({
     id: "proj-1",
     name: "my-llm-project",
     workspace_id: "ws-1",
+    read_at: "2026-05-01T10:03:00Z",
   });
+  mocks.firstTraceTime.mockReset().mockResolvedValue("2026-05-01T10:00:00Z");
   tracePage = [];
   mocks.getTraces.mockImplementation(
     async (_projectId: string, _key: string, options: { limit: number }) => ({
@@ -188,16 +196,55 @@ describe("the hand-back step's first-trace watch", () => {
     expect([...watched]).toEqual(["proj-1"]);
   });
 
-  it("does not count a trace the project already had", async () => {
+  it("shows that tracing is set up on a direct visit to a project with traces", async () => {
     // Creating a project is idempotent on its name within a workspace, so a run
     // that lands on a name already in use is handed the existing project back.
     // The first round draws the line; nothing older than it can win.
     tracePage = [trace("t-before", "2026-05-01T10:00:00Z")];
     await reachHandback();
+    expect(screen.getByText("This project has already received traces.")).toBeDefined();
+    expect(screen.getByRole("link", { name: "View traces" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces",
+    );
+    expect(resume()).toBeNull();
+    expect(screen.queryByText(/Waiting for your first trace/)).toBeNull();
     await rounds(3);
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.getTraces).toHaveBeenCalledTimes(1);
+  });
 
-    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
-    expect(screen.queryByText(/Your first trace arrived/)).toBeNull();
+  it("keeps another interrupted project when revisiting one that already has traces", async () => {
+    rememberSetup("user-1", "unfinished-project", "project");
+    tracePage = [trace("t-old", "2025-05-01T10:00:00Z")];
+    mocks.firstTraceTime.mockResolvedValue("2025-05-01T10:00:00Z");
+    await reachHandback();
+    expect(screen.getByRole("link", { name: "View traces" })).toBeDefined();
+    expect(resume()).toMatchObject({ projectId: "unfinished-project", created: "project" });
+  });
+
+  it("opens the first trace ingested during the initial list request, even with a skewed producer clock", async () => {
+    let reply!: (value: unknown) => void;
+    mocks.getTraces.mockImplementationOnce(() => new Promise((resolve) => (reply = resolve)));
+    await reachHandback();
+    expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
+    tracePage = [trace("t-run", "2020-01-01T00:00:00Z")];
+    mocks.firstTraceTime.mockResolvedValue("2026-05-01T10:04:00Z");
+    expect(resume()?.projectId).toBe("proj-1");
+    reply({ data: tracePage });
+    await flush();
+    expect(resume()).toBeNull();
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-run");
+  });
+
+  it("keeps the original visit time when reading the ingestion time needs a retry", async () => {
+    tracePage = [trace("t-retry", "2020-01-01T00:00:00Z")];
+    mocks.firstTraceTime
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue("2026-05-01T10:04:00Z");
+    await reachHandback();
+    expect(mocks.push).not.toHaveBeenCalled();
+    await rounds(1);
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-retry");
   });
 
   it("opens the trace that arrives", async () => {
@@ -494,23 +541,31 @@ describe("the setup step itself", () => {
     mocks.search = "projectId=proj-1&created=project";
     await reachHandback();
     expect(screen.getByText("Project created — the rest happens in your terminal")).toBeDefined();
+    cleanup();
+    expect(resume()).toMatchObject({ projectId: "proj-1", created: "project" });
   });
 
   it("leaves a skipped account on its workspaces, and a manual one on its traces", async () => {
     await reachHandback();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(mocks.push).toHaveBeenCalledWith("/workspaces");
+    expect(resume()).toBeNull();
+    cleanup();
+    await reachHandback();
+    expect(resume()?.projectId).toBe("proj-1");
 
     fireEvent.click(screen.getByRole("tab", { name: "Manual" }));
     await flush();
     fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
+    expect(resume()).toBeNull();
   });
 
   it("says the step is unavailable for a project it cannot open", async () => {
     mocks.getProject.mockRejectedValue(new Error("Project not found"));
     await reachHandback();
     expect(screen.getByText("This step isn't available")).toBeDefined();
+    expect(resume()).toBeNull();
     expect(screen.getByRole("link", { name: "Go to your workspaces" }).getAttribute("href")).toBe(
       "/workspaces",
     );

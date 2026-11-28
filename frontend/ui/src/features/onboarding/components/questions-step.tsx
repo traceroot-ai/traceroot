@@ -27,8 +27,10 @@ type Question = "role" | "company" | "uses" | "source";
 
 interface Draft {
   role: RoleId | null;
+  roleOther: string;
   company: string;
   uses: UseId[];
+  usesOther: string;
   source: SourceId | null;
   sourceOther: string;
 }
@@ -37,11 +39,15 @@ interface Draft {
 function patchFor(question: Question, draft: Draft, skipped: boolean): AnswersPatch {
   switch (question) {
     case "role":
-      return { role: skipped ? null : draft.role };
+      return !skipped && draft.role === "other"
+        ? { role: draft.role, roleOther: draft.roleOther.trim() || null }
+        : { role: skipped ? null : draft.role };
     case "company":
       return { company: skipped ? null : draft.company.trim() || null };
     case "uses":
-      return { uses: skipped ? [] : draft.uses };
+      return !skipped && draft.uses.includes("other")
+        ? { uses: draft.uses, usesOther: draft.usesOther.trim() || null }
+        : { uses: skipped ? [] : draft.uses };
     case "source":
       return skipped
         ? { source: null, sourceOther: null }
@@ -123,8 +129,32 @@ function Questions({
   const questions: Question[] = saved.companyAsked
     ? ["role", "company", "uses", "source"]
     : ["role", "uses", "source"];
-  const [index, setIndex] = useState(0);
-  const [finishing, setFinishing] = useState(false);
+  // Answers come from the API. Remember only the current screen, including
+  // after a Skip, for this tab and the account that owns those answers.
+  const progressKey = `onboarding:question:${saved.userId}`;
+  const [{ index, persist }, setStep] = useState(() => {
+    let index = 0;
+    try {
+      const current = sessionStorage.getItem(progressKey);
+      index = Math.max(
+        0,
+        questions.findIndex((item) => item === current),
+      );
+    } catch {
+      // Storage may be disabled.
+    }
+    return { index, persist: false };
+  });
+  const question = questions[index];
+  useEffect(() => {
+    if (!persist) return;
+    try {
+      sessionStorage.setItem(progressKey, question);
+    } catch {
+      // Navigation still works when storage is disabled.
+    }
+  }, [persist, progressKey, question]);
+  const [submitting, setSubmitting] = useState(false);
   // A save refused because this browser is now signed in as someone else
   // (another tab switched): nothing more is saved from this draft.
   const [accountChanged, setAccountChanged] = useState(false);
@@ -139,32 +169,43 @@ function Questions({
   };
   const [draft, setDraft] = useState<Draft>({
     role: saved.role,
+    roleOther: saved.roleOther ?? "",
     company: saved.company ?? "",
     uses: saved.uses,
+    usesOther: saved.usesOther ?? "",
     source: saved.source === "other" ? null : saved.source,
     sourceOther: saved.sourceOther ?? "",
   });
-  // Saves go one after another: an answer changed after Back lands after the
-  // first one, and finishing waits for all of them, so the answers sent on
-  // include every screen however quickly it was left.
-  const saves = useRef<Promise<unknown>>(Promise.resolve());
-  const question = questions[index];
+  // Signing out waits for the current answer to settle.
+  const saves = useRef<Promise<boolean>>(Promise.resolve(true));
   const last = index === questions.length - 1;
+  const canContinue = {
+    role: draft.role !== null,
+    company: draft.company.trim() !== "",
+    uses: draft.uses.length > 0,
+    source: draft.source !== null || draft.sourceOther.trim() !== "",
+  }[question];
 
   async function next(skipped: boolean) {
+    setSubmitting(true);
     const patch = patchFor(question, draft, skipped);
-    saves.current = saves.current.then(() =>
-      saveOnboardingAnswers(saved.userId, patch).catch((err) => {
+    saves.current = saveOnboardingAnswers(saved.userId, patch).then(
+      () => true,
+      (err) => {
         if (!refusedForAccount(err)) console.error("[onboarding] could not save an answer:", err);
-      }),
+        return false;
+      },
     );
+    const acknowledged = await saves.current;
+    if (changed.current) return;
+    if (skipped && question === "role") setDraft({ ...draft, role: null, roleOther: "" });
+    if (skipped && question === "uses") setDraft({ ...draft, uses: [], usesOther: "" });
     if (!last) {
-      setIndex(index + 1);
+      // If this optional save failed, a refresh can still return to this answer.
+      setStep({ index: index + 1, persist: acknowledged });
+      setSubmitting(false);
       return;
     }
-    setFinishing(true);
-    await saves.current;
-    if (changed.current) return;
     await finishOnboardingQuestions(saved.userId).catch((err) => {
       if (!refusedForAccount(err))
         console.error("[onboarding] could not finish the questions:", err);
@@ -204,19 +245,32 @@ function Questions({
       </div>
 
       {question === "role" && (
-        <Screen title="What best describes you?" hint="Pick one">
+        <Screen submitting={submitting} title="What best describes you?" hint="Pick one">
           <Options
             name="What best describes you?"
             options={ROLE_OPTIONS}
             wide={["leadership"]}
             picked={draft.role ? [draft.role] : []}
-            onPick={(id) => setDraft({ ...draft, role: draft.role === id ? null : id })}
+            onPick={(id) =>
+              setDraft({ ...draft, role: draft.role === id ? null : id, roleOther: "" })
+            }
           />
+          {draft.role === "other" && (
+            <OtherAnswer
+              label="Describe your role (optional)"
+              value={draft.roleOther}
+              onChange={(roleOther) => setDraft({ ...draft, roleOther })}
+            />
+          )}
         </Screen>
       )}
 
       {question === "company" && (
-        <Screen title="Which company or project is this for?" hint="A website is enough">
+        <Screen
+          submitting={submitting}
+          title="Which company or project is this for?"
+          hint="A website is enough"
+        >
           <input
             type="text"
             value={draft.company}
@@ -232,6 +286,7 @@ function Questions({
 
       {question === "uses" && (
         <Screen
+          submitting={submitting}
           title="What will you use traceroot for?"
           hint={`Pick up to ${MAX_USES}`}
           count={`${draft.uses.length} of ${MAX_USES}`}
@@ -246,6 +301,7 @@ function Questions({
             onPick={(id) =>
               setDraft({
                 ...draft,
+                usesOther: id === "other" ? "" : draft.usesOther,
                 uses: draft.uses.includes(id)
                   ? draft.uses.filter((use) => use !== id)
                   : draft.uses.length < MAX_USES
@@ -254,11 +310,22 @@ function Questions({
               })
             }
           />
+          {draft.uses.includes("other") && (
+            <OtherAnswer
+              label="Describe your use case (optional)"
+              value={draft.usesOther}
+              onChange={(usesOther) => setDraft({ ...draft, usesOther })}
+            />
+          )}
         </Screen>
       )}
 
       {question === "source" && (
-        <Screen title="Where did you hear about us?" hint="Pick one, or tell us">
+        <Screen
+          submitting={submitting}
+          title="Where did you hear about us?"
+          hint="Pick one, or tell us"
+        >
           <Options
             name="Where did you hear about us?"
             options={SOURCE_OPTIONS}
@@ -266,16 +333,11 @@ function Questions({
             picked={draft.source ? [draft.source] : []}
             onPick={(id) => setDraft({ ...draft, source: draft.source === id ? null : id })}
           />
-          {/* What is typed here stays in our database: `ph-no-capture` keeps
-              analytics' autocapture and session replay off it. */}
-          <input
-            type="text"
-            value={draft.sourceOther}
-            onChange={(event) => setDraft({ ...draft, sourceOther: event.target.value })}
+          <OtherAnswer
+            label="Somewhere else"
             placeholder="Somewhere else? Tell us"
-            aria-label="Somewhere else"
-            maxLength={200}
-            className="ph-no-capture mt-2 h-8 w-full rounded-[3px] border border-border bg-background px-2.5 text-[13px] outline-none focus:border-ring"
+            value={draft.sourceOther}
+            onChange={(sourceOther) => setDraft({ ...draft, sourceOther })}
           />
         </Screen>
       )}
@@ -286,8 +348,8 @@ function Questions({
             variant="ghost"
             size="sm"
             className="h-8 px-3 text-[12px]"
-            disabled={finishing}
-            onClick={() => setIndex(index - 1)}
+            disabled={submitting}
+            onClick={() => setStep({ index: index - 1, persist: true })}
           >
             Back
           </Button>
@@ -296,7 +358,7 @@ function Questions({
           variant="ghost"
           size="sm"
           className="ml-auto h-8 px-3 text-[12px] text-muted-foreground"
-          disabled={finishing}
+          disabled={submitting}
           onClick={() => next(true)}
         >
           Skip
@@ -304,7 +366,7 @@ function Questions({
         <Button
           size="sm"
           className="h-8 px-4 text-[12px]"
-          disabled={finishing}
+          disabled={submitting || !canContinue}
           onClick={() => next(false)}
         >
           Continue
@@ -317,7 +379,7 @@ function Questions({
       {account && (
         <AccountLine
           email={account.email}
-          pending={finishing || account.switching}
+          pending={(submitting && last) || account.switching}
           onSwitchAccount={() => account.onSwitch(saves.current)}
         />
       )}
@@ -325,19 +387,45 @@ function Questions({
   );
 }
 
+function OtherAnswer({
+  label,
+  placeholder = label,
+  value,
+  onChange,
+}: {
+  label: string;
+  placeholder?: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <input
+      type="text"
+      aria-label={label}
+      placeholder={placeholder}
+      value={value}
+      maxLength={200}
+      onChange={(event) => onChange(event.target.value)}
+      className="ph-no-capture mt-2 h-8 w-full rounded-[3px] border border-border bg-background px-2.5 text-[13px] outline-none focus:border-ring"
+    />
+  );
+}
+
 function Screen({
+  submitting,
   title,
   hint,
   count,
   children,
 }: {
+  submitting: boolean;
   title: string;
   hint: string;
   count?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section aria-label={title}>
+    <section aria-label={title} inert={submitting}>
       <h2 className="text-[14px] font-medium">{title}</h2>
       <p className="mb-3 flex text-[12px] text-muted-foreground">
         {hint}

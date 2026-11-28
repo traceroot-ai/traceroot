@@ -367,10 +367,12 @@ model UserOnboarding {
   // The sign-up questions. Option ids, not labels (lib/onboarding-questions.ts);
   // null for a question skipped or not asked.
   role                 String?    @db.VarChar
+  roleOther            String?    @map("role_other") @db.VarChar(200)
   // Asked only of a personal-email sign-up. The raw answer, and the domain read from it.
   companyInput         String?    @map("company_input") @db.VarChar
   companyDomain        String?    @map("company_domain") @db.VarChar
   uses                 String[]   @default([]) @db.VarChar
+  usesOther            String?    @map("uses_other") @db.VarChar(200)
   source               String?    @db.VarChar
   // What the person typed in "Somewhere else? Tell us". Never sent to analytics.
   sourceOther          String?    @map("source_other") @db.VarChar
