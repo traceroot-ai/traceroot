@@ -1,7 +1,7 @@
 import nodemailer from "nodemailer";
 import { env } from "@/env";
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 // Notifications follow committed writes, so an unavailable mail relay must time out.
 const SMTP_TIMEOUT_MS = 10_000;
 
@@ -23,12 +23,13 @@ export async function sendSmtpEmail(message: {
   }
 
   const url = new URL(smtpUrl);
+  const host = url.hostname.replace(/^\[(.*)\]$/, "$1");
   const secure = url.protocol === "smtps:" || url.port === "465";
   const transporter = nodemailer.createTransport({
-    host: url.hostname,
+    host,
     port: parseInt(url.port) || (secure ? 465 : 587),
     secure,
-    requireTLS: !secure && !LOOPBACK_HOSTS.has(url.hostname),
+    requireTLS: !secure && !LOOPBACK_HOSTS.has(host),
     connectionTimeout: SMTP_TIMEOUT_MS,
     greetingTimeout: SMTP_TIMEOUT_MS,
     socketTimeout: SMTP_TIMEOUT_MS,

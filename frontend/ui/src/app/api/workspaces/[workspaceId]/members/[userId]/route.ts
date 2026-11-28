@@ -153,9 +153,17 @@ async function handleDELETE(request: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const removed = await prisma.workspaceMember.delete({
-    where: { id: targetMembership.id },
-  });
+  let removed;
+  try {
+    removed = await prisma.workspaceMember.delete({
+      where: { id: targetMembership.id },
+    });
+  } catch (error) {
+    if (isPrismaKnownError(error, "P2025")) {
+      return errorResponse("Member not found", 404);
+    }
+    throw error;
+  }
 
   await notifyMembershipChange({
     actorUserId: user.id,

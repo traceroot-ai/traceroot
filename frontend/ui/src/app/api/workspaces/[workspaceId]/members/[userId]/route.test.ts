@@ -68,9 +68,11 @@ describe("workspace member change notifications", () => {
     const response = await update("VIEWER");
     expect(response.status).toBe(200);
     expect(m.access).toHaveBeenCalledWith("admin", "w1", "ADMIN");
-    expect(m.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "m1", role: "MEMBER" } }),
-    );
+    expect(m.update).toHaveBeenCalledWith({
+      where: { id: "m1", role: "MEMBER" },
+      data: { role: "VIEWER", updateTime: expect.any(Date) },
+      include: { user: { select: { id: true, email: true, name: true } } },
+    });
     expect(m.notify).toHaveBeenCalledExactlyOnceWith({
       actorUserId: "admin",
       workspaceId: "w1",
@@ -156,6 +158,14 @@ describe("workspace member change notifications", () => {
     await expect(update("VIEWER")).rejects.toThrow("database unavailable");
     m.remove.mockRejectedValue(new Error("database unavailable"));
     await expect(remove()).rejects.toThrow("database unavailable");
+    expect(m.notify).not.toHaveBeenCalled();
+  });
+
+  it("returns not found without a second notification when removal races", async () => {
+    m.remove.mockRejectedValue({ code: "P2025" });
+    const response = await remove();
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Member not found" });
     expect(m.notify).not.toHaveBeenCalled();
   });
 });

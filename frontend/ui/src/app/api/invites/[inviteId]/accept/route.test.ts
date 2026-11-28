@@ -80,7 +80,7 @@ beforeEach(() => {
       workspaceMember: { findUnique: async () => m.member, create: m.memberCreate },
     }),
   );
-  m.memberCreate.mockResolvedValue({ id: "membership-1", role: "MEMBER" });
+  m.memberCreate.mockImplementation(({ data }) => ({ id: "membership-1", role: data.role }));
   m.memberCreate.mockClear();
   m.inviteDelete.mockClear();
   m.notify.mockReset();
@@ -244,17 +244,23 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     expect(m.changed).not.toHaveBeenCalled();
   });
 
-  it("ignores a supplied identity or role, using the accepting account and stored invite", async () => {
-    const response = await POST(
-      new NextRequest("http://localhost/api/invites/inv1/accept", {
-        method: "POST",
-        body: JSON.stringify({ userId: "victim", role: "ADMIN" }),
-      }),
-      { params: Promise.resolve({ inviteId: "inv1" }) },
-    );
-    expect(response.status).toBe(200);
-    expect(m.memberCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ userId: "u1", role: "MEMBER" }),
-    });
-  });
+  it.each(["ADMIN", "VIEWER"])(
+    "uses the stored %s role and authenticated recipient",
+    async (role) => {
+      m.invite = { ...m.invite!, role };
+      const response = await POST(
+        new NextRequest("http://localhost/api/invites/inv1/accept", {
+          method: "POST",
+          body: JSON.stringify({ userId: "victim", role: "MEMBER" }),
+        }),
+        { params: Promise.resolve({ inviteId: "inv1" }) },
+      );
+      expect(response.status).toBe(200);
+      expect(m.memberCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: "u1", role }),
+      });
+      expect((await response.json()).role).toBe(role);
+      expect(m.changed).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1", role }));
+    },
+  );
 });

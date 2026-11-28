@@ -69,4 +69,12 @@ describe("SMTP email transport", () => {
     m.sendMail.mockRejectedValue(new Error("SMTP unavailable"));
     await expect(sendSmtpEmail(message)).rejects.toThrow("SMTP unavailable");
   });
+
+  it("passes an IPv6 literal without URL brackets to the socket", async () => {
+    m.env.TRACEROOT_SMTP_URL = "smtp://user:pass@[::1]:1025";
+    await sendSmtpEmail(message);
+    expect(m.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "::1", port: 1025, secure: false, requireTLS: false }),
+    );
+  });
 });

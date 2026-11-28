@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   audit: vi.fn(),
   configured: vi.fn(),
   send: vi.fn(),
+  after: vi.fn(),
 }));
 
 vi.mock("@traceroot/core", async (original) => ({
@@ -17,6 +18,7 @@ vi.mock("@traceroot/core", async (original) => ({
     workspaceMember: { findMany: m.admins },
   },
 }));
+vi.mock("next/server", () => ({ after: m.after }));
 vi.mock("@/env", () => ({ env: { BETTER_AUTH_URL: "https://app.example.com" } }));
 vi.mock("@/lib/write-services/audit", () => ({ writeAudit: m.audit }));
 vi.mock("@/lib/email/transport", () => ({
@@ -34,6 +36,11 @@ const change: MembershipChange = {
   role: "MEMBER",
   operation: "joined",
 };
+
+async function notifyAndDeliver(change: MembershipChange) {
+  await notifyMembershipChange(change);
+  for (const [callback] of m.after.mock.calls) await callback();
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,8 +60,17 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("membership change notifications", () => {
-  it("records the committed membership change on the existing audit trail", async () => {
+  it("records the audit inline and leaves SMTP delivery until after the response", async () => {
     await notifyMembershipChange(change);
+    expect(m.audit).toHaveBeenCalledOnce();
+    expect(m.after).toHaveBeenCalledOnce();
+    expect(m.send).not.toHaveBeenCalled();
+    await m.after.mock.calls[0][0]();
+    expect(m.send).toHaveBeenCalledTimes(2);
+  });
+
+  it("records the committed membership change on the existing audit trail", async () => {
+    await notifyAndDeliver(change);
     expect(m.audit).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
       actorUserId: "actor1",
       operation: "workspace_member_joined",
@@ -71,7 +87,7 @@ describe("membership change notifications", () => {
   });
 
   it("notifies the target and current admins once each without exposing recipient lists", async () => {
-    await notifyMembershipChange(change);
+    await notifyAndDeliver(change);
     expect(m.send).toHaveBeenCalledTimes(2);
     const messages = m.send.mock.calls.map(([message]) => message);
     expect(messages.map((message) => message.to)).toEqual([
@@ -96,7 +112,7 @@ describe("membership change notifications", () => {
     [{ operation: "role_changed" }, "Role changed to MEMBER"],
     [{ operation: "removed" }, "Removed from the workspace"],
   ])("describes and audits %j", async (fields, expected) => {
-    await notifyMembershipChange({ ...change, ...fields });
+    await notifyAndDeliver({ ...change, ...fields });
     expect(m.send.mock.calls[0][0].text).toContain(expected);
     expect(m.audit.mock.calls[0][1]).toMatchObject({
       operation: `workspace_member_${fields.operation}`,
@@ -110,7 +126,7 @@ describe("membership change notifications", () => {
 
   it("escapes workspace text in the HTML notification", async () => {
     m.workspace.mockResolvedValue({ name: "Acme <img src=x onerror=alert(1)> & partners" });
-    await notifyMembershipChange(change);
+    await notifyAndDeliver(change);
     const html = m.send.mock.calls[0][0].html;
     expect(html).toContain("Acme &lt;img src=x onerror=alert(1)&gt; &amp; partners");
     expect(html).not.toContain("<img src=x");
@@ -118,7 +134,7 @@ describe("membership change notifications", () => {
 
   it("preserves the audit even when SMTP is not configured", async () => {
     m.configured.mockReturnValue(false);
-    await expect(notifyMembershipChange(change)).resolves.toBeUndefined();
+    await expect(notifyAndDeliver(change)).resolves.toBeUndefined();
     expect(m.audit).toHaveBeenCalledOnce();
     expect(m.workspace).not.toHaveBeenCalled();
     expect(m.send).not.toHaveBeenCalled();
@@ -130,7 +146,7 @@ describe("membership change notifications", () => {
 
   it("isolates recipient failures and logs IDs for replay without failing the committed write", async () => {
     m.send.mockRejectedValueOnce(new Error("relay unavailable"));
-    await expect(notifyMembershipChange(change)).resolves.toBeUndefined();
+    await expect(notifyAndDeliver(change)).resolves.toBeUndefined();
     expect(m.send).toHaveBeenCalledTimes(2);
     expect(console.error).toHaveBeenCalledWith("[membership] notification failed", {
       workspaceId: "w1",
@@ -142,7 +158,7 @@ describe("membership change notifications", () => {
 
   it("does not fail the committed write when recipient lookup fails", async () => {
     m.admins.mockRejectedValue(new Error("database unavailable"));
-    await expect(notifyMembershipChange(change)).resolves.toBeUndefined();
+    await expect(notifyAndDeliver(change)).resolves.toBeUndefined();
     expect(m.audit).toHaveBeenCalledOnce();
     expect(m.send).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith("[membership] notification lookup failed", {
@@ -157,7 +173,7 @@ describe("membership change notifications", () => {
     "logs when the %s disappeared after commit",
     async (record) => {
       m[record].mockResolvedValue(null);
-      await expect(notifyMembershipChange(change)).resolves.toBeUndefined();
+      await expect(notifyAndDeliver(change)).resolves.toBeUndefined();
       expect(m.send).not.toHaveBeenCalled();
       expect(console.error).toHaveBeenCalled();
     },
@@ -165,7 +181,7 @@ describe("membership change notifications", () => {
 
   it("still notifies a removed account when it is no longer among the admins", async () => {
     m.admins.mockResolvedValue([]);
-    await notifyMembershipChange({ ...change, operation: "removed" });
+    await notifyAndDeliver({ ...change, operation: "removed" });
     expect(m.send).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         to: "Member@example.com",

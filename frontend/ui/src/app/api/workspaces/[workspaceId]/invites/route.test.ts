@@ -221,6 +221,10 @@ describe("POST /api/workspaces/[workspaceId]/invites", () => {
     const response = await post();
     expect(response.status).toBe(201);
     expect(m.canAddSeat).toHaveBeenCalledWith("free", 1);
+    expect(m.workspaceFind).toHaveBeenCalledWith({
+      where: { id: "w1" },
+      include: { _count: { select: { members: true, invites: true } } },
+    });
     expect(m.transaction).toHaveBeenCalledTimes(1);
     expect(m.lock).toHaveBeenCalledTimes(1);
     const [sql, id] = m.lock.mock.calls[0];
@@ -244,17 +248,19 @@ describe("POST /api/workspaces/[workspaceId]/invites", () => {
     expect(m.inviteFind).toHaveBeenCalledWith({
       where: { email_workspaceId: { email: "new@example.com", workspaceId: "w1" } },
     });
-    expect(m.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: {
-          id: expect.any(String),
-          email: "new@example.com",
-          workspaceId: "w1",
-          role: "ADMIN",
-          invitedByUserId: "admin",
-        },
-      }),
-    );
+    expect(m.create).toHaveBeenCalledWith({
+      data: {
+        id: expect.any(String),
+        email: "new@example.com",
+        workspaceId: "w1",
+        role: "ADMIN",
+        invitedByUserId: "admin",
+      },
+      include: {
+        invitedBy: { select: { id: true, email: true, name: true } },
+        workspace: { select: { name: true } },
+      },
+    });
     expect(m.email).toHaveBeenCalledExactlyOnceWith({
       to: "new@example.com",
       inviterName: "Admin",
