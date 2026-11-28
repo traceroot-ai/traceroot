@@ -318,6 +318,12 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         validation_alias=AliasChoices("TRACEROOT_PUBLIC_UI_URL", "NEXT_PUBLIC_APP_URL"),
     )
+    # OAuth access tokens from the web app's OAuth provider (assistant connectors).
+    # The issuer is the provider's issuer URL as it appears in a token's ``iss``;
+    # the audiences are the comma-separated resource URLs a token may be minted
+    # for (the MCP server). With either empty, no OAuth token is accepted.
+    traceroot_oauth_issuer: str = ""
+    traceroot_oauth_audiences: str = ""
     internal_api_secret: str = ""
 
     @field_validator("internal_api_secret")
