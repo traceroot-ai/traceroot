@@ -1,0 +1,139 @@
+---
+title: MCP server
+description: Ask Claude, ChatGPT, Cursor or Gemini about your traces, findings, alerts and datasets
+---
+
+The TraceRoot MCP server lets an AI assistant read your project's data while you talk to it: "what were my slowest traces today?", "what did the hallucination detector flag this week?", "how did the last evaluation run do?". It uses the same data and the same answers as the [CLI](/cli/get-started), in the assistant you already use.
+
+It is **read-only**, and each connection can read **one project**. You choose which when you connect, and you can disconnect at any time under **Account settings → Connected assistants**.
+
+## What it can do
+
+It offers 24 tools: list and read traces, sessions, findings, detectors, alerts, dashboards (and their widgets), datasets and their versions, and evaluation runs, and run read-only SQL against your project's data. Large fields, such as a trace's input and output, are left out unless the assistant asks for them.
+
+## Connect
+
+Use your MCP server's URL wherever `YOUR_MCP_URL` appears below. If you self-host, it is the value you set as `MCP_RESOURCE_URL`; see [Self-hosting](#self-hosting).
+
+Connecting asks you to sign in to TraceRoot, pick the project the assistant may read, and approve. No API key is needed.
+
+<Tabs>
+  <Tab title="Claude">
+    **Claude on the web and Claude Desktop**
+
+    1. Open **Settings → Connectors** and choose **Add custom connector**.
+    2. Enter `YOUR_MCP_URL` and add it.
+    3. Connect, then sign in to TraceRoot, pick a project and approve.
+
+    Claude connects to your server from Anthropic's cloud, so the URL must be reachable from the public internet. Claude Desktop does not accept remote servers in its configuration file; add them under Connectors. Team and Enterprise organizations add the connector once, as an owner, and members then connect it themselves.
+
+    **Claude Code**
+
+    ```bash
+    claude mcp add --transport http traceroot YOUR_MCP_URL
+    ```
+
+    Then run `/mcp` inside Claude Code and follow the browser sign-in. From a shell, `claude mcp login traceroot` does the same.
+  </Tab>
+  <Tab title="ChatGPT">
+    ChatGPT connects to a custom MCP server from its web app. Full MCP is available in Business and Enterprise/Edu workspaces, where admins and owners add the server (Enterprise and Edu admins can also let chosen members add one). Pro users can connect custom MCP servers with read/fetch permissions. OpenAI changes these menus often, so follow ChatGPT's own help if a label differs.
+
+    1. Open **Plugins**, select the plus button, then **Add custom MCP server**.
+    2. Enter a name and, under **Connection**, `YOUR_MCP_URL`.
+    3. Choose OAuth as the authentication, accept the warning about custom servers and select **Create as a plugin**.
+    4. Sign in to TraceRoot, pick a project and approve.
+
+    OpenAI still offers an older path: admins and owners start from **Workspace settings → Apps → Create**, other users from their user settings, under **Apps → Create**.
+
+    Like Claude's web app, ChatGPT reaches your server from the internet, so the URL must be public.
+  </Tab>
+  <Tab title="Cursor">
+    Add the server to `~/.cursor/mcp.json`, or to `.cursor/mcp.json` in a project:
+
+    ```json
+    {
+      "mcpServers": {
+        "traceroot": {
+          "url": "YOUR_MCP_URL"
+        }
+      }
+    }
+    ```
+
+    Cursor starts the sign-in when the server asks for it: sign in to TraceRoot, pick a project and approve.
+
+    If the sign-in does not finish, check that nothing else is using port 8787: the desktop app receives the sign-in at `http://localhost:8787/callback`.
+  </Tab>
+  <Tab title="Gemini">
+    In the Gemini CLI:
+
+    ```bash
+    gemini mcp add --transport http traceroot YOUR_MCP_URL
+    ```
+
+    Then run `/mcp auth traceroot` and follow the browser sign-in. The sign-in needs a browser on the same machine, so it does not work over a plain SSH session or in a container.
+  </Tab>
+</Tabs>
+
+## Use an API key instead
+
+Where sign-in is not possible (a script, CI, or a server with no browser), send a project API key as a bearer token. A key is tied to its project, so there is no project to pick.
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add --transport http traceroot YOUR_MCP_URL \
+      --header "Authorization: Bearer $TRACEROOT_API_KEY"
+    ```
+
+    With a key header set, Claude Code does not fall back to sign-in; remove the header to use sign-in instead.
+  </Tab>
+  <Tab title="Cursor">
+    ```json
+    {
+      "mcpServers": {
+        "traceroot": {
+          "url": "YOUR_MCP_URL",
+          "headers": { "Authorization": "Bearer ${env:TRACEROOT_API_KEY}" }
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Gemini CLI">
+    ```bash
+    gemini mcp add --transport http --header "Authorization: Bearer $TRACEROOT_API_KEY" traceroot YOUR_MCP_URL
+    ```
+  </Tab>
+</Tabs>
+
+Create a key under your project's **Settings → API Keys**.
+
+## Try it
+
+Ask the assistant:
+
+- "What were my slowest traces in the last hour?"
+- "Show me the findings from the last day and what triggered them."
+- "Which alert rules do I have, and what are their thresholds?"
+- "What tables can I query with SQL? Then count my errors by model this week."
+
+## Disconnect
+
+**Account settings → Connected assistants** lists every assistant you have connected and the project each can read. Choose **Disconnect** and it loses access on its next request. Removing someone from a workspace also ends their assistants' access to its projects.
+
+## Self-hosting
+
+The MCP server is one more container in the production compose file. To turn on sign-in:
+
+| Where | Setting |
+| --- | --- |
+| `web` | `MCP_RESOURCE_URL`: the MCP server's public URL |
+| `mcp` | `MCP_RESOURCE_URL` (the same) and `MCP_OAUTH_ISSUER`: your `BETTER_AUTH_URL` plus `/api/auth` |
+| `rest` | `TRACEROOT_OAUTH_ISSUER` (the same issuer) and `TRACEROOT_OAUTH_AUDIENCES` (the MCP server's public URL) |
+
+Leave `MCP_RESOURCE_URL` blank to run key-only. The MCP server's URL must be reachable by whoever connects: from the internet for Claude's and ChatGPT's web apps, or just your machine for Claude Code, Cursor and the Gemini CLI.
+
+<Note>
+  The MCP server never holds your data or a login of its own. It forwards the assistant's credential to the TraceRoot API, which checks the token, the project it was granted for, and that the connection is still allowed on every request.
+</Note>
