@@ -27,6 +27,7 @@ from rest.routers.public.jwks_cache import JwksCache
 
 BASE_URL = "http://localhost:3000"
 JWKS_URL = f"{BASE_URL}/api/auth/jwks"
+LIVE_URL = f"{BASE_URL}/api/internal/validate-session-live"
 _JWT_KID = "kid-dual-1"
 
 USER_HEADER = {"Authorization": "Bearer user-session-token"}
@@ -161,7 +162,8 @@ def _install_jwt_signer(monkeypatch):
     jwk = OKPAlgorithm.to_jwk(priv.public_key(), as_dict=True)
     jwk.update(kid=_JWT_KID, alg="EdDSA", use="sig")
     respx.get(JWKS_URL).mock(return_value=Response(200, json={"keys": [jwk]}))
-    monkeypatch.setattr(deps, "get_jwks_cache", lambda: JwksCache(JWKS_URL))
+    cache = JwksCache(JWKS_URL)
+    monkeypatch.setattr(deps, "get_jwks_cache", lambda: cache)
     return priv
 
 
@@ -184,12 +186,10 @@ def _mint_jwt(priv, *, sub="u1", sid="sess-1"):
 
 
 @respx.mock
-def test_cli_access_jwt_reads_like_key_path(monkeypatch):
-    """A CLI access JWT + ?project_id verifies offline against the JWKS, resolves
-    the project via user-project-access, and reads the same body shape as the key
-    and session paths — proving the JWT branch is wired end-to-end through the
-    route, not just the dependency."""
+def test_cli_access_jwt_reads_until_session_revoked(monkeypatch):
+    """Project reads recheck the same signed JWT's session on every request."""
     priv = _install_jwt_signer(monkeypatch)
+    live = respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": True}))
     respx.post(f"{BASE_URL}/api/internal/user-project-access").mock(
         return_value=Response(
             200,
@@ -214,6 +214,17 @@ def test_cli_access_jwt_reads_like_key_path(monkeypatch):
     assert resp.json() == EMPTY_LIST
     # The read is scoped to the project the JWT's user was granted, not a client value.
     assert reader.list_traces.call_args.kwargs["project_id"] == "proj-A"
+    live.mock(return_value=Response(200, json={"live": False}))
+
+    rejected = TestClient(app).get(
+        "/api/v1/public/traces?project_id=proj-A",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert rejected.status_code == 401
+    assert rejected.json() == {"detail": "Session revoked or expired"}
+    assert reader.list_traces.call_count == 1
+    assert live.call_count == 2
 
 
 def _stub_detector_reader(monkeypatch) -> MagicMock:

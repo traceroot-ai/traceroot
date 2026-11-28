@@ -384,7 +384,7 @@ def test_jwt_write_with_live_session_succeeds(monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == {"id": "ws-new", "name": "Alpha", "role": "ADMIN", "created": True}
     assert live.call_count == 1
-    assert json.loads(live.calls.last.request.content) == {"sessionId": "sess-1"}
+    assert json.loads(live.calls.last.request.content) == {"sessionId": "sess-1", "userId": "u1"}
     assert json.loads(write.calls.last.request.content) == {
         "actorUserId": "u1",
         "name": "Alpha",
@@ -543,10 +543,8 @@ def test_jwt_write_with_revoked_session_is_401_on_every_write_route(
 ):
     """Every write route blocks a JWT whose minting session was revoked.
 
-    The liveness dependency is wired per route, so create_workspace passing
-    proves nothing about the others — without this, deleting ``_live`` from
-    any of them would let a revoked CLI session keep writing until its JWT
-    expired, with CI green.
+    Shared JWT authentication must reject the token before any write handler
+    reaches the control plane.
     """
     priv = _install_jwt_signer(monkeypatch)
     respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": False}))

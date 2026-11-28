@@ -41,7 +41,6 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.public.account_write import LiveSession
 from rest.routers.public.deps import AccountStampedAuth
 from shared.config import settings
 
@@ -212,7 +211,6 @@ async def create_project_api_key(
     request: Request,
     response: Response,
     auth: AccountStampedAuth,
-    _live: LiveSession,
 ) -> Response:
     """Mint an API key for one of this user's projects.
 
@@ -234,9 +232,6 @@ async def create_project_api_key(
         response (Response): Outgoing response (rate-limit plumbing).
         auth (AccountStampedAuth): Account-scope user auth (session token or CLI
             access JWT); carries the resolved ``user_id``.
-        _live (LiveSession): Refuses a JWT whose minting session has been revoked
-            or expired. The key minted here does not expire by default, so a
-            revoked token must not be able to leave one behind.
 
     Returns:
         Response: 201 with the minted key, which appears in this response and
@@ -280,7 +275,6 @@ async def revoke_project_api_key(
     request: Request,
     response: Response,
     auth: AccountStampedAuth,
-    _live: LiveSession,
 ) -> Response:
     """Revoke an API key in one of this user's projects.
 
@@ -299,8 +293,6 @@ async def revoke_project_api_key(
         response (Response): Outgoing response (rate-limit plumbing).
         auth (AccountStampedAuth): Account-scope user auth (session token or CLI
             access JWT); carries the resolved ``user_id``.
-        _live (LiveSession): Refuses a JWT whose minting session has been revoked
-            or expired, as on the mint.
 
     Returns:
         Response: 204 once the key is revoked.

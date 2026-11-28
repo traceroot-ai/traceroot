@@ -3,9 +3,9 @@
 Siblings of the detector/dashboard/widget writes: the target ``project_id``
 travels in the request body (or the query, on the delete) and the write
 service resolves the actor's membership/role from it, so these run on the
-same account-scope credential (:data:`AccountStampedAuth` +
-:func:`require_live_session`) and share the account-write module's proxy
-helper, body builders, error mapping, and passthrough semantics.
+same account-scope credential (:data:`AccountStampedAuth`) and share the
+account-write module's proxy helper, body builders, error mapping, and
+passthrough semantics.
 
 The write service is the single validator for the UI and the API (measure per
 view, filter evaluability, the per-project cap, the merged-rule check on an
@@ -30,7 +30,6 @@ from rest.routers.public.account_write import (
     _WRITE_ERROR_RESPONSES,
     DeleteProjectId,
     DeleteReason,
-    LiveSession,
     _deleted,
     _envelope,
     _patch_body,
@@ -120,7 +119,6 @@ async def create_alert(
     response: Response,
     auth: AccountStampedAuth,
     payload: CreateAlertRequest,
-    _live: LiveSession,
 ) -> CreateAlertResponse:
     """Create a threshold alert in a project the authenticated user can write to.
 
@@ -134,7 +132,6 @@ async def create_alert(
         auth (AccountStampedAuth): Account-scope user auth (session token or
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         payload (CreateAlertRequest): The alert rule to create.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         CreateAlertResponse: The created alert with its full rule.
@@ -184,7 +181,6 @@ async def update_alert(
     auth: AccountStampedAuth,
     alert_id: str,
     payload: UpdateAlertRequest,
-    _live: LiveSession,
 ) -> UpdateAlertResponse:
     """Edit an alert's rule in a project the authenticated user can write to.
 
@@ -200,7 +196,6 @@ async def update_alert(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         alert_id (str): The alert to edit.
         payload (UpdateAlertRequest): The project and the rule fields to change.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         UpdateAlertResponse: The updated alert, the changed fields, and the
@@ -243,7 +238,6 @@ async def set_alert_status(
     auth: AccountStampedAuth,
     alert_id: str,
     payload: AlertStatusRequest,
-    _live: LiveSession,
 ) -> UpdateAlertResponse:
     """Pause or resume an alert without touching its rule.
 
@@ -259,7 +253,6 @@ async def set_alert_status(
             CLI access JWT); its resolved ``user_id`` becomes the actor.
         alert_id (str): The alert to pause or resume.
         payload (AlertStatusRequest): The project and the target status.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         UpdateAlertResponse: The alert with its new status and the state flags.
@@ -291,7 +284,6 @@ async def delete_alert(
     alert_id: str,
     project_id: DeleteProjectId,
     reason: DeleteReason,
-    _live: LiveSession,
 ) -> DeleteAlertResponse:
     """Hard-delete an alert.
 
@@ -307,7 +299,6 @@ async def delete_alert(
         alert_id (str): The alert to delete.
         project_id (str): The project the alert belongs to.
         reason (str): Why it is being deleted; recorded on the audit row.
-        _live (None): Write-path liveness gate (blocks a revoked JWT session).
 
     Returns:
         DeleteAlertResponse: The removed alert and whether a page was cleared.

@@ -3,8 +3,8 @@
 These exercise the REAL account-scope dependency (``authenticate_account_caller``)
 and the account routes end-to-end, mocking the internal routes with ``respx``.
 BOTH account-scope credential kinds are covered: a raw session token
-(introspected via ``validate-user-token``) and a CLI access JWT (verified offline
-against a mocked JWKS). Either way the workspace/project listing is delegated to
+(introspected via ``validate-user-token``) and a CLI access JWT (verified against
+a mocked JWKS and its live session). Either way the workspace/project listing is delegated to
 ``user-memberships``, keyed by the resolved user id. An API key (``tr-``) is
 rejected with 403.
 """
@@ -26,6 +26,7 @@ from rest.routers.public.jwks_cache import JwksCache
 
 BASE_URL = "http://localhost:3000"
 JWKS_URL = f"{BASE_URL}/api/auth/jwks"
+LIVE_URL = f"{BASE_URL}/api/internal/validate-session-live"
 _JWT_KID = "kid-acct-1"
 
 USER_HEADER = {"Authorization": "Bearer user-session-token"}
@@ -339,7 +340,8 @@ def _install_jwt_signer(monkeypatch):
     jwk = OKPAlgorithm.to_jwk(priv.public_key(), as_dict=True)
     jwk.update(kid=_JWT_KID, alg="EdDSA", use="sig")
     respx.get(JWKS_URL).mock(return_value=Response(200, json={"keys": [jwk]}))
-    monkeypatch.setattr(deps, "get_jwks_cache", lambda: JwksCache(JWKS_URL))
+    cache = JwksCache(JWKS_URL)
+    monkeypatch.setattr(deps, "get_jwks_cache", lambda: cache)
     return priv
 
 
@@ -362,9 +364,10 @@ def _mint_jwt(priv, *, sub="u1", sid="sess-1"):
 
 
 @respx.mock
-def test_list_workspaces_accepts_a_cli_access_jwt(monkeypatch):
-    """A CLI access JWT is verified offline, then lists via user-memberships by user id."""
+def test_list_workspaces_rejects_same_jwt_after_session_revocation(monkeypatch):
+    """A signed JWT loses read access as soon as its session is revoked."""
     priv = _install_jwt_signer(monkeypatch)
+    live = respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": True}))
     membership = _mock_memberships()
     token = _mint_jwt(priv, sub="u1")
 
@@ -382,11 +385,22 @@ def test_list_workspaces_accepts_a_cli_access_jwt(monkeypatch):
     # Regression guard: the JWT's subject (user id) is forwarded to the internal
     # listing route — never the raw JWT, which user-memberships can't resolve.
     assert json.loads(membership.calls.last.request.content) == {"userId": "u1"}
+    live.mock(return_value=Response(200, json={"live": False}))
+
+    rejected = TestClient(app).get(
+        "/api/v1/public/workspaces", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert rejected.status_code == 401
+    assert rejected.json() == {"detail": "Session revoked or expired"}
+    assert membership.call_count == 1
+    assert live.call_count == 2
 
 
 @respx.mock
 def test_list_projects_accepts_a_cli_access_jwt(monkeypatch):
     priv = _install_jwt_signer(monkeypatch)
+    respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": True}))
     membership = _mock_memberships()
     token = _mint_jwt(priv, sub="u1")
 
