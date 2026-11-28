@@ -18,7 +18,18 @@
 --
 -- Additive and nullable with no DEFAULT, so this deploys ahead of the worker that fills
 -- it and rolls back by dropping the columns. Idempotent: every statement is IF NOT EXISTS.
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
 ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "priced_llm_calls" INTEGER;
 ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "scorer_cost" DOUBLE PRECISION;
 ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "scorer_llm_calls" INTEGER;
 ALTER TABLE "evaluation_results" ADD COLUMN IF NOT EXISTS "scorer_priced_llm_calls" INTEGER;
+
+-- Rows a worker without the scorer split already stamped must be derived again. That is
+-- correct at migration time because no worker with the split has written yet, so every
+-- stamped row with a trace and no scorer count predates it.
+UPDATE "evaluation_results" SET "metrics_derived_at" = NULL WHERE "metrics_derived_at" IS NOT NULL AND "scorer_llm_calls" IS NULL AND "trace_id" IS NOT NULL;
+
+COMMIT;

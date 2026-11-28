@@ -269,7 +269,7 @@ def _has_usage(span: dict) -> bool:
     return any(span[k] for k in ("input_tokens", "output_tokens", "total_tokens"))
 
 
-def _price(span: dict):
+def _price(span: dict) -> float | None:
     """The span's cost if it is a real price, else None.
 
     A cost of 0 on a span that reported no usage is missing telemetry, not a free call:
@@ -279,7 +279,7 @@ def _price(span: dict):
     cost = span["cost"]
     if cost is None or (not cost and not _has_usage(span)):
         return None
-    return cost
+    return float(cost)
 
 
 def _sole_wrapper(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict | None:
