@@ -29,6 +29,7 @@ traceroot: 여러분의 AI 에이전트를 지속적으로 개선하는 오픈 �
   <a href="./README.md"><img alt="README in English" src="https://img.shields.io/badge/English-f8f8f8"></a>
   <a href="./README.zh.md"><img alt="简体中文版自述文件" src="https://img.shields.io/badge/简体中文-f8f8f8"></a>
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
+  <a href="./README.ja.md"><img alt="日本語 README" src="https://img.shields.io/badge/日本語-f8f8f8"></a>
 </p>
 
 <p align="center">⭐ 더 많은 개발자에게 traceroot를 알리고 커뮤니티를 키울 수 있도록 이 저장소에 Star를 남겨 주세요!</p>
