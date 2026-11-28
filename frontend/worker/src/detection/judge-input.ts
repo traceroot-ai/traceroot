@@ -420,9 +420,12 @@ function sampleLineList(lines: string[], budget: number): string {
   if (bodyCount === 0) return head.join("\n").slice(0, budget);
 
   const sample = (target: number) => {
-    const step = bodyCount / target;
+    const step = target > 1 ? (bodyCount - 1) / (target - 1) : 0;
     const kept: string[] = [];
-    for (let i = 0; i < target; i++) kept.push(numbered(head.length + Math.floor(i * step)));
+    for (let i = 0; i < target; i++) {
+      const offset = target === 1 ? bodyCount - 1 : Math.round(i * step);
+      kept.push(numbered(head.length + offset));
+    }
     return [...head, note((target / bodyCount) * 100), ...kept].join("\n");
   };
   const fixed = head.join("\n").length + note(100).length + 2;
