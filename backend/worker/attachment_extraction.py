@@ -56,6 +56,7 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -384,26 +385,24 @@ def _drop_json_audio(text: str) -> str:
     except (ValueError, RecursionError):
         return text
 
-    # Each audio value, with how many audio shapes hold it, and how many string
-    # values in the whole tree are equal to it.
+    # How many audio shapes hold each audio value.
     in_audio: dict[str, int] = {}
-    everywhere: dict[str, int] = {}
-    stack = [parsed]
-    while stack:
-        node = stack.pop()
+    for node in _walk(parsed):
         if isinstance(node, dict):
             for found in _known_shape_audio(node):
                 in_audio[found] = in_audio.get(found, 0) + 1
-            stack.extend(node.values())
-        elif isinstance(node, list):
-            stack.extend(node)
-        elif isinstance(node, str):
-            everywhere[node] = everywhere.get(node, 0) + 1
+    if not in_audio:
+        return text
 
     # The text is matched by value, not by position, so a value is dropped only when
     # every string equal to it is audio. The same base64 under a non-audio type is
-    # text the model was sent, and dropping it there would undercount.
-    audio = {data for data, count in in_audio.items() if everywhere.get(data) == count}
+    # text the model was sent, and dropping it there would undercount. Only the
+    # audio values are counted, so the count costs no memory per other string.
+    everywhere = dict.fromkeys(in_audio, 0)
+    for node in _walk(parsed):
+        if isinstance(node, str) and node in everywhere:
+            everywhere[node] += 1
+    audio = {data for data, count in in_audio.items() if everywhere[data] == count}
     if not audio:
         return text
     # As with images, base64 is written unescaped, so each value appears in the
@@ -418,6 +417,18 @@ def _drop_json_audio(text: str) -> str:
         return text
     pieces.append(text[end:])
     return "".join(pieces)
+
+
+def _walk(root: Any) -> Iterator[Any]:
+    """Every value in a parsed JSON tree, containers included, depth first."""
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
 
 
 def _known_shape_audio(node: dict) -> list[str]:
