@@ -48,6 +48,7 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/decisions", () 
     const res = await POST(makeRequest({ decisionId: "d1", action: "create" }), { params });
 
     expect(res.status).toBe(200);
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("u1", "p1", "MEMBER");
     expect(await res.json()).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
