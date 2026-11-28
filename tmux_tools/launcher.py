@@ -131,9 +131,15 @@ def _env_value(*args: str, new_value: str | None = None) -> str:
     env = dict(os.environ)
     if new_value is not None:
         env["ENV_VALUE_NEW"] = new_value
-    result = subprocess.run(
-        ["sh", str(ENV_VALUE_SCRIPT), *args], capture_output=True, text=True, env=env
-    )
+    try:
+        result = subprocess.run(
+            ["sh", str(ENV_VALUE_SCRIPT), *args], capture_output=True, text=True, env=env
+        )
+    except FileNotFoundError:
+        raise SystemExit(
+            "sh was not found on PATH, so scripts/env-value.sh cannot read .env. "
+            "On Windows, run this command from Git Bash."
+        ) from None
     if result.returncode != 0:
         raise SystemExit(result.stderr.strip() or "could not read .env with docker compose")
     return result.stdout
