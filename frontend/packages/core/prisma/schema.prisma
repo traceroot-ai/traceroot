@@ -1138,7 +1138,7 @@ model EvaluationResult {
   // walk that derives `cost` — scorer spans and their whole subtree excluded, because an
   // llm_judge's tokens are the judge's, not the system under test's. Nullable and
   // NULLIF'd on write like `cost`: a task that made no LLM calls reads NULL, never a
-  // misleading 0. They have their own backfill marker, `metricsDerivedAt`, below.
+  // misleading 0. The backfill re-derives them through `scorerMetricsDerivedAt`, below.
   promptTokens         Int?      @map("prompt_tokens")
   completionTokens     Int?      @map("completion_tokens")
   totalTokens          Int?      @map("total_tokens")
@@ -1148,10 +1148,11 @@ model EvaluationResult {
   llmDurationMs        Int?      @map("llm_duration_ms")
   // How many of the task's LLM calls carried a price; `cost` sums only those. Unlike the
   // metrics above, the counts here are real counts (0 included), written for every result
-  // whose trace had spans. NULL with `metricsDerivedAt` set means no spans were found.
+  // whose trace had spans. NULL with `scorerMetricsDerivedAt` set means no spans were found.
   pricedLlmCalls       Int?      @map("priced_llm_calls")
   // The scorer subtree's own totals, kept out of `cost` above. `scorerCost` is NULL when
-  // no scorer call was priced, and otherwise the real sum, which may be 0.
+  // no scorer call was priced, and otherwise the real sum, which may be 0. These and
+  // `pricedLlmCalls` have their own backfill marker, `scorerMetricsDerivedAt`, below.
   scorerCost           Float?    @map("scorer_cost")
   scorerLlmCalls       Int?      @map("scorer_llm_calls")
   scorerPricedLlmCalls Int?      @map("scorer_priced_llm_calls")
@@ -1162,11 +1163,16 @@ model EvaluationResult {
   // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
   // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
   costDerivedAt        DateTime? @map("cost_derived_at") @db.Timestamp(6)
-  // Set whenever the LLM metrics above are derived for this result. Separate from
-  // `costDerivedAt` because a worker that predates the metrics still stamps that one
-  // after writing cost alone; it never sets this, so the backfill can still find the row.
-  // Its partial index (`ix_eval_result_metrics_backfill`) lives in the migration.
+  // Set whenever the LLM metrics above are derived for this result, stamped with the
+  // other markers. The backfill does not select on it: it selects on
+  // `scorerMetricsDerivedAt`, which every derivation stamps alongside this one.
   metricsDerivedAt     DateTime? @map("metrics_derived_at") @db.Timestamp(6)
+  // Set whenever the scorer split above is derived for this result. Separate from
+  // `metricsDerivedAt` because a worker without the split still stamps that one after
+  // writing the task's metrics alone; it never sets this, so the backfill can still find
+  // the row. Its partial index (`ix_eval_result_scorer_metrics_backfill`) lives in the
+  // migration.
+  scorerMetricsDerivedAt DateTime? @map("scorer_metrics_derived_at") @db.Timestamp(6)
   createTime           DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime           DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
