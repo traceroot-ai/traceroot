@@ -42,7 +42,7 @@ export interface ParityCase {
   /** CLI argv after `traceroot`, or the HTTP request when the tool has no CLI command. */
   cli?: (s: Seeds) => string[];
   http?: (s: Seeds) => HttpBaseline;
-  /** Names of NORMALISE entries applied to the CLI side. */
+  /** Names of NORMALISE entries applied to the baseline (CLI or HTTP) side. */
   normaliseCli?: (keyof typeof NORMALISE)[];
   /** Names of NORMALISE entries applied to both sides. */
   normaliseBoth?: (keyof typeof NORMALISE)[];
@@ -67,6 +67,18 @@ export const NORMALISE = {
     drop: ["input", "output", "metadata"],
   },
   "elapsed-ms": { reason: "a query reports how long it took", drop: ["elapsed_ms"] },
+  // MCP lists traces as summaries; get_trace returns one trace's content.
+  "mcp-compact-list": {
+    reason: "list_traces leaves each row's input, output and metadata out",
+    drop: [],
+    dropFromRows: ["input", "output", "metadata_map"],
+  },
+  // Likewise for the traces of one session.
+  "mcp-compact-session": {
+    reason: "get_session leaves each trace's input, output and metadata out",
+    drop: [],
+    dropFromTraces: ["input", "output", "metadata"],
+  },
 } as const;
 
 const window = (s: Seeds) => ({ start_time: s.start, end_time: s.end });
@@ -78,7 +90,7 @@ export const CASES: ParityCase[] = [
     tool: "list_traces",
     args: () => ({ limit: 5 }),
     cli: () => ["traces", "list", "--limit", "5"],
-    normaliseCli: ["cli-list-envelope"],
+    normaliseCli: ["cli-list-envelope", "mcp-compact-list"],
   },
   {
     label: "get_trace",
@@ -105,6 +117,7 @@ export const CASES: ParityCase[] = [
     tool: "get_session",
     args: (s) => (s.sessionId ? { session_id: s.sessionId } : null),
     http: (s) => ({ method: "GET", path: `/sessions/${s.sessionId}` }),
+    normaliseCli: ["mcp-compact-session"],
   },
   {
     label: "list_findings",

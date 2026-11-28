@@ -90,6 +90,7 @@ export function createApp(config: AppConfig): Hono {
       // A credential revoked since its check: the tool call already answered with
       // an error, and the next request gets the 401.
       onUnauthorized: bearer ? () => credentials.markInvalid(bearer) : undefined,
+      userAgent: ctx.requestInfo?.headers.get("user-agent") ?? undefined,
     });
   });
   mcp.all("/mcp", (c) => handler.fetch(c.req.raw));

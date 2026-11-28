@@ -663,6 +663,12 @@ services:
       MCP_GOOGLE_CONNECTED_APPS_TOKENS: ${MCP_GOOGLE_CONNECTED_APPS_TOKENS:-}
       # Longest tool result, in characters; blank keeps the default (80000).
       MCP_MAX_RESULT_CHARS: ${MCP_MAX_RESULT_CHARS:-}
+      # Per-call telemetry spans over OTLP/HTTP protobuf (no arguments, no
+      # results). For a TraceRoot project: http://rest:8000/api/v1/public/traces
+      # with headers "Authorization=Bearer%20tr-...". Blank endpoint: stdout only.
+      MCP_TELEMETRY_OTLP_ENDPOINT: ${MCP_TELEMETRY_OTLP_ENDPOINT:-}
+      MCP_TELEMETRY_OTLP_HEADERS: ${MCP_TELEMETRY_OTLP_HEADERS:-}
+      MCP_TELEMETRY_SERVICE_NAME: ${MCP_TELEMETRY_SERVICE_NAME:-}
       # Where the web app answers inside this network. With OAuth on, the server
       # checks at startup that the web app's issuer is MCP_OAUTH_ISSUER exactly,
       # and exits if not.

@@ -2,7 +2,9 @@
  * Calls each of the 24 exposed tools over MCP and compares the result with a
  * baseline: the pinned `traceroot-cli --json` for 20 tools, a plain HTTP request
  * to the public API for the 4 the CLI does not cover. Exits non-zero on any
- * difference outside the allow-list in parity-cases.ts.
+ * difference outside the allow-list in parity-cases.ts. Only the result text is
+ * compared (structuredContent carries the same object), and the baseline is
+ * passed through the surface's credential redaction first.
  *
  *   pnpm --filter @traceroot/mcp parity --url http://localhost:8200/mcp --key tr-… \
  *     [--host http://localhost:8000] [--only get_trace] [--run-id <evaluation run id>]
@@ -17,8 +19,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
+import { redactCredentials } from "../src/redaction.js";
+import { CASES, NORMALISE, type ParityCase, type Seeds, coverageGaps } from "./parity-cases.js";
 import { EXPOSED_TOOLS } from "../src/exposure.js";
-import { CASES, coverageGaps, NORMALISE, type ParityCase, type Seeds } from "./parity-cases.js";
 
 const run = promisify(execFile);
 const { values } = parseArgs({
@@ -99,8 +102,24 @@ function drop(value: unknown, names: string[]): unknown {
   return Object.fromEntries(Object.entries(value).filter(([name]) => !names.includes(name)));
 }
 
+/** `drop` applied to each row of a result's `key` list (a list result's `data` by default). */
+function dropFromRows(value: unknown, names: string[], key = "data"): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const rows = (value as Record<string, unknown>)[key];
+  if (!Array.isArray(rows)) return value;
+  return { ...value, [key]: rows.map((row) => drop(row, names)) };
+}
+
 function normalise(value: unknown, entries: (keyof typeof NORMALISE)[] = []): unknown {
-  return entries.reduce((acc, name) => drop(acc, [...NORMALISE[name].drop]), value);
+  return entries.reduce((acc, name) => {
+    const entry: {
+      drop: readonly string[];
+      dropFromRows?: readonly string[];
+      dropFromTraces?: readonly string[];
+    } = NORMALISE[name];
+    const rows = dropFromRows(drop(acc, [...entry.drop]), [...(entry.dropFromRows ?? [])]);
+    return dropFromRows(rows, [...(entry.dropFromTraces ?? [])], "traces");
+  }, value);
 }
 
 /** Canonical JSON: keys sorted at every depth. */
@@ -206,7 +225,11 @@ async function check(c: ParityCase, s: Seeds): Promise<Verdict> {
       c.cli ? cli(c.cli(s)) : http(c.http!(s)),
     ]);
     const left = canonical(normalise(fromMcp, c.normaliseBoth));
-    const right = canonical(normalise(normalise(fromBaseline, c.normaliseCli), c.normaliseBoth));
+    // The MCP surface redacts credentials by design (src/redaction.ts); the
+    // baseline goes through the same rule, so that is the only difference allowed.
+    const right = canonical(
+      normalise(normalise(redactCredentials(fromBaseline), c.normaliseCli), c.normaliseBoth),
+    );
     return left === right ? verdict("PASS") : verdict("FAIL", firstDifference(left, right));
   } catch (error) {
     return verdict("FAIL", oneLine(error));
