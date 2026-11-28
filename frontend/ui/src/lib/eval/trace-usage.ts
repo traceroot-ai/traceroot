@@ -18,8 +18,10 @@
  * (backend/worker/ingest_tasks.py): a span under a SCORER (an LLM judge or a hand-rolled
  * scorer that calls a provider directly) is scorer cost; everything else is task cost.
  * There is no third "neither" bucket on either side — an LLM span with no TASK wrapper
- * (e.g. emitted directly under the EVALUATION root) is task cost, not excluded, on both
- * surfaces, so the two numbers rendered side by side on the compare views never disagree.
+ * (e.g. emitted directly under the EVALUATION root) is task cost, not excluded. Only the
+ * split rule is shared: this fold sums every usage-bearing span and has neither the
+ * worker's count-once rule nor its zero-token rule, so its figures can differ from the
+ * stored ones.
  *
  * States: `pending` (no trace yet — it may still be ingesting), `unknown` (a trace with
  * no provider usage anywhere), `present` (real usage found). A real zero is only reported
