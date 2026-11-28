@@ -238,6 +238,8 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
     if (next >= 0 && next < results.length) setOpenResultId(results[next].id);
   };
 
+  const loadError = runLoadError(error);
+
   return (
     <>
       {/* The experiment name rides in the top breadcrumb bar (Workspace / Project /
@@ -255,7 +257,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           </div>
         ) : !data ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2">
-            {runLoadError(error) === "failed" ? (
+            {loadError === "failed" ? (
               <>
                 <p className="text-[13px] text-destructive">Couldn&apos;t load this run</p>
                 <button
@@ -269,7 +271,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             ) : (
               <>
                 <p className="text-[13px] text-destructive">
-                  {runLoadError(error) === "no_access"
+                  {loadError === "no_access"
                     ? "You don't have access to this run"
                     : "Evaluation run not found"}
                 </p>
