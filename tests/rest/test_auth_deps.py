@@ -539,11 +539,40 @@ class TestAuthenticatePublicCaller:
         assert result.user_id == "user-789"
         assert result.ingestion_blocked is True
 
+    @respx.mock
     async def test_non_tr_token_without_project_returns_400(self):
+        """A valid session token without project_id is a 400 pointing at
+        list_projects; the token is checked first, at account scope."""
+        route = respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True, "userId": "user-789"})
+        )
         with pytest.raises(HTTPException) as exc_info:
             await authenticate_public_caller("Bearer sess-token-abc", project_id=None)
         assert exc_info.value.status_code == 400
         assert "list_projects" in exc_info.value.detail
+        # Checked without a project: there is none to check membership of.
+        assert json.loads(route.calls.last.request.content) == {"token": "sess-token-abc"}
+
+    @respx.mock
+    async def test_invalid_token_without_project_returns_401_not_400(self):
+        """An unknown or revoked token is a 401 (sign in again), not a 400
+        telling the caller to pick a project it could never read."""
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(401, json={"valid": False, "error": "Invalid token"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer not-a-real-token", project_id=None)
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_token_check_outage_without_project_returns_503(self):
+        """An introspection outage still fails closed, before the project check."""
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer sess-token", project_id=None)
+        assert exc_info.value.status_code == 503
 
     @respx.mock
     async def test_key_with_matching_project_ok(self):
@@ -616,15 +645,15 @@ class TestAuthenticatePublicCaller:
             await authenticate_public_caller("Bearer ")
         assert exc_info.value.status_code == 401
 
-    async def test_jwt_shaped_token_without_project_returns_400(self):
-        """A JWT-shaped user credential is still a user credential: absent
-        project_id is a 400 pointing at list_projects, returned before any
-        validator (JWKS or user-project-access) is touched — so no respx needed.
+    async def test_malformed_jwt_without_project_returns_401(self):
+        """A JWT-shaped value that does not verify is an invalid credential: 401,
+        not the project_id 400 (refused on its header, before any JWKS fetch).
+        A valid CLI JWT without project_id still gets the 400, in
+        test_cli_jwt_auth.py.
         """
         with pytest.raises(HTTPException) as exc_info:
             await authenticate_public_caller("Bearer a.b.c", project_id=None)
-        assert exc_info.value.status_code == 400
-        assert "list_projects" in exc_info.value.detail
+        assert exc_info.value.status_code == 401
 
     @respx.mock
     async def test_uppercase_prefix_routes_to_key_validator(self):
