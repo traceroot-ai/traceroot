@@ -329,6 +329,8 @@ services:
       MODEL_PROVIDER_TEST_TIMEOUT_MS: ${MODEL_PROVIDER_TEST_TIMEOUT_MS:-10000}
       # --- Encryption ---
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?required, generate with openssl rand -hex 32}
+      # --- Loops (off unless "true") ---
+      LOOPS_ENABLED: ${LOOPS_ENABLED:-false}
       # --- Billing ---
       ENABLE_BILLING: ${ENABLE_BILLING:-true}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}

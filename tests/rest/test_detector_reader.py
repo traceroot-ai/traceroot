@@ -374,6 +374,24 @@ def test_list_detectors_applies_create_time_window(reader, monkeypatch):
         assert "create_time < %s" in sql
 
 
+def test_list_detectors_leaves_out_hidden_loop_detectors(reader, monkeypatch):
+    captured: list[tuple] = []
+
+    def fake_pg(sql, params):
+        captured.append((sql.lower(), params))
+        return [(0,)] if "count(" in sql.lower() else []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+
+    reader.list_detectors(project_id="p1", limit=50)
+
+    # Both the count and the page skip Loop detectors, so the total matches the page.
+    assert len(captured) == 2
+    for sql, params in captured:
+        assert "template <> %s" in sql
+        assert params[:2] == ("p1", "loop")
+
+
 def test_get_detector_reader_service_is_singleton(monkeypatch):
     import rest.services.detector_reader as mod
 
@@ -409,7 +427,8 @@ def test_get_detector_returns_full_config_with_trigger(reader, monkeypatch):
     monkeypatch.setattr(reader, "_pg_rows", fake_pg_rows)
     detail = reader.get_detector("proj-A", "det-1")
 
-    assert captured["params"] == ("proj-A", "det-1")
+    assert captured["params"] == ("proj-A", "det-1", "loop")
+    assert "d.template <> %s" in captured["sql"]
     assert "LEFT JOIN detector_triggers" in captured["sql"]
     assert detail.detector_id == "det-1"
     assert detail.prompt == "Flag traces with elevated error rates"

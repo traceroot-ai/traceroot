@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { pickCanonicalRca } from "./canonical-rca.ts";
+import { LOOP_DETECTOR_TEMPLATE, USER_DETECTOR_WHERE } from "../../loops/keys.ts";
+import { tzOffsetMinutes } from "../../lib/timezone.ts";
 
 type ReadDb = Pick<
   PrismaClient,
@@ -40,12 +42,17 @@ function rcaSummary(rcas: OpeningRow[], reopenSeq: number) {
  * Merged signals are left out.
  */
 export async function listSignals(
-  db: Pick<PrismaClient, "signal" | "signalHit" | "detector">,
+  db: Pick<PrismaClient, "signal" | "signalHit" | "detector" | "loop">,
   params: {
     projectId: string;
     detectorIds?: string[];
     /** Detectors picked by name; a name need not be unique, so every match counts. */
     detectorNames?: string[];
+    /**
+     * Loops picked by name (unique in a project), each standing for its hidden
+     * detector. Resolved per request, so a renamed Loop matches by its new name.
+     */
+    loopNames?: string[];
     statuses?: string[];
     /** Case-insensitive substring of the title. */
     title?: string;
@@ -59,14 +66,33 @@ export async function listSignals(
     limit: number;
   },
 ) {
+  /** The ids picked so far, narrowed to `to`; `to` itself when none were picked. */
+  const narrow = (ids: string[] | undefined, to: string[]) =>
+    ids ? ids.filter((id) => to.includes(id)) : to;
   let detectorIds = params.detectorIds;
   if (params.detectorNames) {
     const named = await db.detector.findMany({
-      where: { projectId: params.projectId, name: { in: params.detectorNames } },
+      where: {
+        projectId: params.projectId,
+        name: { in: params.detectorNames },
+        ...USER_DETECTOR_WHERE,
+      },
       select: { id: true },
     });
-    const ids = named.map((d) => d.id);
-    detectorIds = detectorIds ? detectorIds.filter((id) => ids.includes(id)) : ids;
+    detectorIds = narrow(
+      detectorIds,
+      named.map((d) => d.id),
+    );
+  }
+  if (params.loopNames) {
+    const named = await db.loop.findMany({
+      where: { projectId: params.projectId, name: { in: params.loopNames } },
+      select: { detectorId: true },
+    });
+    detectorIds = narrow(
+      detectorIds,
+      named.map((l) => l.detectorId),
+    );
   }
   const where = {
     projectId: params.projectId,
@@ -107,8 +133,8 @@ export async function listSignals(
     }),
     db.signal.count({ where }),
   ]);
-  const [names, inRange] = await Promise.all([
-    detectorNames(
+  const [sources, inRange] = await Promise.all([
+    signalSources(
       db,
       rows.map((r) => r.detectorId),
     ),
@@ -127,7 +153,7 @@ export async function listSignals(
   return {
     signals: rows.map(({ rcas, ...s }) => ({
       ...s,
-      detectorName: names.get(s.detectorId) ?? null,
+      ...sourceFields(sources, s.detectorId),
       rca: rcaSummary(rcas, s.reopenSeq),
       ...(params.hitsIn ? { rangeHitCount: rangeCounts.get(s.id) ?? 0 } : {}),
     })),
@@ -135,45 +161,57 @@ export async function listSignals(
   };
 }
 
-/** Detector id -> name; signals have no relation to detectors in the schema. */
-async function detectorNames(db: Pick<PrismaClient, "detector">, ids: string[]) {
-  if (ids.length === 0) return new Map<string, string>();
+/**
+ * Where a signal came from. A Loop's hidden detector has no name to show
+ * ("loop:<name>" is internal), so its signals name the Loop instead, or read as
+ * a deleted Loop's once the Loop is gone and its detector is not. A deleted
+ * user detector leaves only its id.
+ */
+export type SignalSource =
+  | { kind: "detector"; id: string; name: string | null }
+  | { kind: "loop"; id: string; name: string; detectorId: string }
+  | { kind: "deletedLoop"; detectorId: string };
+
+/**
+ * Detector id -> the source of its signals, in one read; signals have no
+ * relation to detectors in the schema.
+ */
+export async function signalSources(
+  db: Pick<PrismaClient, "detector">,
+  detectorIds: string[],
+): Promise<Map<string, SignalSource>> {
+  if (detectorIds.length === 0) return new Map();
   const detectors = await db.detector.findMany({
-    where: { id: { in: [...new Set(ids)] } },
-    select: { id: true, name: true },
+    where: { id: { in: [...new Set(detectorIds)] } },
+    select: { id: true, name: true, template: true, loop: { select: { id: true, name: true } } },
   });
-  return new Map(detectors.map((d) => [d.id, d.name]));
+  return new Map(
+    detectors.map((d): [string, SignalSource] => {
+      if (d.template !== LOOP_DETECTOR_TEMPLATE) {
+        return [d.id, { kind: "detector", id: d.id, name: d.name }];
+      }
+      return [
+        d.id,
+        d.loop
+          ? { kind: "loop", id: d.loop.id, name: d.loop.name, detectorId: d.id }
+          : { kind: "deletedLoop", detectorId: d.id },
+      ];
+    }),
+  );
+}
+
+/** A signal's source. A detector that is gone was a user's: a Loop's outlives its Loop. */
+export function sourceOf(sources: Map<string, SignalSource>, detectorId: string): SignalSource {
+  return sources.get(detectorId) ?? { kind: "detector", id: detectorId, name: null };
+}
+
+/** What a signal read carries about its source; `detectorName` names user detectors only. */
+function sourceFields(sources: Map<string, SignalSource>, detectorId: string) {
+  const source = sourceOf(sources, detectorId);
+  return { source, detectorName: source.kind === "detector" ? source.name : null };
 }
 
 export type HitGranularity = "hour" | "day";
-
-/**
- * `tz`'s UTC offset at `date`, in minutes east of UTC (negative west). Computed by
- * reading the zone's wall clock at this instant and comparing it to the instant
- * itself, so a DST change elsewhere in the year has no bearing on the answer.
- */
-function tzOffsetMinutes(date: Date, tz: string): number {
-  const format = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const part = Object.fromEntries(format.formatToParts(date).map((p) => [p.type, p.value]));
-  const asIfUtc = Date.UTC(
-    Number(part.year),
-    Number(part.month) - 1,
-    Number(part.day),
-    Number(part.hour),
-    Number(part.minute),
-    Number(part.second),
-  );
-  return Math.round((asIfUtc - date.getTime()) / 60_000);
-}
 
 /**
  * "+HH:MM" / "-HH:MM" for an offset in minutes. The backend's chart population
@@ -376,7 +414,7 @@ export async function getSignal(
   const canonical = pickCanonicalRca(rcas);
   const window = readWindow(params.from, params.to, params.now);
   const tz = params.tz ?? "UTC";
-  const [hits, events, names, series, analysed] = await Promise.all([
+  const [hits, events, sources, series, analysed] = await Promise.all([
     recentSignalHits(db, {
       signalId: signal.id,
       from: window.from,
@@ -396,7 +434,7 @@ export async function getSignal(
         createTime: true,
       },
     }),
-    detectorNames(db, [signal.detectorId]),
+    signalSources(db, [signal.detectorId]),
     hitSeries(db, signal.id, window, tz, window.granularity),
     // The trace the canonical RCA analysed: the assistant's context when it is reopened.
     canonical
@@ -410,7 +448,7 @@ export async function getSignal(
     merged: false as const,
     signal: {
       ...rest,
-      detectorName: names.get(rest.detectorId) ?? null,
+      ...sourceFields(sources, rest.detectorId),
       rca: rcaSummary(rcas, rest.reopenSeq),
       // The newest opening that kept a successful answer: a later failed or
       // pending attempt on a shared finding does not take it away.
@@ -634,17 +672,19 @@ export async function agentRunCountsByDetector(
 
 /**
  * What the Signals page shows when it has nothing to list: whether the project
- * has any signals, and how far its detectors are set up to produce them.
+ * has any signals, and how far its detectors are set up to produce them. Loops'
+ * hidden detectors are not the user's to set up, so they are not counted.
  */
 export async function signalSetup(
   db: Pick<PrismaClient, "signal" | "detector">,
   projectId: string,
 ) {
-  const signals = { projectId, enableSignals: true };
+  const detectors = { projectId, ...USER_DETECTOR_WHERE };
+  const signals = { ...detectors, enableSignals: true };
   const [signalCount, detectorCount, signalDetectorCount, sampledSignalDetectorCount] =
     await Promise.all([
       db.signal.count({ where: { projectId, mergedIntoId: null } }),
-      db.detector.count({ where: { projectId } }),
+      db.detector.count({ where: detectors }),
       db.detector.count({ where: signals }),
       db.detector.count({ where: { ...signals, enabled: true, sampleRate: { gt: 0 } } }),
     ]);

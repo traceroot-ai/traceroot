@@ -318,6 +318,79 @@ jobs:
           docker compose logs --tail=100 clickhouse postgres redis
 
   # ---------------------------------------------------------------------------
+  # Postgres tests
+  # The *.db.test.ts files run against a migrated Postgres from
+  # docker-compose.yml; without TEST_DATABASE_URL they skip.
+  # ---------------------------------------------------------------------------
+  postgres-tests:
+    name: Postgres Tests
+    runs-on: ubuntu-24.04
+    needs: [lint]
+    timeout-minutes: 15
+    env:
+      # The dev compose file's own defaults; the database exists for this job only.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Start Postgres
+        run: docker compose up -d --wait postgres
+
+      - name: Migrate Postgres
+        run: cd frontend/packages/core && pnpm exec prisma migrate deploy
+
+      # Coverage goes to coverage-postgres/, apart from the unit tests' coverage/.
+      - name: Run core's Postgres tests
+        run: |
+          cd frontend/packages/core
+          pnpm exec prisma generate
+          pnpm exec vitest run .db.test.ts --coverage --coverage.reportsDirectory=./coverage-postgres
+
+      - name: Fix lcov source paths
+        if: always()
+        run: |
+          set -euo pipefail
+          # Repo-root SF: paths, as in frontend-tests. One file per package: the
+          # gate reads them as separate reports, and a line counts as covered
+          # when any report covers it.
+          mkdir -p coverage-postgres
+          for pkg in frontend/packages/core; do
+            lcov_file="$pkg/coverage-postgres/lcov.info"
+            if [ -f "$lcov_file" ]; then
+              sed "s|^SF:|SF:${pkg}/|" "$lcov_file" > "coverage-postgres/$(basename "$pkg").lcov"
+            else
+              echo "::warning::No Postgres test coverage for $pkg."
+            fi
+          done
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-postgres
+          path: coverage-postgres/*.lcov
+          if-no-files-found: warn
+
+      - name: Postgres logs
+        if: failure()
+        run: docker compose logs --tail=100 postgres
+
+  # ---------------------------------------------------------------------------
   # Coverage summary
   # ---------------------------------------------------------------------------
   coverage:
@@ -351,14 +424,15 @@ jobs:
   # ---------------------------------------------------------------------------
   # Enforces coverage on *changed lines only* (not whole-project), so the gate
   # ratchets quality forward on new code without requiring a backfill. Reuses
-  # the coverage-backend.xml (Cobertura) already produced by backend-tests and
-  # the coverage-frontend.lcov (lcov) produced by frontend-tests -- diff-cover
-  # reads both formats natively.
+  # the coverage-backend.xml (Cobertura) already produced by backend-tests, the
+  # coverage-frontend.lcov (lcov) produced by frontend-tests and the
+  # coverage-postgres/*.lcov produced by postgres-tests -- diff-cover reads
+  # both formats natively.
   # Pattern adapted from the OpenHuman project's CI (tinyhumansai/openhuman).
   coverage-gate:
     name: Coverage Gate (diff-cover >= 80%)
     runs-on: ubuntu-24.04
-    needs: [backend-tests, frontend-tests]
+    needs: [backend-tests, frontend-tests, postgres-tests]
     # Intentionally PR-only: diff-coverage compares changed lines against the PR
     # base branch, and the gate already runs before a PR can enter the merge
     # queue. On merge_group events github.base_ref is empty, so the compare-ref
@@ -394,6 +468,15 @@ jobs:
         with:
           name: coverage-frontend
 
+      # The Postgres tests' coverage only adds covered lines, so when that job
+      # uploaded none the gate runs without it: stricter, never laxer.
+      - name: Download Postgres test coverage
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-postgres
+          path: coverage-postgres
+
       - name: Enforce >= 80% backend coverage on changed lines
         run: |
           set -euo pipefail
@@ -406,7 +489,9 @@ jobs:
         if: success() || failure()
         run: |
           set -euo pipefail
-          diff-cover coverage-frontend.lcov \
+          shopt -s nullglob
+          # Several reports: a line counts as covered when any of them covers it.
+          diff-cover coverage-frontend.lcov coverage-postgres/*.lcov \
             --compare-branch="origin/${{ github.base_ref }}" \
             --exclude "**/*vitest.config.ts" \
             --exclude "**/next.config.js" \
