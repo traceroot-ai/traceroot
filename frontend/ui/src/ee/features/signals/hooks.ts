@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SignalStatus } from "@traceroot/core/signals";
+import type { SignalSource, SignalStatus } from "@traceroot/core/signals";
 import { ApiError } from "@/lib/api/client";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import type { Predicate, TraceListItem } from "@/types/api";
@@ -12,7 +12,10 @@ import { parseAsUTC } from "@/lib/utils";
 export interface SignalListItem {
   id: string;
   detectorId: string;
+  /** Null for a Loop's signal (its detector is hidden) or a deleted detector. */
   detectorName: string | null;
+  /** A user detector, or the Loop (still there or deleted) whose runs cited the hits as examples. */
+  source: SignalSource;
   title: string;
   status: SignalStatus;
   hitCount: number;
@@ -76,7 +79,8 @@ export interface SignalDetail {
   window: { from: string; to: string; granularity: "hour" | "day" };
   /**
    * Per local hour or day of the window: the signal's traces, and the other
-   * traces its detector checked (null when that count could not be read).
+   * traces its detector checked (null when that count could not be read, and
+   * always for a Loop's signal, whose detector checks no traces).
    */
   hitSeries: { bucket: string; hits: number; unaffected: number | null }[];
   /** Newest first. */

@@ -14,7 +14,7 @@ const { db, listSignalsMock, verifyMock } = vi.hoisted(() => ({
   db: {
     signal: { findFirst: vi.fn() },
     signalHit: { findMany: vi.fn() },
-    detector: { findFirst: vi.fn() },
+    detector: { findMany: vi.fn() },
     project: { findUnique: vi.fn() },
   },
   listSignalsMock: vi.fn(),
@@ -61,6 +61,7 @@ beforeEach(() => {
   verifyMock.mockReturnValue(true);
   db.project.findUnique.mockResolvedValue({ workspace: { billingPlan: "free" } });
   db.signalHit.findMany.mockResolvedValue([]);
+  db.detector.findMany.mockResolvedValue([]);
 });
 
 describe("POST /api/internal/project-signals", () => {
@@ -115,6 +116,7 @@ describe("POST /api/internal/project-signals", () => {
           criteriaVersion: 1,
           groupKey: null,
           rca: { currentState: "done", canonicalFindingId: "f1" },
+          source: { kind: "detector", id: "det-1", name: "Tool failures" },
         },
       ],
     });
@@ -134,6 +136,7 @@ describe("POST /api/internal/project-signals", () => {
           id: "sig-1",
           detectorId: "det-1",
           detectorName: "Tool failures",
+          source: { kind: "detector", id: "det-1", name: "Tool failures" },
           title: "Invokes a tool with an invalid date input",
           status: "open",
           hitCount: 4,
@@ -166,13 +169,15 @@ describe("POST /api/internal/project-signals", () => {
         { reopenSeq: 1, rca: { status: "queued" } },
       ],
     });
-    db.detector.findFirst.mockResolvedValue(null);
+    db.detector.findMany.mockResolvedValue([]);
     const res = await handleInternalSignalRead(request({ projectId: "p1", signalId: "sig-1" }));
     expect(db.signal.findFirst.mock.calls[0][0].where).toEqual({ id: "sig-1", projectId: "p1" });
     expect(res.status).toBe(200);
     expect((await res.json()).signal).toMatchObject({
       id: "sig-1",
       detectorName: null,
+      // Its detector was deleted: only the id is left.
+      source: { kind: "detector", id: "det-1", name: null },
       status: "resolved",
       resolvedAt: T0.toISOString(),
       mergedIntoId: "sig-2",
@@ -185,7 +190,9 @@ describe("POST /api/internal/project-signals", () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(T0);
       db.signal.findFirst.mockResolvedValue(SIGNAL_ROW);
-      db.detector.findFirst.mockResolvedValue({ name: "Tool failures" });
+      db.detector.findMany.mockResolvedValue([
+        { id: "det-1", name: "Tool failures", template: null },
+      ]);
     });
     afterEach(() => vi.useRealTimers());
 
@@ -248,6 +255,65 @@ describe("POST /api/internal/project-signals", () => {
         });
       },
     );
+  });
+
+  it("names a Loop's signal by its Loop, never its hidden detector", async () => {
+    db.signal.findFirst.mockResolvedValue({
+      id: "sig-1",
+      detectorId: "det-loop",
+      title: "t",
+      status: "open",
+      hitCount: 2,
+      reopenSeq: 0,
+      firstSeenAt: T0,
+      lastSeenAt: T0,
+      createTime: T0,
+      resolvedAt: null,
+      mergedIntoId: null,
+      rcas: [],
+    });
+    db.detector.findMany.mockResolvedValue([
+      {
+        id: "det-loop",
+        name: "loop:Checkout watch",
+        template: "loop",
+        loop: { id: "loop-1", name: "Checkout watch" },
+      },
+    ]);
+    const res = await handleInternalSignalRead(request({ projectId: "p1", signalId: "sig-1" }));
+    const { signal } = await res.json();
+    expect(signal).toMatchObject({
+      detectorId: "det-loop",
+      detectorName: null,
+      source: { kind: "loop", id: "loop-1", name: "Checkout watch", detectorId: "det-loop" },
+    });
+    expect(JSON.stringify(signal)).not.toContain("loop:");
+  });
+
+  it("marks a signal whose Loop was deleted, as the list does", async () => {
+    db.signal.findFirst.mockResolvedValue({
+      id: "sig-1",
+      detectorId: "det-gone",
+      title: "t",
+      status: "open",
+      hitCount: 2,
+      reopenSeq: 0,
+      firstSeenAt: T0,
+      lastSeenAt: T0,
+      createTime: T0,
+      resolvedAt: null,
+      mergedIntoId: null,
+      rcas: [],
+    });
+    // The Loop is gone; its hidden detector is kept.
+    db.detector.findMany.mockResolvedValue([
+      { id: "det-gone", name: "loop:deleted:det-gone", template: "loop", loop: null },
+    ]);
+    const res = await handleInternalSignalRead(request({ projectId: "p1", signalId: "sig-1" }));
+    expect((await res.json()).signal).toMatchObject({
+      detectorName: null,
+      source: { kind: "deletedLoop", detectorId: "det-gone" },
+    });
   });
 
   it("answers 404 for a signal outside the project", async () => {

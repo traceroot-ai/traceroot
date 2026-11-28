@@ -279,6 +279,37 @@ describe("reads", () => {
     );
   });
 
+  it("narrows by the Loop chip's names, with the other chips", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        { field: "loop", op: "in", value: ["Coding agents", "Checkout watch"] },
+        { field: "status", op: "in", value: ["open"] },
+      ]),
+    );
+    const res = await handleListSignals(
+      req(undefined, `?filters=${filters}`),
+      params({ projectId: "p1" }),
+    );
+    expect(res.status).toBe(200);
+    expect(core.listSignals).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        loopNames: ["Coding agents", "Checkout watch"],
+        statuses: ["open"],
+      }),
+    );
+    core.listSignals.mockClear();
+    const empty = encodeURIComponent(JSON.stringify([{ field: "loop", op: "in", value: [] }]));
+    await handleListSignals(req(undefined, `?filters=${empty}`), params({ projectId: "p1" }));
+    expect(core.listSignals.mock.calls[0][1].loopNames).toBeUndefined();
+    const bad = encodeURIComponent(JSON.stringify([{ field: "loop", op: "eq", value: "x" }]));
+    expect(
+      (await handleListSignals(req(undefined, `?filters=${bad}`), params({ projectId: "p1" })))
+        .status,
+    ).toBe(400);
+  });
+
   it("counts each listed signal's hits in the page's window, and rejects a bad window", async () => {
     core.listSignals.mockResolvedValue({ signals: [], total: 0 });
     await handleListSignals(
@@ -331,7 +362,7 @@ describe("reads", () => {
     };
     core.getSignal.mockResolvedValueOnce({
       merged: false,
-      signal: { id: "s1", detectorId: "d1" },
+      signal: { id: "s1", detectorId: "d1", source: { kind: "detector", id: "d1", name: "D" } },
       window,
       hitSeries: [
         { bucket: "2026-09-29T08:00", hits: 2 },
@@ -394,7 +425,7 @@ describe("reads", () => {
     // same way for the SAME ambiguous hour.
     core.getSignal.mockResolvedValueOnce({
       merged: false,
-      signal: { id: "s1", detectorId: "d1" },
+      signal: { id: "s1", detectorId: "d1", source: { kind: "detector", id: "d1", name: "D" } },
       window: {
         from: new Date("2026-11-01T05:00:00.000Z"),
         to: new Date("2026-11-01T07:00:00.000Z"),
@@ -429,11 +460,47 @@ describe("reads", () => {
     });
   });
 
+  it("reads no trace counts for a Loop's signal: its hits are only the examples a run cited", async () => {
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: {
+        id: "s1",
+        detectorId: "d-loop",
+        source: { kind: "loop", id: "l1", name: "Checkout watch", detectorId: "d-loop" },
+      },
+      window: { from: new Date(0), to: new Date(86_400_000 * 7), granularity: "day" },
+      hitSeries: [{ bucket: "2026-09-30", hits: 3 }],
+    });
+    const res = await handleGetSignal(req(), signalParams);
+    expect(await res.json()).toMatchObject({
+      hitSeries: [{ bucket: "2026-09-30", hits: 3, unaffected: null }],
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("reads no trace counts for a deleted loop's signal either", async () => {
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: {
+        id: "s1",
+        detectorId: "d-gone",
+        source: { kind: "deletedLoop", detectorId: "d-gone" },
+      },
+      window: { from: new Date(0), to: new Date(86_400_000 * 7), granularity: "day" },
+      hitSeries: [{ bucket: "2026-09-30", hits: 2 }],
+    });
+    const res = await handleGetSignal(req(), signalParams);
+    expect(await res.json()).toMatchObject({
+      hitSeries: [{ bucket: "2026-09-30", hits: 2, unaffected: null }],
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("still returns the signal's own traces per bucket when the backend is down", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     core.getSignal.mockResolvedValueOnce({
       merged: false,
-      signal: { id: "s1", detectorId: "d1" },
+      signal: { id: "s1", detectorId: "d1", source: { kind: "detector", id: "d1", name: "D" } },
       window: { from: new Date(0), to: new Date(86_400_000 * 7), granularity: "day" },
       hitSeries: [{ bucket: "2026-09-30", hits: 3 }],
     });

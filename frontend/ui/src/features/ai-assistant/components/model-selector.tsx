@@ -36,6 +36,15 @@ interface ModelSelectorProps {
   field?: boolean;
 }
 
+/** The workspace's model list; the pickers and the Loop model defaults share this cache. */
+export function useAvailableLLMModels(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["llm-models", workspaceId],
+    queryFn: () => getAvailableLLMModels(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
@@ -51,11 +60,7 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
-  const { data, isPending } = useQuery({
-    queryKey: ["llm-models", workspaceId],
-    queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: !!workspaceId,
-  });
+  const { data, isPending } = useAvailableLLMModels(workspaceId);
 
   // BYOK models first, then system models. No deduplication. Only shows the
   // compiled-in fallback list while the query is still pending — once settled,

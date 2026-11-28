@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+  ReactNode,
+} from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
@@ -35,6 +43,10 @@ interface LayoutContextType {
   // an existing session; clear when opening a fresh chat.
   aiInitialSessionId: string | undefined;
   setAiInitialSessionId: (sessionId: string | undefined) => void;
+  // Open the rail on an existing chat session, with no trace context. Unlike
+  // setting the three fields above, it survives the reset that closes the rail
+  // on navigation, so a page can open a session from its first effects.
+  openAiSession: (sessionId: string) => void;
   hideAiButton: boolean;
   setHideAiButton: (hide: boolean) => void;
   // Hosts (TraceViewerPanel / SessionDetailPanel) claim ownership of the AI
@@ -58,6 +70,7 @@ const LayoutContext = createContext<LayoutContextType>({
   setAiContext: () => {},
   aiInitialSessionId: undefined,
   setAiInitialSessionId: () => {},
+  openAiSession: () => {},
   hideAiButton: false,
   setHideAiButton: () => {},
   viewerOwnsAiSlot: false,
@@ -94,14 +107,30 @@ export function AppLayout({
   const [hideAiButton, setHideAiButton] = useState(true);
   const [aiHostRefCount, setAiHostRefCount] = useState(0);
   const pathname = usePathname();
+  // The path a session was opened on by openAiSession, until the next navigation reset.
+  const sessionOpenedOn = useRef<string | null>(null);
 
-  // Close the global AI panel whenever the user navigates.
+  const openAiSession = useCallback(
+    (sessionId: string) => {
+      sessionOpenedOn.current = pathname;
+      setAiContext(null);
+      setAiInitialSessionId(sessionId);
+      setAiPanelOpen(true);
+    },
+    [pathname],
+  );
+
+  // Close the global AI panel whenever the user navigates. A parent effect runs
+  // after the new page's own, so a session that page just opened is kept.
   // NOTE: do NOT reset hideAiButton here. Observability pages own that flag.
   useEffect(() => {
+    setMobileNavOpen(false);
+    const openedHere = sessionOpenedOn.current === pathname;
+    sessionOpenedOn.current = null;
+    if (openedHere) return;
     setAiPanelOpen(false);
     setAiContext(null);
     setAiInitialSessionId(undefined);
-    setMobileNavOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -160,6 +189,7 @@ export function AppLayout({
         setAiContext,
         aiInitialSessionId,
         setAiInitialSessionId,
+        openAiSession,
         hideAiButton,
         setHideAiButton,
         viewerOwnsAiSlot,

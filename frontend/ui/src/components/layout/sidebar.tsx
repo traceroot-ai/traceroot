@@ -19,7 +19,8 @@ import {
   LogOut,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { NAV_GROUPS, NAV_HOME, isNavItemActive, navHref, type NavItem } from "./nav-items";
+import { useLayout } from "./app-layout";
+import { NAV_HOME, isNavItemActive, navHref, visibleNavGroups, type NavItem } from "./nav-items";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
@@ -88,6 +89,7 @@ function NavLink({
 }
 
 export function Sidebar({ collapsed = false }: SidebarProps) {
+  const { loopsEnabled } = useLayout();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const pathname = usePathname();
   const { data: sessionData } = authClient.useSession();
@@ -158,7 +160,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 pathname={pathname}
                 collapsed={collapsed}
               />
-              {NAV_GROUPS.map((group) => (
+              {visibleNavGroups(loopsEnabled).map((group) => (
                 <div key={group.label} role="group" aria-label={group.label}>
                   {collapsed ? (
                     <div className="mx-3 mt-2 border-t border-border" aria-hidden />

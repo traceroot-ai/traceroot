@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { cn, formatDate } from "@/lib/utils";
 import type { BackendRun } from "@/features/detectors/hooks/use-findings";
-import { DETECTOR_TH, DETECTOR_TD, IdentifiedBadge, SummaryText } from "./detector-table-cells";
+import {
+  DETECTOR_TH,
+  DETECTOR_TD,
+  EmptyIdCell,
+  IdCell,
+  IdentifiedBadge,
+  SummaryText,
+} from "./detector-table-cells";
 
 interface DetectorRunsTableProps {
   rows: BackendRun[];
@@ -15,45 +22,6 @@ interface DetectorRunsTableProps {
   onAgentRunClick: (run: BackendRun) => void;
   /** Where a Signal ID cell links: the Signals page with that signal open. */
   signalHref: (signalId: string) => string;
-}
-
-/**
- * One id column's cell. The id itself is the only click target: the inner
- * button opens that id's destination, and the cell's padding, like the rest of
- * the row, does nothing (team UX decision — a link looks like a link, and
- * nothing else in the table reacts to a click).
- *
- * `onOpen` undefined means this id has nothing to open (a run with no
- * self-trace): the cell renders as plain text.
- */
-function IdCell({ id, title, onOpen }: { id: string; title: string; onOpen?: () => void }) {
-  return (
-    <td className={cn(DETECTOR_TD, "max-w-[9rem] truncate text-muted-foreground")}>
-      {onOpen ? (
-        <button
-          type="button"
-          title={title}
-          onClick={onOpen}
-          className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
-        >
-          {id}
-        </button>
-      ) : (
-        <span title={title} className="block max-w-full truncate text-muted-foreground">
-          {id}
-        </span>
-      )}
-    </td>
-  );
-}
-
-/** A muted dash for an id cell with nothing to show. */
-function EmptyIdCell() {
-  return (
-    <td className={cn(DETECTOR_TD, "max-w-[9rem] truncate text-muted-foreground")}>
-      <span className="text-muted-foreground">—</span>
-    </td>
-  );
 }
 
 /**

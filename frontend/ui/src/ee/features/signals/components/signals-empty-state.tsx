@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { buttonVariants } from "@/components/ui/button";
+import { useLayout } from "@/components/layout/app-layout";
 import { cn } from "@/lib/utils";
 import type { SignalSetup } from "../hooks";
 
@@ -11,6 +12,7 @@ import type { SignalSetup } from "../hooks";
  * step its detectors need before a signal can appear.
  */
 export function SignalsEmptyState({ projectId, setup }: { projectId: string; setup: SignalSetup }) {
+  const { loopsEnabled } = useLayout();
   const needsDetector = setup.detectorCount === 0;
   const needsSignals = !needsDetector && setup.signalDetectorCount === 0;
   const needsSampling = setup.signalDetectorCount > 0 && setup.sampledSignalDetectorCount === 0;
@@ -49,6 +51,14 @@ export function SignalsEmptyState({ projectId, setup }: { projectId: string; set
             ? "Configure detectors"
             : "View detectors"}
       </Link>
+      {loopsEnabled && (
+        <Link
+          href={`/projects/${projectId}/loops`}
+          className="text-[12px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Or start a loop
+        </Link>
+      )}
     </div>
   );
 }

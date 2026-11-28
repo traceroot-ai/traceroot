@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PlanType } from "@traceroot/core";
-import { RCA_RUN_QUOTAS, formatRcaQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
+import { RCA_RUN_QUOTAS, formatQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
 
 describe("RCA_RUN_QUOTAS", () => {
   it("matches the Phase 2 spec — 30 / 100 / 100 / unlimited", () => {
@@ -18,16 +18,14 @@ describe("RCA_RUN_QUOTAS", () => {
   });
 });
 
-describe("formatRcaQuotaLabel", () => {
+describe("formatQuotaLabel", () => {
   it("renders quota for finite plans", () => {
-    expect(formatRcaQuotaLabel({ included: 100, overageLabel: "x" }, 7)).toBe("7 / 100");
-    expect(formatRcaQuotaLabel({ included: 30, overageLabel: "x" }, 0)).toBe("0 / 30");
+    expect(formatQuotaLabel({ included: 100, overageLabel: "x" }, 7)).toBe("7 / 100");
+    expect(formatQuotaLabel({ included: 30, overageLabel: "x" }, 0)).toBe("0 / 30");
   });
 
   it("renders Unlimited for enterprise plans", () => {
-    expect(formatRcaQuotaLabel({ included: Infinity, overageLabel: "x" }, 42)).toBe(
-      "42 (Unlimited)",
-    );
+    expect(formatQuotaLabel({ included: Infinity, overageLabel: "x" }, 42)).toBe("42 (Unlimited)");
   });
 });
 
