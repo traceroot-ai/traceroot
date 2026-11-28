@@ -161,6 +161,16 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
   };
 }
 
+type RunLoadError = "not_found" | "no_access" | "failed";
+
+/** Classify a failed run fetch from the status in the error message ("Request failed: <status>"). */
+function runLoadError(error: unknown): RunLoadError {
+  const message = error instanceof Error ? error.message : "";
+  if (/\b404\b/.test(message)) return "not_found";
+  if (/\b(401|403)\b/.test(message)) return "no_access";
+  return "failed";
+}
+
 /**
  * Evaluation run detail — a plain, trace-list-style surface: the experiment name
  * rides in the breadcrumb, then a searchable table of the run's per-case results
@@ -173,7 +183,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
  * reconstructed eval-shaped trace built from the result + its scores.
  */
 export function RunDetailView({ projectId, runId }: { projectId: string; runId: string }) {
-  const { data, isLoading, error } = useEvaluationRun(projectId, runId);
+  const { data, isLoading, error, refetch } = useEvaluationRun(projectId, runId);
   const runsListHref = useListReturnHref(
     `evaluations:${projectId}`,
     `/projects/${projectId}/evaluations`,
@@ -183,8 +193,13 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
   const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
 
-  const results = React.useMemo(() => data?.results ?? [], [data]);
-  const run = data?.run;
+  const loadError = runLoadError(error);
+  // A refused request (404/401/403) replaces the cached run; only a temporary
+  // failure keeps the last good data on screen.
+  const showData = !!data && loadError !== "not_found" && loadError !== "no_access";
+
+  const results = React.useMemo(() => (showData ? (data?.results ?? []) : []), [data, showData]);
+  const run = showData ? data?.run : undefined;
 
   const openResult = openResultId ? (results.find((r) => r.id === openResultId) ?? null) : null;
 
@@ -236,19 +251,38 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
       <PageBackHeader
         backHref={runsListHref}
         backLabel="Evaluations"
-        title={data?.run.evaluationName ?? "Run"}
+        title={run?.evaluationName ?? "Run"}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
             <p className="text-[13px] text-muted-foreground">Loading run...</p>
           </div>
-        ) : error || !data ? (
+        ) : !showData ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2">
-            <p className="text-[13px] text-destructive">Evaluation run not found</p>
-            <Link href={runsListHref} className="text-[12px] text-muted-foreground underline">
-              Back to evaluations
-            </Link>
+            {loadError === "failed" ? (
+              <>
+                <p className="text-[13px] text-destructive">Couldn&apos;t load this run</p>
+                <button
+                  type="button"
+                  onClick={() => refetch()}
+                  className="text-[12px] text-muted-foreground underline"
+                >
+                  Try again
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-[13px] text-destructive">
+                  {loadError === "no_access"
+                    ? "You don't have access to this run"
+                    : "Evaluation run not found"}
+                </p>
+                <Link href={runsListHref} className="text-[12px] text-muted-foreground underline">
+                  Back to evaluations
+                </Link>
+              </>
+            )}
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
