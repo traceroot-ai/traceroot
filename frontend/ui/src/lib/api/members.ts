@@ -9,13 +9,6 @@ export async function getMembers(workspaceId: string): Promise<Member[]> {
   return response.members;
 }
 
-export async function addMember(workspaceId: string, userId: string, role: Role): Promise<Member> {
-  return fetchNextApi<Member>(`/workspaces/${workspaceId}/members`, {
-    method: "POST",
-    body: JSON.stringify({ userId, role }),
-  });
-}
-
 export async function updateMemberRole(
   workspaceId: string,
   userId: string,

@@ -15,9 +15,11 @@ const m = vi.hoisted(() => ({
   invite: null as Record<string, unknown> | null,
   member: null as Record<string, unknown> | null,
   transaction: vi.fn(),
-  memberCreate: vi.fn((args: unknown) => ({ create: args })),
+  lock: vi.fn(),
+  memberCreate: vi.fn(),
   inviteDelete: vi.fn((args: unknown) => ({ delete: args })),
   notify: vi.fn(),
+  changed: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-helpers", async () => {
@@ -45,6 +47,7 @@ vi.mock("@traceroot/core", () => ({
 
 // The membership event for the lead service (lib/signup/membership-webhook.ts).
 vi.mock("@/lib/signup/membership-webhook", () => ({ notifyWorkspaceMember: m.notify }));
+vi.mock("@/lib/membership-notifications", () => ({ notifyMembershipChange: m.changed }));
 
 import { POST } from "./route";
 
@@ -61,13 +64,27 @@ beforeEach(() => {
     email: "kai@acme.test",
     role: "MEMBER",
     workspaceId: "w1",
-    workspace: { id: "w1", name: "Acme", billingPlan: "free", _count: { members: 1 } },
+    workspace: { id: "w1", name: "Acme", billingPlan: "free", _count: { members: 1, invites: 1 } },
   };
   m.member = null;
-  m.transaction.mockReset().mockResolvedValue([]);
+  m.lock.mockReset().mockResolvedValue([]);
+  m.transaction.mockReset().mockImplementation(async (run) =>
+    run({
+      $queryRaw: m.lock,
+      invite: {
+        findUnique: async () => m.invite,
+        delete: m.inviteDelete,
+        deleteMany: m.inviteDelete,
+      },
+      workspace: { findUniqueOrThrow: async () => m.invite!.workspace },
+      workspaceMember: { findUnique: async () => m.member, create: m.memberCreate },
+    }),
+  );
+  m.memberCreate.mockResolvedValue({ id: "membership-1", role: "MEMBER" });
   m.memberCreate.mockClear();
   m.inviteDelete.mockClear();
   m.notify.mockReset();
+  m.changed.mockReset().mockResolvedValue(undefined);
 });
 
 describe("POST /api/invites/[inviteId]/accept", () => {
@@ -81,10 +98,15 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     });
     // The invite is used up in the same transaction as the membership.
     expect(m.inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
-    expect(m.transaction).toHaveBeenCalledWith([
-      m.memberCreate.mock.results[0].value,
-      m.inviteDelete.mock.results[0].value,
-    ]);
+    expect(m.lock).toHaveBeenCalledTimes(1);
+    expect(m.changed).toHaveBeenCalledWith({
+      actorUserId: "u1",
+      workspaceId: "w1",
+      membershipId: "membership-1",
+      userId: "u1",
+      role: "MEMBER",
+      operation: "joined",
+    });
     // Reported once the membership is committed, for that workspace.
     expect(m.notify).toHaveBeenCalledExactlyOnceWith({
       userId: "u1",
@@ -108,7 +130,7 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     const response = await accept();
     expect(response.status).toBe(403);
     expect((await response.json()).error).toMatch(/verify your email address/i);
-    expect(m.transaction).not.toHaveBeenCalled();
+    expect(m.memberCreate).not.toHaveBeenCalled();
     expect(m.inviteDelete).not.toHaveBeenCalled();
   });
 
@@ -118,13 +140,13 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     const response = await accept();
     expect(response.status).toBe(403);
     expect((await response.json()).error).toBe("This invite is not for your email address");
-    expect(m.transaction).not.toHaveBeenCalled();
+    expect(m.memberCreate).not.toHaveBeenCalled();
   });
 
   it("refuses a missing account record", async () => {
     m.account = null;
     expect((await accept()).status).toBe(403);
-    expect(m.transaction).not.toHaveBeenCalled();
+    expect(m.memberCreate).not.toHaveBeenCalled();
   });
 
   it("asks a visitor to sign in, and says when the invite is gone", async () => {
@@ -133,7 +155,7 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     m.user = { id: "u1", email: "kai@acme.test" };
     m.invite = null;
     expect((await accept()).status).toBe(404);
-    expect(m.transaction).not.toHaveBeenCalled();
+    expect(m.memberCreate).not.toHaveBeenCalled();
   });
 
   it("keeps the existing member and seat rules", async () => {
@@ -142,10 +164,15 @@ describe("POST /api/invites/[inviteId]/accept", () => {
     m.member = null;
     m.invite = {
       ...m.invite!,
-      workspace: { id: "w1", name: "Acme", billingPlan: "free", _count: { members: 3 } },
+      workspace: {
+        id: "w1",
+        name: "Acme",
+        billingPlan: "free",
+        _count: { members: 3, invites: 1 },
+      },
     };
     expect((await accept()).status).toBe(403);
-    expect(m.transaction).not.toHaveBeenCalled();
+    expect(m.memberCreate).not.toHaveBeenCalled();
   });
 
   it("reports nothing when the membership is not committed", async () => {
@@ -163,12 +190,71 @@ describe("POST /api/invites/[inviteId]/accept", () => {
       () =>
         (m.invite = {
           ...m.invite!,
-          workspace: { id: "w1", name: "Acme", billingPlan: "free", _count: { members: 3 } },
+          workspace: {
+            id: "w1",
+            name: "Acme",
+            billingPlan: "free",
+            _count: { members: 3, invites: 1 },
+          },
         }),
     ],
   ])("reports nothing for %s", async (_case, arrange) => {
     arrange();
     expect((await accept()).status).toBeGreaterThanOrEqual(400);
     expect(m.notify).not.toHaveBeenCalled();
+  });
+  it("converts a reserved invite without charging another seat", async () => {
+    m.invite = {
+      ...m.invite!,
+      workspace: {
+        id: "w1",
+        name: "Acme",
+        billingPlan: "free",
+        _count: { members: 2, invites: 1 },
+      },
+    };
+    expect((await accept()).status).toBe(200);
+    expect(m.memberCreate).toHaveBeenCalledTimes(1);
+    expect(m.inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
+  });
+
+  it("includes other pending invitations when rechecking a downgraded plan", async () => {
+    m.invite = {
+      ...m.invite!,
+      workspace: {
+        id: "w1",
+        name: "Acme",
+        billingPlan: "free",
+        _count: { members: 1, invites: 3 },
+      },
+    };
+    expect((await accept()).status).toBe(403);
+    expect(m.memberCreate).not.toHaveBeenCalled();
+    expect(m.inviteDelete).not.toHaveBeenCalled();
+    expect(m.changed).not.toHaveBeenCalled();
+  });
+
+  it("rechecks that the invitation still exists after acquiring the lock", async () => {
+    m.lock.mockImplementation(async () => {
+      m.invite = null;
+      return [];
+    });
+    expect((await accept()).status).toBe(404);
+    expect(m.memberCreate).not.toHaveBeenCalled();
+    expect(m.changed).not.toHaveBeenCalled();
+  });
+
+  it("ignores a supplied identity or role, using the accepting account and stored invite", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/invites/inv1/accept", {
+        method: "POST",
+        body: JSON.stringify({ userId: "victim", role: "ADMIN" }),
+      }),
+      { params: Promise.resolve({ inviteId: "inv1" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(m.memberCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: "u1", role: "MEMBER" }),
+    });
   });
 });

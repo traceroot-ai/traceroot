@@ -9,6 +9,9 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 
+import { notifyMembershipChange } from "@/lib/membership-notifications";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+
 const updateRoleSchema = z.object({
   role: RoleSchema,
 });
@@ -25,7 +28,6 @@ async function handlePUT(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
-  const { membership: callerMembership } = membershipResult;
 
   let body: unknown;
   try {
@@ -69,18 +71,38 @@ async function handlePUT(request: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const updated = await prisma.workspaceMember.update({
-    where: { id: targetMembership.id },
-    data: {
-      role: newRole,
-      updateTime: new Date(),
-    },
-    include: {
-      user: {
-        select: { id: true, email: true, name: true },
+  let updated;
+  try {
+    updated = await prisma.workspaceMember.update({
+      where: { id: targetMembership.id, role: targetMembership.role },
+      data: {
+        role: newRole,
+        updateTime: new Date(),
       },
-    },
-  });
+      include: {
+        user: {
+          select: { id: true, email: true, name: true },
+        },
+      },
+    });
+  } catch (error) {
+    if (isPrismaKnownError(error, "P2025")) {
+      return errorResponse("Membership changed. Refresh and try again.", 409);
+    }
+    throw error;
+  }
+
+  if (targetMembership.role !== newRole) {
+    await notifyMembershipChange({
+      actorUserId: user.id,
+      workspaceId,
+      membershipId: updated.id,
+      userId: targetUserId,
+      role: newRole,
+      previousRole: targetMembership.role,
+      operation: "role_changed",
+    });
+  }
 
   return successResponse({
     id: updated.id,
@@ -102,7 +124,6 @@ async function handleDELETE(request: NextRequest, { params }: RouteParams) {
 
   const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
-  const { membership: callerMembership } = membershipResult;
 
   // Get target membership
   const targetMembership = await prisma.workspaceMember.findUnique({
@@ -132,8 +153,17 @@ async function handleDELETE(request: NextRequest, { params }: RouteParams) {
     }
   }
 
-  await prisma.workspaceMember.delete({
+  const removed = await prisma.workspaceMember.delete({
     where: { id: targetMembership.id },
+  });
+
+  await notifyMembershipChange({
+    actorUserId: user.id,
+    workspaceId,
+    membershipId: targetMembership.id,
+    userId: targetUserId,
+    role: removed.role,
+    operation: "removed",
   });
 
   return NextResponse.json({ deleted: true }, { status: 200 });

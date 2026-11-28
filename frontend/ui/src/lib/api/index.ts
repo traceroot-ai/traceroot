@@ -33,7 +33,7 @@ export {
 export type { ProjectNextSteps } from "./projects";
 
 // Member APIs
-export { getMembers, addMember, updateMemberRole, removeMember } from "./members";
+export { getMembers, updateMemberRole, removeMember } from "./members";
 
 // Invite APIs
 export { getInvites, createInvite, cancelInvite, acceptInvite } from "./invites";

@@ -8,6 +8,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { sendInviteEmail } from "@/lib/email";
 
 const createInviteSchema = z.object({
@@ -81,88 +82,106 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { email, role } = result.data;
   const normalizedEmail = email.toLowerCase();
 
-  // Check if user is already a member
-  const existingUser = await prisma.user.findUnique({
-    where: { email: normalizedEmail },
-  });
+  let outcome;
+  try {
+    outcome = await prisma.$transaction(async (tx) => {
+      // Serialize seat reservations and invite acceptance for this workspace.
+      await tx.$queryRaw`SELECT id FROM workspaces WHERE id = ${workspaceId} FOR UPDATE`;
+      // Check if user is already a member
+      const existingUser = await tx.user.findUnique({
+        where: { email: normalizedEmail },
+      });
 
-  if (existingUser) {
-    const existingMembership = await prisma.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: {
+      if (existingUser) {
+        const existingMembership = await tx.workspaceMember.findUnique({
+          where: {
+            workspaceId_userId: {
+              workspaceId,
+              userId: existingUser.id,
+            },
+          },
+        });
+
+        if (existingMembership) {
+          return { error: errorResponse("User is already a member of this workspace", 409) };
+        }
+      }
+
+      // Check if invite already exists
+      const existingInvite = await tx.invite.findUnique({
+        where: {
+          email_workspaceId: {
+            email: normalizedEmail,
+            workspaceId,
+          },
+        },
+      });
+
+      if (existingInvite) {
+        return { error: errorResponse("An invite has already been sent to this email", 409) };
+      }
+
+      // Check seat limit before creating invite
+      const workspace = await tx.workspace.findUnique({
+        where: { id: workspaceId },
+        include: {
+          _count: {
+            select: {
+              members: true,
+              invites: true,
+            },
+          },
+        },
+      });
+
+      if (!workspace) {
+        return { error: errorResponse("Workspace not found", 404) };
+      }
+
+      const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
+      const currentSeats = workspace._count.members + workspace._count.invites;
+      const seatLimit = getSeatLimit(plan);
+
+      if (!canAddSeat(plan, currentSeats)) {
+        return {
+          error: errorResponse(
+            `Your ${plan} plan is limited to ${seatLimit} seat${seatLimit === 1 ? "" : "s"}. ` +
+              `Upgrade your plan to invite more members.`,
+            403,
+          ),
+        };
+      }
+
+      const inviteId = crypto.randomUUID();
+
+      const invite = await tx.invite.create({
+        data: {
+          id: inviteId,
+          email: normalizedEmail,
           workspaceId,
-          userId: existingUser.id,
+          role,
+          invitedByUserId: user.id,
         },
-      },
+        include: {
+          invitedBy: {
+            select: { id: true, email: true, name: true },
+          },
+          workspace: {
+            select: { name: true },
+          },
+        },
+      });
+
+      return { invite };
     });
-
-    if (existingMembership) {
-      return errorResponse("User is already a member of this workspace", 409);
+  } catch (error) {
+    if (isPrismaKnownError(error, "P2002")) {
+      return errorResponse("An invite has already been sent to this email", 409);
     }
+    throw error;
   }
-
-  // Check if invite already exists
-  const existingInvite = await prisma.invite.findUnique({
-    where: {
-      email_workspaceId: {
-        email: normalizedEmail,
-        workspaceId,
-      },
-    },
-  });
-
-  if (existingInvite) {
-    return errorResponse("An invite has already been sent to this email", 409);
-  }
-
-  // Check seat limit before creating invite
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    include: {
-      _count: {
-        select: {
-          members: true,
-          invites: true,
-        },
-      },
-    },
-  });
-
-  if (!workspace) {
-    return errorResponse("Workspace not found", 404);
-  }
-
-  const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
-  const currentSeats = workspace._count.members + workspace._count.invites;
-  const seatLimit = getSeatLimit(plan);
-
-  if (!canAddSeat(plan, currentSeats)) {
-    return errorResponse(
-      `Your ${plan} plan is limited to ${seatLimit} seat${seatLimit === 1 ? "" : "s"}. ` +
-        `Upgrade your plan to invite more members.`,
-      403,
-    );
-  }
-
-  const inviteId = crypto.randomUUID();
-
-  const invite = await prisma.invite.create({
-    data: {
-      id: inviteId,
-      email: normalizedEmail,
-      workspaceId,
-      role,
-      invitedByUserId: user.id,
-    },
-    include: {
-      invitedBy: {
-        select: { id: true, email: true, name: true },
-      },
-      workspace: {
-        select: { name: true },
-      },
-    },
-  });
+  if (outcome.error) return outcome.error;
+  const { invite } = outcome;
 
   // Send invitation email (don't fail request if email fails)
   try {

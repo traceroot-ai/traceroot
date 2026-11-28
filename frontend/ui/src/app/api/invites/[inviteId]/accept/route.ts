@@ -4,109 +4,99 @@ import { prisma, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 import { notifyWorkspaceMember } from "@/lib/signup/membership-webhook";
 import { inviteEmailIsProven } from "@/lib/invite-identity";
+import { notifyMembershipChange } from "@/lib/membership-notifications";
 
 type RouteParams = { params: Promise<{ inviteId: string }> };
 
 // POST /api/invites/[inviteId]/accept - Accept an invite
 async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { inviteId } = await params;
-
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  // Find the invite with workspace details for seat check
-  const invite = await prisma.invite.findUnique({
+  const reference = await prisma.invite.findUnique({
     where: { id: inviteId },
-    include: {
-      workspace: {
-        select: {
-          id: true,
-          name: true,
-          billingPlan: true,
-          _count: {
-            select: { members: true },
-          },
-        },
-      },
-    },
+    select: { workspaceId: true },
   });
+  if (!reference) return errorResponse("Invite not found", 404);
+  const emailProven = await inviteEmailIsProven(user.id);
 
-  if (!invite) {
-    return errorResponse("Invite not found", 404);
-  }
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Use the same lock as invitation creation before reading seat occupancy.
+    await tx.$queryRaw`SELECT id FROM workspaces WHERE id = ${reference.workspaceId} FOR UPDATE`;
+    const invite = await tx.invite.findUnique({ where: { id: inviteId } });
+    if (!invite) return { error: errorResponse("Invite not found", 404) };
 
-  // Check if the invite is for this user's email
-  if (invite.email.toLowerCase() !== user.email?.toLowerCase()) {
-    return errorResponse("This invite is not for your email address", 403);
-  }
+    if (invite.email.toLowerCase() !== user.email?.toLowerCase()) {
+      return { error: errorResponse("This invite is not for your email address", 403) };
+    }
+    if (!emailProven) {
+      return {
+        error: errorResponse(
+          "Verify your email address with your sign-in provider, then accept this invite again.",
+          403,
+        ),
+      };
+    }
 
-  // The match above is only as good as the account's address: it has to be one
-  // its owner confirmed (lib/invite-identity.ts).
-  if (!(await inviteEmailIsProven(user.id))) {
-    return errorResponse(
-      "Verify your email address with your sign-in provider, then accept this invite again.",
-      403,
-    );
-  }
-
-  // Check if user is already a member
-  const existingMembership = await prisma.workspaceMember.findUnique({
-    where: {
-      workspaceId_userId: {
-        workspaceId: invite.workspaceId,
-        userId: user.id,
-      },
-    },
-  });
-
-  if (existingMembership) {
-    // Delete the invite since user is already a member
-    await prisma.invite.delete({
-      where: { id: inviteId },
+    const existingMembership = await tx.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: invite.workspaceId, userId: user.id } },
     });
-    return errorResponse("You are already a member of this workspace", 409);
-  }
+    if (existingMembership) {
+      await tx.invite.deleteMany({ where: { id: inviteId } });
+      return { error: errorResponse("You are already a member of this workspace", 409) };
+    }
 
-  // Check seat limit before accepting invite
-  // (Plan may have been downgraded since invite was sent)
-  const plan = (invite.workspace.billingPlan || PlanType.FREE) as PlanType;
-  const currentMembers = invite.workspace._count.members;
-  const seatLimit = getSeatLimit(plan);
+    const workspace = await tx.workspace.findUniqueOrThrow({
+      where: { id: invite.workspaceId },
+      select: {
+        id: true,
+        name: true,
+        billingPlan: true,
+        _count: { select: { members: true, invites: true } },
+      },
+    });
+    const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
+    // This invite already reserves one seat and is consumed by the write below.
+    const otherSeats = workspace._count.members + workspace._count.invites - 1;
+    if (!canAddSeat(plan, otherSeats)) {
+      return {
+        error: errorResponse(
+          `This workspace has reached its seat limit (${getSeatLimit(plan)}). ` +
+            `Ask an admin to upgrade the plan or remove a member.`,
+          403,
+        ),
+      };
+    }
 
-  if (!canAddSeat(plan, currentMembers)) {
-    return errorResponse(
-      `This workspace has reached its seat limit (${seatLimit}). ` +
-        `Ask an admin to upgrade the plan or remove a member.`,
-      403,
-    );
-  }
-
-  // Accept the invite: create membership and delete invite
-  const membershipId = crypto.randomUUID();
-
-  await prisma.$transaction([
-    prisma.workspaceMember.create({
+    const membership = await tx.workspaceMember.create({
       data: {
-        id: membershipId,
+        id: crypto.randomUUID(),
         workspaceId: invite.workspaceId,
         userId: user.id,
         role: invite.role,
       },
-    }),
-    prisma.invite.delete({
-      where: { id: inviteId },
-    }),
-  ]);
-  void notifyWorkspaceMember({ userId: user.id, workspaceId: invite.workspaceId, via: "invite" });
+    });
+    await tx.invite.delete({ where: { id: inviteId } });
+    return { membership, workspace };
+  });
+  if (outcome.error) return outcome.error;
+  const { membership, workspace } = outcome;
+  void notifyWorkspaceMember({ userId: user.id, workspaceId: workspace.id, via: "invite" });
+  await notifyMembershipChange({
+    actorUserId: user.id,
+    workspaceId: workspace.id,
+    membershipId: membership.id,
+    userId: user.id,
+    role: membership.role,
+    operation: "joined",
+  });
 
   return successResponse({
     message: "Invite accepted",
-    workspace: {
-      id: invite.workspace.id,
-      name: invite.workspace.name,
-    },
-    role: invite.role,
+    workspace: { id: workspace.id, name: workspace.name },
+    role: membership.role,
   });
 }
 export const POST = withImpersonationPolicy(handlePOST);
