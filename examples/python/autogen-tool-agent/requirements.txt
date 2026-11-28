@@ -3,4 +3,4 @@ python-dotenv>=1.0.0
 
 # traceroot 0.2.0's google-genai instrumentor supports google-genai>=2.0
 # installed by ag2[gemini]>=1.1.1.
-traceroot==0.2.0
+traceroot>=0.3.0
