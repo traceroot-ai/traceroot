@@ -1281,15 +1281,14 @@ class TraceReaderService:
             conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
 
-        # Shared by every CTE below (session_page, traces_dedup) AND the count query, so
-        # the paged sessions, their aggregates and meta.total all see the same traces.
-        # Kept in a local because the I/O-backfill query further down builds its own
-        # traces scan and must hide the same traces (an eval trace must not supply a
-        # session's displayed input/output).
-        eval_exclusion = "" if include_evaluations else _evaluation_exclusion(params)
-        if eval_exclusion:
-            conditions.append(eval_exclusion)
+        if not include_evaluations:
+            conditions.append(_evaluation_exclusion(params))
 
+        # Shared by every CTE below (session_page, traces_dedup), the count query and the
+        # I/O backfill, so the paged sessions, their aggregates, meta.total and the
+        # displayed input/output all see the same traces. A trace outside the window (or
+        # past the retention cutoff start_after is clamped to) or an eval trace must not
+        # supply a session's displayed input/output.
         where_clause = " AND ".join(conditions)
 
         # Page the sessions FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
@@ -1411,10 +1410,8 @@ class TraceReaderService:
                 WITH session_traces AS (
                     SELECT t.session_id, t.trace_id, t.project_id
                     FROM traces AS t
-                    WHERE t.project_id = {{project_id:String}}
-                      AND {customer_traffic_only("t")}
+                    WHERE {where_clause}
                       AND t.session_id IN ({{session_ids:Array(String)}})
-                      {f"AND {eval_exclusion}" if eval_exclusion else ""}
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 ),
