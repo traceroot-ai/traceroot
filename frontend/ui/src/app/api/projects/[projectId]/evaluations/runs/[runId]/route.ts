@@ -127,7 +127,8 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
     _sum: { durationMs: true, cost: true },
   });
 
-  const { results: _omit, ...runFields } = run;
+  // `sampleSeed` is a BIGINT, which JSON cannot serialize, so it stays off the run.
+  const { results: _omit, sampleSeed: _seed, ...runFields } = run;
   return successResponse({
     run: {
       ...runFields,
