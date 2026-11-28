@@ -205,6 +205,22 @@ describe("git_clone tool", () => {
     expect(clones).toHaveLength(0);
   });
 
+  it("leaves no credential in the sandbox once the clone is done", async () => {
+    const { executor, clones } = stubExecutor();
+    stubTokenFetch();
+    const tool = createGitCloneTool("ws_1", "http://ui.test", executor);
+    await tool.execute({} as never, { label: "x", repo: "traceroot-ai/traceroot" } as never);
+    // The token reaches the sandbox only as the clone command's environment.
+    expect(clones).toHaveLength(1);
+    expect(clones[0].password).toBe(TOKEN);
+    const execCalls = (executor.exec as ReturnType<typeof vi.fn>).mock.calls;
+    expect(JSON.stringify(execCalls)).not.toContain(TOKEN);
+    expect(
+      JSON.stringify((executor.writeFile as ReturnType<typeof vi.fn>).mock.calls),
+    ).not.toContain(TOKEN);
+    expect(execCalls.map((c) => String(c[0])).join("\n")).not.toMatch(/\bgh\b/);
+  });
+
   it("never puts the token in a shell command", async () => {
     const { commands } = await run({ label: "x", repo: "traceroot-ai/traceroot", ref: "main" });
     for (const command of commands) {
